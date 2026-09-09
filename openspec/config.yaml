@@ -1,0 +1,54 @@
+schema: spec-driven
+
+# Project context (optional)
+# This is shown to AI when creating artifacts.
+# Add your tech stack, conventions, style guides, domain knowledge, etc.
+# Example:
+#   context: |
+#     Tech stack: TypeScript, React, Node.js
+#     We use conventional commits
+#     Domain: e-commerce platform
+context: |
+  Project: a free, feature-complete virtual tabletop (VTT) for remote D&D-style
+  play — shared map, real-time token movement, fog of war, dice, turn tracking.
+  No code has been written yet; README.md is the living PRD (architecture,
+  data model, API/WS protocol, milestones) and is the source of truth to
+  check against before proposing changes.
+
+  Pinned stack (see README.md §9 for rationale):
+    Client:   React + TypeScript, react-konva for the board canvas
+    Server:   Node.js + Express, Socket.IO (rooms = sessions)
+    ORM/DB:   Prisma over Postgres (durable), Redis (live session state + pub/sub)
+    Storage:  MinIO (S3-compatible) for map images
+    Auth:     short-lived JWT access token + httpOnly refresh cookie
+
+  Design rules that changes must respect:
+    - Server is authoritative for game state; clients send intents, never
+      write state directly (README.md §9.3).
+    - Every session has a monotonic `seq`; conflicting writes are rejected
+      with an explicit `error`, never silently merged.
+    - v1 fog of war is GM-painted regions, not per-token line-of-sight
+      (that's an explicit stretch goal — see README.md §7, §9.4, §11).
+    - No feature ships tiered/paywalled — if it ships, every user gets it.
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing
