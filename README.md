@@ -216,11 +216,12 @@ As **any user**, I want accepted actions to produce a consistent state across p
 - [ ] Connected clients receive the accepted updates, subject to their visibility permissions.
 - [ ] Actions and updates remain isolated to their session.
 
-[Example of token statistics, conditions, and shape overlays on a battle map](https://vscode-remote+codespaces-002bsuper-002dfunicular-002djjjxwj6696553p4jw.vscode-resource.vscode-cdn.net/workspaces/Virtual-Tabletop/assets/core-features-example.png)
+![Example of token statistics, conditions, and shape overlays on a battle map](./assets/core-features-example.png)
 
 *Reference mockup showing token conditions (Downed, Invisible), grouped enemy tokens, and area overlays, the kind of in-session view v1 is aiming for.*
 
-[Example of dynamic lighting and fog of war](https://vscode-remote+codespaces-002bsuper-002dfunicular-002djjjxwj6696553p4jw.vscode-resource.vscode-cdn.net/workspaces/Virtual-Tabletop/assets/dynamic-lighting-example.png) *Reference mockup of dynamic lighting/fog of war, a feature that platforms like Roll20 lock behind a paid tier.*
+![Example of dynamic lighting and fog of war](./assets/dynamic-lighting-example.png)
+*Reference mockup of dynamic lighting/fog of war, a feature that platforms like Roll20 lock behind a paid tier.*
 
 ## 4. Goals
 
