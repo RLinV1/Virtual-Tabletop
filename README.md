@@ -72,6 +72,7 @@ Any one of these is a solid systems problem; together they require an actual arc
 - As a **player**, I want a simple character sheet I can update during play, so that I don't need a separate app for my stats.
 
 ![Example of token statistics, conditions, and shape overlays on a battle map](./assets/core-features-example.png)
+
 *Reference mockup showing token conditions (Downed, Invisible), grouped enemy tokens, and area overlays, the kind of in-session view v1 is aiming for.*
 
 ![Example of dynamic lighting and fog of war](./assets/dynamic-lighting-example.png)
