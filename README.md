@@ -1,266 +1,302 @@
-# PRD: Virtual Tabletop - A Free, Feature-Complete Virtual Tabletop
+# Virtual Tabletop (VTT) — Project Specification
 
-## 1. Overview
+**Course:** CSE 416  
+**Team:** Antonio Cottone, Raymond Lin, Vincent Chen, Christos Psimadas  
+**Timeline:** 13 weeks  
+**Team size:** 4  
+**License:** MIT  
 
-A web-based virtual tabletop (VTT) that lets tabletop RPG groups (Dungeons & Dragons and similar systems) play together remotely: a shared map, real-time token movement, fog of war, dice rolls, and turn tracking, without a subscription and without gating core features behind a paid tier.
+---
+
+## 0. How to Read This Document
+
+This specification defines the intended product scope, user experience, functional requirements, verification approach, nonfunctional requirements, success metrics, team workstreams, risks, and reference material for the project.
+
+Functional requirements are organized by the user need they satisfy and identify whether that need primarily belongs to the GM, the player, or both. Unless explicitly listed as out of scope, the document describes the functionality the team intends the application to support.
+
+---
+
+## 1. Product Summary
+
+### Elevator pitch
+
+A browser-based virtual tabletop that takes a game master from an arbitrary battle-map image to a playable, recoverable online encounter in minutes. The GM uploads a map, receives automatic grid alignment, and can optionally import or infer wall and portal data. Players join remotely through a shareable link with no account or client installation, then interact with the same synchronized board using owned-token movement, distance rulers, target pings, and area-of-effect (AoE) templates. When someone makes a mistake, the GM inspects the action log, undoes the action, and every connected browser receives the corrected state.
+
+### One-sentence differentiator
+
+**A low-prep, system-agnostic online VTT that combines assisted map setup, fast guest joining, tactical browser interactions, and deterministic multi-user recovery.**
+
+### The four workflow promises
+
+1. **Prepare quickly.** Upload a map, detect its grid automatically, and optionally import or generate walls and interactive doors.
+2. **Join quickly.** Open a shareable room link with no player account and no client installation.
+3. **Play remotely.** Run the encounter across a GM browser and multiple remote player browsers with synchronized tactical state and low-latency ephemeral interactions.
+4. **Recover safely.** Review the action log, undo mistakes with defined multi-user semantics, or restore a named checkpoint.
+
+### Intended audience
+
+Game masters who run tactical encounters from imported battle maps for remote groups, want low-friction browser onboarding without complex character-sheet automation, and need dependable recovery from accidental reveals, token moves, or condition changes.
+
+The initial release is system-agnostic. It is not intended for groups seeking automated character sheets, rules engines, commercial content marketplaces, or a dedicated in-person tabletop display system.
+
+### Why this requires substantial engineering work
+
+The project requires significant design and implementation effort because its features must operate correctly as one real-time multi-user system. Shared-state synchronization, permissions, reconnect behavior, undo, hidden GM information, map geometry, grid detection, and responsive canvas interactions all depend on carefully defined data models and interaction rules. The team must also validate these systems across concurrent users, varied maps, browsers, and network conditions, making the project an integration and correctness challenge rather than a simple collection of interface features.
+
+---
 
 ## 2. Problem Statement
 
-Tabletop RPG groups who play remotely today are stuck with a bad tradeoff:
-- Free tools are missing core features (no fog of war, no persistent character sheets, clunky token management).
-- Full-featured tools (e.g. Roll20 Pro, Foundry VTT) require a subscription or a one-time cost plus self-hosting knowledge, which is a real barrier for a casual weekly group of students or friends.
-- Even the platforms that do have the advanced features gate them behind a paywall. Roll20, for example, has dynamic lighting and vision, but it's locked behind their Pro subscription tier. A group that just wants proper fog of war and line-of-sight either pays monthly for a feature that should be table stakes, or does without it.
-- Groups often patch the gap with a mess of separate tools: a Discord call, a shared Google Sheet for stats, a phone app for dice, a static image for the map, which breaks immersion and loses state between sessions.
+Existing VTTs often trade simplicity for breadth. Full-featured platforms can require substantial account setup, hosting decisions, rules configuration, or interface learning, while lightweight shared-map tools can omit deeper encounter preparation and recovery features.
 
-## 3. Users and User Stories
+The opportunity is to reduce the number of tools, configuration steps, and interface transitions between receiving a plain battle-map image and running a reliable online encounter while providing correctness guarantees under concurrency and failure that a course project can demonstrate and test.
 
-### 3.1 User Types and Roles
+### Product hypothesis
 
-- **Dungeon Master (GM):** sets up the session, uploads the map, places enemies, controls fog of war, runs the game.
-- **Player:** joins a session, controls their own token and character sheet, rolls dice, sees the board update live.
+If map preparation, guest onboarding, tactical browser interaction, real-time synchronization, and state recovery are engineered as a single authoritative state model, remote groups can begin encounters faster and recover from mistakes without sacrificing shared-state correctness.
 
-A typical group is one GM plus 2-6 players playing on a weekly or biweekly cadence.
+### Validation questions
 
-Roles apply within each session: a user may be the GM in one session and a player in another.
+- Can a first-time GM upload a map and prepare an encounter without documentation in under 5 minutes?
+- Does automatic grid detection materially reduce setup time across diverse map styles?
+- Can a player join from a shareable link and control an assigned token in under 30 seconds, and retain control across a page reload?
+- Do pointer pings, drag previews, movement rulers, and AoE previews propagate between remote browsers with low enough latency to feel immediate?
+- Can a GM recover from an accidental reveal or token move without reloading or manually reconstructing state?
+- Do all connected clients converge on identical state after simultaneous edits, a forced disconnect, and a checkpoint restore?
 
-### 3.2 User Stories
+---
 
-#### 3.2.1 Dungeon Master (GM)
+## 3. Competitive Positioning
 
-##### GM-01: Create a Session and Invite Players
+| Product | Relevant strengths | Gap or tradeoff relevant to this project |
+| --- | --- | --- |
+| Roll20 | Hosted, broad system support, marketplace, character sheets, dynamic lighting, undo/redo, rollback, UVTT import | Broad functionality creates onboarding and interface overhead; this project instead emphasizes rapid map-to-encounter setup for the GM and a low barrier to entry for the other players. |
+| Foundry VTT | Powerful engine, extensive automation, large module ecosystem, strong lighting and wall tools | GM must choose and manage hosting; setup and module configuration can be complex for new groups. |
+| Owlbear Rodeo | Fast browser onboarding, anonymous players, clean map interaction, lightweight collaboration | Intentionally lightweight; this project differentiates through assisted map preparation, an expanded feature set, and auditable recovery history. |
+| Quest Portal | Modern browser clients, maps, character sheets, voice, campaign/storytelling features | Broad campaign platform; automatic map preparation and deterministic encounter recovery are not its primary focus. |
+| External wall/UVTT tools (e.g. Auto-Wall, Dungeondraft) | Author or infer walls and lighting for import into established VTTs | Separate preprocessing round trip; requires manual inspection and import into another application. |
 
-As a **GM**, I want to create a named session and share an invite code or link, so that my group can join the same game.
+---
 
-**Acceptance Criteria:**
+## 4. Primary User Experience
 
-- [ ] Creating a session assigns its creator the GM role.
-- [ ] The session provides an invite code or link that the GM can copy.
-- [ ] Users joining through the invitation receive the player role.
-- [ ] The GM can reopen an existing session without recreating its setup.
+### GM preparation flow
 
-##### GM-02: Set Up the Battle Map
+1. The GM creates a room.
+2. The GM uploads a battle map (JPG, PNG, WebP) or a Universal VTT (UVTT) file.
+3. For plain images, the application detects a square grid and displays the estimated cell size and offset with a confidence score.
+4. The GM accepts the estimate or corrects it with a compact grid-alignment tool.
+5. If wall or portal data is present, the application overlays editable wall and portal segments.
+6. The GM accepts, deletes, adjusts, or adds segments, and marks door states (`Open`, `Closed`, or `Locked`).
+7. The GM places tokens, assigns player ownership, and creates a named checkpoint.
+8. The application generates a shareable player link for remote participants.
 
-As a **GM**, I want to upload a map image before play begins, so that the encounter is ready when players join.
+### Live online flow
 
-**Acceptance Criteria:**
+- **GM Interface:** Full control over fog, unrevealed monsters, door lock states, initiative, token ownership, and the domain recovery log.
+- **Player Board:** A responsive, player-safe version of the board showing only information the player is authorized to see. Players manipulate owned tokens, measure movement, place tactical templates, ping locations, roll dice, and follow initiative.
+- **Independent Viewports:** Each participant can pan and zoom locally without changing another participant's camera position.
+- **Real-Time Sync:** All committed actions synchronize through an authoritative server with monotonic ordering, while ephemeral pointer and preview interactions use a non-persisted low-latency channel.
+- **Reconnect Behavior:** A temporarily disconnected player automatically reconnects, rebinds to the same guest identity and token ownership, and receives the current authoritative state.
 
-- [ ] The GM can upload a supported image format and see it on the shared board.
-- [ ] Unsupported files or files exceeding the upload limit produce a clear error.
-- [ ] The map remains available after users disconnect or the server restarts.
-- [ ] Players see the map subject to the session’s fog-of-war settings.
+### Recovery flow
 
-##### GM-03: Manage Tokens and Ownership
+1. The GM opens the encounter activity log.
+2. The log describes committed actions in plain language with actor and timestamp.
+3. The GM undoes a reversible action.
+4. The server appends a compensating or restore event and broadcasts the resulting state to every connected browser.
 
-As a **GM**, I want to create, position, rename, and remove tokens and assign player ownership, so that I can represent everyone involved in an encounter.
+---
 
-**Acceptance Criteria:**
+## 5. Functional Requirements
 
-- [ ] The GM can create tokens for players, enemies, and NPCs.
-- [ ] Each token has a name and a distinguishable visual appearance.
-- [ ] The GM can assign a player token to a specific session member.
-- [ ] The GM can move any token; players can move only tokens assigned to them.
-- [ ] Token changes appear for other participants when those tokens are visible to them.
+The functional requirements are classified by the practical need they satisfy in an online virtual tabletop. Each requirement identifies its primary user: **GM**, **Player**, or **Both**.
 
-##### GM-04: Control Fog of War
+### 5.1 GM Need — Prepare an Encounter Quickly
 
-As a **GM**, I want to manually reveal and hide map regions, so that players discover the environment at the pace I choose.
+A GM needs to turn a map and a set of encounter assets into a playable scene without extensive manual setup.
 
-**Acceptance Criteria:**
+| ID | User | Feature / Requirement | Need Met |
+| --- | --- | --- | --- |
+| FR-GM-01 | GM | **Authenticated GM session** | Gives the GM a persistent, trusted identity from which to create and administer a room. |
+| FR-GM-02 | GM | **Battle-map setup** | Allows one active battle map per scene and gives the GM the base surface needed to construct an encounter. |
+| FR-GM-03 | GM | **Automatic grid detection** | Detects square-grid cell size and offset from an uploaded image, reducing manual map-alignment work. |
+| FR-GM-04 | GM | **Grid preview and correction** | Shows the inferred grid with confidence information and manual correction controls so the GM can fix imperfect detections before play. |
+| FR-GM-05 | GM | **Viewport-independent grid metadata** | Stores grid data in board coordinates so the prepared map remains aligned across different browser sizes and zoom levels. |
+| FR-GM-06 | GM | **UVTT import** | Imports map image, grid dimensions/offset, wall segments, and portal metadata from `.uvtt` / `.dd2vtt` files, reducing duplicate setup work. |
+| FR-GM-07 | GM | **UVTT validation** | Reports malformed imports clearly so the GM can correct a bad file instead of entering play with a partially configured scene. |
+| FR-GM-08 | GM | **Token setup** | Supports token image upload, placement, rotation, size, name, and basic numeric statistics such as HP/resource bars so encounter pieces can be prepared in advance. |
+| FR-GM-09 | GM | **Editable walls and portals** | Lets imported or manually created wall segments be edited and designated as doors/windows with `Open`, `Closed`, or `Locked` states. |
+| FR-GM-10 | GM | **Token ownership assignment** | Lets the GM assign tokens to players before or during the encounter so control boundaries are explicit. |
 
-- [ ] The GM can reveal or hide regions using a basic selection tool.
-- [ ] The GM can see the complete map with an indication of which regions players can see.
-- [ ] Players cannot see tokens located in hidden regions.
-- [ ] Fog changes update for connected players and persist between sessions.
-- [ ] V1 uses GM-controlled fog; token movement does not automatically calculate visibility through walls.
+### 5.2 GM Need — Control the Encounter and Protect Hidden Information
 
-##### GM-05: Manage Initiative and Turns
+A GM needs authority over what players can see and change while retaining control of encounter flow and a reliable way to locate encounter pieces.
 
-As a **GM**, I want to maintain a shared initiative list and advance the active turn, so that everyone knows who acts next.
+| ID | User | Feature / Requirement | Need Met |
+| --- | --- | --- | --- |
+| FR-GM-11 | GM | **GM and player roles** | Separates administrative capabilities from normal player interaction. |
+| FR-GM-12 | Both | **Server-side authorization** | Enforces GM-only and owner-only actions at the API layer so clients cannot bypass permissions by sending direct requests. |
+| FR-GM-13 | GM | **Token visibility controls** | Allows the GM to hide unrevealed creatures or other tokens until they should become visible. |
+| FR-GM-14 | GM | **Manual fog of war** | Lets the GM conceal rectangular or polygonal regions of the map to control exploration and information disclosure. |
+| FR-GM-15 | Both | **Interactive portal states** | Closed or locked portals obstruct vision and movement while open portals permit line of sight, allowing the GM to control the environment and players to understand its current state. |
+| FR-GM-16 | GM | **Guest revocation and invite regeneration** | Lets the GM remove a participant or invalidate a compromised room link. |
+| FR-GM-17 | Both | **Initiative and turn-order tracking** | Gives the GM a shared way to manage encounter order and gives players synchronized notification of the active turn. |
+| FR-GM-18 | Both | **Public and GM-only dice rolls** | Supports openly shared rolls as well as hidden adjudication when the GM needs private outcomes. |
+| FR-GM-19 | Player | **Player-safe state filtering** | Filters hidden tokens, unrevealed fog regions, GM-only rolls, and private metadata on the server before state is sent to player clients. |
+| FR-GM-20 | Both | **Focusable token roster** | Provides an alternative to direct canvas selection for finding and selecting tokens. |
 
-**Acceptance Criteria:**
+### 5.3 Player Need — Join Easily and Retain Control of Their Character
 
-- [ ] The GM can add and remove combatants and enter or edit initiative values.
-- [ ] Combatants are ordered by initiative, with the GM able to resolve ties.
-- [ ] Adding or removing a combatant updates the list for everyone.
-- [ ] The GM can advance to the next combatant, with the active turn clearly highlighted.
-- [ ] Removing the active combatant leaves the tracker in a valid state.
-- [ ] Turn tracking does not automatically resolve attacks, damage, or other game rules.
+A player needs to enter a session with minimal friction and remain associated with the same identity and owned tokens even if their browser reloads or disconnects.
 
-#### 3.2.2 Player
+| ID | User | Feature / Requirement | Need Met |
+| --- | --- | --- | --- |
+| FR-PL-01 | Player | **Shareable guest link** | Allows a player to enter a room without creating an account or installing a client. |
+| FR-PL-02 | Player | **Durable guest identity** | Stores an opaque guest token in browser `localStorage` and rebinds the player to their display name and owned tokens after reloads, backgrounded tabs, or transient disconnects. |
+| FR-PL-03 | Player | **Responsive Player Board** | Provides a browser interface centered on the encounter rather than GM administration controls. |
+| FR-PL-04 | Player | **Owned-token control** | Restricts persistent token manipulation to tokens assigned to the player, giving them direct control without exposing other participants' pieces. |
+| FR-PL-05 | Player | **Automatic reconnection** | Reconnects after transient connection failure without requiring a manual page refresh. |
+| FR-PL-06 | Both | **Full-state resynchronization** | Gives reconnecting or newly joined clients the current authoritative room state so they can resume play without reconstructing what happened manually. |
 
-##### PL-01: Join an Invited Session
+### 5.4 Player and GM Need — Interact with the Tactical Board Clearly
 
-As a **player**, I want to join a session using an invite code or link, so that I can enter my group’s game with minimal setup.
+Participants need to inspect the map, manipulate permitted pieces, communicate spatial intent, and understand tactical distances and effects.
 
-**Acceptance Criteria:**
+| ID | User | Feature / Requirement | Need Met |
+| --- | --- | --- | --- |
+| FR-TAC-01 | Both | **Independent pan and zoom** | Lets each participant inspect the board at their preferred scale without changing another participant's viewport. |
+| FR-TAC-02 | Both | **Continuous coordinates with optional grid snapping** | Supports free positioning when needed while allowing tactical movement to align cleanly to the encounter grid. |
+| FR-TAC-03 | Player | **Movement Budget Ruler** | Measures an owned token's drag path in grid units, with configurable diagonal calculations and visual budget thresholds to help the player evaluate movement before committing it. |
+| FR-TAC-04 | Both | **Drawing overlays** | Supports line, rectangle, and circle overlays for communicating tactical plans or marking locations; freehand drawing is excluded from the current scope. |
+| FR-TAC-05 | Both | **Target Pings** | Broadcasts a short-lived animated pointer ping at a board location so participants can draw attention to a target or area without creating persistent clutter. |
+| FR-TAC-06 | Both | **AoE templates, preview, and placement** | Provides circular bursts, cones, lines, and boxes that snap to grid units; participants can orient and scale an ephemeral preview before committing the final template. |
+| FR-TAC-07 | Both | **Token statistics and conditions** | Displays basic numeric resources and status conditions needed to understand the current tactical state of a token. |
+| FR-TAC-08 | Both | **Accessible condition markers** | Distinguishes conditions by shape or text in addition to color so status information is not color-dependent. |
+| FR-TAC-09 | Both | **Shared dice expressions** | Supports expressions of the form `NdX + M` so participants can make common tabletop rolls inside the encounter. |
 
-- [ ] A signed-in user can join through a valid invitation.
-- [ ] An invalid invitation displays a clear error.
-- [ ] Joining loads the current board, visible tokens, fog state, and initiative list.
-- [ ] Rejoining restores the user’s existing membership and token assignments.
+### 5.5 Player and GM Need — See the Same Current Encounter State
 
-##### PL-02: Move My Assigned Token
+Remote participants need confidence that actions performed in one browser are reflected consistently in every other browser.
 
-As a **player**, I want to move my own token on the shared map, so that I can communicate my character’s position during play.
+| ID | User | Feature / Requirement | Need Met |
+| --- | --- | --- | --- |
+| FR-SYNC-01 | Both | **Server-authoritative room state** | Establishes one trusted source of truth instead of allowing clients to resolve encounter state independently. |
+| FR-SYNC-02 | Both | **Real-time persistent synchronization** | Synchronizes token, condition, initiative, portal, fog, template, and visibility changes across connected browsers. |
+| FR-SYNC-03 | Both | **Ephemeral interaction channel** | Broadcasts pointer coordinates, drag previews, ping pulses, movement rulers, and AoE aiming without persisting temporary interaction data to encounter history. |
+| FR-SYNC-04 | Both | **Ordered conflict handling** | Uses server ordering and monotonically increasing per-room sequence numbers so concurrent committed actions resolve deterministically. |
 
-**Acceptance Criteria:**
+### 5.6 GM Need — Recover from Mistakes Without Rebuilding the Encounter
 
-- [ ] The player can drag an assigned token to a new position.
-- [ ] The server validates ownership before accepting the movement.
-- [ ] Accepted movement appears promptly for participants who can see that token.
-- [ ] Attempts to move another player’s token or a GM-controlled token are rejected.
-- [ ] If movement is rejected, the token returns to the server’s accepted position.
+A GM needs to reverse accidental changes while preserving an understandable history of what occurred.
 
-##### PL-03: Maintain My Character Sheet
+| ID | User | Feature / Requirement | Need Met |
+| --- | --- | --- | --- |
+| FR-REC-01 | GM | **Human-readable activity log** | Records committed domain actions with actor attribution so the GM can identify what changed and who performed it. |
+| FR-REC-02 | GM | **Undo for reversible actions** | Allows accidental supported actions to be reversed without reconstructing state manually. |
+| FR-REC-03 | GM | **Append-only recovery history** | Implements undo through compensating events so recovery does not silently rewrite or truncate the audit trail. |
 
-As a **player**, I want to view and update my character’s basic statistics and inventory, so that I can manage my character without a separate application.
+---
 
-**Acceptance Criteria:**
+## 6. Additional Features
 
-- [ ] The sheet includes character name, current and maximum HP, basic statistics, and inventory fields.
-- [ ] Changes are saved and restored when the player rejoins.
-- [ ] Players can edit only character sheets they own.
-- [ ] Invalid numeric entries produce a clear validation message.
-- [ ] Inventory and other descriptive fields support plain text; automated rules and calculations are outside v1.
+### 6.1 Map Parsing
+- An isolated microservice utilizing a vision pipeline (OpenCV / multimodal vision model) to parse uploaded battle-map images.
+- Automatically identifies walls and semantically classifies **doors** and **windows**, generating editable UVTT wall and portal data with interactive open/closed toggles.
 
-##### PL-04: See the Encounter from the Player’s Perspective
+### 6.2 Dynamic Line of Sight
+- Renders player-specific 2D raycasted visibility from wall and portal segments.
+- *Scope limits:* Simple 2D geometry blocking only. No elevation, no soft shadows, no colored light sources.
 
-As a **player**, I want to see revealed map areas and visible tokens, so that I can make decisions using the information the GM has shared.
+### 6.3 UVTT Export
+- Round-trips prepared maps, aligned grids, and portal data back out to standard UVTT format for Foundry, Roll20, and Fantasy Grounds.
 
-**Acceptance Criteria:**
+### 6.4 Encounter Replay for Late Joiners
+- Replays the action log from a chosen checkpoint so a late-arriving player can review encounter progression.
 
-- [ ] Hidden map regions remain covered by fog.
-- [ ] Hidden enemies and NPCs do not appear in the player’s board view.
-- [ ] GM reveal and hide actions update the player’s view during play.
-- [ ] Reconnecting preserves the current visibility restrictions.
+### 6.5 Reusable Encounter Templates
+- Save prepared map, walls, portals, and monster token roster for multi-session reuse.
 
-##### PL-05: Follow the Turn Order
+---
 
-As a **player**, I want to see the initiative list and active combatant, so that I know when to prepare and take my turn.
+## 7. Nonfunctional Requirements
 
-**Acceptance Criteria:**
+| Area | Target |
+| --- | --- |
+| Room Capacity | 1 GM and at least 8 concurrent remote players |
+| Join Time | Median under 30 seconds from opening a player link to board access |
+| Reload Recovery | Player retains identity and token ownership across reload in under 3 seconds |
+| Ephemeral Interaction Latency | Pings, drag previews, rulers, and AoE previews appear on other connected clients within 150 ms under the benchmark network profile |
+| State Convergence | Committed actions visible to all connected clients within 500 ms |
+| Reconnect Convergence | A reconnecting client reaches authoritative current state within 3 seconds after transport recovery |
+| Board Performance | 60 FPS canvas pan/zoom with representative map and 100 active tokens on the benchmark desktop hardware |
+| Browser Compatibility | Current desktop Chrome, Firefox, Edge, and Safari; responsive player support on iOS Safari and Android Chrome |
+| Accessibility | Non-canvas UI targets WCAG 2.2 AA standards |
 
-- [ ] The initiative list displays the combatants and their order.
-- [ ] The current turn is clearly highlighted.
-- [ ] GM changes appear without requiring a page refresh.
-- [ ] Players can view the tracker but cannot change its order or advance turns.
+---
 
-#### 3.2.3 Shared Stories: All Users
+## 8. Explicitly Out of Scope
 
-##### US-01: Access My Account and Sessions
+Excluded from the project scope:
 
-As **any user**, I want to create an account, sign in, and find sessions I belong to, so that I can return to ongoing games.
+- System-specific character sheets or rules automation (D&D 5e / Pathfinder math).
+- Automated attack resolution, saving throws, damage formulas, or spell compendiums.
+- Commercial asset marketplaces.
+- Built-in video calling.
+- True 3D elevation, camera pitching, or volumetric lighting.
+- Semantic recognition of decorative furniture/props; map parsing is restricted to walls, doors, and windows.
+- Native iOS/Android app store builds; the product is browser-based.
+- Physical tabletop display calibration, TV-specific rendering, or support for placing physical miniatures on a display.
 
-**Acceptance Criteria:**
+---
 
-- [ ] Users can register, sign in, and sign out.
-- [ ] Signed-in users can see their existing sessions and their role in each.
-- [ ] Session data is accessible only to authorized members.
-- [ ] Signing out ends access to protected session actions.
+## 9. Verification and Testing Strategy
 
-##### US-02: Roll Shared Dice
+- **Unit Testing:** Grid detection accuracy against a collection of battle maps; dice expression parsing; coordinate transform mathematics; and UVTT schema parsing.
+- **Authorization Integration Tests:** Automated tests verify that unauthorized clients cannot invoke GM-only actions or modify unowned tokens via direct WebSocket payloads.
+- **Visibility Filtering Tests:** Player clients receive neither hidden-token data nor unrevealed GM-only state through API responses, WebSocket events, or reconnect payloads.
+- **Interaction Latency Benchmarks:** Pointer pings, drag previews, movement rulers, and AoE previews are benchmarked under simulated residential internet latency to verify responsive cross-client interaction.
+- **Cross-Browser Tests:** Core encounter flows are exercised in current desktop Chrome, Firefox, Edge, and Safari.
+- **Usability Testing:** Structured usability tests with at least 5 independent GMs and players.
 
-As **any user**, I want to roll standard tabletop dice and share the result, so that the group can resolve actions using a common record.
+---
 
-**Acceptance Criteria:**
+## 10. Success Metrics
 
-- [ ] The roller supports d4, d6, d8, d10, d12, d20, and d100.
-- [ ] Users can choose a quantity and an optional numeric modifier, such as `2d6 + 3`.
-- [ ] The server generates the result and distributes the same result to session members.
-- [ ] Each entry shows the roller’s name, dice expression, individual results, total, and timestamp.
-- [ ] Roll results are retained in the session history.
+- **Core Usability:** At least 80% of first-time test players join a room from a link and control their assigned token without verbal instruction.
+- **Setup Velocity:** A first-time GM uploads a map, aligns its grid, sets up walls/doors, assigns tokens, and starts an encounter in under 4 minutes.
+- **Tactical Interaction:** At least 80% of test players can move a token, measure distance, place a ping, and preview an AoE template without GM assistance.
+- **Audit Resilience:** Zero unrecoverable state desyncs during a live 30-minute online test encounter involving forced disconnections, concurrent edits, and accidental fog reveals.
+- **Recovery Speed:** A test GM reverses an accidental reveal, token move, or condition change in under 15 seconds.
 
-##### US-03: Send In-Session Messages
+---
 
-As **any user**, I want to send text messages to the session, so that the group can share notes and discuss actions alongside the board.
+## 11. Team Workstreams
 
-**Acceptance Criteria:**
+1. **Board and Canvas Interaction:** Renderer, coordinate system, tokens, tactical overlays, movement rulers, AoE templates, and responsive viewport behavior.
+2. **Real-Time Architecture & Persistence:** Room state, authorization, WebSocket bus, ephemeral channel, durable identity, visibility filtering, event logging, checkpoints, and undo behavior.
+3. **Map Processing & AI Pipelines:** Grid detection, UVTT import/export, vision segmentation worker, and portal geometry processing.
+4. **Online UX & Product Quality:** Guest joining, player-safe board experience, tactical interaction flows, accessibility, cross-browser testing, and automated convergence test harness.
 
-- [ ] Messages show the sender’s name and timestamp.
-- [ ] Messages appear for connected members of the same session.
-- [ ] Empty messages are rejected.
-- [ ] Saved messages remain available after reconnecting.
-- [ ] Messages from one session never appear in another.
+---
 
-##### US-04: Resume After a Disconnect
+## 12. Principal Risks and Mitigations
 
-As **any user**, I want to reconnect and recover the current game state, so that connection problems do not erase progress.
+| Risk | Likelihood/Impact | Mitigation |
+| --- | --- | --- |
+| Multi-user undo produces surprising state desyncs | High / High | Restrict reversible actions, use append-only compensating events, and retain checkpoint restore as a universal fallback. |
+| Ephemeral interactions flood the network | Medium / High | Dedicated non-persisted sub-channel, client-side throttling/coalescing, and no database writes for preview traffic. |
+| Hidden GM information leaks to player clients | Medium / High | Server-side visibility filtering plus automated tests for API, WebSocket, and reconnect payloads. |
+| Map parsing produces noisy geometry | High / Medium | Suggested walls and portals require GM review before affecting visibility; UVTT import provides an alternate map-preparation path. |
+| Player reconnect produces stale or conflicting state | Medium / High | Authoritative sequence numbers, full-state resynchronization, and deterministic reconnect tests built into the test suite. |
+| Scope creep compromises the schedule | High / High | Use explicit scope review checkpoints, feature flags for incomplete optional capabilities, and dedicated stabilization time before release. |
 
-**Acceptance Criteria:**
+---
 
-- [ ] The interface indicates when the connection is lost and when it is restored.
-- [ ] After reconnecting, the client loads the server’s current state.
-- [ ] Updates made by other users during the disconnection are reflected.
-- [ ] An outdated client does not overwrite newer session state.
-- [ ] Actions that were not confirmed as saved are clearly identified.
+## 13. Reference Notes
 
-##### US-05: Continue the Game on Another Day
-
-As **any user**, I want the session’s saved state to survive everyone leaving and the server restarting, so that our group can continue a campaign across multiple meetings.
-
-**Acceptance Criteria:**
-
-- [ ] The map, token positions and ownership, fog, character sheets, initiative state, chat, and dice history are persisted.
-- [ ] Reopening the session restores its last successfully saved state.
-- [ ] Saving failures are communicated to affected users.
-
-##### US-06: Share a Consistent Board
-
-As **any user**, I want accepted actions to produce a consistent state across participants, so that we can rely on the shared board during play.
-
-**Acceptance Criteria:**
-
-- [ ] The server validates session membership and action permissions.
-- [ ] Simultaneous actions are processed in a defined order.
-- [ ] Conflicting edits to the same object resolve to one authoritative result.
-- [ ] Connected clients receive the accepted updates, subject to their visibility permissions.
-- [ ] Actions and updates remain isolated to their session.
-
-![Example of token statistics, conditions, and shape overlays on a battle map](./assets/core-features-example.png)
-
-*Reference mockup showing token conditions (Downed, Invisible), grouped enemy tokens, and area overlays, the kind of in-session view v1 is aiming for.*
-
-![Example of dynamic lighting and fog of war](./assets/dynamic-lighting-example.png)
-*Reference mockup of dynamic lighting/fog of war, a feature that platforms like Roll20 lock behind a paid tier.*
-
-## 4. Goals
-
-- A GM should be able to set up a session (map, enemies, fog of war) once, and players should be able to join, see the board update live, move their own tokens, track their own stats, and roll dice, all in one place, for free.
-- No feature in v1 is paywalled or tiered. If it ships, everyone gets it.
-
-## 5. Why This Requires a Semester 
-
-This is not a CRUD app with a chat window bolted on. The hard parts are systemic:
-
-- **Real-time shared state across clients.** When a player moves a token, every other connected client (including the GM's) must see it update immediately, and the server must resolve what happens if two people act at once (e.g. two players trying to move through the same square, or the GM updating fog of war while a player moves).
-- **Authoritative state and reconnection.** If a player's laptop dies mid-session, they need to reconnect and see the *current* board state, not a stale one, meaning the server (not the client) has to be the source of truth, and clients need to reconcile on reconnect.
-- **Role-based permissions in real time.** GMs and players see different things (the GM sees the whole map; players see only what's revealed by fog of war) and can perform different actions. This isn't just a login gate, it's per-object, per-session authorization enforced live.
-- **Fog of war computation.** Determining what's "visible" from a token's position given walls/obstacles is a real (if bounded) computational geometry problem, not a static image toggle.
-- **Persistent session data.** Maps, tokens, character stats, and session history need to survive across days/weeks of play, not just a single browser tab.
-- **Scaling to multiple concurrent sessions.** Many GM/player groups running independent sessions simultaneously, each with its own isolated real-time channel.
-
-Any one of these is a solid systems problem; together they require an actual architecture, not a single AI-generated pass.
-
-## 6. Requirements (In v1)
-
-- User accounts (GM and player roles)
-- Create / join a session (via invite code or link)
-- GM: upload a map image, place and move enemy/NPC tokens
-- Players: move their own token in real time, visible to everyone in the session
-- Basic fog of war (GM-controlled reveal/hide regions)
-- Turn order tracker (initiative list, shared and synced)
-- Dice roller (standard polyhedral dice, results visible to the whole session)
-- Basic character stat sheet (HP, stats, inventory as plain fields)
-- Session persistence (state survives disconnect/reconnect and server restarts)
-- In-session text chat
-
-## 7. Non-Goals (Explicitly Out of v1)
-
-- Voice/video chat (use Discord alongside it, not our problem to solve)
-- Mobile native app (web-responsive only)
-- Marketplace for maps/assets or paid content
-- Custom rule-engine / automated combat resolution
-- Scripting/macros for character sheets
-- 3D rendering or dynamic lighting beyond basic fog of war
-- Plugin ecosystem / third-party extensions
-
+- [Owlbear Rodeo Documentation](https://docs.owlbear.rodeo/)
+- [Roll20 UVTT Specification & Page Management](https://blog.roll20.net/posts/page-menu-updates/)
+- [Foundry VTT Controls and Architecture](https://foundryvtt.com/article/controls/)
+- [Universal VTT (.dd2vtt) Format Specification](https://github.com/UniversalVTT/specification)
+- [Auto-Wall (MIT License, Python/OpenCV desktop detection)](https://github.com/ThreeHats/auto-wall)
