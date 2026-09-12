@@ -293,7 +293,77 @@ Excluded from the project scope:
 
 ---
 
-## 13. Reference Notes
+## 13. Development Milestones
+
+Priority reflects what the encounter loop needs to function end-to-end (**Must**), what makes the encounter feel complete (**Should**), or what is cut first if the schedule tightens (**Stretch**). Difficulty is a rough build-effort estimate (**Low / Medium / High**) used for sequencing, not a formal estimate.
+
+### M1 — Core Loop (must ship; everything else depends on this working)
+
+| ID | Feature | Priority | Difficulty |
+| --- | --- | --- | --- |
+| FR-GM-01 | Authenticated GM session | Must | Low |
+| FR-GM-02 | Battle-map setup | Must | Low |
+| FR-GM-03 | Automatic grid detection | Must | Medium |
+| FR-GM-04 | Grid preview and correction | Must | Low |
+| FR-GM-05 | Viewport-independent grid metadata | Must | Low |
+| FR-GM-08 | Token setup | Must | Low |
+| FR-GM-10 | Token ownership assignment | Must | Low |
+| FR-PL-01 | Shareable guest link | Must | Low |
+| FR-PL-02 | Durable guest identity | Must | Medium |
+| FR-PL-03 | Responsive Player Board | Must | Medium |
+| FR-PL-04 | Owned-token control | Must | Low |
+| FR-PL-05 | Automatic reconnection | Must | Medium |
+| FR-PL-06 | Full-state resynchronization | Must | High |
+| FR-SYNC-01 | Server-authoritative room state | Must | Medium |
+| FR-SYNC-02 | Real-time persistent synchronization | Must | High |
+| FR-SYNC-04 | Ordered conflict handling | Must | High |
+| FR-TAC-01 | Independent pan and zoom | Must | Low |
+| FR-TAC-02 | Continuous coordinates with grid snapping | Must | Medium |
+
+### M2 — Tactical Play and GM Control (should-have)
+
+| ID | Feature | Priority | Difficulty |
+| --- | --- | --- | --- |
+| FR-GM-11 | GM and player roles | Should | Low |
+| FR-GM-12 | Server-side authorization | Should | Medium |
+| FR-GM-13 | Token visibility controls | Should | Medium |
+| FR-GM-14 | Manual fog of war | Should | Medium |
+| FR-GM-17 | Initiative and turn-order tracking | Should | Low |
+| FR-GM-18 | Public and GM-only dice rolls | Should | Low |
+| FR-GM-19 | Player-safe state filtering | Should | High |
+| FR-TAC-03 | Movement Budget Ruler | Should | Medium |
+| FR-TAC-04 | Drawing overlays | Should | Low |
+| FR-TAC-05 | Target Pings | Should | Low |
+| FR-TAC-06 | AoE templates, preview, and placement | Should | Medium |
+| FR-TAC-07 | Token statistics and conditions | Should | Low |
+| FR-TAC-08 | Accessible condition markers | Should | Low |
+| FR-TAC-09 | Shared dice expressions | Should | Low |
+| FR-SYNC-03 | Ephemeral interaction channel | Should | Medium |
+| FR-REC-01 | Human-readable activity log | Should | Medium |
+| FR-REC-02 | Undo for reversible actions | Should | High |
+| FR-REC-03 | Append-only recovery history | Should | Medium |
+
+### M3 — Stretch Goals (cut first if time runs short)
+
+| ID | Feature | Priority | Difficulty |
+| --- | --- | --- | --- |
+| FR-GM-06 | UVTT import | Stretch | Medium |
+| FR-GM-07 | UVTT validation | Stretch | Low |
+| FR-GM-09 | Editable walls and portals | Stretch | Medium |
+| FR-GM-15 | Interactive portal states | Stretch | Medium |
+| §6.2 | Dynamic line of sight | Stretch | High |
+| §6.1 | Vision-based map parsing | Stretch | High |
+| §6.3 | UVTT export | Stretch | Low |
+| §6.5 | Reusable encounter templates | Stretch | Medium |
+| §6.4 | Encounter replay for late joiners | Stretch | Medium |
+| FR-GM-16 | Guest revocation and invite regeneration | Stretch | Low |
+| FR-GM-20 | Focusable token roster | Stretch | Low |
+
+Within M3, order roughly follows effort-to-value: portal states and dynamic line of sight depend on wall/portal data existing (from either manual editing or UVTT import), so they naturally come after that data model is in place. Vision-based map parsing is the highest-effort, most open-ended item and the first one to drop if the timeline gets tight.
+
+---
+
+## 14. Reference Notes
 
 - [Owlbear Rodeo Documentation](https://docs.owlbear.rodeo/)
 - [Roll20 UVTT Specification & Page Management](https://blog.roll20.net/posts/page-menu-updates/)
