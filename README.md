@@ -128,6 +128,9 @@ A GM needs to turn a map and a set of encounter assets into a playable scene wit
 | FR-GM-08 | GM | **Token setup** | Supports token image upload, placement, rotation, size, name, and basic numeric statistics such as HP/resource bars so encounter pieces can be prepared in advance. |
 | FR-GM-09 | GM | **Editable walls and portals** | Lets imported or manually created wall segments be edited and designated as doors/windows with `Open`, `Closed`, or `Locked` states. |
 | FR-GM-10 | GM | **Token ownership assignment** | Lets the GM assign tokens to players before or during the encounter so control boundaries are explicit. |
+| FR-GM-11 | GM | **Vision-based map parsing** | An isolated microservice utilizing a vision pipeline (OpenCV / multimodal vision model) to parse uploaded battle-map images. Automatically identifies walls and semantically classifies doors and windows, generating editable UVTT wall and portal data with interactive open/closed toggles. |
+| FR-GM-12 | GM | **UVTT export** | Round-trips prepared maps, aligned grids, and portal data back out to standard UVTT format for Foundry, Roll20, and Fantasy Grounds. |
+| FR-GM-13 | GM | **Reusable encounter templates** | Saves prepared map, walls, portals, and monster token roster for multi-session reuse. |
 
 ### 5.2 GM Need — Control the Encounter and Protect Hidden Information
 
@@ -135,16 +138,17 @@ A GM needs authority over what players can see and change while retaining contro
 
 | ID | User | Feature / Requirement | Need Met |
 | --- | --- | --- | --- |
-| FR-GM-11 | GM | **GM and player roles** | Separates administrative capabilities from normal player interaction. |
-| FR-GM-12 | Both | **Server-side authorization** | Enforces GM-only and owner-only actions at the API layer so clients cannot bypass permissions by sending direct requests. |
-| FR-GM-13 | GM | **Token visibility controls** | Allows the GM to hide unrevealed creatures or other tokens until they should become visible. |
-| FR-GM-14 | GM | **Manual fog of war** | Lets the GM conceal rectangular or polygonal regions of the map to control exploration and information disclosure. |
-| FR-GM-15 | Both | **Interactive portal states** | Closed or locked portals obstruct vision and movement while open portals permit line of sight, allowing the GM to control the environment and players to understand its current state. |
-| FR-GM-16 | GM | **Guest revocation and invite regeneration** | Lets the GM remove a participant or invalidate a compromised room link. |
-| FR-GM-17 | Both | **Initiative and turn-order tracking** | Gives the GM a shared way to manage encounter order and gives players synchronized notification of the active turn. |
-| FR-GM-18 | Both | **Public and GM-only dice rolls** | Supports openly shared rolls as well as hidden adjudication when the GM needs private outcomes. |
-| FR-GM-19 | Player | **Player-safe state filtering** | Filters hidden tokens, unrevealed fog regions, GM-only rolls, and private metadata on the server before state is sent to player clients. |
-| FR-GM-20 | Both | **Focusable token roster** | Provides an alternative to direct canvas selection for finding and selecting tokens. |
+| FR-GM-14 | GM | **GM and player roles** | Separates administrative capabilities from normal player interaction. |
+| FR-GM-15 | Both | **Server-side authorization** | Enforces GM-only and owner-only actions at the API layer so clients cannot bypass permissions by sending direct requests. |
+| FR-GM-16 | GM | **Token visibility controls** | Allows the GM to hide unrevealed creatures or other tokens until they should become visible. |
+| FR-GM-17 | GM | **Manual fog of war** | Lets the GM conceal rectangular or polygonal regions of the map to control exploration and information disclosure. |
+| FR-GM-18 | Both | **Interactive portal states** | Closed or locked portals obstruct vision and movement while open portals permit line of sight, allowing the GM to control the environment and players to understand its current state. |
+| FR-GM-19 | Both | **Dynamic line of sight** | Renders player-specific 2D raycasted visibility from wall and portal segments. *Scope limits: simple 2D geometry blocking only. No elevation, no soft shadows, no colored light sources.* |
+| FR-GM-20 | GM | **Guest revocation and invite regeneration** | Lets the GM remove a participant or invalidate a compromised room link. |
+| FR-GM-21 | Both | **Initiative and turn-order tracking** | Gives the GM a shared way to manage encounter order and gives players synchronized notification of the active turn. |
+| FR-GM-22 | Both | **Public and GM-only dice rolls** | Supports openly shared rolls as well as hidden adjudication when the GM needs private outcomes. |
+| FR-GM-23 | Player | **Player-safe state filtering** | Filters hidden tokens, unrevealed fog regions, GM-only rolls, and private metadata on the server before state is sent to player clients. |
+| FR-GM-24 | Both | **Focusable token roster** | Provides an alternative to direct canvas selection for finding and selecting tokens. |
 
 ### 5.3 Player Need — Join Easily and Retain Control of Their Character
 
@@ -158,6 +162,7 @@ A player needs to enter a session with minimal friction and remain associated wi
 | FR-PL-04 | Player | **Owned-token control** | Restricts persistent token manipulation to tokens assigned to the player, giving them direct control without exposing other participants' pieces. |
 | FR-PL-05 | Player | **Automatic reconnection** | Reconnects after transient connection failure without requiring a manual page refresh. |
 | FR-PL-06 | Both | **Full-state resynchronization** | Gives reconnecting or newly joined clients the current authoritative room state so they can resume play without reconstructing what happened manually. |
+| FR-PL-07 | Player | **Encounter replay for late joiners** | Replays the action log from a chosen checkpoint so a late-arriving player can review encounter progression. |
 
 ### 5.4 Player and GM Need — Interact with the Tactical Board Clearly
 
@@ -198,28 +203,7 @@ A GM needs to reverse accidental changes while preserving an understandable hist
 
 ---
 
-## 6. Additional Features
-
-### 6.1 Map Parsing
-- An isolated microservice utilizing a vision pipeline (OpenCV / multimodal vision model) to parse uploaded battle-map images.
-- Automatically identifies walls and semantically classifies **doors** and **windows**, generating editable UVTT wall and portal data with interactive open/closed toggles.
-
-### 6.2 Dynamic Line of Sight
-- Renders player-specific 2D raycasted visibility from wall and portal segments.
-- *Scope limits:* Simple 2D geometry blocking only. No elevation, no soft shadows, no colored light sources.
-
-### 6.3 UVTT Export
-- Round-trips prepared maps, aligned grids, and portal data back out to standard UVTT format for Foundry, Roll20, and Fantasy Grounds.
-
-### 6.4 Encounter Replay for Late Joiners
-- Replays the action log from a chosen checkpoint so a late-arriving player can review encounter progression.
-
-### 6.5 Reusable Encounter Templates
-- Save prepared map, walls, portals, and monster token roster for multi-session reuse.
-
----
-
-## 7. Nonfunctional Requirements
+## 6. Nonfunctional Requirements
 
 | Area | Target |
 | --- | --- |
@@ -235,7 +219,7 @@ A GM needs to reverse accidental changes while preserving an understandable hist
 
 ---
 
-## 8. Explicitly Out of Scope
+## 7. Explicitly Out of Scope
 
 Excluded from the project scope:
 
@@ -250,7 +234,7 @@ Excluded from the project scope:
 
 ---
 
-## 9. Verification and Testing Strategy
+## 8. Verification and Testing Strategy
 
 - **Unit Testing:** Grid detection accuracy against a collection of battle maps; dice expression parsing; coordinate transform mathematics; and UVTT schema parsing.
 - **Authorization Integration Tests:** Automated tests verify that unauthorized clients cannot invoke GM-only actions or modify unowned tokens via direct WebSocket payloads.
@@ -261,7 +245,7 @@ Excluded from the project scope:
 
 ---
 
-## 10. Success Metrics
+## 9. Success Metrics
 
 - **Core Usability:** At least 80% of first-time test players join a room from a link and control their assigned token without verbal instruction.
 - **Setup Velocity:** A first-time GM uploads a map, aligns its grid, sets up walls/doors, assigns tokens, and starts an encounter in under 4 minutes.
@@ -271,16 +255,16 @@ Excluded from the project scope:
 
 ---
 
-## 11. Team Workstreams
+## 10. Team Workstreams
 
-1. **Board and Canvas Interaction:** Renderer, coordinate system, tokens, tactical overlays, movement rulers, AoE templates, and responsive viewport behavior.
-2. **Real-Time Architecture & Persistence:** Room state, authorization, WebSocket bus, ephemeral channel, durable identity, visibility filtering, event logging, checkpoints, and undo behavior.
-3. **Map Processing & AI Pipelines:** Grid detection, UVTT import/export, vision segmentation worker, and portal geometry processing.
-4. **Online UX & Product Quality:** Guest joining, player-safe board experience, tactical interaction flows, accessibility, cross-browser testing, and automated convergence test harness.
+1. **Antonio Cottone - Board and Canvas Interaction:** Renderer, coordinate system, tokens, tactical overlays, movement rulers, AoE templates, and responsive viewport behavior.
+2. **Raymond Lin - Real-Time Architecture & Persistence:** Room state, authorization, WebSocket bus, ephemeral channel, durable identity, visibility filtering, event logging, checkpoints, and undo behavior.
+3. **Christos Psimadas - Map Processing & AI Pipelines:** Grid detection, UVTT import/export, vision segmentation worker, and portal geometry processing.
+4. **Vincent Chen - Online UX & Product Quality:** Guest joining, player-safe board experience, tactical interaction flows, accessibility, cross-browser testing, and automated convergence test harness.
 
 ---
 
-## 12. Principal Risks and Mitigations
+## 11. Principal Risks and Mitigations
 
 | Risk | Likelihood/Impact | Mitigation |
 | --- | --- | --- |
@@ -293,7 +277,7 @@ Excluded from the project scope:
 
 ---
 
-## 13. Development Milestones
+## 12. Development Milestones
 
 Priority reflects what the encounter loop needs to function end-to-end (**Must**), what makes the encounter feel complete (**Should**), or what is cut first if the schedule tightens (**Stretch**). Difficulty is a rough build-effort estimate (**Low / Medium / High**) used for sequencing, not a formal estimate.
 
@@ -324,13 +308,13 @@ Priority reflects what the encounter loop needs to function end-to-end (**Must**
 
 | ID | Feature | Priority | Difficulty |
 | --- | --- | --- | --- |
-| FR-GM-11 | GM and player roles | Should | Low |
-| FR-GM-12 | Server-side authorization | Should | Medium |
-| FR-GM-13 | Token visibility controls | Should | Medium |
-| FR-GM-14 | Manual fog of war | Should | Medium |
-| FR-GM-17 | Initiative and turn-order tracking | Should | Low |
-| FR-GM-18 | Public and GM-only dice rolls | Should | Low |
-| FR-GM-19 | Player-safe state filtering | Should | High |
+| FR-GM-14 | GM and player roles | Should | Low |
+| FR-GM-15 | Server-side authorization | Should | Medium |
+| FR-GM-16 | Token visibility controls | Should | Medium |
+| FR-GM-17 | Manual fog of war | Should | Medium |
+| FR-GM-21 | Initiative and turn-order tracking | Should | Low |
+| FR-GM-22 | Public and GM-only dice rolls | Should | Low |
+| FR-GM-23 | Player-safe state filtering | Should | High |
 | FR-TAC-03 | Movement Budget Ruler | Should | Medium |
 | FR-TAC-04 | Drawing overlays | Should | Low |
 | FR-TAC-05 | Target Pings | Should | Low |
@@ -350,20 +334,20 @@ Priority reflects what the encounter loop needs to function end-to-end (**Must**
 | FR-GM-06 | UVTT import | Stretch | Medium |
 | FR-GM-07 | UVTT validation | Stretch | Low |
 | FR-GM-09 | Editable walls and portals | Stretch | Medium |
-| FR-GM-15 | Interactive portal states | Stretch | Medium |
-| §6.2 | Dynamic line of sight | Stretch | High |
-| §6.1 | Vision-based map parsing | Stretch | High |
-| §6.3 | UVTT export | Stretch | Low |
-| §6.5 | Reusable encounter templates | Stretch | Medium |
-| §6.4 | Encounter replay for late joiners | Stretch | Medium |
-| FR-GM-16 | Guest revocation and invite regeneration | Stretch | Low |
-| FR-GM-20 | Focusable token roster | Stretch | Low |
+| FR-GM-18 | Interactive portal states | Stretch | Medium |
+| FR-GM-19 | Dynamic line of sight | Stretch | High |
+| FR-GM-11 | Vision-based map parsing | Stretch | High |
+| FR-GM-12 | UVTT export | Stretch | Low |
+| FR-GM-13 | Reusable encounter templates | Stretch | Medium |
+| FR-PL-07 | Encounter replay for late joiners | Stretch | Medium |
+| FR-GM-20 | Guest revocation and invite regeneration | Stretch | Low |
+| FR-GM-24 | Focusable token roster | Stretch | Low |
 
 Within M3, order roughly follows effort-to-value: portal states and dynamic line of sight depend on wall/portal data existing (from either manual editing or UVTT import), so they naturally come after that data model is in place. Vision-based map parsing is the highest-effort, most open-ended item and the first one to drop if the timeline gets tight.
 
 ---
 
-## 14. Reference Notes
+## 13. Reference Notes
 
 - [Owlbear Rodeo Documentation](https://docs.owlbear.rodeo/)
 - [Roll20 UVTT Specification & Page Management](https://blog.roll20.net/posts/page-menu-updates/)
