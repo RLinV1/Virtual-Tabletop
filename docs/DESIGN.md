@@ -16,7 +16,7 @@
 | A repo someone else can clone, with a CI skeleton | §9, and [`../.github/workflows/ci.yml`](../.github/workflows/ci.yml) |
 | A minimal prototype that runs | §7, and [`../src`](../src) |
 | Design doc connected to the requirements | §10 traceability matrix |
-| How we tackle M1 | §8 |
+| How we deliver all three feature milestones | §8 |
 
 ---
 
@@ -119,7 +119,7 @@ Client intent ──WS──> App Server
                         └─ broadcast event to room, filtered per participant
 ```
 
-**Reconnect (FR-PL-05, FR-PL-06)** — detailed in §5.2.
+**Reconnect (FR-PL-05, FR-PL-06)** — detailed in §5.4.
 
 **Undo (FR-REC-01, FR-REC-02, FR-REC-03)**
 
@@ -205,8 +205,8 @@ participants
   last_seen_at       timestamptz
   revoked_at         timestamptz
   check (user_id is not null or guest_token_hash is not null)
-  unique (room_id, user_id)        where user_id is not null
-  unique (guest_token_hash)        where guest_token_hash is not null
+  unique (room_id, user_id)              where user_id is not null
+  unique (room_id, guest_token_hash)     where guest_token_hash is not null
 
 scenes
   id                 uuid primary key
@@ -267,22 +267,68 @@ It also means `users` stays small and boring: it exists only so a GM can log bac
 
 ---
 
-## 5. Identity Without Accounts
+## 5. Accounts and Guest Access
 
-The defining constraint of this product: **most users never create an account, but still need identity that survives a reload** (FR-PL-01 + FR-PL-02). "Anonymous" and "forgettable" are not the same thing.
+The defining constraint of this product: **only the GM needs an account, but every player needs identity that survives a reload** (FR-GM-01, FR-PL-01, FR-PL-02). "Anonymous" and "forgettable" are not the same thing.
 
-### 5.1 Guest tokens
+### 5.1 Two kinds of identity
 
-1. On first visit to a room link, the browser generates **32 bytes** from `crypto.getRandomValues` and stores the base64url result in `localStorage`.
-2. Every connection — first or fiftieth — presents that token in the Socket.IO handshake.
-3. The server hashes it with **SHA-256** and looks up `participants.guest_token_hash`.
-4. Known hash → that participant, with their role, display name and owned tokens intact. Unknown hash → a new participant row.
+| | GM account | Guest access |
+| --- | --- | --- |
+| Row in `users` | Yes | **No** |
+| Row in `participants` | Yes, per room | Yes, per room |
+| Credential | Email + password (argon2id) | Opaque 32-byte token |
+| Credential lives in | Server (`auth_sessions`), cookie in browser | Browser `localStorage` only |
+| Survives a reload | Yes | Yes |
+| Survives a different device | Yes — log in again | **No** — see §5.5 |
+| Can create rooms | Yes | No |
+| Can be revoked | Session revoked, account retained | `participants.revoked_at` (FR-GM-20) |
+| Personal data held | Email address | Display name only |
 
-**Hashing choice.** Passwords get argon2id because humans pick low-entropy secrets that must be expensive to guess. Guest tokens get plain SHA-256 because 256 bits of CSPRNG output cannot be brute-forced, and argon2 would add latency to every reconnect for zero security benefit. Both are hashed — the server never persists a credential it could leak.
+The asymmetry is deliberate: an account exists so a GM can come back next week and find the rooms they own. Players need none of that — they need to be *the same person as five minutes ago*, which is a much smaller problem.
 
-**Why not a cookie?** `localStorage` is explicitly what FR-PL-02 specifies, it survives the tab being backgrounded, and it is not sent on every asset request. The cost is that it is per-browser-profile, which §5.3 addresses.
+### 5.2 GM accounts
 
-### 5.2 Reconnect flow
+**Registration** (FR-GM-01)
+
+1. Email (stored `citext`, unique) + password + display name.
+2. Password hashed with **argon2id** at the current OWASP parameters — `m = 19 MiB, t = 2, p = 1` — tuned upward if the login endpoint stays comfortably fast.
+3. Minimum length enforced (12 characters); no composition rules, which push users toward predictable patterns.
+4. Email verification is **deferred**: it costs a mail provider and buys little for a course project where GMs are known people. The column exists so it can be switched on without a migration.
+
+**Login and sessions**
+
+1. Look up by email, verify with argon2id. Failures return one generic error — never "no such user" — so the endpoint cannot be used to enumerate accounts.
+2. Rate-limited per IP and per email; repeated failures back off.
+3. On success, mint **32 random bytes**, insert an `auth_sessions` row holding only its **SHA-256 hash**, and return it as a cookie: `HttpOnly; Secure; SameSite=Lax; Path=/`.
+   - `HttpOnly` keeps it out of reach of any XSS that gets through.
+   - `SameSite=Lax` still permits arriving from an invite link, which is a top-level same-site navigation.
+4. A fresh token is issued on every login, so a fixated session cannot be reused.
+5. Expiry is 30 days, refreshed on use. Logout sets `revoked_at`; the next request finds it and fails closed.
+
+**Why opaque tokens and not JWT.** Revocation. A JWT is valid until it expires, so "remove this GM's access right now" requires a denylist — which is a session table wearing a disguise. Redis is already in the stack; a lookup per request costs microseconds and gives instant revocation, which FR-GM-20 needs anyway.
+
+**Password reset** is out of Core Loop scope. Until it exists, a forgotten password means a new account; documented here so it is a decision rather than an oversight.
+
+### 5.3 Guest access
+
+No registration, ever. A player's entire onboarding is: open link → type a display name → play (FR-PL-01, and the 30-second join target in README §6).
+
+1. Opening an invite link, the browser generates **32 bytes** from `crypto.getRandomValues` and stores the base64url result in `localStorage` under `vtt.guestToken`.
+2. The player picks a display name. No uniqueness constraint — two Miras are the GM's problem, not the database's.
+3. The server validates the invite code, creates a `participants` row carrying `guest_token_hash` and `role = 'player'`, and returns the participant.
+4. Every subsequent connection — first or fiftieth — presents that token in the Socket.IO handshake.
+5. The server hashes it and looks up `(room_id, guest_token_hash)`. Known → that participant, role and owned tokens intact. Unknown → a new participant.
+
+**Token scope: one per browser, not one per room.** The same token is presented to every room, and `participants` is keyed by `(room_id, guest_token_hash)` — so one browser can hold seats in several rooms simultaneously without juggling storage keys, and each seat is independently revocable.
+
+**Hashing choice.** Passwords get argon2id because humans pick low-entropy secrets that must be expensive to guess. Guest tokens get plain **SHA-256** because 256 bits of CSPRNG output cannot be brute-forced, and argon2 would add latency to every reconnect for zero security benefit. Both are hashed — the server never persists a credential it could leak.
+
+**Why `localStorage` and not a cookie.** It is what FR-PL-02 specifies, it survives a backgrounded tab, and it is not attached to every asset request. The tradeoff is real and worth stating: unlike the GM's `HttpOnly` cookie, a guest token **is** readable by JavaScript, so an XSS bug would expose it. Mitigations are a strict CSP, never rendering user-supplied content as HTML, and the limited blast radius — the token grants one seat in one game, and the GM can revoke it.
+
+**What a guest cannot do:** create or own rooms, see GM-only state (enforced server-side, §6), move tokens they do not own, or promote themselves — `role` is server-side data, never accepted from the client.
+
+### 5.4 Reconnect flow
 
 ```
 Player's laptop sleeps, socket drops
@@ -312,7 +358,7 @@ Two deliberate choices here:
 
 This is implemented in the prototype — see [`src/shared/identity.ts`](../src/shared/identity.ts) and its tests.
 
-### 5.3 Edge cases we have to answer
+### 5.5 Edge cases we have to answer
 
 | Case | Behaviour |
 | --- | --- |
@@ -322,6 +368,12 @@ This is implemented in the prototype — see [`src/shared/identity.ts`](../src/s
 | GM revokes a participant | `revoked_at` is set; the next handshake with that hash is refused and the socket closed. |
 | Invite code regenerated | Existing participants keep playing; only *new* joins need the new code. |
 | Private browsing / storage blocked | Identity lasts for the tab only. The client falls back to an in-memory token and the player is warned that a reload will lose their seat. |
+| A guest later wants an account | `participants` rows point at `guest_token_hash`; claiming an account sets `user_id` on those rows and clears the hash, so history and owned tokens carry over. Not in the Core Loop, but the schema does not preclude it. |
+| The GM loses their account | No password reset in the Core Loop (§5.2). Rooms are owned by `users.id`, so this orphans them — reason enough to add reset before any real use. |
+
+### 5.6 Where this is enforced
+
+Identity is resolved **once per connection**, at the handshake, and cached on the socket. Authorization is re-checked **per message** against that participant's current role, because a GM can revoke someone mid-session and a socket that was legitimate a minute ago must not stay legitimate (§6, FR-GM-15).
 
 ---
 
@@ -380,11 +432,32 @@ Open two tabs: the first is the GM, the rest are players. Drag a token in one an
 
 ---
 
-## 8. M1 Implementation Plan
+## 8. Delivery Plan
 
-M1 (README §12) is 18 requirements. The prototype already covers the three rated **High** difficulty — FR-PL-06, FR-SYNC-02, FR-SYNC-04 — because those are the ones that are expensive to retrofit. What remains is mostly breadth.
+### 8.1 A note on names
 
-### 8.1 Dependency order
+"M1/M2/M3" is overloaded: the course has its own milestones, and README §12 has feature milestones. To avoid collision, this section refers to the feature milestones by name — **Core Loop**, **Tactical Play**, **Stretch** — never by number. This document is the artifact for the *course's* M2.
+
+### 8.2 How the work splits
+
+Ownership follows the workstreams in README §10. Each requirement gets **one primary owner** — the person who decides how it works and whose name is on it — and optionally a supporting owner for the surface they do not control.
+
+| Person | Workstream | Owns the surface |
+| --- | --- | --- |
+| **Antonio Cottone** | Board and Canvas Interaction | Pixi renderer, coordinate system, viewport, token rendering, tactical overlays |
+| **Raymond Lin** | Real-Time Architecture & Persistence | Schema, room kernel, sockets, identity, authorization, visibility filtering, event log |
+| **Christos Psimadas** | Map Processing & AI Pipelines | Upload pipeline, grid detection, UVTT, wall/portal geometry, analysis service |
+| **Vincent Chen** | Online UX & Product Quality | Join flow, player-safe layouts, encounter panels, accessibility, cross-browser + convergence testing |
+
+**The contract that makes parallel work safe.** `packages/shared` — protocol types and the pure kernels — is agreed and frozen in Slice 0. Everyone imports it; nobody redefines a payload shape locally. Changes to it are a pull request the whole team reviews, because a silent change there desyncs three workstreams at once.
+
+---
+
+### 8.3 Core Loop (README §12 M1) — 18 requirements
+
+The prototype already covers the three requirements rated **High** difficulty — FR-PL-06, FR-SYNC-02, FR-SYNC-04 — because those are the expensive ones to retrofit. What remains is mostly breadth.
+
+#### Dependency order
 
 ```
                     ┌────────────────────────┐
@@ -409,11 +482,11 @@ M1 (README §12) is 18 requirements. The prototype already covers the three rate
           └────────────────────────┘
 ```
 
-Slices 1–3 run **in parallel** across three workstreams. The contract that makes that safe is `packages/shared`: protocol types and the pure kernels are agreed in Slice 0 and imported by everyone, so three people can build against the same interface without daily merges.
+Slices 1–3 run **in parallel** across three workstreams.
 
-### 8.2 The slices
+#### The slices
 
-**Slice 0 — Foundations** · owner: Raymond · blocks everything else
+**Slice 0 — Foundations** · Raymond · blocks everything else
 
 | Work | Requirements |
 | --- | --- |
@@ -423,20 +496,19 @@ Slices 1–3 run **in parallel** across three workstreams. The contract that mak
 | Move the prototype's in-memory room onto Postgres + Redis `INCR` | FR-SYNC-01, FR-SYNC-02, FR-SYNC-04 |
 | Event-log writes on every committed action | FR-REC-03 (early, cheap now) |
 
-Writing the event log now rather than in M2 costs almost nothing and means undo is later a *read* problem, not a migration.
+Writing the event log now rather than during Tactical Play costs almost nothing and means undo is later a *read* problem, not a migration.
 
-**Slice 1 — Identity and rooms** · owners: Raymond (server), Vincent (join UX)
+**Slice 1 — Identity and rooms** · Raymond (server), Vincent (join UX)
 
-| Work | Requirements |
-| --- | --- |
-| GM registration/login, argon2id, opaque session cookie | FR-GM-01 |
-| Room creation + invite code generation | FR-PL-01 |
-| Guest token issue/rebind against the `participants` table | FR-PL-02 |
-| Reconnect rebinding + snapshot on resume | FR-PL-05, FR-PL-06 |
+| Work | Requirements | Owner |
+| --- | --- | --- |
+| GM registration/login, argon2id, opaque session cookie | FR-GM-01 | Raymond |
+| Room creation + invite code generation | FR-PL-01 | Raymond |
+| Join screen: display name, token issue, error states | FR-PL-01 | Vincent |
+| Guest token rebind against `participants` | FR-PL-02 | Raymond |
+| Reconnect rebinding + snapshot on resume | FR-PL-05, FR-PL-06 | Raymond |
 
-The prototype's `identity.ts` moves to Postgres here; the resolution rules and their tests carry over unchanged.
-
-**Slice 2 — Map pipeline** · owner: Christos
+**Slice 2 — Map pipeline** · Christos
 
 | Work | Requirements |
 | --- | --- |
@@ -445,9 +517,9 @@ The prototype's `identity.ts` moves to Postgres here; the resolution rules and t
 | Grid metadata stored in board coordinates | FR-GM-05 |
 | Automatic detection via BullMQ → analysis service, with confidence | FR-GM-03 |
 
-**Sequencing matters here:** build the *manual* alignment path first. It is low difficulty, it makes the whole map flow usable on its own, and it means automatic detection is an enhancement that can slip without blocking anyone. Building detection first risks a half-working CV pipeline standing between the team and a playable board.
+**Sequencing matters here:** build the *manual* alignment path first. It is low difficulty, it makes the map flow usable on its own, and it means automatic detection is an enhancement that can slip without blocking anyone.
 
-**Slice 3 — Board renderer** · owner: Antonio
+**Slice 3 — Board renderer** · Antonio
 
 | Work | Requirements |
 | --- | --- |
@@ -456,35 +528,249 @@ The prototype's `identity.ts` moves to Postgres here; the resolution rules and t
 | Continuous coordinates with optional grid snapping | FR-TAC-02 |
 | 100-token / 60 FPS benchmark against README §6 | NFR gate |
 
-Run the benchmark **early** in this slice, not at the end. It is the one number that can invalidate the PixiJS-vs-Konva decision, and finding that out in week 4 is recoverable while week 11 is not.
+Run the benchmark **early**, not at the end. It is the one number that can invalidate the PixiJS-vs-Konva decision, and finding that out in week 4 is recoverable while week 11 is not.
 
-**Slice 4 — Tokens and roles** · owners: Antonio (board), Vincent (panels)
+**Slice 4 — Tokens and roles** · Antonio (board), Vincent (panels)
+
+| Work | Requirements | Owner |
+| --- | --- | --- |
+| Token upload, placement, size, rotation, HP bars | FR-GM-08 | Antonio |
+| GM assigns token ownership to participants | FR-GM-10 | Vincent |
+| Owner-only control wired to real participant IDs | FR-PL-04 | Raymond |
+| Responsive player-safe board layout | FR-PL-03 | Vincent |
+
+#### Task split — Core Loop
+
+| Owner | Requirements |
+| --- | --- |
+| Antonio | FR-GM-05, FR-GM-08, FR-TAC-01, FR-TAC-02 |
+| Raymond | Slice 0, FR-GM-01, FR-PL-02, FR-PL-04, FR-PL-05, FR-PL-06, FR-SYNC-01, FR-SYNC-02, FR-SYNC-04 |
+| Christos | FR-GM-02, FR-GM-03, FR-GM-04 |
+| Vincent | FR-PL-01 (UX), FR-PL-03, FR-GM-10 |
+
+---
+
+### 8.4 Tactical Play and GM Control (README §12 M2) — 18 requirements
+
+This is where the product stops being a shared map and becomes a tabletop. Two things gate everything else: the ephemeral channel, and the renderer landing in Core Loop Slice 3.
+
+#### Dependency order
+
+```
+  ┌──────────────────────────┐
+  │ Slice 5: Ephemeral channel│  blocks every live preview
+  │ (Raymond)                 │
+  └────────────┬──────────────┘
+               │
+   ┌───────────┼────────────────────────┐
+   ▼           ▼                        ▼
+┌────────────────┐ ┌──────────────────┐ ┌──────────────────┐
+│ Slice 6        │ │ Slice 7          │ │ Slice 8          │
+│ Roles, hidden  │ │ Tactical overlays│ │ Encounter panels │
+│ info, fog      │ │ (Antonio)        │ │ (Vincent)        │
+│ (Raymond+A+V)  │ │                  │ │                  │
+└───────┬────────┘ └──────────────────┘ └──────────────────┘
+        │
+        ▼
+┌────────────────────┐
+│ Slice 9: Recovery  │  needs the event log from Slice 0
+│ (Raymond)          │
+└────────────────────┘
+```
+
+#### The slices
+
+**Slice 5 — Ephemeral channel** · Raymond · blocks Slice 7
 
 | Work | Requirements |
 | --- | --- |
-| Token upload, placement, size, rotation, name, HP bars | FR-GM-08 |
-| GM assigns token ownership to participants | FR-GM-10 |
-| Owner-only control wired to real participant IDs | FR-PL-04 |
-| Responsive player-safe board layout | FR-PL-03 |
+| Second socket namespace using `volatile.emit`, never persisted | FR-SYNC-03 |
+| Client-side throttling and coalescing of pointer traffic | FR-SYNC-03 |
+| Latency benchmark against the 150 ms target (README §6) | NFR gate |
 
-### 8.3 Definition of done for a slice
+Build this before any overlay that previews. Retrofitting preview traffic onto the committed channel is the mistake that makes a VTT feel laggy, and it is much harder to unpick later than to separate now.
+
+**Slice 6 — Roles, hidden information, fog** · Raymond (server), Antonio (fog rendering), Vincent (GM controls)
+
+| Work | Requirements | Owner |
+| --- | --- | --- |
+| Role model formalized on `participants` | FR-GM-14 | Raymond |
+| Per-message authorization on every GM-only intent | FR-GM-15 | Raymond |
+| Hidden-token state and server-side payload filtering | FR-GM-16, FR-GM-23 | Raymond |
+| Fog region state on the committed channel | FR-GM-17 | Raymond |
+| Fog painting and masked rendering | FR-GM-17 | Antonio |
+| GM visibility controls (hide/reveal UI) | FR-GM-16 | Vincent |
+
+FR-GM-23 is rated **High** and deserves it: the test is that a player's payload never *contains* hidden data, not that the client declines to draw it. Vincent's automated harness should assert this against API responses, socket frames, and reconnect snapshots alike (README §8).
+
+**Slice 7 — Tactical overlays** · Antonio · needs Slice 5
+
+| Work | Requirements |
+| --- | --- |
+| Movement budget ruler with diagonal rules and thresholds | FR-TAC-03 |
+| Line/rect/circle drawing overlays | FR-TAC-04 |
+| Target pings (ephemeral, animated, self-expiring) | FR-TAC-05 |
+| AoE templates: preview on ephemeral, placement on committed | FR-TAC-06 |
+
+FR-TAC-06 is the one to watch — it straddles both channels. Aiming is ephemeral; the placed template is committed state. Getting that boundary right is the slice's real work.
+
+**Slice 8 — Encounter panels** · Vincent
+
+| Work | Requirements |
+| --- | --- |
+| Initiative list, shared and synced, add/remove/reorder | FR-GM-21 |
+| Dice expression parser (`NdX + M`) and roller | FR-TAC-09 |
+| Public vs GM-only roll routing | FR-GM-22 |
+| Token stats and condition display | FR-TAC-07 |
+| Condition markers distinguished by shape/text, not colour alone | FR-TAC-08 |
+
+Dice are rolled **server-side**. A client-side roll that reports its own result is unverifiable, which defeats the point of shared rolls.
+
+**Slice 9 — Recovery** · Raymond · needs the event log from Slice 0
+
+| Work | Requirements |
+| --- | --- |
+| Plain-language rendering of the event log with actor attribution | FR-REC-01 |
+| Compensating-event undo for a defined reversible set | FR-REC-02 |
+| Append-only guarantee enforced at the database level | FR-REC-03 |
+| Checkpoint save/restore as the universal fallback | FR-REC-02 support |
+
+Start by making **only token moves** reversible. It is the easiest action to compensate and it exercises the whole mechanism; widening the reversible set afterwards is incremental. README §11 rates surprising undo desyncs as the project's top risk, so the mitigation is a small reversible set plus checkpoint restore as the escape hatch.
+
+#### Task split — Tactical Play
+
+| Owner | Requirements |
+| --- | --- |
+| Antonio | FR-GM-17 (rendering), FR-TAC-03, FR-TAC-04, FR-TAC-05, FR-TAC-06 |
+| Raymond | FR-GM-14, FR-GM-15, FR-GM-16, FR-GM-17 (state), FR-GM-23, FR-SYNC-03, FR-REC-01, FR-REC-02, FR-REC-03 |
+| Christos | *(light — see §8.6)* |
+| Vincent | FR-GM-16 (UI), FR-GM-21, FR-GM-22, FR-TAC-07, FR-TAC-08, FR-TAC-09 |
+
+---
+
+### 8.5 Stretch (README §12 M3) — 11 requirements
+
+Everything here is cut-first material. The ordering below is by dependency, and §8.5's cut order is by effort-to-value.
+
+#### Dependency order
+
+```
+┌───────────────────────────┐
+│ Slice 10: Wall data       │  nothing below works without wall geometry
+│ UVTT import + validation  │
+│ + manual wall editing     │
+│ (Christos, Antonio)       │
+└─────────────┬─────────────┘
+              │
+      ┌───────┴────────┐
+      ▼                ▼
+┌──────────────┐  ┌─────────────────┐     ┌──────────────────────┐
+│ Slice 11     │  │ Slice 12        │     │ Slice 13             │
+│ Vision       │  │ Portals + LoS   │     │ Quality of life      │
+│ pipeline     │  │ (Antonio+Ray)   │     │ (Raymond, Vincent)   │
+│ (Christos)   │  │                 │     │ — independent        │
+└──────────────┘  └─────────────────┘     └──────────────────────┘
+```
+
+Slice 13 depends on nothing and can be pulled forward whenever someone has slack.
+
+#### The slices
+
+**Slice 10 — Wall data foundation** · Christos (parsing), Antonio (editor)
+
+| Work | Requirements | Owner |
+| --- | --- | --- |
+| UVTT / `.dd2vtt` import: image, grid, walls, portals | FR-GM-06 | Christos |
+| Malformed-file reporting that names the problem | FR-GM-07 | Christos |
+| Wall/portal segment editing on canvas, door state marking | FR-GM-09 | Antonio |
+
+Import lands before detection deliberately: it gives the team real wall data to build portals and line-of-sight against without waiting on the CV pipeline.
+
+**Slice 11 — Vision pipeline** · Christos
+
+| Work | Requirements |
+| --- | --- |
+| OpenCV wall extraction adapted from prior art (§12.1) | FR-GM-11 |
+| Door/window classification | FR-GM-11 |
+| UVTT export round-trip | FR-GM-12 |
+
+Detected geometry is always **suggested**, never applied — the GM reviews before it affects visibility (README §11).
+
+**Slice 12 — Portals and line of sight** · Antonio (rendering), Raymond (state)
+
+| Work | Requirements | Owner |
+| --- | --- | --- |
+| Open/closed/locked portal state on the committed channel | FR-GM-18 | Raymond |
+| 2D raycast visibility from wall and portal segments | FR-GM-19 | Antonio |
+| Per-player visibility masking in the renderer | FR-GM-19 | Antonio |
+
+The single highest-risk item in the project. It needs Slice 10's geometry, the Pixi masking proven in Core Loop Slice 3, and per-player filtering from Tactical Play Slice 6 — three dependencies, which is exactly why it is stretch.
+
+**Slice 13 — Quality of life** · Raymond, Vincent · no dependencies
+
+| Work | Requirements | Owner |
+| --- | --- | --- |
+| Reusable encounter templates | FR-GM-13 | Raymond |
+| Replay from a checkpoint for late joiners | FR-PL-07 | Raymond |
+| Guest revocation and invite regeneration | FR-GM-20 | Raymond |
+| Focusable token roster panel | FR-GM-24 | Vincent |
+
+#### Task split — Stretch
+
+| Owner | Requirements |
+| --- | --- |
+| Antonio | FR-GM-09, FR-GM-19 |
+| Raymond | FR-GM-13, FR-GM-18, FR-GM-20, FR-PL-07 |
+| Christos | FR-GM-06, FR-GM-07, FR-GM-11, FR-GM-12 |
+| Vincent | FR-GM-24 |
+
+#### Cut order
+
+If the schedule tightens, drop in this order — highest effort and most open-ended first:
+
+1. **FR-GM-11** vision-based parsing — README §12 already names it the first to drop; UVTT import covers the same need with a manual step
+2. **FR-GM-19** dynamic line of sight — three dependencies, High difficulty
+3. **FR-GM-13**, **FR-PL-07** — convenience, not correctness
+4. **FR-GM-12** UVTT export, **FR-GM-24** roster — low effort, keep if anything survives
+
+---
+
+### 8.6 Load across the team
+
+| Owner | Core Loop | Tactical Play | Stretch | Total |
+| --- | --- | --- | --- | --- |
+| Antonio | 4 | 5 | 2 | 11 |
+| Raymond | 9 + Slice 0 | 9 | 4 | 22 |
+| Christos | 3 | 0 | 4 | 7 |
+| Vincent | 3 | 6 | 1 | 10 |
+
+**Two imbalances worth fixing now rather than in week 8.**
+
+*Raymond carries roughly twice anyone else.* That is structurally true — authorization, sync, identity and recovery are one coherent problem and splitting them across people creates more coordination cost than it saves. Mitigations: Vincent already owns the GM-facing UI for FR-GM-16 and FR-GM-10, and FR-GM-13/FR-GM-20 in Stretch are self-contained enough to hand to whoever has slack.
+
+*Christos has nothing in Tactical Play.* His work is bunched into Core Loop and Stretch, leaving an idle middle. Two options: pull **Slice 10 (UVTT import) forward** into the Tactical Play window — it has no dependency on tactical features and de-risks the whole Stretch milestone — or have him take the automated convergence test harness from README §8, which needs building around then anyway.
+
+### 8.7 Definition of done for a slice
 
 A slice is done when all four hold:
 
-1. Unit tests cover the pure logic it introduced (README §8 names grid math, coordinate transforms, schema parsing).
+1. Unit tests cover the pure logic it introduced (README §8 names grid math, coordinate transforms, dice parsing, schema parsing).
 2. A Playwright test drives the flow across **two browser contexts** where the requirement is multi-user.
 3. CI is green — lint, test, build, health smoke.
 4. Its requirement IDs move from `D` to `P` in §10, honestly.
 
-### 8.4 Sequencing traps to avoid
+### 8.8 Sequencing traps to avoid
 
 | Trap | Why it bites | Avoidance |
 | --- | --- | --- |
 | Building auth last | Everything downstream needs `participants.id` to reference | Slice 1 immediately after foundations |
 | Auto grid detection before manual alignment | A flaky CV pipeline blocks the playable path | Manual first, detection as enhancement |
 | Deferring the Pixi perf benchmark | Renderer choice becomes unchangeable | Benchmark in the first week of Slice 3 |
-| Letting three slices diverge on protocol shapes | Painful merges in Slice 4 | Freeze `packages/shared` types in Slice 0 |
-| Adding the event log in M2 instead of M1 | Becomes a data migration | Write events from the first committed action |
+| Letting slices diverge on protocol shapes | Painful merges when they converge | Freeze `packages/shared` types in Slice 0 |
+| Adding the event log during Tactical Play | Becomes a data migration | Write events from the first committed action |
+| Overlays before the ephemeral channel | Preview traffic ends up on the committed path and is painful to unpick | Slice 5 before Slice 7 |
+| Line of sight before wall data | Nothing to raycast against | Slice 10 before Slice 12 |
+| Making everything undoable at once | Undo desyncs are the top project risk | Token moves first, widen incrementally |
 
 ---
 
@@ -586,7 +872,7 @@ Visual direction for the board and panels — deep slate-teal ground, parchment 
 | Item | Status | Plan |
 | --- | --- | --- |
 | Wall detection: service or client-side? | **Decided — Python service** | Wall extraction runs in the Map Analysis Service alongside grid detection, not in the browser. See §12.1 for the references we build on. |
-| Guest returning on a second device | Open | Either GM reassignment or a claim code carried by the invite link (§5.3). Pick before FR-PL-02 ships. |
+| Guest returning on a second device | Open | Either GM reassignment or a claim code carried by the invite link (§5.5). Pick before FR-PL-02 ships. |
 | PixiJS unproven at 100 tokens / 60 FPS | Open | Benchmark in the first week of Slice 3; it can still invalidate the renderer choice. |
 | No load testing against 150 ms / 500 ms targets | Deferred | k6 or Artillery benchmark once the ephemeral channel exists |
 | Prototype is single-package | Deferred | Workspace split is Slice 0 |
