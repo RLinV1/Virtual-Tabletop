@@ -1,0 +1,25 @@
+# Local infrastructure. Not required yet: the server uses an in-memory store by default.
+# Needed once the Postgres event store (docs/adr/0001) and object storage land.
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: vtt
+      POSTGRES_PASSWORD: vtt
+      POSTGRES_DB: vtt
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./apps/server/db:/docker-entrypoint-initdb.d:ro
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: vtt
+      MINIO_ROOT_PASSWORD: vttvttvtt
+    ports: ["9000:9000", "9001:9001"]
+    volumes:
+      - miniodata:/data
+volumes:
+  pgdata:
+  miniodata:

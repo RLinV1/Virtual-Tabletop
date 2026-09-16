@@ -7,3 +7,6 @@ coverage/
 !.env.example
 .DS_Store
 *.log
+apps/server/uploads/
+playwright-report/
+test-results/
