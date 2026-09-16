@@ -7,11 +7,13 @@
  * stand up the full topology.
  */
 
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 
 import express from 'express';
 import { Server } from 'socket.io';
 
+import { resolveParticipant, type Registry } from '../shared/identity.js';
 import { SOCKET_EVENTS, type Intent, type Participant, type ServerEvent } from '../shared/protocol.js';
 import { applyIntent, createRoom, filterForParticipant } from '../shared/room.js';
 
@@ -25,28 +27,38 @@ const io = new Server(httpServer, { cors: { origin: CLIENT_ORIGIN } });
 
 // Single in-memory room for the heartbeat.
 let room = createRoom(ROOM_ID);
-const participants = new Map<string, Participant>();
+/** guestTokenHash -> participant. Stand-in for the `participants` table. */
+let registry: Registry = {};
+/** socket.id -> participant, for the live connection count only. */
+const connections = new Map<string, Participant>();
+
+/** Only ever store the hash; the raw guest token stays in the browser. */
+const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 
 app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
     room: room.roomId,
     seq: room.seq,
-    connected: participants.size,
+    connected: connections.size,
+    knownParticipants: Object.keys(registry).length,
   });
 });
 
 io.on('connection', (socket) => {
-  // First participant in the room is the GM; everyone after is a player.
-  // Real guest identity (FR-PL-02) is designed in docs/DESIGN.md §6.
-  const role = participants.size === 0 ? 'gm' : 'player';
-  const index = participants.size;
-  const actor: Participant = {
-    id: role === 'gm' ? 'gm-1' : `player-${index}`,
-    displayName: role === 'gm' ? 'GM' : `Player ${index}`,
-    role,
-  };
-  participants.set(socket.id, actor);
+  // Identity comes from the guest token the browser persists, never from
+  // connection order — so a GM who reloads comes back as the GM
+  // (FR-PL-02, FR-PL-05). See docs/DESIGN.md §5.
+  const rawToken: unknown = socket.handshake.auth?.['guestToken'];
+  if (typeof rawToken !== 'string' || rawToken.length < 16) {
+    socket.disconnect(true);
+    return;
+  }
+
+  const resolved = resolveParticipant(registry, hashToken(rawToken));
+  registry = resolved.registry;
+  const actor: Participant = resolved.participant;
+  connections.set(socket.id, actor);
 
   const send = (event: ServerEvent) => socket.emit(SOCKET_EVENTS.event, event);
 
@@ -75,8 +87,10 @@ io.on('connection', (socket) => {
     io.emit(SOCKET_EVENTS.event, moved);
   });
 
+  // The participant record deliberately outlives the connection — that is
+  // what makes reconnection rebind to the same identity.
   socket.on('disconnect', () => {
-    participants.delete(socket.id);
+    connections.delete(socket.id);
   });
 });
 

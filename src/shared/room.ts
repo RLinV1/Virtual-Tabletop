@@ -46,7 +46,7 @@ export function createRoom(roomId: string): RoomState {
  *
  * Conflicting concurrent moves are not merged: the server accepts one and
  * rejects the other, and rejection is explicit so the client can roll back
- * its optimistic render (docs/DESIGN.md §4).
+ * its optimistic render (docs/DESIGN.md §2.3).
  */
 export function applyIntent(state: RoomState, actor: Participant, intent: Intent): ApplyResult {
   const token = state.tokens[intent.tokenId];

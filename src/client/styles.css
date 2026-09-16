@@ -1,5 +1,5 @@
 /* Palette follows the UI reference boards: deep slate-teal ground, parchment
-   text, gold action accent. See docs/DESIGN.md §9. */
+   text, gold action accent. See docs/DESIGN.md §11. */
 :root {
   --bg: #0f1a1f;
   --panel: #14242b;

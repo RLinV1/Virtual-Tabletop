@@ -3,7 +3,7 @@
  *
  * Clients send *intents*; the server validates them and broadcasts *events*.
  * Clients never mutate authoritative state locally without a server event
- * confirming it (see docs/DESIGN.md §4 — FR-SYNC-01).
+ * confirming it (see docs/DESIGN.md §2.3 — FR-SYNC-01).
  */
 
 export type Role = 'gm' | 'player';

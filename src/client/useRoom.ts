@@ -11,6 +11,32 @@ import {
 } from '../shared/protocol.js';
 
 const SERVER_URL = import.meta.env['VITE_SERVER_URL'] ?? 'http://localhost:3001';
+const GUEST_TOKEN_KEY = 'vtt.guestToken';
+
+/**
+ * The browser's durable identity (FR-PL-02).
+ *
+ * 32 bytes of entropy, persisted in localStorage and presented at every
+ * socket handshake. The server only ever sees its hash. No account, but the
+ * same player across reloads and reconnects.
+ */
+function getGuestToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  const fresh = btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+
+  try {
+    const existing = localStorage.getItem(GUEST_TOKEN_KEY);
+    if (existing) return existing;
+    localStorage.setItem(GUEST_TOKEN_KEY, fresh);
+    return fresh;
+  } catch {
+    // Private mode / storage blocked: identity lasts only for this tab.
+    return fresh;
+  }
+}
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting';
 
@@ -37,7 +63,10 @@ export function useRoom(): RoomView {
   const confirmedRef = useRef<RoomState | null>(null);
 
   useEffect(() => {
-    const socket = io(SERVER_URL, { transports: ['websocket'] });
+    const socket = io(SERVER_URL, {
+      transports: ['websocket'],
+      auth: { guestToken: getGuestToken() },
+    });
     socketRef.current = socket;
 
     socket.on('connect', () => setStatus('connected'));
