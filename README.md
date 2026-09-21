@@ -8,6 +8,89 @@
 
 ---
 
+## Getting Started
+
+Requires **Node 22** (see `.nvmrc`). This is an **npm workspace** — `apps/server`, `apps/web`
+and `packages/shared` are installed together from the repository root.
+
+```bash
+git clone https://github.com/RLinV1/Virtual-Tabletop.git
+cd Virtual-Tabletop
+npm install
+npm run dev
+```
+
+Already cloned? Run `git checkout main && git pull`, then `npm install` again — the lockfile
+changes often while the stack is being built out.
+
+`npm run dev` starts the API server on **:3001** and the web client on **:5173**. Open
+<http://localhost:5173>, create a room, and copy the invite link.
+
+**To join as a player on the same machine,** open the invite link in a private window, or
+swap `localhost` for `127.0.0.1`. Guest identity is stored per-origin in `localStorage`, so
+a second tab in the same window is still the GM.
+
+### Running with persistence
+
+By default the server keeps everything in memory and writes uploads to local disk, so
+restarting `npm run dev` clears every room. That is deliberate — a fresh checkout runs with
+no containers. To run the real stack (Postgres, Redis, MinIO — see [`docs/DESIGN.md`](docs/DESIGN.md) §3):
+
+```bash
+docker compose up -d
+npm run prisma:migrate --workspace=@vtt/server
+DATABASE_URL=postgres://vtt:vtt@localhost:5432/vtt \
+REDIS_URL=redis://localhost:6379 \
+MINIO_ENDPOINT=http://localhost:9000 \
+npm run dev
+```
+
+Two lines on startup tell you which mode you are in:
+
+```
+[vtt] using Postgres event store          # persistent
+[vtt] DATABASE_URL unset — using in-memory store    # not persistent
+```
+
+`docker compose down` stops the services; add `-v` to discard their data as well.
+
+### Verifying and building
+
+```bash
+npm run lint && npm run typecheck && npm test
+npm run build
+```
+
+`npm test` runs the pure-kernel unit tests and the multi-client integration tests over real
+sockets. The Postgres store tests skip unless `DATABASE_URL` is set:
+
+```bash
+DATABASE_URL=postgres://vtt:vtt@localhost:5432/vtt npm test --workspace=@vtt/server
+```
+
+`npm run build` type-checks and produces the production client bundle in `apps/web/dist`.
+The server runs from TypeScript via `tsx`; `npm start` launches it.
+
+### Troubleshooting
+
+`EADDRINUSE` on :3001 means an earlier `npm run dev` is still running:
+
+```bash
+kill $(lsof -ti tcp:3001) $(lsof -ti tcp:5173)
+```
+
+If `docker compose` is not recognised as a command, the Compose plugin is installed where
+the Docker CLI does not look for it:
+
+```bash
+mkdir -p ~/.docker/cli-plugins && ln -sfn "$(which docker-compose)" ~/.docker/cli-plugins/docker-compose
+```
+
+See [`CLAUDE.md`](CLAUDE.md) for the full command list and the architecture invariants, and
+[`docs/DESIGN.md`](docs/DESIGN.md) for the system design.
+
+---
+
 ## 0. How to Read This Document
 
 This specification defines the intended product scope, user experience, functional requirements, verification approach, nonfunctional requirements, success metrics, team workstreams, risks, and reference material for the project.
