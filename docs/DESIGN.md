@@ -776,14 +776,14 @@ A slice is done when all four hold:
 
 ## 9. Repository and CI
 
-The repository is a pnpm workspace on Node 22 (`.nvmrc`). Setup and run instructions live in `README.md`.
+The repository is an npm workspace on Node 22 (`.nvmrc`). Setup and run instructions live in `README.md`.
 
 ```
 .github/workflows/ci.yml   lint → typecheck → test → build → server health smoke test
-apps/server/               Fastify + ws server; domain/liveRoom.ts is the command pipeline
+apps/server/               Express + Socket.IO server; domain/liveRoom.ts is the command pipeline
 apps/web/                  React panels + PixiJS board
 packages/shared/           the pure kernel: state, commands, events, decide, reduce, visibility
-apps/server/db/            target Postgres schema (not wired in yet)
+apps/server/prisma/        Prisma schema and migrations for the event store
 docs/DESIGN.md             this document
 docs/adr/                  architecture decision records
 openspec/                  spec-driven change proposals for future work
@@ -796,10 +796,10 @@ CI runs on every push to `main` and `design` and on every PR into `main`:
 
 | Step | Command | Guards against |
 | --- | --- | --- |
-| Lint | `pnpm lint` | Style drift and unused/unsafe code across four contributors |
-| Typecheck | `pnpm typecheck` | Type errors across the workspace package boundaries |
-| Test | `pnpm test` | Regressions in the authoritative kernel and identity rules |
-| Build | `pnpm build` | A client that compiles locally but not cleanly |
+| Lint | `npm run lint` | Style drift and unused/unsafe code across four contributors |
+| Typecheck | `npm run typecheck` | Type errors across the workspace package boundaries |
+| Test | `npm test` | Regressions in the authoritative kernel and identity rules |
+| Build | `npm run build` | A client that compiles locally but not cleanly |
 | Smoke | `curl /health` | A server that builds but does not boot |
 
 It is intentionally thin. It exists so that the *habit* and the *wiring* are in place before there is enough code to make setting it up painful. Playwright joins the matrix in Slice 1, when there is a multi-user flow worth asserting.
