@@ -5,10 +5,10 @@
 #   npm run prisma:migrate --workspace=@vtt/server   # apply prisma/migrations
 #   DATABASE_URL=$DATABASE_URL \
 #   REDIS_URL=redis://localhost:6379 \
-#   MINIO_ENDPOINT=http://localhost:9000 pnpm dev
+#   MINIO_ENDPOINT=http://localhost:9000 npm run dev
 #
 # With none of those set the server falls back to the in-memory store and local disk,
-# so `pnpm dev` and CI still work with no containers running.
+# so `npm run dev` and CI still work with no containers running.
 services:
   postgres:
     image: postgres:17

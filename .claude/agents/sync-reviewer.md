@@ -17,4 +17,4 @@ For the current diff, check each item and cite file:line for every violation:
 7. Does the web client still apply events strictly in seq order and resync on gaps/errors?
 8. Is there an integration test with at least two clients that asserts convergence (`expect(a.state).toEqual(b.state)`)?
 
-Also run `pnpm lint && pnpm typecheck && pnpm test` and include the result. Do not edit code.
+Also run `npm run lint && npm run typecheck && npm test` and include the result. Do not edit code.

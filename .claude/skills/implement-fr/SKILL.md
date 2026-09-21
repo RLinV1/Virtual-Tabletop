@@ -32,9 +32,9 @@ Wait for the user to approve the plan.
 Order: shared schemas → `decide` → `reduce` → visibility filters → server wiring (if any) → web UI.
 
 ## 5. Verify
-- `pnpm lint && pnpm typecheck && pnpm test` must pass.
+- `npm run lint && npm run typecheck && npm test` must pass.
 - Run the `sync-reviewer` subagent; run `visibility-auditor` if any hidden data is involved. Fix findings.
-- If UI changed, run `pnpm dev` and exercise the flow in two browser origins (e.g. `localhost:5173` for GM and `127.0.0.1:5173` for a player — they have separate localStorage).
+- If UI changed, run `npm run dev` and exercise the flow in two browser origins (e.g. `localhost:5173` for GM and `127.0.0.1:5173` for a player — they have separate localStorage).
 
 ## 6. Hand off
 Summarize what changed, test results, and open questions. Suggest a PR title: `FR-XXX: <short description>`. Do not commit or push unless asked.

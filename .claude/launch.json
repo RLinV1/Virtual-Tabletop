@@ -3,14 +3,22 @@
   "configurations": [
     {
       "name": "server",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@vtt/server", "dev"],
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--workspace=@vtt/server"
+      ],
       "port": 3001
     },
     {
       "name": "web",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@vtt/web", "dev"],
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--workspace=@vtt/web"
+      ],
       "port": 5173
     }
   ]
