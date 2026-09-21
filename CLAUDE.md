@@ -7,20 +7,20 @@ The team plans changes with OpenSpec (`/opsx:propose`, `openspec/`).
 
 ## Layout
 - `packages/shared` — THE CONTRACT: zod schemas for state/commands/events/protocol, `decide`, `reduce`, visibility filters. Pure TS, no I/O.
-- `apps/server` — Express + Socket.IO. `domain/liveRoom.ts` is the command pipeline. `store/` is persistence (memory, Postgres, Redis seq, MinIO assets).
+- `apps/server` — Express + Socket.IO. `domain/liveRoom.ts` is the command pipeline. `store/` is persistence (memory, Postgres via Prisma, Redis seq, MinIO assets).
 - `apps/web` — React panels + PixiJS board (`board/boardView.ts`). `net/roomConnection.ts` is the sync client.
 - `services/vision` — (planned) Python/OpenCV grid detection and wall parsing.
 
 ## Commands
 ```bash
-pnpm install
-pnpm dev            # server :3001 + web :5173 (proxies /api, /socket.io, /uploads)
-pnpm test           # vitest: shared unit tests + server multi-client integration tests
-pnpm typecheck
-pnpm lint
-pnpm --filter @vtt/server test -- -t "reconnect"   # run one test by name
+npm install
+npm run dev         # server :3001 + web :5173 (proxies /api, /socket.io, /uploads)
+npm test            # vitest: shared unit tests + server multi-client integration tests
+npm run typecheck
+npm run lint
+npm test --workspace=@vtt/server -- -t "reconnect"   # run one test by name
 ```
-Run `pnpm lint && pnpm typecheck && pnpm test` before declaring any task done.
+Run `npm run lint && npm run typecheck && npm test` before declaring any task done.
 
 ## Invariants — never violate
 1. Persistent state changes ONLY via: `Command` → `decide()` → events → `store.append` → `reduce()` → broadcast. Nothing else mutates `RoomState`.
@@ -42,7 +42,7 @@ Run `pnpm lint && pnpm typecheck && pnpm test` before declaring any task done.
 Changes to existing schemas in `packages/shared` need an ADR in `docs/adr/` and review by the Real-Time Architecture owner.
 
 ## Conventions
-- TypeScript strict; no `any`. zod for anything crossing a trust boundary.
+- TypeScript strict; no `any`. zod for anything crossing a trust boundary — DESIGN.md §3 wants runtime payload validation for FR-GM-15 and the README §8 forged-payload tests; Express has none built in, so zod supplies it.
 - Commands `noun.verb`; events `PastTense`.
 - Reference the FR ID in tests (`describe("... (FR-PL-02)")`) and PR titles.
 - Keep PixiJS code in `board/`; React components never touch Pixi objects directly.

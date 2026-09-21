@@ -13,31 +13,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: pnpm
+          cache: npm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run prisma:generate --workspace=@vtt/server
 
       - name: Lint
-        run: pnpm lint
+        run: npm run lint
 
       - name: Typecheck
-        run: pnpm typecheck
+        run: npm run typecheck
 
       - name: Test
-        run: pnpm test
+        run: npm test
 
       - name: Build
-        run: pnpm build
+        run: npm run build
 
       - name: Smoke-test the server boots and answers /health
         run: |
-          pnpm start &
+          npm start &
           for i in $(seq 1 20); do
             if curl -sf http://localhost:3001/health > /dev/null; then
               echo "server healthy"

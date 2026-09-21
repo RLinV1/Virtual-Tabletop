@@ -1,7 +1,9 @@
 # Local infrastructure (DESIGN.md §3).
 #
 #   docker compose up -d
-#   DATABASE_URL=postgres://vtt:vtt@localhost:5432/vtt \
+#   export DATABASE_URL=postgres://vtt:vtt@localhost:5432/vtt
+#   npm run prisma:migrate --workspace=@vtt/server   # apply prisma/migrations
+#   DATABASE_URL=$DATABASE_URL \
 #   REDIS_URL=redis://localhost:6379 \
 #   MINIO_ENDPOINT=http://localhost:9000 pnpm dev
 #
@@ -17,7 +19,6 @@ services:
     ports: ["5432:5432"]
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./apps/server/db:/docker-entrypoint-initdb.d:ro
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]

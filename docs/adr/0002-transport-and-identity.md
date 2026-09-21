@@ -61,14 +61,26 @@ The kernel is untouched. `decide`, `reduce`, the visibility filters and the even
 ADR 0001 are transport-agnostic and survive verbatim — which is the property that made
 this affordable at all (~700 lines, five files).
 
-zod validation is **kept**, against `DESIGN.md` §4's "TS types only": `CLAUDE.md` requires
-zod for anything crossing a trust boundary, and the forged-payload tests in README §8
-depend on runtime validation. pnpm is kept for the same reason — `CLAUDE.md` documents it
-and the workspace layout depends on it.
+zod validation is **kept**. The "TS types only" characterisation appears only in
+`PROPOSAL-walking-skeleton.md` §4; `DESIGN.md` itself never asks for zod's removal. What it
+does say (§3) is that Fastify's "built-in payload schema validation would directly serve
+FR-GM-15 and the forged-payload tests in README §8" — it wants runtime validation and
+assumed the framework would supply it. Having moved to Express, which has none, removing
+zod would leave the codebase with less validation than either document asks for.
+
+## Toolchain
+
+pnpm is replaced by **npm workspaces** (`DESIGN.md` §7 and §9 both use npm), with
+`concurrently` driving `npm run dev` as the prototype on `design` does. Raw `pg` is
+replaced by **Prisma** (`DESIGN.md` §3 "PostgreSQL + Prisma", §8.3 "Prisma schema from
+§4.1, with migrations"): `apps/server/prisma/schema.prisma` replaces the hand-written
+`db/001_init.sql`, and `prisma/migrations/` is now the single source of schema truth.
 
 ## Consequences
 
 - Two dependencies where there were none: `socket.io` and `socket.io-client`.
+- CI gains a `prisma generate` step, since the client is code-generated.
+- A fresh database needs `npm run prisma:migrate --workspace=@vtt/server` before first run.
 - The Vite dev proxy forwards `/socket.io` instead of `/ws`.
 - Multi-instance deployment is now a Socket.IO Redis adapter away, rather than requiring a
   bespoke fan-out.
