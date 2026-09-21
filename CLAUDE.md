@@ -1,20 +1,20 @@
 # VTT — CSE 416
 
 Browser virtual tabletop. Product spec: `README.md` (requirements are referenced by ID, e.g. FR-PL-02).
-Team design doc: `docs/DESIGN.md`. This branch's event model: `docs/adr/0001-event-model.md`; where it deviates
-from DESIGN.md, see `docs/PROPOSAL-walking-skeleton.md` — read these before touching sync, auth, or state.
+Team design doc: `docs/DESIGN.md`. Event model: `docs/adr/0001-event-model.md`; transport and guest identity:
+`docs/adr/0002-transport-and-identity.md` — read these before touching sync, auth, or state.
 The team plans changes with OpenSpec (`/opsx:propose`, `openspec/`).
 
 ## Layout
 - `packages/shared` — THE CONTRACT: zod schemas for state/commands/events/protocol, `decide`, `reduce`, visibility filters. Pure TS, no I/O.
-- `apps/server` — Fastify + WebSocket. `domain/liveRoom.ts` is the command pipeline. `store/` is persistence.
+- `apps/server` — Express + Socket.IO. `domain/liveRoom.ts` is the command pipeline. `store/` is persistence (memory, Postgres, Redis seq, MinIO assets).
 - `apps/web` — React panels + PixiJS board (`board/boardView.ts`). `net/roomConnection.ts` is the sync client.
 - `services/vision` — (planned) Python/OpenCV grid detection and wall parsing.
 
 ## Commands
 ```bash
 pnpm install
-pnpm dev            # server :3001 + web :5173 (proxies /api, /ws, /uploads)
+pnpm dev            # server :3001 + web :5173 (proxies /api, /socket.io, /uploads)
 pnpm test           # vitest: shared unit tests + server multi-client integration tests
 pnpm typecheck
 pnpm lint

@@ -1,5 +1,12 @@
-# Local infrastructure. Not required yet: the server uses an in-memory store by default.
-# Needed once the Postgres event store (docs/adr/0001) and object storage land.
+# Local infrastructure (DESIGN.md §3).
+#
+#   docker compose up -d
+#   DATABASE_URL=postgres://vtt:vtt@localhost:5432/vtt \
+#   REDIS_URL=redis://localhost:6379 \
+#   MINIO_ENDPOINT=http://localhost:9000 pnpm dev
+#
+# With none of those set the server falls back to the in-memory store and local disk,
+# so `pnpm dev` and CI still work with no containers running.
 services:
   postgres:
     image: postgres:17
@@ -11,6 +18,12 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./apps/server/db:/docker-entrypoint-initdb.d:ro
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["6379:6379"]
+    volumes:
+      - redisdata:/data
   minio:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
@@ -22,4 +35,5 @@ services:
       - miniodata:/data
 volumes:
   pgdata:
+  redisdata:
   miniodata:

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { api } from "../net/api";
-import { gmRoomForInvite, guestRoomForInvite, rememberInvite, saveCredentials } from "../net/identity";
+import { gmRoomForInvite, guestRoomForInvite, newGuestToken, rememberInvite, saveCredentials } from "../net/identity";
 import { navigate } from "../router";
 
 /** Guest join from a shareable link (FR-PL-01). Returning guests skip straight to the room (FR-PL-02). */
@@ -38,8 +38,9 @@ export function JoinPage({ inviteCode }: { inviteCode: string }) {
     setBusy(true);
     setError(null);
     try {
-      const joined = await api.joinRoom(inviteCode, { displayName });
-      saveCredentials(joined);
+      const guestToken = newGuestToken();
+      const joined = await api.joinRoom(inviteCode, { displayName, guestToken });
+      saveCredentials({ ...joined, guestToken });
       rememberInvite(inviteCode, joined.roomId);
       navigate(`/r/${joined.roomId}`, { replace: true });
     } catch (err) {

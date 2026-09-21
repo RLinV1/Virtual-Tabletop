@@ -11,7 +11,7 @@ export default defineConfig({
     proxy: {
       "/api": server,
       "/uploads": server,
-      "/ws": { target: server.replace(/^http/, "ws"), ws: true },
+      "/socket.io": { target: server, ws: true },
     },
   },
 });

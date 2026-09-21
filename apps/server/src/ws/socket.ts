@@ -1,6 +1,10 @@
-import type { FastifyInstance } from "fastify";
-import type { RawData, WebSocket } from "ws";
-import { ClientMessage, type ServerMessage } from "@vtt/shared";
+import type { Server as SocketIOServer, Socket } from "socket.io";
+import {
+  ClientMessage,
+  HandshakeAuth,
+  SOCKET_EVENTS,
+  type ServerMessage,
+} from "@vtt/shared";
 import { hashToken } from "../domain/credentials";
 import type { LiveRoom, RoomClient } from "../domain/liveRoom";
 import type { RoomRegistry } from "../domain/roomRegistry";
@@ -8,66 +12,71 @@ import type { RoomStore } from "../store/roomStore";
 
 const EPHEMERAL_PER_SECOND = 40;
 
+/**
+ * Socket.IO gateway (DESIGN.md §2.2, §3).
+ *
+ * Identity is resolved once, in the handshake: Socket.IO replays `auth` on every
+ * automatic reconnect, so a dropped client rebinds to the same participant without a
+ * round trip (FR-PL-05). Ephemeral traffic is relayed with `volatile.emit` in
+ * `LiveRoom`, so pointer and drag chatter drops under backpressure rather than
+ * queueing ahead of committed events (FR-SYNC-03).
+ */
 export function registerSocket(
-  app: FastifyInstance,
-  deps: { store: RoomStore; registry: RoomRegistry },
+  io: SocketIOServer,
+  deps: { store: RoomStore; registry: RoomRegistry; logger?: boolean },
 ) {
-  app.get("/ws", { websocket: true }, (socket: WebSocket) => {
-    let room: LiveRoom | null = null;
-    let client: RoomClient | null = null;
+  // Authenticate during the handshake so an unauthorized socket never reaches a room.
+  io.use(async (socket, next) => {
+    const auth = HandshakeAuth.safeParse(socket.handshake.auth);
+    if (!auth.success) return next(new Error("bad_request"));
+
+    const cred = await deps.store.findCredential(hashToken(auth.data.guestToken));
+    if (!cred || cred.roomId !== auth.data.roomId) return next(new Error("unauthorized"));
+
+    const room = await deps.registry.get(cred.roomId);
+    if (!room) return next(new Error("not_found"));
+
+    socket.data.room = room;
+    socket.data.participantId = cred.participantId;
+    next();
+  });
+
+  io.on("connection", (socket: Socket) => {
+    const room = socket.data.room as LiveRoom;
+    const participantId = socket.data.participantId as string;
+
+    const send = (msg: ServerMessage) => socket.emit(SOCKET_EVENTS.event, msg);
+    const client: RoomClient = {
+      participantId,
+      send,
+      sendVolatile: (msg) => socket.volatile.emit(SOCKET_EVENTS.event, msg),
+    };
+
+    // FR-PL-06: every connection starts from an authoritative, filtered snapshot.
+    room.attach(client);
+
     let windowStart = Date.now();
     let ephemeralCount = 0;
 
-    const send = (msg: ServerMessage) => {
-      if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(msg));
-    };
-
-    // Handle one message at a time so a socket's messages are processed in the order sent.
+    // Handle one message at a time so a socket's messages commit in the order sent.
     let queue: Promise<void> = Promise.resolve();
-    socket.on("message", (raw) => {
-      queue = queue.then(() => handle(raw)).catch((err) => {
-        app.log.error(err);
+    socket.on(SOCKET_EVENTS.message, (raw: unknown) => {
+      queue = queue.then(async () => void (await handle(raw))).catch((err) => {
+        if (deps.logger) console.error("[vtt]", err);
         send({ type: "error", code: "bad_request", message: "Internal error" });
       });
     });
 
-    const handle = async (raw: RawData) => {
-      let parsed;
-      try {
-        parsed = ClientMessage.safeParse(JSON.parse(raw.toString()));
-      } catch {
-        return send({ type: "error", code: "bad_request", message: "Invalid JSON" });
-      }
+    const handle = async (raw: unknown) => {
+      const parsed = ClientMessage.safeParse(raw);
       if (!parsed.success) {
         return send({ type: "error", code: "bad_request", message: parsed.error.message });
       }
       const msg = parsed.data;
 
-      if (msg.type === "hello") {
-        if (client) return send({ type: "error", code: "bad_request", message: "Already joined" });
-        const cred = await deps.store.findCredential(hashToken(msg.token));
-        if (!cred || cred.roomId !== msg.roomId) {
-          send({ type: "error", code: "unauthorized", message: "Invalid room credentials" });
-          return socket.close(4001, "unauthorized");
-        }
-        room = await deps.registry.get(cred.roomId);
-        if (!room) {
-          send({ type: "error", code: "not_found", message: "Room not found" });
-          return socket.close(4004, "not_found");
-        }
-        client = { participantId: cred.participantId, send };
-        room.attach(client);
-        return;
-      }
-
-      if (!room || !client) {
-        send({ type: "error", code: "unauthorized", message: "Send hello first" });
-        return socket.close(4001, "unauthorized");
-      }
-
       switch (msg.type) {
         case "command": {
-          const result = await room.submit(client.participantId, msg.command);
+          const result = await room.submit(participantId, msg.command);
           if (result.ok) send({ type: "ack", clientCommandId: msg.clientCommandId, seq: result.seq });
           else send({ type: "rejected", clientCommandId: msg.clientCommandId, code: result.code, message: result.message });
           return;
@@ -88,8 +97,8 @@ export function registerSocket(
       }
     };
 
-    socket.on("close", () => {
-      if (room && client) room.detach(client);
+    socket.on("disconnect", () => {
+      room.detach(client);
     });
   });
 }

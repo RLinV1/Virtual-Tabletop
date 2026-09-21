@@ -1,14 +1,15 @@
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import WebSocket from "ws";
+import { randomBytes } from "node:crypto";
+import { io, type Socket } from "socket.io-client";
 import {
+  SOCKET_EVENTS,
   emptyRoomState,
   reduce,
   type ClientMessageInput,
   type CreateRoomResponse,
   type JoinRoomResponse,
-  type RoomCredentials,
   type RoomState,
   type ServerMessage,
 } from "@vtt/shared";
@@ -17,7 +18,7 @@ import { MemoryRoomStore } from "../src/store/memoryRoomStore";
 
 export async function startServer() {
   const uploadDir = await mkdtemp(path.join(tmpdir(), "vtt-uploads-"));
-  const app = await buildApp({ store: new MemoryRoomStore(), uploadDir });
+  const app = await buildApp({ store: new MemoryRoomStore(), uploadDir, clientOrigin: "*" });
   await app.listen({ port: 0, host: "127.0.0.1" });
   const addr = app.server.address();
   if (!addr || typeof addr === "string") throw new Error("no address");
@@ -36,12 +37,37 @@ export async function startServer() {
   return {
     base,
     close: () => app.close(),
-    createRoom: (displayName = "GM") =>
-      post<CreateRoomResponse>("/api/rooms", { roomName: "Test", displayName }),
-    join: (inviteCode: string, displayName: string) =>
-      post<JoinRoomResponse>(`/api/invites/${inviteCode}/join`, { displayName }),
-    connect: (creds: RoomCredentials) => TestClient.connect(base.replace("http", "ws") + "/ws", creds),
+    /** Mirrors the browser: the client generates its own credential (DESIGN.md §5.1). */
+    newGuestToken,
+    createRoom: async (displayName = "GM") => {
+      const guestToken = newGuestToken();
+      const room = await post<CreateRoomResponse>("/api/rooms", {
+        roomName: "Test",
+        displayName,
+        guestToken,
+      });
+      return { ...room, guestToken };
+    },
+    join: async (inviteCode: string, displayName: string) => {
+      const guestToken = newGuestToken();
+      const joined = await post<JoinRoomResponse>(`/api/invites/${inviteCode}/join`, {
+        displayName,
+        guestToken,
+      });
+      return { ...joined, guestToken };
+    },
+    connect: (creds: TestCredentials) => TestClient.connect(base, creds),
   };
+}
+
+/** 32 bytes of entropy, as the browser produces in apps/web/src/net/identity.ts. */
+export function newGuestToken(): string {
+  return randomBytes(32).toString("base64url");
+}
+
+export interface TestCredentials {
+  roomId: string;
+  guestToken: string;
 }
 
 /** Mirrors what the browser client does: snapshot + ordered events through the shared reducer. */
@@ -55,31 +81,36 @@ export class TestClient {
   private waiters: Array<() => void> = [];
   private nextId = 0;
 
-  private constructor(private ws: WebSocket) {
-    ws.on("message", (raw) => {
-      this.rawLog.push(raw.toString());
-      const msg = JSON.parse(raw.toString()) as ServerMessage;
+  private constructor(private socket: Socket) {
+    socket.on(SOCKET_EVENTS.event, (msg: ServerMessage) => {
+      this.rawLog.push(JSON.stringify(msg));
       this.apply(msg);
       this.inbox.push(msg);
       this.waiters.splice(0).forEach((w) => w());
     });
   }
 
-  static async connect(url: string, creds: RoomCredentials) {
-    const ws = new WebSocket(url);
-    await new Promise((resolve, reject) => {
-      ws.once("open", resolve);
-      ws.once("error", reject);
+  /** Identity travels in the handshake, so a reconnect rebinds with no extra round trip. */
+  static async connect(base: string, creds: TestCredentials) {
+    const socket = io(base, {
+      transports: ["websocket"],
+      auth: { roomId: creds.roomId, guestToken: creds.guestToken },
+      reconnection: false,
     });
-    const client = new TestClient(ws);
-    client.send({ type: "hello", roomId: creds.roomId, token: creds.token });
+    // Subscribe before the handshake completes: the server sends `welcome` the moment
+    // it accepts the connection, and an event with no listener yet is simply dropped.
+    const client = new TestClient(socket);
+    await new Promise<void>((resolve, reject) => {
+      socket.once("connect", () => resolve());
+      socket.once("connect_error", (err: Error) => reject(new Error(err.message)));
+    });
     const reply = await client.waitFor((m) => m.type === "welcome" || m.type === "error");
     if (reply.type === "error") throw new Error(`${reply.code}: ${reply.message}`);
     return client;
   }
 
   send(msg: ClientMessageInput) {
-    this.ws.send(JSON.stringify(msg));
+    this.socket.emit(SOCKET_EVENTS.message, msg);
   }
 
   /** Send a command and resolve with its ack or rejection. */
@@ -125,7 +156,7 @@ export class TestClient {
   }
 
   close() {
-    this.ws.close();
+    this.socket.close();
   }
 
   private apply(msg: ServerMessage) {

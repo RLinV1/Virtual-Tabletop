@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo } from "react";
 import { Board } from "../board/Board";
 import { loadCredentials } from "../net/identity";
-import { RoomConnection, type ConnectionStatus } from "../net/roomConnection";
+import { RoomConnection, useRoomSnapshot, type ConnectionStatus } from "../net/roomConnection";
 import { GmPanel } from "./GmPanel";
 
 const STATUS_LABEL: Record<ConnectionStatus, string> = {
@@ -13,7 +13,7 @@ const STATUS_LABEL: Record<ConnectionStatus, string> = {
 
 export function RoomPage({ roomId }: { roomId: string }) {
   const creds = useMemo(() => loadCredentials(roomId), [roomId]);
-  const connection = useMemo(() => (creds ? new RoomConnection(roomId, creds.token) : null), [roomId, creds]);
+  const connection = useMemo(() => (creds ? new RoomConnection(roomId, creds.guestToken) : null), [roomId, creds]);
 
   useEffect(() => {
     if (!connection) return;
@@ -31,11 +31,11 @@ export function RoomPage({ roomId }: { roomId: string }) {
       </main>
     );
   }
-  return <Room connection={connection} inviteCode={creds.inviteCode} token={creds.token} />;
+  return <Room connection={connection} inviteCode={creds.inviteCode} token={creds.guestToken} />;
 }
 
 function Room({ connection, inviteCode, token }: { connection: RoomConnection; inviteCode?: string; token: string }) {
-  const { status, state, you, seq } = useSyncExternalStore(connection.subscribe, () => connection.snapshot);
+  const { status, state, you, seq } = useRoomSnapshot(connection);
 
   if (status === "unauthorized") {
     return (
