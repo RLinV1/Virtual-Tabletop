@@ -141,8 +141,10 @@ describe("reconnect (FR-PL-02, FR-PL-05, FR-PL-06)", () => {
     });
   });
 
-  it("refuses a hello with a bad token", async () => {
+  it("refuses a handshake with a bad guest token (FR-GM-15)", async () => {
     const { gmCreds } = await setup();
-    await expect(server.connect({ ...gmCreds, token: "x".repeat(43) })).rejects.toThrow();
+    await expect(
+      server.connect({ ...gmCreds, guestToken: server.newGuestToken() }),
+    ).rejects.toThrow(/unauthorized/);
   });
 });

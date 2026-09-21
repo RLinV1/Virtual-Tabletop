@@ -21,7 +21,14 @@ import type { RoomStore } from "../store/roomStore";
 /** A connected socket bound to a participant. */
 export interface RoomClient {
   participantId: string;
+  /** Reliable, ordered delivery: snapshots, committed events, acks. */
   send(message: ServerMessage): void;
+  /**
+   * Best-effort delivery for the ephemeral channel — dropped under backpressure so
+   * pointer chatter never queues ahead of committed state (DESIGN.md §2.2, FR-SYNC-03).
+   * Falls back to `send` for transports without a volatile path.
+   */
+  sendVolatile?(message: ServerMessage): void;
 }
 
 export type SubmitResult =
@@ -113,7 +120,8 @@ export class LiveRoom {
       const viewer = this.state.participants[client.participantId];
       if (!viewer) continue;
       if (token?.hidden && viewer.role !== "gm") continue;
-      client.send({ type: "ephemeral", from: sender.id, payload });
+      const deliver = client.sendVolatile ?? client.send;
+      deliver.call(client, { type: "ephemeral", from: sender.id, payload });
     }
   }
 

@@ -1,0 +1,83 @@
+// Event store schema (DESIGN.md §3 "PostgreSQL + Prisma", §4.1; docs/adr/0001-event-model.md).
+//
+// `events` is append-only: rows are never updated or deleted, and undo is a new
+// compensating event (FR-REC-03). The per-room ordering guarantee (FR-SYNC-04) lives in
+// the composite primary key below, not in application code — a duplicate seq is a
+// constraint violation no matter which instance tried to write it.
+//
+//   npx prisma migrate dev --name init     # create/apply a migration
+//   npx prisma generate                    # regenerate the client after a schema edit
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Room {
+  id         String   @id @db.Uuid
+  inviteCode String   @unique @map("invite_code")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  events      Event[]
+  credentials Credential[]
+  snapshots   Snapshot[]
+  checkpoints Checkpoint[]
+
+  @@map("rooms")
+}
+
+model Event {
+  roomId    String   @map("room_id") @db.Uuid
+  seq       Int
+  type      String
+  payload   Json
+  actorId   String?  @map("actor_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  room Room @relation(fields: [roomId], references: [id])
+
+  @@id([roomId, seq])
+  @@map("events")
+}
+
+model Credential {
+  tokenHash     String    @id @map("token_hash")
+  roomId        String    @map("room_id") @db.Uuid
+  participantId String    @map("participant_id") @db.Uuid
+  revokedAt     DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  room Room @relation(fields: [roomId], references: [id])
+
+  @@map("credentials")
+}
+
+/// Periodic snapshots for fast room load; state at `seq`.
+model Snapshot {
+  roomId    String   @map("room_id") @db.Uuid
+  seq       Int
+  state     Json
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  room Room @relation(fields: [roomId], references: [id])
+
+  @@id([roomId, seq])
+  @@map("snapshots")
+}
+
+/// Named checkpoints (FR-REC).
+model Checkpoint {
+  id        String   @id @db.Uuid
+  roomId    String   @map("room_id") @db.Uuid
+  name      String
+  seq       Int
+  createdBy String?  @map("created_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  room Room @relation(fields: [roomId], references: [id])
+
+  @@map("checkpoints")
+}

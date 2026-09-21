@@ -8,8 +8,23 @@ import type { RoomCredentials } from "@vtt/shared";
  * room cannot also join it as a player — that would overwrite (and lose) the GM identity.
  */
 export interface StoredCredentials extends RoomCredentials {
+  /** The browser's own secret (DESIGN.md §5.1). The server only ever stores its SHA-256. */
+  guestToken: string;
   /** Only known to the GM who created the room. */
   inviteCode?: string;
+}
+
+/**
+ * 32 bytes of entropy, generated here rather than handed to us by the server
+ * (DESIGN.md §5.1). The secret never leaves this browser except as the value the
+ * server hashes, so a compromised server log cannot impersonate a participant.
+ */
+export function newGuestToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
 
 const CRED_PREFIX = "vtt.credentials.";

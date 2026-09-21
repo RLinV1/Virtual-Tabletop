@@ -9,7 +9,7 @@ Implements: FR-
 - Visibility rule (what players can't see):
 
 ## Checklist
-- [ ] `pnpm typecheck && pnpm test` pass
+- [ ] `npm run typecheck && npm test` pass
 - [ ] Multi-client integration test covers convergence
 - [ ] No state mutation outside `reduce`; events carry replaced values (undo-ready)
 - [ ] Hidden data filtered in snapshots, events, and REST (if applicable)

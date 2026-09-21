@@ -1,4 +1,8 @@
+import { io, type Socket } from "socket.io-client";
+import { useStore } from "zustand";
+import { createStore, type StoreApi } from "zustand/vanilla";
 import {
+  SOCKET_EVENTS,
   reduce,
   type ClientMessageInput,
   type CommandInput,
@@ -24,49 +28,65 @@ export type CommandResult =
 type EphemeralListener = (from: string, payload: EphemeralPayload) => void;
 
 /**
- * Client side of the sync protocol (docs/adr/0001-event-model.md).
+ * Client side of the sync protocol (docs/adr/0001-event-model.md, docs/adr/0002).
  *  - Never changes state except through `reduce` on a server event, or a server snapshot.
  *  - Applies events only in seq order; any gap or reducer error triggers a resync.
- *  - Reconnects automatically with backoff (FR-PL-05) and re-sends `hello`, which returns
- *    a full filtered snapshot (FR-PL-06).
+ *  - Socket.IO owns reconnection and backoff (FR-PL-05). Credentials ride the handshake,
+ *    so a reconnect rebinds to the same participant and the server replies with a full
+ *    filtered snapshot (FR-PL-06) — there is no client-side catch-up to get wrong.
+ *
+ * Observable state lives in a Zustand store (DESIGN.md §3) so components subscribe to
+ * exactly the slice they render.
  */
 export class RoomConnection {
-  private ws: WebSocket | null = null;
-  private stopped = false;
-  private attempt = 0;
-  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private socket: Socket | null = null;
   private nextCommandId = 0;
   private pending = new Map<string, (r: CommandResult) => void>();
-  private listeners = new Set<() => void>();
   private ephemeralListeners = new Set<EphemeralListener>();
 
-  snapshot: RoomSnapshot = { status: "connecting", state: null, you: null, seq: 0 };
+  readonly store: StoreApi<RoomSnapshot> = createStore<RoomSnapshot>(() => ({
+    status: "connecting",
+    state: null,
+    you: null,
+    seq: 0,
+  }));
 
   constructor(
     private roomId: string,
-    private token: string,
+    private guestToken: string,
   ) {}
 
+  get snapshot(): RoomSnapshot {
+    return this.store.getState();
+  }
+
   start() {
-    this.stopped = false;
-    window.addEventListener("online", this.reconnectNow);
-    document.addEventListener("visibilitychange", this.reconnectNow);
-    this.connect();
+    const socket = io({
+      path: "/socket.io",
+      transports: ["websocket"],
+      auth: { roomId: this.roomId, guestToken: this.guestToken },
+    });
+    this.socket = socket;
+
+    socket.on(SOCKET_EVENTS.event, (msg: ServerMessage) => this.handle(msg));
+    socket.on("disconnect", () => {
+      this.failPending("Connection lost");
+      if (this.snapshot.status !== "unauthorized") this.update({ status: "reconnecting" });
+    });
+    // A handshake rejection is terminal: the credential is wrong, so retrying cannot help.
+    socket.on("connect_error", (err: Error) => {
+      if (err.message === "unauthorized" || err.message === "not_found") {
+        socket.disconnect();
+        this.update({ status: "unauthorized" });
+      }
+    });
   }
 
   stop() {
-    this.stopped = true;
-    window.removeEventListener("online", this.reconnectNow);
-    document.removeEventListener("visibilitychange", this.reconnectNow);
-    if (this.retryTimer) clearTimeout(this.retryTimer);
-    this.ws?.close();
+    this.socket?.disconnect();
+    this.socket = null;
     this.failPending("Disconnected");
   }
-
-  subscribe = (fn: () => void) => {
-    this.listeners.add(fn);
-    return () => this.listeners.delete(fn);
-  };
 
   onEphemeral(fn: EphemeralListener) {
     this.ephemeralListeners.add(fn);
@@ -88,35 +108,9 @@ export class RoomConnection {
     if (this.snapshot.status === "open") this.send({ type: "ephemeral", payload });
   }
 
-  private connect() {
-    const protocol = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${protocol}://${location.host}/ws`);
-    this.ws = ws;
-
-    ws.onopen = () => this.send({ type: "hello", roomId: this.roomId, token: this.token });
-    ws.onmessage = (e) => this.handle(JSON.parse(e.data as string) as ServerMessage);
-    ws.onclose = () => {
-      if (this.ws !== ws) return;
-      this.ws = null;
-      this.failPending("Connection lost");
-      if (this.stopped || this.snapshot.status === "unauthorized") return;
-      this.update({ status: "reconnecting" });
-      const delay = Math.min(5000, 250 * 2 ** this.attempt++) * (0.75 + Math.random() * 0.5);
-      this.retryTimer = setTimeout(() => this.connect(), delay);
-    };
-  }
-
-  private reconnectNow = () => {
-    if (this.stopped || this.ws || document.visibilityState === "hidden") return;
-    if (this.snapshot.status !== "reconnecting") return;
-    if (this.retryTimer) clearTimeout(this.retryTimer);
-    this.connect();
-  };
-
   private handle(msg: ServerMessage) {
     switch (msg.type) {
       case "welcome":
-        this.attempt = 0;
         this.update({ status: "open", state: msg.state, you: msg.you, seq: msg.seq });
         return;
 
@@ -164,7 +158,7 @@ export class RoomConnection {
   }
 
   private send(msg: ClientMessageInput) {
-    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
+    this.socket?.emit(SOCKET_EVENTS.message, msg);
   }
 
   private settle(id: string, result: CommandResult) {
@@ -178,7 +172,11 @@ export class RoomConnection {
   }
 
   private update(patch: Partial<RoomSnapshot>) {
-    this.snapshot = { ...this.snapshot, ...patch };
-    this.listeners.forEach((fn) => fn());
+    this.store.setState(patch);
   }
+}
+
+/** Subscribe a component to the room's Zustand store. */
+export function useRoomSnapshot(connection: RoomConnection): RoomSnapshot {
+  return useStore(connection.store);
 }

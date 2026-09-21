@@ -2,28 +2,29 @@
   "name": "vtt",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@10.34.5",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Browser-based virtual tabletop (CSE 416)",
   "engines": {
     "node": ">=22"
   },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
-    "dev": "pnpm --parallel --filter @vtt/server --filter @vtt/web dev",
-    "build": "pnpm -r build",
+    "dev": "concurrently -n server,web -c blue,magenta \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "npm run dev --workspace=@vtt/server",
+    "dev:web": "npm run dev --workspace=@vtt/web",
+    "build": "npm run build --workspaces --if-present",
     "lint": "eslint .",
-    "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test",
-    "start": "pnpm --filter @vtt/server start"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "start": "npm run start --workspace=@vtt/server"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
-  },
-  "version": "0.1.0",
-  "license": "MIT",
-  "description": "Browser-based virtual tabletop — walking-skeleton proposal (see docs/PROPOSAL-walking-skeleton.md)",
   "devDependencies": {
     "@eslint/js": "^9.17.0",
+    "concurrently": "^9.1.0",
     "eslint": "^9.17.0",
     "globals": "^15.13.0",
     "typescript-eslint": "^8.18.0"

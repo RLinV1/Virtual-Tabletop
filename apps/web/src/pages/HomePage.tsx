@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { api } from "../net/api";
-import { saveCredentials } from "../net/identity";
+import { newGuestToken, saveCredentials } from "../net/identity";
 import { navigate } from "../router";
 
 export function HomePage() {
@@ -14,8 +14,9 @@ export function HomePage() {
     setBusy(true);
     setError(null);
     try {
-      const created = await api.createRoom({ roomName, displayName });
-      saveCredentials(created);
+      const guestToken = newGuestToken();
+      const created = await api.createRoom({ roomName, displayName, guestToken });
+      saveCredentials({ ...created, guestToken });
       navigate(`/r/${created.roomId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create room");

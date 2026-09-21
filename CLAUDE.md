@@ -1,26 +1,26 @@
 # VTT — CSE 416
 
 Browser virtual tabletop. Product spec: `README.md` (requirements are referenced by ID, e.g. FR-PL-02).
-Team design doc: `docs/DESIGN.md`. This branch's event model: `docs/adr/0001-event-model.md`; where it deviates
-from DESIGN.md, see `docs/PROPOSAL-walking-skeleton.md` — read these before touching sync, auth, or state.
+Team design doc: `docs/DESIGN.md`. Event model: `docs/adr/0001-event-model.md`; transport and guest identity:
+`docs/adr/0002-transport-and-identity.md` — read these before touching sync, auth, or state.
 The team plans changes with OpenSpec (`/opsx:propose`, `openspec/`).
 
 ## Layout
 - `packages/shared` — THE CONTRACT: zod schemas for state/commands/events/protocol, `decide`, `reduce`, visibility filters. Pure TS, no I/O.
-- `apps/server` — Fastify + WebSocket. `domain/liveRoom.ts` is the command pipeline. `store/` is persistence.
+- `apps/server` — Express + Socket.IO. `domain/liveRoom.ts` is the command pipeline. `store/` is persistence (memory, Postgres via Prisma, Redis seq, MinIO assets).
 - `apps/web` — React panels + PixiJS board (`board/boardView.ts`). `net/roomConnection.ts` is the sync client.
 - `services/vision` — (planned) Python/OpenCV grid detection and wall parsing.
 
 ## Commands
 ```bash
-pnpm install
-pnpm dev            # server :3001 + web :5173 (proxies /api, /ws, /uploads)
-pnpm test           # vitest: shared unit tests + server multi-client integration tests
-pnpm typecheck
-pnpm lint
-pnpm --filter @vtt/server test -- -t "reconnect"   # run one test by name
+npm install
+npm run dev         # server :3001 + web :5173 (proxies /api, /socket.io, /uploads)
+npm test            # vitest: shared unit tests + server multi-client integration tests
+npm run typecheck
+npm run lint
+npm test --workspace=@vtt/server -- -t "reconnect"   # run one test by name
 ```
-Run `pnpm lint && pnpm typecheck && pnpm test` before declaring any task done.
+Run `npm run lint && npm run typecheck && npm test` before declaring any task done.
 
 ## Invariants — never violate
 1. Persistent state changes ONLY via: `Command` → `decide()` → events → `store.append` → `reduce()` → broadcast. Nothing else mutates `RoomState`.
@@ -42,7 +42,7 @@ Run `pnpm lint && pnpm typecheck && pnpm test` before declaring any task done.
 Changes to existing schemas in `packages/shared` need an ADR in `docs/adr/` and review by the Real-Time Architecture owner.
 
 ## Conventions
-- TypeScript strict; no `any`. zod for anything crossing a trust boundary.
+- TypeScript strict; no `any`. zod for anything crossing a trust boundary — DESIGN.md §3 wants runtime payload validation for FR-GM-15 and the README §8 forged-payload tests; Express has none built in, so zod supplies it.
 - Commands `noun.verb`; events `PastTense`.
 - Reference the FR ID in tests (`describe("... (FR-PL-02)")`) and PR titles.
 - Keep PixiJS code in `board/`; React components never touch Pixi objects directly.
