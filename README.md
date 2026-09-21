@@ -8,6 +8,38 @@
 
 ---
 
+## Getting Started
+
+Requires **Node 22** (see `.nvmrc`). This is a **pnpm** workspace — `npm install` will not work.
+
+```bash
+git clone https://github.com/RLinV1/Virtual-Tabletop.git
+cd Virtual-Tabletop
+corepack enable pnpm
+pnpm install
+pnpm dev
+```
+
+Already cloned? Run `git checkout main && git pull` first, then `pnpm install`.
+
+`pnpm dev` starts the API server on **:3001** and the web client on **:5173**. Open <http://localhost:5173>, create a room, and copy the invite link.
+
+**To join as a player on the same machine,** open the invite link in a private window, or swap `localhost` for `127.0.0.1`. Guest identity is stored per-origin in `localStorage`, so a second tab in the same window is still the GM.
+
+**Nothing persists yet.** The server runs on an in-memory store, so restarting `pnpm dev` clears every room. `docker-compose.yml` is scaffolding for the planned Postgres/MinIO backend and is not wired in.
+
+Verify the checkout is healthy:
+
+```bash
+pnpm lint && pnpm typecheck && pnpm test
+```
+
+`EADDRINUSE` on :3001 means an earlier `pnpm dev` is still running — stop it with `kill $(lsof -ti tcp:3001) $(lsof -ti tcp:5173)`.
+
+See [`CLAUDE.md`](CLAUDE.md) for the full command list and the architecture invariants, and [`docs/DESIGN.md`](docs/DESIGN.md) for the system design.
+
+---
+
 ## 0. How to Read This Document
 
 This specification defines the intended product scope, user experience, functional requirements, verification approach, nonfunctional requirements, success metrics, team workstreams, risks, and reference material for the project.
