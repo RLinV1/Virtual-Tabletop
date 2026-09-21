@@ -4,20 +4,21 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['dist/**', 'node_modules/**', 'openspec/**'],
+    ignores: ['**/dist/**', '**/node_modules/**', 'openspec/**', 'apps/server/uploads/**'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ['src/client/**/*.{ts,tsx}'],
-    languageOptions: {
-      globals: globals.browser,
-    },
+    files: ['apps/web/src/**/*.{ts,tsx}'],
+    languageOptions: { globals: globals.browser },
   },
   {
-    files: ['src/server/**/*.ts', 'vite.config.ts', 'eslint.config.js'],
-    languageOptions: {
-      globals: globals.node,
+    files: ['apps/server/**/*.ts', 'apps/web/vite.config.ts', 'eslint.config.js'],
+    languageOptions: { globals: globals.node },
+  },
+  {
+    rules: {
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
     },
   },
 );
