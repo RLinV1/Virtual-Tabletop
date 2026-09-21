@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   CreateBucketCommand,
   HeadBucketCommand,
+  PutBucketPolicyCommand,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
@@ -64,6 +65,26 @@ export class MinioAssetStore implements AssetStore {
     } catch {
       await s3.send(new CreateBucketCommand({ Bucket: bucket }));
     }
+
+    // Buckets are private by default, which would make every returned URL a 403 in the
+    // browser. Objects are named by UUID and carry no room data, and DESIGN.md §6 wants
+    // them served from an origin separate from the app, so read is public and write is not.
+    await s3.send(
+      new PutBucketPolicyCommand({
+        Bucket: bucket,
+        Policy: JSON.stringify({
+          Version: "2012-10-17",
+          Statement: [
+            {
+              Effect: "Allow",
+              Principal: { AWS: ["*"] },
+              Action: ["s3:GetObject"],
+              Resource: [`arn:aws:s3:::${bucket}/*`],
+            },
+          ],
+        }),
+      }),
+    );
 
     const publicBase = opts.publicBase ?? `${opts.endpoint.replace(/\/$/, "")}/${bucket}`;
     return new MinioAssetStore(s3, bucket, publicBase);

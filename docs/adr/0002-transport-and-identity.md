@@ -81,6 +81,12 @@ replaced by **Prisma** (`DESIGN.md` §3 "PostgreSQL + Prisma", §8.3 "Prisma sch
 - Two dependencies where there were none: `socket.io` and `socket.io-client`.
 - CI gains a `prisma generate` step, since the client is code-generated.
 - A fresh database needs `npm run prisma:migrate --workspace=@vtt/server` before first run.
+- The asset bucket is created with a public-read policy. Objects are named by UUID and
+  carry no room data; access control is at the room level, not the object level, and
+  DESIGN.md §6 wants uploads served from an origin separate from the app. Without the
+  policy every URL the server hands back is a 403 in the browser.
+- MinIO is pulled from `quay.io/minio/minio`; the Docker Hub `minio/minio` image is no
+  longer publicly pullable.
 - The Vite dev proxy forwards `/socket.io` instead of `/ws`.
 - Multi-instance deployment is now a Socket.IO Redis adapter away, rather than requiring a
   bespoke fan-out.
