@@ -377,6 +377,80 @@ Identity is resolved **once per connection**, at the handshake, and cached on th
 
 ---
 
+### 5.7 Accounts for returning users — proposed
+
+**Status: proposed, not decided.** This revises §5.1 and §5.2, which are the Real-Time
+Architecture owner's. It is written up because §5.5 and §12 both already flag the hole and
+defer it, and the deferral has now been overtaken: §12 says "pick before FR-PL-02 ships",
+and FR-PL-02 has shipped.
+
+**The gap.** Guest identity is one browser. A player who opens the invite on their phone,
+clears site data, or joins from a library machine is a *new person* to the system — new
+participant, no owned tokens, no history. The same is true of the GM today, and worse:
+until FR-GM-01 exists there are no accounts at all, so a GM who switches device loses the
+room outright, because ownership is a credential hash in one browser and nothing else.
+
+§5.1 says the GM "survives a different device — log in again". That is a description of
+FR-GM-01, not of anything that currently runs.
+
+**Proposal: one account type, and role stays per room.**
+
+An account is not "a GM account". It is a person who has decided to keep using the
+platform. What they do in any given room is `participants.role`, which is per-room data —
+so the same account is GM in their own campaign and a player in a friend's. The schema
+already works this way (§4.2); it has simply never been said out loud, and §5.1's
+"Can create rooms: yes / no" row reads as though it were an account-level property. It
+is not.
+
+**Three ways in, and the fast one does not change.**
+
+| Path | Friction | Who |
+| --- | --- | --- |
+| Invite link, no account | Open link, type a name, play | First-time players. Unchanged — FR-PL-01 and the 30-second target are not negotiable |
+| Claim an account afterwards | Offered *after* a session, never before | A guest who liked it. Sets `user_id` on their existing `participants` rows and clears `guest_token_hash`, so tokens and history carry over (§5.5) |
+| Sign in, then open a room | Email and password | Returning users, any device |
+
+The ordering matters. A signup wall in front of a first-time player would trade the one
+thing this product is differentiated on (README §3: Roll20's onboarding overhead) for a
+convenience only repeat users need. **The invite path must never prompt for an account
+before play** — only after.
+
+**What an account buys**, and therefore what pages it implies (§11.2):
+
+- **Cross-device identity.** The same person, same owned tokens, on a phone and a laptop
+- **A room list.** `/rooms` — the reason §4.2 gives for `users` existing at all: "so a GM
+  can come back next week and find the rooms they own". Today that sentence has no page
+- **A second way to join.** A returning player opens `/rooms` and clicks the room, instead
+  of hunting for a link in a chat log from three weeks ago. This is the point of the
+  feature: invite links are for *strangers*, not for the fourth session of a campaign
+- **Saved assets.** Maps, token art and encounter setups that outlive one room. Uploads are
+  currently one-off objects keyed by UUID and referenced by a single scene; nothing lets a
+  GM reuse last week's dungeon. FR-GM-13 covers templates and is M3 stretch, so the asset
+  half needs its own requirement
+
+**Schema delta.** `users` and `auth_sessions` as already specified in §4.1, plus:
+
+- `participants.user_id` — nullable, already in the §4.1 sketch. Set on claim
+- `rooms.owner_user_id` — nullable until FR-GM-01 lands, so existing rooms are not orphaned
+- An `assets` table keyed by `user_id`, if saved assets are accepted
+
+**What this does not cost.** Nothing in `packages/shared` changes. `decide`, `reduce` and
+the visibility filters address participants and cannot tell a registered user from a guest
+(§4.2) — which is exactly the property that makes this affordable. The work is a REST
+surface, a session cookie, and pages.
+
+**Open questions for the owner.**
+
+1. Does claiming an account merge *all* of that browser's participants across every room,
+   or only the room the claim was offered in? Merging all is friendlier and leaks which
+   other rooms that browser has seats in.
+2. Can a room be owned by more than one account — a co-GM? `rooms.owner_user_id` as
+   specified says no.
+3. Are saved assets per user or per room? Per user is what people expect and raises a
+   quota question the project has so far avoided.
+
+---
+
 ## 6. Security and Visibility
 
 - Authorization is enforced **server-side on every message**, not at connection time — role is data, and a socket that was a player's at handshake must not be trusted to still be one (FR-GM-15).
@@ -887,12 +961,12 @@ What exists today, and what a usable product still needs:
 | `/join/:inviteCode` | Guest join | Built | FR-PL-01, FR-PL-02 |
 | `/r/:roomId` | The table | Built | most of the FR set |
 | — | 404 | Built — an unstyled card | — |
-| `/signup`, `/login` | GM account | **Missing** | FR-GM-01 |
-| `/rooms` | Room hub — the GM's rooms | **Missing** | FR-GM-01 (§4.2: an account exists so a GM can return and find their rooms) |
+| `/signup`, `/login` | Account — any role | **Missing** | FR-GM-01, §5.7 |
+| `/rooms` | Room hub — rooms you belong to | **Missing** | FR-GM-01 (§4.2: an account exists so a user can return and find their rooms). Also the second way to join, for people past their first session (§5.7) |
 | `/r/:roomId/prepare` | Scene preparation | **Missing** — currently crammed into the table's side panel | FR-GM-02 … FR-GM-07, FR-GM-11 |
 | `/r/:roomId/log` | Activity log and undo | **Missing** | FR-REC-01, FR-REC-02 |
 | `/r/:roomId/settings` | Access, invites, revocation | **Missing** | FR-GM-20 |
-| `/library` | Encounter and token templates | **Missing** | FR-GM-13 |
+| `/library` | Saved maps, token art, encounter templates | **Missing** | FR-GM-13 for templates; saved assets have no requirement yet (§5.7) |
 
 The gap is not decoration. Three of those rows are requirements with no surface at all: a GM
 cannot currently find a room they made last week, revoke a guest, or read the log that
@@ -986,9 +1060,12 @@ second identity (§5.5).
 
 - Primary action: join
 - States: validating the code, invalid or expired code with a plain explanation, submitting
-- Not here: anything about accounts, any mention of signing up later
+- Not here: anything about accounts. The offer to claim one belongs after the session, on
+  the way out — never on the way in (§5.7)
 
-**`/login` and `/signup`** — GM only (FR-GM-01). A single column at reading width, the form
+**`/login` and `/signup`** — for anyone who wants to be found again, not GM-only (§5.7). A
+player reaches these only *after* a session, never before: the invite path must not prompt
+for an account ahead of play. A single column at reading width, the form
 above the fold with no scrolling, and the opposite link (sign in / create account) as quiet
 text rather than a second button. Password rules stated *before* the field, not as an error
 after submitting.
@@ -1134,12 +1211,14 @@ treatment.
 | Item | Status | Plan |
 | --- | --- | --- |
 | Wall detection: service or client-side? | **Decided — Python service** | Wall extraction runs in the Map Analysis Service alongside grid detection, not in the browser. See §12.1 for the references we build on. |
-| Guest returning on a second device | Open | Either GM reassignment or a claim code carried by the invite link (§5.5). Pick before FR-PL-02 ships. |
+| Guest returning on a second device | **Open, and overdue** | This said "pick before FR-PL-02 ships"; FR-PL-02 has shipped and nothing was picked. §5.7 proposes accounts as the answer rather than a claim code, since the same mechanism also gives returning users a room list and a second way to join. Owner's call. |
 | PixiJS unproven at 100 tokens / 60 FPS | Open | Benchmark in the first week of Slice 3; it can still invalidate the renderer choice. |
 | No load testing against 150 ms / 500 ms targets | Deferred | k6 or Artillery benchmark once the ephemeral channel exists |
 | Prototype is single-package | Deferred | Workspace split is Slice 0 |
 | Undo semantics for concurrent edits | Designed, unvalidated | Prototype compensating events on token moves first, where they are easiest to reason about |
-| Express vs Fastify | Deferred | Revisit before the socket surface grows (§3) |
+| Express vs Fastify | **Decided — Express** | Reverted to the documented choice; see docs/adr/0002. |
+| Saved assets across rooms | Open | Uploads are one-off objects referenced by a single scene. Reuse needs an owner and a requirement of its own (§5.7); FR-GM-13 covers templates but not the asset library. |
+| Room co-ownership | Open | `rooms.owner_user_id` is singular, so a campaign has exactly one GM account. Fine for the Core Loop, awkward for a group that shares GM duties (§5.7). |
 
 ### 12.1 Prior art for map analysis
 
