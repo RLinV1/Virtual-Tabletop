@@ -1,8 +1,10 @@
 import { createReadStream } from "node:fs";
 import { mkdir, stat } from "node:fs/promises";
 import path from "node:path";
+import type { Readable } from "node:stream";
 import {
   CreateBucketCommand,
+  GetObjectCommand,
   HeadBucketCommand,
   PutBucketPolicyCommand,
   PutObjectCommand,
@@ -17,8 +19,20 @@ import {
  * no MinIO running still works, on local disk.
  */
 export interface AssetStore {
-  /** Moves a temporary upload into storage and returns the URL clients should use. */
+  /**
+   * Moves a temporary upload into storage and returns the URL clients should use.
+   *
+   * The URL is always **origin-relative** (`/uploads/<key>`). An absolute one would bake
+   * this machine's hostname into the event log, and the log is permanent: a map uploaded
+   * as `http://localhost:9000/...` is unreachable from every device except the server's
+   * own browser — phones, teammates, and the deployed app all get a broken image.
+   */
   put(tempPath: string, filename: string, contentType: string): Promise<string>;
+  /**
+   * Streams an object back, or null when this store does not serve reads itself
+   * (local disk is served by express.static instead).
+   */
+  read?(key: string): Promise<{ body: Readable; contentType?: string } | null>;
 }
 
 /** Fallback for `pnpm dev` and CI with no containers running. Served by express.static. */
@@ -37,7 +51,6 @@ export class MinioAssetStore implements AssetStore {
   private constructor(
     private s3: S3Client,
     private bucket: string,
-    private publicBase: string,
   ) {}
 
   static async connect(opts: {
@@ -46,7 +59,6 @@ export class MinioAssetStore implements AssetStore {
     accessKeyId?: string;
     secretAccessKey?: string;
     region?: string;
-    publicBase?: string;
   }): Promise<MinioAssetStore> {
     const bucket = opts.bucket ?? "vtt-assets";
     const s3 = new S3Client({
@@ -86,8 +98,7 @@ export class MinioAssetStore implements AssetStore {
       }),
     );
 
-    const publicBase = opts.publicBase ?? `${opts.endpoint.replace(/\/$/, "")}/${bucket}`;
-    return new MinioAssetStore(s3, bucket, publicBase);
+    return new MinioAssetStore(s3, bucket);
   }
 
   async put(tempPath: string, filename: string, contentType: string): Promise<string> {
@@ -100,7 +111,14 @@ export class MinioAssetStore implements AssetStore {
         ContentLength: (await stat(tempPath)).size,
       }),
     );
-    return `${this.publicBase}/${filename}`;
+    // Relative on purpose — see the AssetStore docstring.
+    return `/uploads/${filename}`;
+  }
+
+  async read(key: string) {
+    const out = await this.s3.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
+    if (!out.Body) return null;
+    return { body: out.Body as Readable, contentType: out.ContentType };
   }
 }
 
@@ -116,7 +134,6 @@ export async function createAssetStore(uploadDir: string): Promise<AssetStore> {
     bucket: process.env.MINIO_BUCKET,
     accessKeyId: process.env.MINIO_ACCESS_KEY,
     secretAccessKey: process.env.MINIO_SECRET_KEY,
-    publicBase: process.env.MINIO_PUBLIC_BASE,
   });
   console.log(`[vtt] storing uploads in MinIO at ${endpoint}`);
   return store;

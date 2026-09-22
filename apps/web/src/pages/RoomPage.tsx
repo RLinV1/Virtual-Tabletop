@@ -1,11 +1,31 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { Board, type BoardHandle } from "../board/Board";
 import { loadCredentials } from "../net/identity";
 import { RoomConnection, useRoomSnapshot, type ConnectionStatus } from "../net/roomConnection";
-import { DicePanel } from "../panels/DicePanel";
-import { InitiativeTracker } from "../panels/InitiativeTracker";
-import { TokenRoster } from "../panels/TokenRoster";
-import { GmPanel } from "./GmPanel";
+import { RoomPanel } from "../panels/RoomPanel";
+
+/** Below this the panel becomes tabs and sits under the board (FR-PL-03). */
+const COMPACT_WIDTH = 720;
+
+/**
+ * Tracks the narrow-screen breakpoint.
+ *
+ * matchMedia rather than a resize listener: it fires once per crossing instead of on every
+ * pixel, and it is correct on the very first render — a phone must not paint the desktop
+ * layout and then reflow.
+ */
+function useCompactLayout() {
+  return useSyncExternalStore(
+    (onChange) => {
+      const mq = window.matchMedia(`(max-width: ${COMPACT_WIDTH}px)`);
+      mq.addEventListener("change", onChange);
+      return () => mq.removeEventListener("change", onChange);
+    },
+    () => window.matchMedia(`(max-width: ${COMPACT_WIDTH}px)`).matches,
+    () => false,
+  );
+}
+
 
 const STATUS_LABEL: Record<ConnectionStatus, string> = {
   connecting: "Connecting…",
@@ -40,6 +60,7 @@ export function RoomPage({ roomId }: { roomId: string }) {
 function Room({ connection, inviteCode, token }: { connection: RoomConnection; inviteCode?: string; token: string }) {
   const { status, state, you, seq } = useRoomSnapshot(connection);
   const boardRef = useRef<BoardHandle>(null);
+  const compact = useCompactLayout();
   const focusToken = useCallback((tokenId: string) => boardRef.current?.focusToken(tokenId), []);
 
   if (status === "unauthorized") {
@@ -58,40 +79,55 @@ function Room({ connection, inviteCode, token }: { connection: RoomConnection; i
   }
 
   return (
-    <div className="room">
+    <div className={compact ? "room compact" : "room"}>
+      {/* Keyboard and screen-reader users should not have to tab through the canvas,
+          which is a single non-navigable element, to reach the controls. */}
+      <a className="skip-link" href="#room-panel">
+        Skip to room controls
+      </a>
       <Board ref={boardRef} connection={connection} state={state} you={you} />
-      <aside className="panel">
+      <aside className="panel" id="room-panel">
+        {/*
+          On a phone this header competes with the board for a screen that has neither to
+          spare, so it collapses to one line: room name, who you are, and connection state.
+          The participant list moves into the Play tab, where it is one line of names
+          rather than a titled section.
+        */}
         <header className="panel-header">
           <h1>{state.name}</h1>
           <span className={`status status-${status}`} role="status">
             {STATUS_LABEL[status]} · seq {seq}
           </span>
+          <p className="whoami">
+            You are <strong>{you.displayName}</strong> ({you.role === "gm" ? "GM" : "player"})
+          </p>
         </header>
-        <p>
-          You are <strong>{you.displayName}</strong> ({you.role === "gm" ? "GM" : "player"})
-        </p>
-        <section>
-          <h2>Participants</h2>
-          <ul className="plain">
-            {Object.values(state.participants).map((p) => (
-              <li key={p.id}>
-                {p.displayName} <span className="muted">{p.role === "gm" ? "GM" : ""}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-        {you.role === "gm" && (
-          <GmPanel connection={connection} state={state} inviteCode={inviteCode} token={token} />
+        {!compact && (
+          <section className="participants">
+            <h2>Participants</h2>
+            <ul className="plain">
+              {Object.values(state.participants).map((p) => (
+                <li key={p.id}>
+                  {p.displayName} <span className="muted">{p.role === "gm" ? "GM" : ""}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
-
         {/*
-          Tactical panels are for everyone, not just the GM. A player needs the turn order,
-          their own token's resources, and the shared dice log as much as the GM does — the
-          server decides what each of them is allowed to see and change.
+          One panel for both roles. A player needs the turn order, their own token's
+          resources and the shared dice log as much as the GM does; what differs is the
+          administration section, and the server enforces that regardless.
         */}
-        <InitiativeTracker connection={connection} state={state} you={you} onFocusToken={focusToken} />
-        <TokenRoster connection={connection} state={state} you={you} onFocusToken={focusToken} />
-        <DicePanel connection={connection} state={state} isGm={you.role === "gm"} />
+        <RoomPanel
+          connection={connection}
+          state={state}
+          you={you}
+          inviteCode={inviteCode}
+          token={token}
+          onFocusToken={focusToken}
+          compact={compact}
+        />
       </aside>
     </div>
   );
