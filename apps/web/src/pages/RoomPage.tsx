@@ -2,10 +2,8 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { Board, type BoardHandle } from "../board/Board";
 import { loadCredentials } from "../net/identity";
 import { RoomConnection, useRoomSnapshot, type ConnectionStatus } from "../net/roomConnection";
-import { DicePanel } from "../panels/DicePanel";
-import { InitiativeTracker } from "../panels/InitiativeTracker";
-import { TokenRoster } from "../panels/TokenRoster";
-import { GmPanel } from "./GmPanel";
+import { RoomPanel } from "../panels/RoomPanel";
+
 
 const STATUS_LABEL: Record<ConnectionStatus, string> = {
   connecting: "Connecting…",
@@ -59,8 +57,13 @@ function Room({ connection, inviteCode, token }: { connection: RoomConnection; i
 
   return (
     <div className="room">
+      {/* Keyboard and screen-reader users should not have to tab through the canvas,
+          which is a single non-navigable element, to reach the controls. */}
+      <a className="skip-link" href="#room-panel">
+        Skip to room controls
+      </a>
       <Board ref={boardRef} connection={connection} state={state} you={you} />
-      <aside className="panel">
+      <aside className="panel" id="room-panel">
         <header className="panel-header">
           <h1>{state.name}</h1>
           <span className={`status status-${status}`} role="status">
@@ -70,7 +73,7 @@ function Room({ connection, inviteCode, token }: { connection: RoomConnection; i
         <p>
           You are <strong>{you.displayName}</strong> ({you.role === "gm" ? "GM" : "player"})
         </p>
-        <section>
+        <section className="participants">
           <h2>Participants</h2>
           <ul className="plain">
             {Object.values(state.participants).map((p) => (
@@ -80,18 +83,19 @@ function Room({ connection, inviteCode, token }: { connection: RoomConnection; i
             ))}
           </ul>
         </section>
-        {you.role === "gm" && (
-          <GmPanel connection={connection} state={state} inviteCode={inviteCode} token={token} />
-        )}
-
         {/*
-          Tactical panels are for everyone, not just the GM. A player needs the turn order,
-          their own token's resources, and the shared dice log as much as the GM does — the
-          server decides what each of them is allowed to see and change.
+          One panel for both roles. A player needs the turn order, their own token's
+          resources and the shared dice log as much as the GM does; what differs is the
+          administration section, and the server enforces that regardless.
         */}
-        <InitiativeTracker connection={connection} state={state} you={you} onFocusToken={focusToken} />
-        <TokenRoster connection={connection} state={state} you={you} onFocusToken={focusToken} />
-        <DicePanel connection={connection} state={state} isGm={you.role === "gm"} />
+        <RoomPanel
+          connection={connection}
+          state={state}
+          you={you}
+          inviteCode={inviteCode}
+          token={token}
+          onFocusToken={focusToken}
+        />
       </aside>
     </div>
   );

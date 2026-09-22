@@ -1,0 +1,130 @@
+import { hpFraction, type Participant, type RoomState } from "@vtt/shared";
+import type { RoomConnection } from "../net/roomConnection";
+import { ConditionMarker } from "./ConditionMarker";
+
+/**
+ * The player's own characters, promoted above everything else (FR-PL-03).
+ *
+ * A player's board is about their own tokens; the full roster is reference material. This
+ * section answers "what is my character's state right now" without scrolling past the GM's
+ * administration controls or twenty other tokens.
+ *
+ * Rendered for the GM too, when they happen to own tokens — the rule is ownership, not role.
+ */
+export function MyTokens({
+  connection,
+  state,
+  you,
+  onFocusToken,
+}: {
+  connection: RoomConnection;
+  state: RoomState;
+  you: Participant;
+  onFocusToken: (tokenId: string) => void;
+}) {
+  const mine = Object.values(state.tokens)
+    .filter((t) => t.ownerIds.includes(you.id))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  if (mine.length === 0) {
+    return (
+      <section className="panel-section">
+        <h2>My tokens</h2>
+        <p className="muted">
+          {you.role === "gm"
+            ? "You control every token as GM."
+            : "The GM has not assigned you a token yet."}
+        </p>
+      </section>
+    );
+  }
+
+  const activeId = state.initiative?.order[state.initiative.activeIndex] ?? null;
+
+  return (
+    <section className="panel-section">
+      <h2>My tokens</h2>
+      <ul className="plain my-tokens">
+        {mine.map((token) => {
+          const fraction = hpFraction(token.stats);
+          const isActive = token.id === activeId;
+          return (
+            <li key={token.id} className={isActive ? "my-token active" : "my-token"}>
+              <button type="button" className="my-token-head" onClick={() => onFocusToken(token.id)}>
+                <span className="swatch large" style={{ background: token.color }} aria-hidden />
+                <span className="my-token-name">{token.name}</span>
+                {isActive && <span className="badge active-badge">your turn</span>}
+              </button>
+
+              {(token.stats.hp !== null || token.stats.ac !== null) && (
+                <p className="my-token-stats">
+                  {token.stats.hp !== null && (
+                    <span className="hp">
+                      {token.stats.hp}
+                      {token.stats.maxHp !== null && `/${token.stats.maxHp}`} HP
+                    </span>
+                  )}
+                  {token.stats.ac !== null && <span className="muted">AC {token.stats.ac}</span>}
+                </p>
+              )}
+
+              {fraction !== null && (
+                <div
+                  className="hp-bar"
+                  role="meter"
+                  aria-valuemin={0}
+                  aria-valuemax={token.stats.maxHp ?? 0}
+                  aria-valuenow={token.stats.hp ?? 0}
+                  aria-label={`${token.name} hit points`}
+                >
+                  <span style={{ width: `${fraction * 100}%` }} data-level={level(fraction)} />
+                </div>
+              )}
+
+              {token.conditions.length > 0 && (
+                <ul className="plain marker-row">
+                  {token.conditions.map((c) => (
+                    <li key={c}>
+                      <ConditionMarker id={c} size={24} />
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {/* Damage and healing are the two things a player does constantly; typing
+                  into the roster's editor for every hit is too slow mid-encounter. */}
+              {token.stats.hp !== null && (
+                <div className="hp-quick">
+                  {[-5, -1, +1, +5].map((delta) => (
+                    <button
+                      key={delta}
+                      type="button"
+                      className="chip"
+                      onClick={() =>
+                        connection.command({
+                          type: "token.setStats",
+                          tokenId: token.id,
+                          stats: {
+                            ...token.stats,
+                            hp: clamp(token.stats.hp! + delta, token.stats.maxHp),
+                          },
+                        })
+                      }
+                      aria-label={`${delta > 0 ? "Heal" : "Damage"} ${token.name} by ${Math.abs(delta)}`}
+                    >
+                      {delta > 0 ? `+${delta}` : delta}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+const level = (f: number) => (f > 0.5 ? "ok" : f > 0.25 ? "warn" : "critical");
+/** The server rejects hp above maxHp, so clamp rather than letting a tap fail. */
+const clamp = (hp: number, maxHp: number | null) => (maxHp === null ? hp : Math.min(hp, maxHp));
