@@ -170,8 +170,63 @@ The log is append-only, so undo is itself an auditable event and the history sta
 
 ### 4.1 Schema
 
+The schema is **event-sourced**, so it is much smaller than the entity list this section
+originally sketched. `participants`, `scenes` and `tokens` are not tables: they are derived
+state, rebuilt by folding `events` through `reduce` in `packages/shared`
+(docs/adr/0001-event-model.md). Adding a table for them would create a second source of
+truth that the log could disagree with.
+
+Authoritative definition: `apps/server/prisma/schema.prisma`. In SQL terms:
+
 ```sql
--- Registered accounts. GMs only; players never create one.
+rooms
+  id                 uuid primary key
+  invite_code        text unique not null
+  created_at         timestamptz not null default now()
+
+-- Append-only (FR-REC-03). Never UPDATE, never DELETE; undo is a compensating event.
+events
+  room_id            uuid not null references rooms(id)
+  seq                integer not null check (seq > 0)   -- monotonic per room
+  type               text not null
+  payload            jsonb not null
+  actor_id           uuid
+  created_at         timestamptz not null default now()
+  primary key (room_id, seq)          -- THE ordering guarantee (FR-SYNC-04)
+
+-- One row per credential the browser holds. The token itself never reaches us.
+credentials
+  token_hash         text primary key                   -- sha256 of the browser's token
+  room_id            uuid not null references rooms(id)
+  participant_id     uuid not null
+  revoked_at         timestamptz                        -- FR-GM-20
+
+-- Periodic state snapshots, so a long-lived room need not replay from seq 1.
+snapshots
+  room_id            uuid not null references rooms(id)
+  seq                integer not null
+  state              jsonb not null
+  created_at         timestamptz not null default now()
+  primary key (room_id, seq)
+
+-- Named checkpoints (FR-REC).
+checkpoints
+  id                 uuid primary key
+  room_id            uuid not null references rooms(id)
+  name               text not null
+  seq                integer not null
+  created_by         uuid
+  created_at         timestamptz not null default now()
+```
+
+`primary key (room_id, seq)` is doing the real work. Ordering is enforced by the database,
+not by application code, so a duplicate `seq` is a constraint violation no matter which
+server instance attempted it — see §2.3 and `PostgresRoomStore`.
+
+**Not built yet.** `users` and `auth_sessions` are still required by FR-GM-01 (KAN-7) and
+keep the shape originally specified here:
+
+```sql
 users
   id                 uuid primary key
   email              citext unique not null
@@ -179,78 +234,24 @@ users
   display_name       text not null
   created_at         timestamptz not null default now()
 
--- Server-side GM sessions. Opaque token, stored hashed.
 auth_sessions
   id                 uuid primary key
   user_id            uuid not null references users(id) on delete cascade
   token_hash         text not null unique     -- sha256 of the cookie value
   expires_at         timestamptz not null
   revoked_at         timestamptz
-
-rooms
-  id                 uuid primary key
-  owner_user_id      uuid not null references users(id)
-  name               text not null
-  invite_code        text unique not null
-  invite_expires_at  timestamptz
-
--- The identity the game logic actually uses.
-participants
-  id                 uuid primary key
-  room_id            uuid not null references rooms(id) on delete cascade
-  user_id            uuid references users(id)        -- set for the GM
-  guest_token_hash   text                              -- set for guests
-  display_name       text not null
-  role               participant_role not null         -- 'gm' | 'player'
-  last_seen_at       timestamptz
-  revoked_at         timestamptz
-  check (user_id is not null or guest_token_hash is not null)
-  unique (room_id, user_id)              where user_id is not null
-  unique (room_id, guest_token_hash)     where guest_token_hash is not null
-
-scenes
-  id                 uuid primary key
-  room_id            uuid not null references rooms(id) on delete cascade
-  map_object_key     text                              -- object storage key
-  grid_cell_px       numeric
-  grid_offset_x      numeric
-  grid_offset_y      numeric
-  grid_confidence    numeric                           -- from detection (FR-GM-04)
-  wall_geometry      jsonb                             -- segments + portal states
-
-tokens
-  id                 uuid primary key
-  scene_id           uuid not null references scenes(id) on delete cascade
-  owner_participant_id uuid references participants(id) -- NOT users.id
-  name               text not null
-  x                  numeric not null                  -- board coords (FR-GM-05)
-  y                  numeric not null
-  hidden             boolean not null default false
-  stats              jsonb
-
-events                                                  -- append-only (FR-REC-03)
-  id                 bigserial primary key
-  room_id            uuid not null references rooms(id) on delete cascade
-  seq                bigint not null                   -- monotonic per room
-  actor_participant_id uuid references participants(id)
-  type               text not null
-  payload            jsonb not null
-  created_at         timestamptz not null default now()
-  unique (room_id, seq)
-
-checkpoints
-  id                 uuid primary key
-  room_id            uuid not null references rooms(id) on delete cascade
-  name               text not null
-  at_seq             bigint not null
-  snapshot           jsonb not null
 ```
+
+When they land, `rooms` gains `owner_user_id`, and the participant projection gains a
+`user_id` for the GM alongside the guest credential — the distinction §4.2 describes.
+`snapshots` and `checkpoints` exist in the schema but nothing writes them yet; they are the
+foundation for FR-PL-07 and FR-REC.
 
 ### 4.2 Why `participants` is the identity the game uses
 
-Game logic references `participants.id`, **never `users.id`**. A participant row is either *"a registered user in this room"* (`user_id` set) or *"a guest token in this room"* (`guest_token_hash` set) — and the room kernel cannot tell the difference.
+Game logic references a participant id, **never a user id**. A participant is either *"a registered user in this room"* or *"a guest token in this room"* — and the room kernel cannot tell the difference. The participant now lives in the event log rather than a table (§4.1), but the rule is unchanged: `credentials.participant_id` is the only bridge between a credential and the game, and nothing downstream of it knows which kind it was.
 
-That gives one code path for authorization, ownership and visibility filtering, instead of two parallel ones with subtly different bugs. The prototype's `Participant` type already has exactly this shape, which is why the schema drops in without reworking the kernel.
+That gives one code path for authorization, ownership and visibility filtering, instead of two parallel ones with subtly different bugs. `Participant` in `packages/shared/src/state.ts` has exactly this shape — id, role, display name, and nothing about how the person authenticated.
 
 It also means `users` stays small and boring: it exists only so a GM can log back in next week and find their rooms. A player who never registers still has full, durable identity — it just lives in `participants`.
 
@@ -258,12 +259,19 @@ It also means `users` stays small and boring: it exists only so a GM can log bac
 
 | Data | Store | Why |
 | --- | --- | --- |
-| Accounts, rooms, participants, scenes, tokens, events, checkpoints | Postgres | Durable, relational, and the event log needs transactional appends |
-| `room:{id}:seq` counter | Redis | `INCR` is atomic, which is the entire ordering guarantee (FR-SYNC-04) |
-| `guest:{hash} → participant_id` | Redis (TTL cache) | Keeps reconnects off the database and inside the 3-second budget |
-| Live room state | Redis | Read on every event; rehydrated from Postgres on a cold start |
-| Map images, token art | Object storage | Large binaries do not belong in a database |
-| The guest token itself | **The browser only** | The server stores nothing but its hash |
+| Rooms, events, credentials, checkpoints | Postgres | Durable, and the event log needs transactional appends |
+| Participants, scenes, tokens | **Derived** — folded from `events` | One source of truth; see §4.1 |
+| `room:{id}:seq` counter | Redis | `INCR` is atomic, so instances cannot collide on a seq (FR-SYNC-04) |
+| Live room state | In process (`LiveRoom`) | Rehydrated from Postgres on a cold start |
+| Map images, token art | Object storage (MinIO/S3) | Large binaries do not belong in a database |
+| The guest token itself | **The browser only** | Generated there; the server stores nothing but its hash (§5.1) |
+
+Two rows of this table were planned differently and are worth calling out. A
+`guest:{hash} → participant_id` Redis cache is **not** built — credential lookup goes
+straight to Postgres, which is comfortably inside the reconnect budget at this scale. And
+live room state is held **in the server process**, not Redis, so today a room must be served
+by one instance; Redis issues correct seqs across instances but nothing routes a room to a
+consistent one, and there is no pub/sub fan-out (ADR 0001).
 
 ---
 
