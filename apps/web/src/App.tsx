@@ -1,5 +1,7 @@
 import { HomePage } from "./pages/HomePage";
+import { SignInPage, SignUpPage } from "./pages/AccountPages";
 import { JoinPage } from "./pages/JoinPage";
+import { LibraryPage } from "./pages/LibraryPage";
 import { RoomPage } from "./pages/RoomPage";
 import { useRoute } from "./router";
 
@@ -8,6 +10,12 @@ export function App() {
   switch (route.page) {
     case "home":
       return <HomePage />;
+    case "library":
+      return <LibraryPage />;
+    case "signin":
+      return <SignInPage />;
+    case "signup":
+      return <SignUpPage />;
     case "join":
       return <JoinPage key={route.inviteCode} inviteCode={route.inviteCode} />;
     case "room":

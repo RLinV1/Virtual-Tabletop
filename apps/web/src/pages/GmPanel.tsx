@@ -1,7 +1,10 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { snapTokenCenter, type GridSpec, type RoomState } from "@vtt/shared";
+import { snapTokenCenter, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
 import { api } from "../net/api";
+import { loadGmToken } from "../net/identity";
+import { imageSize } from "../net/imageFile";
 import type { CommandResult, RoomConnection } from "../net/roomConnection";
+import { LibraryPicker } from "./LibraryPicker";
 
 interface Props {
   connection: RoomConnection;
@@ -14,6 +17,8 @@ const TOKEN_COLORS = ["#c0392b", "#2980b9", "#27ae60", "#8e44ad", "#d35400", "#1
 
 export function GmPanel({ connection, state, inviteCode, token }: Props) {
   const [error, setError] = useState<string | null>(null);
+  // The library belongs to this device's GM identity; rooms made before it existed have none.
+  const [gmToken] = useState(loadGmToken);
   const players = Object.values(state.participants).filter((p) => p.role === "player");
 
   const run = async (p: Promise<CommandResult>) => {
@@ -26,15 +31,22 @@ export function GmPanel({ connection, state, inviteCode, token }: Props) {
     <>
       {error && <p role="alert" className="error">{error}</p>}
       <InviteLink inviteCode={inviteCode} />
-      <MapUpload
+      <MapSection
         token={token}
+        gmToken={gmToken}
         onError={setError}
-        onUploaded={(map) => run(connection.command({ type: "scene.setMap", map }))}
+        onSetMap={(map, grid) => run(connection.command({ type: "scene.setMap", map, grid }))}
       />
       <GridForm grid={state.scene.grid} onApply={(grid) => run(connection.command({ type: "scene.setGrid", grid }))} />
+      {gmToken && state.scene.map?.assetId && (
+        <SaveGridToLibrary gmToken={gmToken} assetId={state.scene.map.assetId} grid={state.scene.grid} />
+      )}
       <AddToken
         players={players}
-        onAdd={(name, ownerId, hidden) => {
+        token={token}
+        gmToken={gmToken}
+        onError={setError}
+        onAdd={(name, ownerId, hidden, image) => {
           const map = state.scene.map;
           const count = Object.keys(state.tokens).length;
           const center = map ? { x: map.width / 2, y: map.height / 2 } : { x: 1050, y: 700 };
@@ -53,6 +65,8 @@ export function GmPanel({ connection, state, inviteCode, token }: Props) {
               ownerIds: ownerId ? [ownerId] : [],
               color: TOKEN_COLORS[count % TOKEN_COLORS.length],
               position: snapTokenCenter(center, 1, state.scene.grid),
+              imageUrl: image?.url ?? null,
+              assetId: image?.assetId ?? null,
             }),
           );
         }}
@@ -129,12 +143,15 @@ function InviteLink({ inviteCode }: { inviteCode?: string }) {
   );
 }
 
-function MapUpload(props: {
+/** Set the battle map from a fresh upload or the GM's library (asset-library). */
+function MapSection(props: {
   token: string;
-  onUploaded: (map: { url: string; width: number; height: number }) => Promise<boolean>;
+  gmToken: string | null;
+  onSetMap: (map: MapImage, grid?: GridSpec) => Promise<boolean>;
   onError: (message: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [picking, setPicking] = useState(false);
 
   async function onChange(file: File | undefined) {
     if (!file) return;
@@ -142,7 +159,7 @@ function MapUpload(props: {
     try {
       const { url } = await api.upload(file, props.token);
       const { width, height } = await imageSize(url);
-      await props.onUploaded({ url, width, height });
+      await props.onSetMap({ url, width, height });
     } catch (err) {
       props.onError(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -150,28 +167,71 @@ function MapUpload(props: {
     }
   }
 
+  // Placing copies the saved grid into the room in the same event (ADR 0004); later
+  // library edits never reach back into this room.
+  const place = async (asset: LibraryAsset) => {
+    const map = { url: asset.url, width: asset.width, height: asset.height, assetId: asset.id };
+    if (await props.onSetMap(map, asset.grid ?? undefined)) setPicking(false);
+  };
+
   return (
     <section>
       <h2>Battle map</h2>
-      <input
-        type="file"
-        accept="image/png,image/jpeg,image/webp"
-        disabled={busy}
-        aria-label="Upload battle map"
-        onChange={(e) => onChange(e.target.files?.[0])}
-      />
+      <label>
+        Upload new
+        <input
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          disabled={busy}
+          aria-label="Upload battle map"
+          onChange={(e) => onChange(e.target.files?.[0])}
+        />
+      </label>
       {busy && <p className="muted">Uploading…</p>}
+      {props.gmToken &&
+        (picking ? (
+          <LibraryPicker gmToken={props.gmToken} kind="map" onPick={(a) => void place(a)} onClose={() => setPicking(false)} />
+        ) : (
+          <button type="button" className="secondary" onClick={() => setPicking(true)}>
+            From library
+          </button>
+        ))}
     </section>
   );
 }
 
-function imageSize(url: string) {
-  return new Promise<{ width: number; height: number }>((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
-    img.onerror = () => reject(new Error("Could not read image"));
-    img.src = url;
-  });
+/** Explicitly writes the room's current grid back to the library map it came from. */
+function SaveGridToLibrary({ gmToken, assetId, grid }: { gmToken: string; assetId: string; grid: GridSpec }) {
+  const [status, setStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setStatus("idle");
+    setError(null);
+  }, [assetId, grid]);
+  return (
+    <section>
+      <button
+        type="button"
+        className="secondary"
+        disabled={status === "saving"}
+        onClick={async () => {
+          setStatus("saving");
+          setError(null);
+          try {
+            await api.library.update(gmToken, assetId, { grid });
+            setStatus("saved");
+          } catch (err) {
+            setError(err instanceof Error ? err.message : "Could not save the grid");
+            setStatus("idle");
+          }
+        }}
+      >
+        {status === "saving" ? "Saving…" : "Save grid to library"}
+      </button>
+      {status === "saved" && <p className="muted" role="status">Saved. Future placements of this map use this grid.</p>}
+      {error && <p role="alert" className="error">{error}</p>}
+    </section>
+  );
 }
 
 /** Manual grid correction (FR-GM-04). Automatic detection (FR-GM-03) will prefill these. */
@@ -212,13 +272,38 @@ function GridForm({ grid, onApply }: { grid: GridSpec; onApply: (grid: GridSpec)
   );
 }
 
+interface TokenImage {
+  url: string;
+  assetId: string | null;
+  label: string;
+}
+
 function AddToken(props: {
   players: { id: string; displayName: string }[];
-  onAdd: (name: string, ownerId: string, hidden: boolean) => Promise<boolean>;
+  token: string;
+  gmToken: string | null;
+  onError: (message: string) => void;
+  onAdd: (name: string, ownerId: string, hidden: boolean, image: TokenImage | null) => Promise<boolean>;
 }) {
   const [name, setName] = useState("");
   const [ownerId, setOwnerId] = useState("");
   const [hidden, setHidden] = useState(false);
+  const [image, setImage] = useState<TokenImage | null>(null);
+  const [picking, setPicking] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
+  async function onUpload(file: File | undefined) {
+    if (!file) return;
+    setUploading(true);
+    try {
+      const { url } = await api.upload(file, props.token);
+      setImage({ url, assetId: null, label: file.name });
+    } catch (err) {
+      props.onError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
 
   return (
     <section>
@@ -227,7 +312,10 @@ function AddToken(props: {
         className="stack"
         onSubmit={async (e) => {
           e.preventDefault();
-          if (await props.onAdd(name, ownerId, hidden)) setName("");
+          if (await props.onAdd(name, ownerId, hidden, image)) {
+            setName("");
+            setImage(null);
+          }
         }}
       >
         <label>
@@ -245,6 +333,48 @@ function AddToken(props: {
             ))}
           </select>
         </label>
+        <div className="stack token-image-field">
+          <span className="field-label">Image</span>
+          {image ? (
+            <div className="row token-image-chosen">
+              <img src={image.url} alt="" className="round" />
+              <span className="token-name">{image.label}</span>
+              <button type="button" className="link" onClick={() => setImage(null)}>
+                Remove
+              </button>
+            </div>
+          ) : picking && props.gmToken ? (
+            <LibraryPicker
+              gmToken={props.gmToken}
+              kind="token"
+              onClose={() => setPicking(false)}
+              onPick={(asset) => {
+                // The token name is left to the GM on purpose: prefilling the library name
+                // would put it in front of players (asset-library: details stay private).
+                setImage({ url: asset.url, assetId: asset.id, label: asset.name });
+                setPicking(false);
+              }}
+            />
+          ) : (
+            <div className="row">
+              <label className="upload-button secondary">
+                <span>{uploading ? "Uploading…" : "Upload new"}</span>
+                <input
+                  type="file"
+                  className="sr-only"
+                  accept="image/png,image/jpeg,image/webp"
+                  disabled={uploading}
+                  onChange={(e) => void onUpload(e.target.files?.[0])}
+                />
+              </label>
+              {props.gmToken && (
+                <button type="button" className="secondary" onClick={() => setPicking(true)}>
+                  From library
+                </button>
+              )}
+            </div>
+          )}
+        </div>
         <label className="inline">
           <input type="checkbox" checked={hidden} onChange={(e) => setHidden(e.target.checked)} />
           Hidden from players

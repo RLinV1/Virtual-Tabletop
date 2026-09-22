@@ -13,6 +13,8 @@ export const Command = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("scene.setMap"),
     map: MapImage,
+    /** A library map's saved grid, copied into the room in the same event (ADR 0004). */
+    grid: GridSpec.optional(),
   }),
   z.object({
     type: z.literal("scene.setGrid"),
@@ -25,6 +27,7 @@ export const Command = z.discriminatedUnion("type", [
     size: z.number().positive().max(10).default(1),
     color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#c0392b"),
     imageUrl: z.string().max(2048).nullable().default(null),
+    assetId: Id.nullable().default(null),
     ownerIds: z.array(Id).default([]),
     hidden: z.boolean().default(false),
   }),

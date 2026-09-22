@@ -1,10 +1,13 @@
-import { PrismaClient, type Prisma } from "@prisma/client";
-import type { CommittedEvent, DomainEvent } from "@vtt/shared";
+import { Prisma, PrismaClient, type LibraryAsset } from "@prisma/client";
+import { randomUUID } from "node:crypto";
+import type { AssetKind, CommittedEvent, DomainEvent, GmRoomSummary, GridSpec } from "@vtt/shared";
+import type { LibraryAssetRecord, NewRoomOptions } from "./libraryStore";
 import type { RedisSeqSource } from "./redisSeq";
 import { SeqConflictError, type CredentialRecord, type NewEvent, type RoomStore } from "./roomStore";
 
 /** Postgres unique-violation code; Prisma surfaces it as P2002. */
 const PRISMA_UNIQUE_VIOLATION = "P2002";
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Append-only event store on Postgres via Prisma (DESIGN.md §3, §4.1;
@@ -28,8 +31,10 @@ export class PostgresRoomStore implements RoomStore {
     return new PostgresRoomStore(prisma, seqSource);
   }
 
-  async createRoom(roomId: string, inviteCode: string) {
-    await this.prisma.room.create({ data: { id: roomId, inviteCode } });
+  async createRoom(roomId: string, inviteCode: string, options: NewRoomOptions = {}) {
+    await this.prisma.room.create({
+      data: { id: roomId, inviteCode, ownerGmId: options.ownerGmId ?? null, name: options.name ?? null },
+    });
   }
 
   async roomExists(roomId: string) {
@@ -121,6 +126,102 @@ export class PostgresRoomStore implements RoomStore {
     return events;
   }
 
+  async registerGm(tokenHash: string) {
+    const row = await this.prisma.gmIdentity.upsert({
+      where: { tokenHash },
+      create: { id: randomUUID(), tokenHash },
+      update: {},
+      select: { id: true },
+    });
+    return row.id;
+  }
+
+  async findGm(tokenHash: string) {
+    const row = await this.prisma.gmIdentity.findUnique({ where: { tokenHash }, select: { id: true } });
+    return row?.id ?? null;
+  }
+
+  async listOwnedRooms(ownerGmId: string): Promise<GmRoomSummary[]> {
+    const rooms = await this.prisma.room.findMany({
+      where: { ownerGmId },
+      select: {
+        id: true,
+        name: true,
+        createdAt: true,
+        events: { select: { createdAt: true }, orderBy: { seq: "desc" }, take: 1 },
+      },
+    });
+    return rooms
+      .map((r) => ({
+        id: r.id,
+        name: r.name ?? "",
+        lastActiveAt: (r.events[0]?.createdAt ?? r.createdAt).toISOString(),
+      }))
+      .sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt));
+  }
+
+  async createAsset(asset: LibraryAssetRecord) {
+    await this.prisma.libraryAsset.create({
+      data: {
+        ...asset,
+        grid: asset.grid ?? Prisma.DbNull,
+        createdAt: new Date(asset.createdAt),
+      },
+    });
+  }
+
+  async listAssets(ownerGmId: string) {
+    const rows = await this.prisma.libraryAsset.findMany({ where: { ownerGmId }, orderBy: { createdAt: "desc" } });
+    return rows.map(toAssetRecord);
+  }
+
+  async findAsset(id: string, ownerGmId: string) {
+    const row = await this.prisma.libraryAsset.findFirst({ where: { id, ownerGmId } });
+    return row ? toAssetRecord(row) : null;
+  }
+
+  async updateAsset(id: string, ownerGmId: string, patch: { name?: string; grid?: GridSpec }) {
+    const { count } = await this.prisma.libraryAsset.updateMany({
+      where: { id, ownerGmId },
+      data: {
+        ...(patch.name !== undefined && { name: patch.name }),
+        ...(patch.grid && { grid: patch.grid as unknown as Prisma.InputJsonValue }),
+      },
+    });
+    return count === 1 ? this.findAsset(id, ownerGmId) : null;
+  }
+
+  async deleteAsset(id: string, ownerGmId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const row = await tx.libraryAsset.findFirst({ where: { id, ownerGmId } });
+      if (!row) return null;
+      await tx.assetRef.deleteMany({ where: { assetId: id } });
+      await tx.libraryAsset.delete({ where: { id } });
+      return toAssetRecord(row);
+    });
+  }
+
+  async setAssetRefs(roomId: string, assetIds: string[]) {
+    // Only ids with a library row: a room still showing a deleted asset must not write it
+    // back into the index. The ids arrive in client commands, so they may not be uuids.
+    const uuids = assetIds.filter((id) => UUID.test(id));
+    await this.prisma.$transaction(async (tx) => {
+      const existing = uuids.length
+        ? await tx.libraryAsset.findMany({ where: { id: { in: uuids } }, select: { id: true } })
+        : [];
+      await tx.assetRef.deleteMany({ where: { roomId } });
+      await tx.assetRef.createMany({ data: existing.map(({ id }) => ({ assetId: id, roomId })) });
+    });
+  }
+
+  async assetUsage(assetId: string, ownerGmId: string) {
+    const refs = await this.prisma.assetRef.findMany({
+      where: { assetId, room: { ownerGmId } },
+      select: { room: { select: { id: true, name: true } } },
+    });
+    return refs.map((r) => ({ id: r.room.id, name: r.room.name ?? "" }));
+  }
+
   async close() {
     await this.prisma.$disconnect();
   }
@@ -128,4 +229,19 @@ export class PostgresRoomStore implements RoomStore {
 
 function isUniqueViolation(err: unknown): boolean {
   return typeof err === "object" && err !== null && "code" in err && err.code === PRISMA_UNIQUE_VIOLATION;
+}
+
+function toAssetRecord(row: LibraryAsset): LibraryAssetRecord {
+  return {
+    id: row.id,
+    ownerGmId: row.ownerGmId,
+    kind: row.kind as AssetKind,
+    objectKey: row.objectKey,
+    url: row.url,
+    name: row.name,
+    width: row.width,
+    height: row.height,
+    grid: (row.grid as unknown as GridSpec | null) ?? null,
+    createdAt: row.createdAt.toISOString(),
+  };
 }

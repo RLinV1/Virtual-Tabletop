@@ -44,7 +44,17 @@ export function decide(
   switch (command.type) {
     case "scene.setMap":
       if (!can.administer(actor)) return forbidden();
-      return accept({ type: "MapSet", map: command.map, previous: state.scene.map });
+      // One event, not MapSet + GridSet: a library map and its grid are one undoable step (ADR 0004).
+      return accept(
+        command.grid
+          ? {
+              type: "MapSet",
+              map: command.map,
+              previous: state.scene.map,
+              gridChange: { grid: command.grid, previous: state.scene.grid },
+            }
+          : { type: "MapSet", map: command.map, previous: state.scene.map },
+      );
 
     case "scene.setGrid":
       if (!can.administer(actor)) return forbidden();
@@ -64,6 +74,7 @@ export function decide(
           rotation: 0,
           color: command.color,
           imageUrl: command.imageUrl,
+          assetId: command.assetId,
           ownerIds: command.ownerIds,
           hidden: command.hidden,
           stats: EMPTY_STATS,
