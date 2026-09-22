@@ -38,6 +38,13 @@ export function GmPanel({ connection, state, inviteCode, token }: Props) {
           const map = state.scene.map;
           const count = Object.keys(state.tokens).length;
           const center = map ? { x: map.width / 2, y: map.height / 2 } : { x: 1050, y: 700 };
+          // Fan new tokens out around the centre instead of stacking them all on one cell,
+          // which made the roster and turn order useless the moment there was a second one.
+          const ring = Math.floor(count / 8) + 1;
+          const angle = (count % 8) * (Math.PI / 4);
+          const spread = state.scene.grid.cellSize * ring;
+          center.x += Math.cos(angle) * spread;
+          center.y += Math.sin(angle) * spread;
           return run(
             connection.command({
               type: "token.create",
@@ -51,7 +58,7 @@ export function GmPanel({ connection, state, inviteCode, token }: Props) {
         }}
       />
       <section>
-        <h2>Tokens</h2>
+        <h2>Manage tokens</h2>
         {Object.values(state.tokens).length === 0 && <p className="muted">No tokens yet.</p>}
         <ul className="plain token-list">
           {Object.values(state.tokens).map((t) => (

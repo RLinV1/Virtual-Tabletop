@@ -2,7 +2,8 @@
 
 Browser virtual tabletop. Product spec: `README.md` (requirements are referenced by ID, e.g. FR-PL-02).
 Team design doc: `docs/DESIGN.md`. Event model: `docs/adr/0001-event-model.md`; transport and guest identity:
-`docs/adr/0002-transport-and-identity.md` — read these before touching sync, auth, or state.
+`docs/adr/0002-transport-and-identity.md`; tactical state: `docs/adr/0003-tactical-state.md` —
+read these before touching sync, auth, or state.
 The team plans changes with OpenSpec (`/opsx:propose`, `openspec/`).
 
 ## Layout

@@ -105,3 +105,103 @@ label.inline { flex-direction: row; align-items: center; gap: 0.35rem; }
   .panel { border-left: none; border-top: 1px solid var(--border); }
   .board-hint { display: none; }
 }
+
+/* ---------- Tactical panels (FR-GM-21, FR-GM-22, FR-GM-24, FR-TAC-07/08/09) ---------- */
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+.panel-section {
+  display: flex; flex-direction: column; gap: 0.5rem;
+  padding-top: 0.75rem; border-top: 1px solid var(--border);
+}
+.panel-section h3 { font-size: 0.8rem; margin: 0; color: var(--muted); }
+
+button.secondary { background: transparent; border-color: var(--border); color: var(--text); }
+button.small { min-height: 0; padding: 0.25rem 0.5rem; font-size: 0.8rem; }
+
+.badge {
+  font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em;
+  padding: 0.05rem 0.3rem; border: 1px solid var(--border); border-radius: 0.2rem;
+  color: var(--muted); font-style: normal;
+}
+.badge.active-badge { color: var(--warn); border-color: var(--warn); }
+
+.chip {
+  background: transparent; border: 1px solid var(--border); color: var(--text);
+  border-radius: 999px; padding: 0.1rem 0.55rem; min-height: 0; font-size: 0.8rem; font-weight: 500;
+}
+
+/* --- Dice --- */
+.dice-form { display: flex; flex-direction: column; gap: 0.4rem; }
+.dice-row { display: flex; gap: 0.4rem; }
+.dice-row input { flex: 1; min-width: 0; }
+.dice-quick { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-size: 0.85rem; }
+
+.roll-log { display: flex; flex-direction: column; gap: 0.3rem; max-height: 13rem; overflow-y: auto; }
+.roll { display: flex; align-items: baseline; gap: 0.5rem; font-size: 0.85rem; }
+/* Private rolls are marked by a border and the "GM only" badge, never by colour alone. */
+.roll.private { border-left: 3px solid var(--warn); padding-left: 0.4rem; }
+.roll-total {
+  font-variant-numeric: tabular-nums; font-weight: 700; font-size: 1.05rem;
+  min-width: 2ch; text-align: right;
+}
+.roll-detail { min-width: 0; }
+
+/* --- Initiative --- */
+.init-setup li { display: grid; grid-template-columns: auto 1fr 4.5rem; align-items: center; gap: 0.4rem; }
+.init-setup input { width: 100%; }
+.init-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.init-order { display: flex; flex-direction: column; gap: 0.15rem; counter-reset: turn; }
+.init-focus {
+  width: 100%; display: flex; align-items: center; gap: 0.45rem;
+  background: transparent; border: 1px solid transparent; color: var(--text);
+  font-weight: 500; text-align: left; padding: 0.25rem 0.4rem; border-radius: 0.3rem;
+}
+.init-focus:hover { border-color: var(--border); }
+.init-entry.active .init-focus { border-color: var(--warn); background: rgba(210, 153, 34, 0.12); font-weight: 700; }
+.init-turn { width: 1.2rem; text-align: center; color: var(--muted); font-variant-numeric: tabular-nums; }
+.init-entry.active .init-turn { color: var(--warn); }
+.init-controls { display: flex; gap: 0.4rem; }
+.init-controls button { flex: 1; }
+
+/* --- Roster --- */
+.roster { display: flex; flex-direction: column; gap: 0.4rem; max-height: 22rem; overflow-y: auto; }
+.roster-row { display: flex; flex-direction: column; gap: 0.25rem; padding-bottom: 0.35rem; border-bottom: 1px solid var(--border); }
+.roster-row.active { border-left: 3px solid var(--warn); padding-left: 0.35rem; }
+.roster-main { display: flex; align-items: center; gap: 0.4rem; }
+.roster-focus {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.4rem;
+  background: transparent; border: 1px solid transparent; color: var(--text);
+  text-align: left; font-weight: 500; padding: 0.25rem 0.3rem; border-radius: 0.3rem;
+}
+.roster-focus:hover { border-color: var(--border); }
+.hp { font-variant-numeric: tabular-nums; font-size: 0.8rem; color: var(--muted); }
+
+.hp-bar { height: 6px; background: #000; border: 1px solid var(--border); border-radius: 3px; overflow: hidden; }
+.hp-bar span { display: block; height: 100%; }
+.hp-bar span[data-level="ok"] { background: var(--ok); }
+.hp-bar span[data-level="warn"] { background: var(--warn); }
+.hp-bar span[data-level="critical"] { background: var(--danger); }
+
+.marker-row { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+.condition-marker { display: inline-flex; line-height: 0; }
+
+.stats-editor { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.4rem 0; }
+.stats-row { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 0.35rem; align-items: end; }
+.stats-row input { width: 100%; }
+
+.condition-picker { border: 1px solid var(--border); border-radius: 0.3rem; padding: 0.4rem; display: grid; grid-template-columns: 1fr 1fr; gap: 0.2rem; margin: 0; }
+.condition-option { flex-direction: row; align-items: center; gap: 0.3rem; font-size: 0.8rem; padding: 0.15rem; border-radius: 0.25rem; }
+.condition-option.on { background: rgba(91, 141, 239, 0.18); }
+
+/* Narrow screens: the panel stacks under the board instead of beside it (FR-PL-03 groundwork). */
+@media (max-width: 720px) {
+  .room { grid-template-columns: 1fr; grid-template-rows: 55vh 1fr; height: auto; min-height: 100vh; }
+  .condition-picker { grid-template-columns: 1fr; }
+  .stats-row { grid-template-columns: 1fr 1fr; }
+}

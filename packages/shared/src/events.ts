@@ -1,6 +1,8 @@
 import { z } from "zod";
+import { ConditionId, TokenStats } from "./conditions";
+import { DiceRoll } from "./dice";
 import { GridSpec, Point } from "./geometry";
-import { Id, MapImage, Participant, Token } from "./state";
+import { Id, Initiative, MapImage, Participant, Token } from "./state";
 
 /**
  * Events are FACTS the server has committed. They are append-only and never edited.
@@ -61,6 +63,36 @@ export const DomainEvent = z.discriminatedUnion("type", [
     tokenId: Id,
     hidden: z.boolean(),
     previous: z.boolean(),
+  }),
+  z.object({
+    type: z.literal("TokenStatsSet"),
+    tokenId: Id,
+    stats: TokenStats,
+    previous: TokenStats,
+  }),
+  z.object({
+    type: z.literal("TokenConditionsSet"),
+    tokenId: Id,
+    conditions: z.array(ConditionId),
+    previous: z.array(ConditionId),
+  }),
+  z.object({
+    type: z.literal("InitiativeStarted"),
+    initiative: Initiative,
+    previous: Initiative.nullable(),
+  }),
+  z.object({
+    type: z.literal("InitiativeAdvanced"),
+    initiative: Initiative,
+    previous: Initiative,
+  }),
+  z.object({
+    type: z.literal("InitiativeEnded"),
+    previous: Initiative,
+  }),
+  z.object({
+    type: z.literal("DiceRolled"),
+    roll: DiceRoll,
   }),
 ]);
 export type DomainEvent = z.infer<typeof DomainEvent>;

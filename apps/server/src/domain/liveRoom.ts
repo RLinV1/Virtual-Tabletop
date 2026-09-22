@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import {
   can,
   decide,
@@ -17,6 +17,12 @@ import {
   type ServerMessage,
 } from "@vtt/shared";
 import type { RoomStore } from "../store/roomStore";
+
+/**
+ * Float in [0, 1) from the CSPRNG. A dice roll decides encounter outcomes, so it should not
+ * be predictable from other rolls the way `Math.random` is.
+ */
+const secureRandom = () => randomInt(0, 2 ** 31) / 2 ** 31;
 
 /** A connected socket bound to a participant. */
 export interface RoomClient {
@@ -69,7 +75,9 @@ export class LiveRoom {
     return this.runExclusive(async () => {
       const actor = this.state.participants[actorId];
       if (!actor) return { ok: false, code: "forbidden", message: "Unknown participant" };
-      const decision = decide(this.state, actor, command, { newId: randomUUID });
+      // Randomness is injected, never reached for inside `decide` — that is what keeps the
+      // kernel pure and the dice testable (CLAUDE.md invariant 2).
+      const decision = decide(this.state, actor, command, { newId: randomUUID, random: secureRandom });
       if (!decision.ok) return decision;
       const committed = await this.commit(actorId, decision.events);
       return { ok: true, seq: committed.at(-1)?.seq ?? null };

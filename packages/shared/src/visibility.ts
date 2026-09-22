@@ -14,7 +14,13 @@ export function filterStateForViewer(state: RoomState, viewer: Participant): Roo
   const tokens = Object.fromEntries(
     Object.entries(state.tokens).filter(([, t]) => !t.hidden),
   );
-  return { ...state, tokens };
+  // GM-only rolls never reach a player, not even as a redacted placeholder (FR-GM-22).
+  const rolls = state.rolls.filter((r) => r.visibility === "public");
+  // A hidden token must not be inferable from a gap in the turn order (FR-GM-23).
+  const initiative = state.initiative
+    ? { ...state.initiative, order: state.initiative.order.filter((id) => tokens[id]) }
+    : null;
+  return { ...state, tokens, rolls, initiative };
 }
 
 export type FilteredEvent =
@@ -44,7 +50,19 @@ export function filterEventForViewer(
       return e.token.hidden ? redacted : pass;
     case "TokenMoved":
     case "TokenOwnersSet":
+    case "TokenStatsSet":
+    case "TokenConditionsSet":
       return hiddenBefore(e.tokenId) ? redacted : pass;
+    case "DiceRolled":
+      // FR-GM-22: a player learns that *something* happened at this seq, never what.
+      return e.roll.visibility === "gm" ? redacted : pass;
+    case "InitiativeStarted":
+    case "InitiativeAdvanced":
+      // The order may name hidden tokens, so the player gets a filtered snapshot instead
+      // of the raw event — same reasoning as a reveal.
+      return { kind: "resync" };
+    case "InitiativeEnded":
+      return pass;
     case "TokenHiddenSet":
       // A reveal must deliver the whole token; a hide must remove it. A snapshot does both.
       return { kind: "resync" };

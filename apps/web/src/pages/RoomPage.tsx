@@ -1,7 +1,10 @@
-import { useEffect, useMemo } from "react";
-import { Board } from "../board/Board";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { Board, type BoardHandle } from "../board/Board";
 import { loadCredentials } from "../net/identity";
 import { RoomConnection, useRoomSnapshot, type ConnectionStatus } from "../net/roomConnection";
+import { DicePanel } from "../panels/DicePanel";
+import { InitiativeTracker } from "../panels/InitiativeTracker";
+import { TokenRoster } from "../panels/TokenRoster";
 import { GmPanel } from "./GmPanel";
 
 const STATUS_LABEL: Record<ConnectionStatus, string> = {
@@ -36,6 +39,8 @@ export function RoomPage({ roomId }: { roomId: string }) {
 
 function Room({ connection, inviteCode, token }: { connection: RoomConnection; inviteCode?: string; token: string }) {
   const { status, state, you, seq } = useRoomSnapshot(connection);
+  const boardRef = useRef<BoardHandle>(null);
+  const focusToken = useCallback((tokenId: string) => boardRef.current?.focusToken(tokenId), []);
 
   if (status === "unauthorized") {
     return (
@@ -54,7 +59,7 @@ function Room({ connection, inviteCode, token }: { connection: RoomConnection; i
 
   return (
     <div className="room">
-      <Board connection={connection} state={state} you={you} />
+      <Board ref={boardRef} connection={connection} state={state} you={you} />
       <aside className="panel">
         <header className="panel-header">
           <h1>{state.name}</h1>
@@ -78,6 +83,15 @@ function Room({ connection, inviteCode, token }: { connection: RoomConnection; i
         {you.role === "gm" && (
           <GmPanel connection={connection} state={state} inviteCode={inviteCode} token={token} />
         )}
+
+        {/*
+          Tactical panels are for everyone, not just the GM. A player needs the turn order,
+          their own token's resources, and the shared dice log as much as the GM does — the
+          server decides what each of them is allowed to see and change.
+        */}
+        <InitiativeTracker connection={connection} state={state} you={you} onFocusToken={focusToken} />
+        <TokenRoster connection={connection} state={state} you={you} onFocusToken={focusToken} />
+        <DicePanel connection={connection} state={state} isGm={you.role === "gm"} />
       </aside>
     </div>
   );

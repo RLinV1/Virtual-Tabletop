@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { ConditionId, TokenStats } from "./conditions";
+import { DiceRoll } from "./dice";
 import { DEFAULT_GRID, GridSpec, Point } from "./geometry";
 
 export const Id = z.string().min(1).max(64);
@@ -45,6 +47,10 @@ export const Token = z.object({
   ownerIds: z.array(Id),
   /** Hidden tokens are never sent to player clients (FR-GM-16, FR-GM-23). */
   hidden: z.boolean(),
+  /** Numeric resources shown on the token and in the roster (FR-TAC-07). */
+  stats: TokenStats,
+  /** Status conditions, rendered by shape and abbreviation, never colour alone (FR-TAC-08). */
+  conditions: z.array(ConditionId).max(12),
 });
 export type Token = z.infer<typeof Token>;
 
@@ -52,12 +58,36 @@ export type Token = z.infer<typeof Token>;
  * The authoritative state of one room. Produced only by folding committed events
  * through `reduce` — never mutated directly.
  */
+/**
+ * Encounter turn order (FR-GM-21). Null when no encounter is running.
+ *
+ * `order` holds token ids so a renamed or re-owned token keeps its slot. Entries whose
+ * token has since been deleted are skipped when advancing rather than rewritten, because
+ * the log is append-only and rewriting history is not allowed.
+ */
+export const Initiative = z.object({
+  /** Token ids, highest initiative first. The server sorts; clients never reorder locally. */
+  order: z.array(Id).max(60),
+  /** Index into `order` whose turn it is. */
+  activeIndex: z.number().int().min(0),
+  /** Increments each time the turn wraps past the end of the order. */
+  round: z.number().int().min(1),
+});
+export type Initiative = z.infer<typeof Initiative>;
+
+/** How many rolls the log keeps. Older ones stay in the event log, just not in state. */
+export const ROLL_LOG_LIMIT = 30;
+
 export interface RoomState {
   roomId: Id;
   name: string;
   scene: Scene;
   tokens: Record<Id, Token>;
   participants: Record<Id, Participant>;
+  /** Null until the GM starts an encounter (FR-GM-21). */
+  initiative: Initiative | null;
+  /** Most recent rolls, newest last (FR-GM-22, FR-TAC-09). Capped at ROLL_LOG_LIMIT. */
+  rolls: DiceRoll[];
 }
 
 export function emptyRoomState(roomId: Id): RoomState {
@@ -67,5 +97,7 @@ export function emptyRoomState(roomId: Id): RoomState {
     scene: { map: null, grid: DEFAULT_GRID },
     tokens: {},
     participants: {},
+    initiative: null,
+    rolls: [],
   };
 }

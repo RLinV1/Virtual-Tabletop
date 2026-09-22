@@ -42,3 +42,74 @@ describe("player-safe filtering (FR-GM-23)", () => {
     expect(payload).not.toContain("Hidden");
   });
 });
+
+describe("GM-only rolls (FR-GM-22)", () => {
+  const rolled = (state: ReturnType<typeof baseRoom>) => state;
+
+  it("strips GM rolls from a player's snapshot but keeps public ones", () => {
+    let s = baseRoom();
+    s = run(s, alice, { type: "dice.roll", expression: "1d6" }).state;
+    s = run(s, gm, { type: "dice.roll", expression: "1d20", visibility: "gm" }).state;
+    expect(s.rolls).toHaveLength(2);
+
+    const forPlayer = filterStateForViewer(rolled(s), alice);
+    expect(forPlayer.rolls).toHaveLength(1);
+    expect(forPlayer.rolls[0]!.visibility).toBe("public");
+    expect(filterStateForViewer(s, gm).rolls).toHaveLength(2);
+  });
+
+  it("redacts a GM roll event, so the player learns only that a seq happened", () => {
+    const s = baseRoom();
+    const roll = {
+      id: "r1", expression: "1d20", byParticipantId: gm.id,
+      dice: [18], modifier: 0, total: 18, visibility: "gm" as const,
+    };
+    const e = commit(20, { type: "DiceRolled", roll });
+    expect(filterEventForViewer(e, s, alice)).toEqual({ kind: "redacted", seq: 20 });
+    expect(filterEventForViewer(e, s, gm)).toMatchObject({ kind: "event" });
+  });
+
+  it("never serializes a GM roll's result into a player payload", () => {
+    let s = baseRoom();
+    s = run(s, gm, { type: "dice.roll", expression: "1d20", visibility: "gm" }).state;
+    const secretId = s.rolls[0]!.id;
+    expect(JSON.stringify(filterStateForViewer(s, alice))).not.toContain(secretId);
+  });
+});
+
+describe("initiative visibility (FR-GM-21, FR-GM-23)", () => {
+  it("removes hidden tokens from the order a player sees", () => {
+    let s = baseRoom();
+    const visible = run(s, gm, {
+      type: "token.create", name: "Visible", position: { x: 0, y: 0 }, ownerIds: [],
+    });
+    s = visible.state;
+    const secret = run(s, gm, {
+      type: "token.create", name: "Ambusher", position: { x: 1, y: 1 }, ownerIds: [], hidden: true,
+    });
+    s = secret.state;
+    const ids = Object.keys(s.tokens);
+    s = run(s, gm, {
+      type: "initiative.start",
+      entries: ids.map((tokenId, i) => ({ tokenId, score: 20 - i })),
+    }).state;
+
+    expect(s.initiative!.order).toHaveLength(2);
+    const forPlayer = filterStateForViewer(s, alice);
+    expect(forPlayer.initiative!.order).toHaveLength(1);
+    const hiddenId = Object.values(s.tokens).find((t) => t.hidden)!.id;
+    expect(forPlayer.initiative!.order).not.toContain(hiddenId);
+    expect(JSON.stringify(forPlayer)).not.toContain("Ambusher");
+  });
+
+  it("resyncs a player on an initiative change rather than sending the raw order", () => {
+    const s = baseRoom();
+    const e = commit(21, {
+      type: "InitiativeStarted",
+      initiative: { order: ["t1"], activeIndex: 0, round: 1 },
+      previous: null,
+    });
+    expect(filterEventForViewer(e, s, alice)).toEqual({ kind: "resync" });
+    expect(filterEventForViewer(e, s, gm)).toMatchObject({ kind: "event" });
+  });
+});
