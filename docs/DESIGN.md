@@ -326,7 +326,8 @@ No registration, ever. A player's entire onboarding is: open link → type a dis
 
 **Why `localStorage` and not a cookie.** It is what FR-PL-02 specifies, it survives a backgrounded tab, and it is not attached to every asset request. The tradeoff is real and worth stating: unlike the GM's `HttpOnly` cookie, a guest token **is** readable by JavaScript, so an XSS bug would expose it. Mitigations are a strict CSP, never rendering user-supplied content as HTML, and the limited blast radius — the token grants one seat in one game, and the GM can revoke it.
 
-**What a guest cannot do:** create or own rooms, see GM-only state (enforced server-side, §6), move tokens they do not own, or promote themselves — `role` is server-side data, never accepted from the client.
+**What a guest cannot do:** own rooms (creation is proposed to stay open to anyone, with
+ownership claimed afterwards — §11.5 and §5.7), see GM-only state (enforced server-side, §6), move tokens they do not own, or promote themselves — `role` is server-side data, never accepted from the client.
 
 ### 5.4 Reconnect flow
 
@@ -448,6 +449,9 @@ surface, a session cookie, and pages.
    specified says no.
 3. Are saved assets per user or per room? Per user is what people expect and raises a
    quota question the project has so far avoided.
+4. Does Play create a room without an account (§11.5), and if so does FR-GM-01's wording
+   change from "create and administer" to "own and administer"? An unclaimed room needs an
+   expiry, or the table fills with abandoned ones.
 
 ---
 
@@ -957,7 +961,7 @@ What exists today, and what a usable product still needs:
 
 | Route | Page | State | Serves |
 | --- | --- | --- | --- |
-| `/` | Create a room | Built — a bare form | — |
+| `/` | Home — the product, Play, and sign in | Built — a bare create form only | Entry for every journey (§11.5) |
 | `/join/:inviteCode` | Guest join | Built | FR-PL-01, FR-PL-02 |
 | `/r/:roomId` | The table | Built | most of the FR set |
 | — | 404 | Built — an unstyled card | — |
@@ -977,8 +981,9 @@ which means the GM does setup and play in the same cramped column.
 
 Three layers, distinguished by how long a person stays and how much they are asked to think:
 
-1. **Entry** (`/`, `/join/:code`, `/login`, `/signup`) — one decision per screen, no
-   navigation chrome. A player arriving from an invite link must reach the table in under
+1. **Entry** (`/`, `/join/:code`, `/login`, `/signup`) — originating at the home page,
+   which is the only surface that explains the product and carries both Play and sign in
+   (§11.5). Past it, one decision per screen and no navigation chrome. A player arriving from an invite link must reach the table in under
    30 seconds (README §6), so this layer is a corridor, not a lobby.
 2. **Hub** (`/rooms`, `/library`, account) — the between-sessions layer. Persistent left
    navigation, list-dense, optimised for finding one room among many.
@@ -1015,25 +1020,58 @@ The concrete rule this produces: **a player's path from link to playing contains
 screen and one field.** A GM's path from logging in to a prepared map contains no more than
 three. Any page proposal that lengthens either is rejected on that basis alone.
 
-### 11.5 The landing page
+### 11.5 The home page
 
-The only page a stranger sees, and currently a form on an empty ground. It has to do one
-job: make a GM believe the four-minute setup claim (README §9) before they have signed up
-for anything.
+**This is where everything starts.** Not a form and not a marketing page bolted onto the
+side of an app — the one surface that explains the product, and the entry point for all
+three journeys in §11.3. A first-time GM, a returning user, and a curious stranger all
+land here.
+
+**Two actions, and they are not equals.**
+
+- **Play** — primary, high contrast, impossible to miss. Creates a room and drops you
+  straight into it. No form, no account, no intermediate step. This button *is* the
+  product claim: a GM should be at a table within seconds of deciding to try it
+- **Log in / Sign up** — secondary, in a minimal top-right nav. For people who have been
+  here before and want their rooms back (§5.7). Quiet, never competing with Play
+
+A single top bar carries the product name on the left and the auth pair on the right, and
+nothing else. There is no room for a navigation menu on a product with three pages.
+
+**The conflict this creates, and the proposed resolution.**
+
+FR-GM-01 says the GM gets "a persistent, trusted identity from which to create and
+administer a room", and §5.3 states flatly that a guest cannot "create or own rooms". A
+Play button that creates a room without an account contradicts both. `routes.ts` currently
+permits it and marks that as temporary:
+`TODO(FR-GM-01): require an authenticated GM account.`
+
+Two ways out:
+
+1. **Gate Play behind sign-in.** Honours FR-GM-01 as written, and costs the product its
+   opening move — the first thing a stranger meets is a password field
+2. **Play creates an *unclaimed* room** that behaves exactly like an owned one, and the
+   account offer comes afterwards, the same claim flow §5.7 already proposes for guests.
+   `rooms.owner_user_id` stays null until claimed; an unclaimed room expires on a timer so
+   the table is not a landfill
+
+**Option 2 is proposed**, because it keeps the fast start *and* reuses a mechanism the
+identity model already needs. It requires FR-GM-01's wording to change from "create and
+administer" to something closer to "own and administer" — creation stays open, ownership
+does not. That is a requirement amendment and therefore a team decision, not a design one.
 
 **Above the fold.** An editorial split rather than centred text on a dark rectangle: the
-claim and its single action on one side, a real battle map bleeding off the opposite edge,
-masked into the ground so it reads as depth rather than as a pasted screenshot. The map is
-the product; a stock photograph of dice on a table is not.
+claim and the Play button on one side, a real battle map bleeding off the opposite edge,
+masked into the ground so it reads as depth rather than a pasted screenshot. The map is the
+product; a stock photograph of dice on a table is not.
 
 - The headline runs **two lines, never more**. It says what the product does in concrete
   verbs — upload a map, start playing — not "elevate your tabletop". Hold it under about
-  14 words and let it set at a fluid size that stays two lines from 380px to 1920px rather
-  than reflowing into a paragraph
-- **Exactly one primary action** (create a room) with one quiet secondary (see a live
-  demo room). Two competing buttons of equal weight is the failure mode
-- Nothing else. No floating badges over the text, no metric pills, no "trusted by" strip
-  above the fold
+  14 words at a fluid size that stays two lines from 380px to 1920px rather than reflowing
+  into a paragraph
+- Play sits directly beneath it. One quiet tertiary link — "see a live demo room" — may sit
+  beside it for people who want to look before creating anything
+- Nothing else. No floating badges over the text, no metric pills, no logo strip
 
 **Below it,** three movements, each a full viewport-height chapter with generous separation
 so they read as distinct rather than as a stack of cards:
@@ -1045,11 +1083,14 @@ so they read as distinct rather than as a stack of cards:
    player's filtered view, side by side. The visibility model is the hardest thing to
    explain in words and the easiest to show
 3. **Recovery.** The activity log with an undo, because "nothing is unrecoverable" is the
-   promise that distinguishes this from a shared image
+   promise that separates this from a shared image
+
+The page closes by repeating Play. A visitor who has read to the bottom should not have to
+scroll back up to act.
 
 **Banned on this page:** a row of three equal feature cards; section eyebrows reading
-"FEATURES" or "HOW IT WORKS"; any centred hero; testimonials the project does not have;
-invented usage statistics.
+"FEATURES" or "HOW IT WORKS"; a centred hero; testimonials the project does not have;
+invented usage statistics; a second call to action of equal weight to Play.
 
 ### 11.6 Entry pages
 
