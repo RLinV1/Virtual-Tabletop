@@ -15,6 +15,6 @@ to reference them as though they did.
 
 ## Palette
 
-Defined in `docs/DESIGN.md` §11.5, not here, so the two cannot drift apart again. The
+Defined in `docs/DESIGN.md` §11 (Design system), not here, so the two cannot drift apart again. The
 shipped values in `apps/web/src/styles.css` are currently the older neutral-and-blue set
-and do not yet match §11.5 — reconciling them is open work.
+and do not yet match it — reconciling them is open work.

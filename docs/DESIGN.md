@@ -875,7 +875,7 @@ Two corrections to what this section used to claim. The boards it referenced —
 `assets/ui-reference/` contains only a README describing them. And the palette that README
 calls "already applied" (deep slate-teal ground, parchment text, gold accent) is **not**
 what ships: `apps/web/src/styles.css` uses a neutral charcoal ground with a blue accent.
-The documented direction was abandoned silently. §11.5 picks one.
+The documented direction was abandoned silently. §11.9 picks one.
 
 ### 11.2 Page inventory
 
@@ -916,62 +916,137 @@ Three layers, distinguished by how long a person stays and how much they are ask
 The rule that follows: **navigation chrome decreases as you go deeper.** Entry has none,
 hub has a sidebar, the table has none again.
 
-### 11.4 Page specifications
+### 11.4 What we take from mature VTTs, and what we refuse
 
-Each page is specified by its one primary action, the states it must handle, and what must
-*not* appear on it. The third is the one prototypes always get wrong.
+Roll20 is the reference point because README §3 already names its tradeoff: broad
+functionality at the cost of onboarding and interface overhead. That is a statement about
+*pages*, not features. A mature VTT accretes surfaces — marketplace, compendium, character
+sheets, forums, a tabletop sidebar with a dozen tabs — and every one of them is a decision
+the user has to route around before play starts.
 
-**`/` — Landing and create**
+README §7 already excludes most of that surface area: no character sheets, no rules
+automation, no marketplace, no video. The page design should make that exclusion *visible*
+rather than leaving room for it.
 
-The only page a stranger sees. Today it is a form on an empty ground, which tells a
-visiting teammate or grader nothing about the product. It should carry one asymmetric hero
-(board imagery bleeding off one edge, copy on the other — not centred text on a dark
-rectangle), the create-room form as the single call to action, and nothing else. No feature
-grid of three equal cards.
+| Pattern | Take | Refuse |
+| --- | --- | --- |
+| Persistent list of games you belong to | Yes — §11.2 `/rooms`. Returning to last week's table is FR-GM-01's whole purpose | — |
+| Invite link that drops a player at the table | Yes, and go further: no account at all (FR-PL-01) | An account wall anywhere in the player path |
+| Tabletop with a side panel | Yes, one panel | A sidebar of many tabs; ours caps at four |
+| Layer controls (map / token / fog / GM) | Yes, as board layers | Exposing them as a persistent toolbar the player also sees |
+| Settings, permissions, asset library | Yes, as overlays over the table | A settings tree the GM navigates away from play to reach |
+| Marketplace, compendium, forums, sheets | — | All of it. Out of scope, and each is a top-level page we then owe navigation to |
 
-- Primary action: create a room
-- States: idle, submitting, name-taken or server error inline under the field
-- Not here: pricing, testimonials, a second CTA competing with the first
+The concrete rule this produces: **a player's path from link to playing contains exactly one
+screen and one field.** A GM's path from logging in to a prepared map contains no more than
+three. Any page proposal that lengthens either is rejected on that basis alone.
 
-**`/join/:inviteCode`**
+### 11.5 The landing page
 
-- Primary action: enter a display name and join
-- States: validating the code, invalid or expired code, already-joined-this-room (offer to
-  resume rather than duplicating identity), submitting
-- Not here: anything about accounts. A player must never see a signup prompt (FR-PL-01)
+The only page a stranger sees, and currently a form on an empty ground. It has to do one
+job: make a GM believe the four-minute setup claim (README §9) before they have signed up
+for anything.
 
-**`/rooms` — the hub**
+**Above the fold.** An editorial split rather than centred text on a dark rectangle: the
+claim and its single action on one side, a real battle map bleeding off the opposite edge,
+masked into the ground so it reads as depth rather than as a pasted screenshot. The map is
+the product; a stock photograph of dice on a table is not.
 
-- Primary action: resume a room
-- Each row: room name, last played, participant count, scene thumbnail
-- States: loading skeleton rows matching the final layout; **empty state that explains how
-  to make the first room** rather than an empty box; error with a retry that does not lose
-  the page
-- Not here: encounter controls. This is a filing cabinet, not a table
+- The headline runs **two lines, never more**. It says what the product does in concrete
+  verbs — upload a map, start playing — not "elevate your tabletop". Hold it under about
+  14 words and let it set at a fluid size that stays two lines from 380px to 1920px rather
+  than reflowing into a paragraph
+- **Exactly one primary action** (create a room) with one quiet secondary (see a live
+  demo room). Two competing buttons of equal weight is the failure mode
+- Nothing else. No floating badges over the text, no metric pills, no "trusted by" strip
+  above the fold
 
-**`/r/:roomId` — the table**
+**Below it,** three movements, each a full viewport-height chapter with generous separation
+so they read as distinct rather than as a stack of cards:
 
-Specified by what it protects: the board's share of the viewport. The panel is a fixed
-column on desktop, tabs beneath the board on narrow screens (see §11.7).
+1. **The setup claim, demonstrated.** The map-to-grid-to-tokens sequence shown as actual
+   interface, advancing on scroll. This is the differentiator and it earns the largest
+   surface on the page
+2. **What the table looks like in play,** from both sides — the GM's hidden tokens and the
+   player's filtered view, side by side. The visibility model is the hardest thing to
+   explain in words and the easiest to show
+3. **Recovery.** The activity log with an undo, because "nothing is unrecoverable" is the
+   promise that distinguishes this from a shared image
 
-- States: connecting, connected, reconnecting, unauthorised — each visible in the panel
-  header, never as a modal that blocks play
-- Not here: scene preparation. Move it to the overlay below
+**Banned on this page:** a row of three equal feature cards; section eyebrows reading
+"FEATURES" or "HOW IT WORKS"; any centred hero; testimonials the project does not have;
+invented usage statistics.
 
-**`/r/:roomId/prepare` — scene overlay**
+### 11.6 Entry pages
 
-Map upload, grid alignment, wall and portal editing, token setup. A wide overlay over the
-table, because a GM comparing grid alignment against the map needs width, not a 20rem
-column. Opening it must not disconnect the socket.
+**`/join/:inviteCode`** — one field, one button, no chrome. A player who is already known to
+this browser skips the field entirely and gets "Resume as Alice" instead, because re-typing
+a name to rejoin a room you were in five minutes ago is a needless step and risks creating a
+second identity (§5.5).
 
-**`/r/:roomId/log` — activity and undo**
+- Primary action: join
+- States: validating the code, invalid or expired code with a plain explanation, submitting
+- Not here: anything about accounts, any mention of signing up later
 
-The human-readable history FR-REC-01 asks for, reading from the event log. Each entry names
-the actor, the action, and the time; entries the GM may undo carry the control inline.
-Because the log is append-only, an undo appends a compensating entry rather than removing
-the original — the list shows both, which is the honest rendering of what happened.
+**`/login` and `/signup`** — GM only (FR-GM-01). A single column at reading width, the form
+above the fold with no scrolling, and the opposite link (sign in / create account) as quiet
+text rather than a second button. Password rules stated *before* the field, not as an error
+after submitting.
 
-### 11.5 Design system
+### 11.7 The room hub
+
+The between-sessions surface, and the one most likely to be built as a wall of identical
+cards. It should be a list, because a list scans and a card grid does not.
+
+**Layout.** A single column of rooms at reading width, one row per room, separated by
+hairlines rather than boxed. Each row: scene thumbnail at a fixed small size, room name,
+when it was last played, participant count. The row is the click target.
+
+**Ordering** is by last played, descending — not alphabetical and not by creation date. The
+room you want is almost always the one you were just in.
+
+**States.** Skeleton rows shaped like real rows while loading. The empty state is the first
+thing a new GM ever sees and should read as an invitation with the create action inline, not
+as an error. Room creation happens here too, so the hub is never a dead end.
+
+### 11.8 The table: layers and panels
+
+The most complex screen and the one with the strictest rule: **the board owns the viewport.**
+Everything else is a panel over it or a column beside it, and nothing may push the board
+smaller than it needs to be.
+
+**Regions.**
+
+- **Board** — the full remaining area, with no global navigation bar above it. There is
+  nowhere to navigate to; leaving would drop the socket
+- **Panel** — a fixed column on the right at desktop width, beneath the board as tabs below
+  720px, beside it again in landscape (KAN-55). Four tabs at most: Play, Tokens, Dice, and
+  Manage for the GM. When a fifth is proposed, something merges
+- **Board controls** — a small cluster floating over the board's corner: fit, zoom, and
+  the layer switcher. Floating rather than docked, because a docked toolbar costs board
+  height permanently for controls used occasionally
+- **Status** — connection state and seq, inline in the panel header. Never a modal. A
+  reconnect must not interrupt play, and a dialog over the board does exactly that
+
+**Layers,** in draw order, bottom to top: map, grid, drawings and templates, tokens,
+condition markers, fog, ephemeral effects (pings, drag previews, rulers). The GM can target
+a layer for editing; a player never sees a layer control, because every layer they can act
+on is the token layer. Fog and GM-only geometry are not merely hidden in the player's
+renderer — they are absent from the payload (FR-GM-23), and the interface should not imply
+otherwise by showing a disabled control.
+
+**Overlays** open over the table and never navigate away from it: scene preparation, the
+activity log, room settings. Each is a wide sheet rather than a column, dismissible with
+Escape, and returns focus to the control that opened it. Preparation in particular needs
+width — a GM aligning a grid against a map is comparing two things and cannot do it in a
+20rem strip.
+
+**Density** is highest here and only here. The panel may compress padding and use tabular
+figures at a smaller size; the entry and hub pages may not. A GM tracking eight tokens
+through an encounter wants information per square inch, and the same person on the landing
+page wants space.
+
+### 11.9 Design system
 
 **Direction.** Resolve the palette split in favour of the team's original intent: a deep,
 slightly cool ground with a **single warm accent**. That reads as a table lit from above,
@@ -1023,7 +1098,7 @@ information per square inch. The table panel is the only surface that may compre
 **Icons.** One set, one stroke weight (1.5), from Phosphor or Radix. No emoji anywhere in
 the interface, ever — they render differently on every platform and read as placeholder.
 
-### 11.6 Interface states
+### 11.10 Interface states
 
 Every data surface specifies four states, not one. Prototypes ship the success case and
 discover the rest in front of a grader.
@@ -1037,7 +1112,7 @@ discover the rest in front of a grader.
 - **Offline** — the board stays interactive and visibly stale rather than blanking. The
   status line owns this; nothing modal
 
-### 11.7 Responsive and accessibility
+### 11.11 Responsive and accessibility
 
 Breakpoints at 720px and 1024px. Below 720 the panel moves beneath the board and becomes
 tabs; in landscape on a phone the panel returns to the side, because width is what a
