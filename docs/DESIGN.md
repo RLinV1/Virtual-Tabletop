@@ -861,9 +861,196 @@ It is intentionally thin. It exists so that the *habit* and the *wiring* are in 
 
 ---
 
-## 11. UI Reference
+## 11. Interface and Page Design
 
-Visual direction for the board and panels — deep slate-teal ground, parchment text, gold action accent — is captured in [`../assets/ui-reference/`](../assets/ui-reference/) and already reflected in the prototype's palette. The reference boards cover room setup (map upload → grid alignment → tokens → invite), the GM and player tabletop views, chat/dice, connection-loss states, and the between-sessions room hub.
+### 11.1 Status
+
+§11.4 onward is **proposed, not decided**. Interface direction is the Board owner's call
+(Antonio) and the page inventory is a team decision; this section exists so there is
+something concrete to argue with, because until now the document said nothing about what
+the application is beyond one room screen.
+
+Two corrections to what this section used to claim. The boards it referenced —
+`room-setup.png`, `at-the-table.png`, `between-sessions.png` — **were never produced**;
+`assets/ui-reference/` contains only a README describing them. And the palette that README
+calls "already applied" (deep slate-teal ground, parchment text, gold accent) is **not**
+what ships: `apps/web/src/styles.css` uses a neutral charcoal ground with a blue accent.
+The documented direction was abandoned silently. §11.5 picks one.
+
+### 11.2 Page inventory
+
+What exists today, and what a usable product still needs:
+
+| Route | Page | State | Serves |
+| --- | --- | --- | --- |
+| `/` | Create a room | Built — a bare form | — |
+| `/join/:inviteCode` | Guest join | Built | FR-PL-01, FR-PL-02 |
+| `/r/:roomId` | The table | Built | most of the FR set |
+| — | 404 | Built — an unstyled card | — |
+| `/signup`, `/login` | GM account | **Missing** | FR-GM-01 |
+| `/rooms` | Room hub — the GM's rooms | **Missing** | FR-GM-01 (§4.2: an account exists so a GM can return and find their rooms) |
+| `/r/:roomId/prepare` | Scene preparation | **Missing** — currently crammed into the table's side panel | FR-GM-02 … FR-GM-07, FR-GM-11 |
+| `/r/:roomId/log` | Activity log and undo | **Missing** | FR-REC-01, FR-REC-02 |
+| `/r/:roomId/settings` | Access, invites, revocation | **Missing** | FR-GM-20 |
+| `/library` | Encounter and token templates | **Missing** | FR-GM-13 |
+
+The gap is not decoration. Three of those rows are requirements with no surface at all: a GM
+cannot currently find a room they made last week, revoke a guest, or read the log that
+FR-REC-01 requires. Map preparation lives in a scrolling side panel beside the live table,
+which means the GM does setup and play in the same cramped column.
+
+### 11.3 Information architecture
+
+Three layers, distinguished by how long a person stays and how much they are asked to think:
+
+1. **Entry** (`/`, `/join/:code`, `/login`, `/signup`) — one decision per screen, no
+   navigation chrome. A player arriving from an invite link must reach the table in under
+   30 seconds (README §6), so this layer is a corridor, not a lobby.
+2. **Hub** (`/rooms`, `/library`, account) — the between-sessions layer. Persistent left
+   navigation, list-dense, optimised for finding one room among many.
+3. **Table** (`/r/:roomId` and its sub-surfaces) — the encounter. No global chrome at all:
+   the board owns the viewport and everything else is a panel over it. Sub-surfaces
+   (prepare, log, settings) open as overlays rather than page navigations, because leaving
+   the table would drop the socket and force a resync.
+
+The rule that follows: **navigation chrome decreases as you go deeper.** Entry has none,
+hub has a sidebar, the table has none again.
+
+### 11.4 Page specifications
+
+Each page is specified by its one primary action, the states it must handle, and what must
+*not* appear on it. The third is the one prototypes always get wrong.
+
+**`/` — Landing and create**
+
+The only page a stranger sees. Today it is a form on an empty ground, which tells a
+visiting teammate or grader nothing about the product. It should carry one asymmetric hero
+(board imagery bleeding off one edge, copy on the other — not centred text on a dark
+rectangle), the create-room form as the single call to action, and nothing else. No feature
+grid of three equal cards.
+
+- Primary action: create a room
+- States: idle, submitting, name-taken or server error inline under the field
+- Not here: pricing, testimonials, a second CTA competing with the first
+
+**`/join/:inviteCode`**
+
+- Primary action: enter a display name and join
+- States: validating the code, invalid or expired code, already-joined-this-room (offer to
+  resume rather than duplicating identity), submitting
+- Not here: anything about accounts. A player must never see a signup prompt (FR-PL-01)
+
+**`/rooms` — the hub**
+
+- Primary action: resume a room
+- Each row: room name, last played, participant count, scene thumbnail
+- States: loading skeleton rows matching the final layout; **empty state that explains how
+  to make the first room** rather than an empty box; error with a retry that does not lose
+  the page
+- Not here: encounter controls. This is a filing cabinet, not a table
+
+**`/r/:roomId` — the table**
+
+Specified by what it protects: the board's share of the viewport. The panel is a fixed
+column on desktop, tabs beneath the board on narrow screens (see §11.7).
+
+- States: connecting, connected, reconnecting, unauthorised — each visible in the panel
+  header, never as a modal that blocks play
+- Not here: scene preparation. Move it to the overlay below
+
+**`/r/:roomId/prepare` — scene overlay**
+
+Map upload, grid alignment, wall and portal editing, token setup. A wide overlay over the
+table, because a GM comparing grid alignment against the map needs width, not a 20rem
+column. Opening it must not disconnect the socket.
+
+**`/r/:roomId/log` — activity and undo**
+
+The human-readable history FR-REC-01 asks for, reading from the event log. Each entry names
+the actor, the action, and the time; entries the GM may undo carry the control inline.
+Because the log is append-only, an undo appends a compensating entry rather than removing
+the original — the list shows both, which is the honest rendering of what happened.
+
+### 11.5 Design system
+
+**Direction.** Resolve the palette split in favour of the team's original intent: a deep,
+slightly cool ground with a **single warm accent**. That reads as a table lit from above,
+which is what the product is, and it avoids the blue-on-charcoal default that every
+developer tool already uses. The shipped blue accent should go.
+
+| Token | Value | Use |
+| --- | --- | --- |
+| `--ground` | `#0f1418` | Page and board surround. Never pure black |
+| `--panel` | `#161d22` | Panels, overlays |
+| `--hairline` | `#24323a` | 1px separators — the primary grouping device |
+| `--text` | `#e8e2d4` | Body |
+| `--muted` | `#8a9aa3` | Secondary, labels |
+| `--accent` | `#d6a355` | The single accent: primary action, active turn |
+| `--ok` `--warn` `--danger` | `#4caf7d` `#d29922` `#c4564f` | Status only, never decoration |
+
+One accent, under 80% saturation. Status colours are never the only signal — the active
+turn carries a glyph and position as well as gold, conditions carry a shape and an
+abbreviation as well as a fill (FR-TAC-08).
+
+**Typography.** A geometric grotesk for the interface and a true monospace for anything
+numeric — initiative scores, hit points, dice results, seq numbers all need tabular figures
+so they stop jittering as they change.
+
+```
+--font-ui:   "Geist", "Satoshi", system-ui, sans-serif
+--font-mono: "Geist Mono", "JetBrains Mono", ui-monospace, monospace
+```
+
+Serifs are out: this is software, not editorial. Headings control hierarchy through weight
+and colour rather than size — a room name is `text-lg font-semibold tracking-tight`, not a
+display heading. Body copy caps at 65 characters.
+
+**Space and materiality.** Group by hairline and negative space, not by boxing everything in
+a card. A card is justified only when elevation means something — an overlay above the
+table, a menu above the panel. Panels sit flat on the ground with a single hairline.
+Shadows, when used, are tinted to the ground rather than black.
+
+**Motion.** Fluid but not cinematic. `transition: 0.24s cubic-bezier(0.16, 1, 0.3, 1)` for
+state changes; spring physics for anything the user drags or drops. Animate `transform` and
+`opacity` only — never `width`, `height`, `top` or `left`, which would fight the Pixi
+canvas for the compositor. Two things earn continuous motion and nothing else does: the
+active-turn indicator and the connection status. `prefers-reduced-motion` removes both.
+
+**Density** varies by layer: airy at entry (generous spacing, one decision per view),
+moderate in the hub, and tight at the table, where a GM tracking eight tokens needs
+information per square inch. The table panel is the only surface that may compress padding.
+
+**Icons.** One set, one stroke weight (1.5), from Phosphor or Radix. No emoji anywhere in
+the interface, ever — they render differently on every platform and read as placeholder.
+
+### 11.6 Interface states
+
+Every data surface specifies four states, not one. Prototypes ship the success case and
+discover the rest in front of a grader.
+
+- **Loading** — skeletons shaped like the content that will replace them. No spinners
+- **Empty** — says what to do next. "No rooms yet — create one to get started", not a blank
+  panel. The empty table and empty roster are the first thing a new GM sees
+- **Error** — inline and specific, next to the thing that failed. Errors that need a retry
+  carry the retry. A rejected command surfaces the server's reason, since `decide` already
+  returns one
+- **Offline** — the board stays interactive and visibly stale rather than blanking. The
+  status line owns this; nothing modal
+
+### 11.7 Responsive and accessibility
+
+Breakpoints at 720px and 1024px. Below 720 the panel moves beneath the board and becomes
+tabs; in landscape on a phone the panel returns to the side, because width is what a
+landscape phone has (see KAN-55). The board refits when the viewport changes only if the
+viewer has not positioned their own camera — an independent viewport is FR-TAC-01, and a
+rotation must not undo a deliberate pan (KAN-54).
+
+Accessibility is a stated target (README §6: WCAG 2.2 AA for non-canvas UI), which means
+concretely: every interactive element reachable by keyboard and visible when focused; touch
+targets at least 44px on coarse pointers; colour never the sole carrier of meaning; the
+canvas paired with a DOM equivalent for anything it expresses — the roster is the keyboard
+path to token selection (FR-GM-24), and any future canvas-only affordance needs the same
+treatment.
 
 ---
 
