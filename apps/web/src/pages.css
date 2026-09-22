@@ -1,0 +1,211 @@
+/*
+ * Entry-layer pages: home, auth, room hub (DESIGN.md §11.5 – §11.7).
+ *
+ * Deliberately a separate file from styles.css, which owns the table. The two layers have
+ * opposite densities — the table packs information, these pages give it room — and keeping
+ * them apart stops one being tuned at the other's expense.
+ *
+ * Tokens come from styles.css. The palette reconciliation in §11.9 is KAN-60 and is not
+ * done here; these pages use what currently ships so nothing looks half-migrated.
+ */
+
+.site {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.site-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem clamp(1rem, 5vw, 3rem);
+  border-bottom: 1px solid var(--border);
+}
+.site-name {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  text-decoration: none;
+}
+.site-nav { display: flex; gap: 0.35rem; }
+.site-link {
+  color: var(--muted);
+  text-decoration: none;
+  padding: 0.4rem 0.7rem;
+  border-radius: 0.35rem;
+  border: 1px solid transparent;
+  font-size: 0.92rem;
+}
+.site-link:hover { color: var(--text); border-color: var(--border); }
+.site-link.current { color: var(--text); border-color: var(--border); }
+
+/* --- Not-built marker ------------------------------------------------------- */
+
+.not-built {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warn);
+  border-radius: 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+.not-built-tag {
+  color: var(--warn);
+  font-weight: 600;
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* --- Home ------------------------------------------------------------------- */
+
+.home { padding: 0 clamp(1rem, 5vw, 3rem) 5rem; }
+
+.hero {
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: clamp(1.5rem, 4vw, 4rem);
+  align-items: center;
+  padding: clamp(3rem, 9vw, 7rem) 0;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+.hero h1 {
+  font-size: clamp(2.1rem, 5.2vw, 3.6rem);
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  margin: 0 0 1rem;
+  max-width: 14ch;
+}
+.lede {
+  font-size: clamp(1rem, 1.5vw, 1.15rem);
+  color: var(--muted);
+  line-height: 1.6;
+  max-width: 46ch;
+  margin: 0 0 1.75rem;
+}
+.hero-art { display: flex; justify-content: center; }
+
+.play-form { display: flex; flex-direction: column; gap: 0.75rem; max-width: 30rem; }
+.play-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+.play-fields input { width: 100%; }
+button.play {
+  align-self: flex-start;
+  font-size: 1.05rem;
+  padding: 0.7rem 2.2rem;
+  min-height: 48px;
+  transition: transform 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+}
+button.play:active { transform: translateY(1px); }
+
+.chapter {
+  display: grid;
+  grid-template-columns: 0.9fr 1.1fr;
+  gap: clamp(1.5rem, 4vw, 4rem);
+  align-items: center;
+  padding: clamp(2.5rem, 7vw, 5.5rem) 0;
+  border-top: 1px solid var(--border);
+  max-width: 1200px;
+  margin: 0 auto;
+}
+.chapter:nth-of-type(even) .chapter-copy { order: 2; }
+.chapter h2 { font-size: clamp(1.3rem, 2.4vw, 1.9rem); letter-spacing: -0.02em; text-transform: none; color: var(--text); margin: 0 0 0.6rem; }
+.chapter p { color: var(--muted); line-height: 1.65; max-width: 44ch; margin: 0; }
+
+.closer {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: clamp(2.5rem, 7vw, 5rem) 0 0;
+  border-top: 1px solid var(--border);
+}
+.closer h2 { font-size: 1.4rem; text-transform: none; color: var(--text); letter-spacing: -0.02em; }
+
+/* Sketches: diagrams of the real interface, never stock photography. */
+.sketch { width: 100%; height: auto; display: block; }
+.sk-ground { fill: var(--panel); stroke: var(--border); stroke-width: 1; }
+.sk-grid { stroke: var(--border); stroke-width: 1; opacity: 0.55; }
+.sk-room { fill: var(--bg); stroke: var(--border); stroke-width: 1; }
+.sk-token-a { fill: #c0392b; }
+.sk-token-b { fill: #2980b9; }
+.sk-token-c { fill: #27ae60; }
+.sk-token-hidden { fill: #8e44ad; opacity: 0.4; }
+.sk-token-hidden-ring { fill: none; stroke: var(--text); stroke-width: 1.5; stroke-dasharray: 3 3; }
+
+.steps { display: flex; flex-wrap: wrap; gap: 0.5rem; list-style: none; margin: 0; padding: 0; }
+.steps li {
+  display: flex; align-items: center; gap: 0.5rem;
+  border: 1px solid var(--border); border-radius: 0.4rem;
+  padding: 0.55rem 0.9rem; color: var(--text); font-weight: 500;
+}
+.step-n { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 0.85rem; }
+
+.two-views { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.two-views figure { margin: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.two-views figcaption { font-size: 0.85rem; color: var(--muted); }
+
+.log-sketch { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 0.4rem; }
+.log-sketch li { padding: 0.65rem 0.9rem; font-size: 0.9rem; color: var(--muted); }
+.log-sketch li + li { border-top: 1px solid var(--border); }
+
+/* --- Auth ------------------------------------------------------------------- */
+
+.auth { flex: 1; display: grid; place-items: center; padding: clamp(2rem, 6vw, 4rem) 1rem; }
+.auth-form {
+  width: 100%; max-width: 24rem;
+  display: flex; flex-direction: column; gap: 0.9rem;
+}
+.auth-form h1 { font-size: 1.5rem; letter-spacing: -0.02em; margin: 0; }
+.auth-form p.muted { margin: 0; line-height: 1.55; }
+.hint { font-size: 0.8rem; color: var(--muted); font-weight: 400; }
+.auth-alt { font-size: 0.9rem; color: var(--muted); margin: 0; }
+
+/* --- Room hub --------------------------------------------------------------- */
+
+.rooms { flex: 1; width: 100%; max-width: 46rem; margin: 0 auto; padding: clamp(1.5rem, 5vw, 3rem) 1rem 4rem; display: flex; flex-direction: column; gap: 1rem; }
+.rooms-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.rooms-head h1 { font-size: 1.5rem; letter-spacing: -0.02em; margin: 0; }
+
+.room-list { display: flex; flex-direction: column; }
+.room-list li + li { border-top: 1px solid var(--border); }
+.room-row {
+  width: 100%; display: flex; align-items: center; gap: 0.9rem;
+  background: transparent; border: none; color: var(--text);
+  padding: 0.85rem 0.5rem; text-align: left; font-weight: 500; min-height: 56px;
+  border-radius: 0;
+}
+.room-row:hover { background: var(--panel); }
+.room-thumb { width: 44px; height: 32px; flex: none; border-radius: 0.25rem; background: var(--panel); border: 1px solid var(--border); }
+.room-main { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; flex: 1; }
+.room-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.room-meta { font-size: 0.82rem; }
+.room-go { color: var(--muted); font-size: 0.85rem; font-weight: 400; }
+
+.empty {
+  border: 1px solid var(--border); border-radius: 0.5rem;
+  padding: clamp(1.5rem, 5vw, 3rem);
+  display: flex; flex-direction: column; gap: 0.6rem; align-items: flex-start;
+}
+.empty h2 { font-size: 1.15rem; text-transform: none; color: var(--text); letter-spacing: -0.01em; margin: 0; }
+.empty p { margin: 0 0 0.4rem; max-width: 44ch; line-height: 1.6; }
+
+/* --- Narrow screens --------------------------------------------------------- */
+
+@media (max-width: 860px) {
+  .hero, .chapter { grid-template-columns: 1fr; }
+  .chapter:nth-of-type(even) .chapter-copy { order: 0; }
+  .hero-art, .chapter-art { max-width: 32rem; }
+}
+
+@media (max-width: 560px) {
+  .play-fields { grid-template-columns: 1fr; }
+  button.play { align-self: stretch; }
+  .two-views { grid-template-columns: 1fr; }
+  .site-bar { padding: 0.75rem 1rem; }
+}

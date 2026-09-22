@@ -12,6 +12,8 @@ export interface StoredCredentials extends RoomCredentials {
   guestToken: string;
   /** Only known to the GM who created the room. */
   inviteCode?: string;
+  /** Room name, so the hub can list rooms without connecting to each one. */
+  name?: string;
 }
 
 /**
@@ -55,6 +57,33 @@ export function loadCredentials(roomId: string): StoredCredentials | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Every room this browser holds credentials for (DESIGN.md §11.7).
+ *
+ * A stopgap until accounts exist: it reads localStorage rather than the server, so it
+ * cannot see rooms joined from another device — which is the limitation KAN-7 removes.
+ */
+export function knownRooms(): StoredCredentials[] {
+  const rooms: StoredCredentials[] = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith(CRED_PREFIX)) continue;
+      const creds = JSON.parse(localStorage.getItem(key) ?? "null") as StoredCredentials | null;
+      if (creds?.roomId) rooms.push(creds);
+    }
+  } catch {
+    // Storage unavailable (private mode): the hub is simply empty.
+  }
+  // GM-owned rooms first, then named before unnamed, then alphabetically. There is no
+  // timestamp to sort on yet — §11.7 wants last-played order, which needs the server.
+  return rooms.sort((a, b) => {
+    if (Boolean(a.inviteCode) !== Boolean(b.inviteCode)) return a.inviteCode ? -1 : 1;
+    if (Boolean(a.name) !== Boolean(b.name)) return a.name ? -1 : 1;
+    return (a.name ?? "").localeCompare(b.name ?? "");
+  });
 }
 
 /** Room this browser previously joined as a guest through this invite, if any. */

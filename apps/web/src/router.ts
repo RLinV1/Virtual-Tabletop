@@ -2,12 +2,18 @@ import { useSyncExternalStore } from "react";
 
 export type Route =
   | { page: "home" }
+  | { page: "login" }
+  | { page: "signup" }
+  | { page: "rooms" }
   | { page: "join"; inviteCode: string }
   | { page: "room"; roomId: string }
   | { page: "notFound" };
 
 function parse(pathname: string): Route {
   if (pathname === "/") return { page: "home" };
+  if (pathname === "/login") return { page: "login" };
+  if (pathname === "/signup") return { page: "signup" };
+  if (pathname === "/rooms") return { page: "rooms" };
   const join = pathname.match(/^\/join\/([^/]+)\/?$/);
   if (join) return { page: "join", inviteCode: decodeURIComponent(join[1]!) };
   const room = pathname.match(/^\/r\/([^/]+)\/?$/);
