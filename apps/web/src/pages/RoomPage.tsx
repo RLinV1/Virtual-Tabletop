@@ -87,25 +87,33 @@ function Room({ connection, inviteCode, token }: { connection: RoomConnection; i
       </a>
       <Board ref={boardRef} connection={connection} state={state} you={you} />
       <aside className="panel" id="room-panel">
+        {/*
+          On a phone this header competes with the board for a screen that has neither to
+          spare, so it collapses to one line: room name, who you are, and connection state.
+          The participant list moves into the Play tab, where it is one line of names
+          rather than a titled section.
+        */}
         <header className="panel-header">
           <h1>{state.name}</h1>
           <span className={`status status-${status}`} role="status">
             {STATUS_LABEL[status]} · seq {seq}
           </span>
+          <p className="whoami">
+            You are <strong>{you.displayName}</strong> ({you.role === "gm" ? "GM" : "player"})
+          </p>
         </header>
-        <p>
-          You are <strong>{you.displayName}</strong> ({you.role === "gm" ? "GM" : "player"})
-        </p>
-        <section className="participants">
-          <h2>Participants</h2>
-          <ul className="plain">
-            {Object.values(state.participants).map((p) => (
-              <li key={p.id}>
-                {p.displayName} <span className="muted">{p.role === "gm" ? "GM" : ""}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
+        {!compact && (
+          <section className="participants">
+            <h2>Participants</h2>
+            <ul className="plain">
+              {Object.values(state.participants).map((p) => (
+                <li key={p.id}>
+                  {p.displayName} <span className="muted">{p.role === "gm" ? "GM" : ""}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
         {/*
           One panel for both roles. A player needs the turn order, their own token's
           resources and the shared dice log as much as the GM does; what differs is the

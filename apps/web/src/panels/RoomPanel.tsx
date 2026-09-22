@@ -63,6 +63,18 @@ export function RoomPanel({ connection, state, you, inviteCode, token, onFocusTo
       <>
         <MyTokens connection={connection} state={state} you={you} onFocusToken={onFocusToken} />
         <InitiativeTracker connection={connection} state={state} you={you} onFocusToken={onFocusToken} />
+        {/* Compact hides the participants section in the header; it reappears here as a
+            single inline line, since knowing who is in the room still matters. */}
+        {compact && (
+          <section className="panel-section">
+            <h2>Participants</h2>
+            <p className="who-list">
+              {Object.values(state.participants)
+                .map((p) => `${p.displayName}${p.role === "gm" ? " (GM)" : ""}`)
+                .join(" · ")}
+            </p>
+          </section>
+        )}
       </>
     ),
     tokens: <TokenRoster connection={connection} state={state} you={you} onFocusToken={onFocusToken} />,

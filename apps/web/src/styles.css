@@ -251,8 +251,21 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
      toolbar collapsing does not leave a gap or clip the tab bar. */
   .room {
     grid-template-columns: 1fr;
-    grid-template-rows: 48dvh 1fr;
+    grid-template-rows: 46dvh 1fr;
     height: auto; min-height: 100dvh;
+  }
+
+  /* The header was eating the panel before the tabs came into view. One line each. */
+  .panel { padding: 0.6rem 0.75rem; gap: 0.5rem; }
+  .panel-header { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.5rem; }
+  .panel-header h1 { font-size: 1.05rem; margin: 0; }
+  .panel-header .status { font-size: 0.75rem; }
+  .panel-header .whoami { width: 100%; font-size: 0.85rem; margin: 0; }
+  .who-list { font-size: 0.85rem; margin: 0; }
+
+  /* Landscape has almost no height; give the board less and let the panel take over. */
+  @media (orientation: landscape) {
+    .room { grid-template-rows: 62dvh 1fr; }
   }
   .panel { border-left: none; border-top: 1px solid var(--border); }
   .condition-picker { grid-template-columns: 1fr; }
