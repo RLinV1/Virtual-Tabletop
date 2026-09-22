@@ -103,6 +103,10 @@ export class BoardView {
 
     this.app.canvas.addEventListener("wheel", this.onWheel, { passive: false });
     this.app.canvas.addEventListener("dblclick", this.onDoubleClick);
+    // Touch: a phone has no wheel, so without these the board cannot be zoomed at all.
+    this.app.canvas.addEventListener("touchstart", this.onTouchStart, { passive: false });
+    this.app.canvas.addEventListener("touchmove", this.onTouchMove, { passive: false });
+    this.app.canvas.addEventListener("touchend", this.onTouchEnd);
     this.app.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
     this.app.ticker.add(this.tick);
     this.app.renderer.on("resize", () => {
@@ -113,6 +117,9 @@ export class BoardView {
   destroy() {
     if (!this.initialized) return;
     this.app.canvas.removeEventListener("wheel", this.onWheel);
+    this.app.canvas.removeEventListener("touchstart", this.onTouchStart);
+    this.app.canvas.removeEventListener("touchmove", this.onTouchMove);
+    this.app.canvas.removeEventListener("touchend", this.onTouchEnd);
     this.app.canvas.removeEventListener("dblclick", this.onDoubleClick);
     this.app.destroy(true, { children: true });
     this.initialized = false;
@@ -449,6 +456,90 @@ export class BoardView {
       const current = this.state?.tokens[token.id];
       if (current) this.tokens.get(token.id)?.container.position.set(current.position.x, current.position.y);
     });
+  };
+
+  /**
+   * Pinch to zoom and two-finger pan (FR-TAC-01 on touch).
+   *
+   * One finger is left alone so it still drags tokens and pans the background through the
+   * existing pointer handlers. Two fingers are unambiguously a camera gesture, so we take
+   * them over and keep the midpoint between the fingers anchored to the same board point —
+   * which is what makes a pinch feel like it is grabbing the map rather than scaling it
+   * around some arbitrary centre.
+   */
+  private pinch: { distance: number; midpoint: Point; scale: number } | null = null;
+  private lastTap = { at: 0, x: 0, y: 0 };
+
+  private touchInfo(touches: TouchList) {
+    const rect = this.app.canvas.getBoundingClientRect();
+    const a = touches[0]!;
+    const b = touches[1]!;
+    return {
+      distance: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY),
+      midpoint: {
+        x: (a.clientX + b.clientX) / 2 - rect.left,
+        y: (a.clientY + b.clientY) / 2 - rect.top,
+      },
+    };
+  }
+
+  private onTouchStart = (e: TouchEvent) => {
+    if (e.touches.length !== 2) return;
+    e.preventDefault();
+    // Cancel whatever the first finger started, so a pinch never drags a token with it.
+    this.pan = null;
+    if (this.drag) {
+      const view = this.tokens.get(this.drag.tokenId);
+      const token = this.state?.tokens[this.drag.tokenId];
+      if (view && token) view.container.position.set(token.position.x, token.position.y);
+      this.drag = null;
+    }
+    const { distance, midpoint } = this.touchInfo(e.touches);
+    this.pinch = { distance, midpoint, scale: this.world.scale.x };
+  };
+
+  private onTouchMove = (e: TouchEvent) => {
+    if (!this.pinch || e.touches.length !== 2) return;
+    e.preventDefault();
+    this.autoFit = false;
+    const { distance, midpoint } = this.touchInfo(e.touches);
+    if (this.pinch.distance === 0) return;
+
+    const scale = Math.min(
+      MAX_ZOOM,
+      Math.max(MIN_ZOOM, this.pinch.scale * (distance / this.pinch.distance)),
+    );
+    // Board point under the starting midpoint, kept under the current midpoint.
+    const anchor = {
+      x: (this.pinch.midpoint.x - this.world.x) / this.world.scale.x,
+      y: (this.pinch.midpoint.y - this.world.y) / this.world.scale.y,
+    };
+    this.world.scale.set(scale);
+    this.world.position.set(midpoint.x - anchor.x * scale, midpoint.y - anchor.y * scale);
+    this.pinch = { distance, midpoint, scale };
+  };
+
+  private onTouchEnd = (e: TouchEvent) => {
+    if (e.touches.length < 2) this.pinch = null;
+
+    // Double-tap to ping. `dblclick` is synthesised inconsistently on touch, and a ping is
+    // the one board gesture a player on a phone actually needs (FR-TAC-05).
+    const touch = e.changedTouches[0];
+    if (!touch || e.touches.length > 0 || this.pinch) return;
+    const rect = this.app.canvas.getBoundingClientRect();
+    const x = touch.clientX - rect.left;
+    const y = touch.clientY - rect.top;
+    const now = performance.now();
+    const quick = now - this.lastTap.at < 350;
+    const close = Math.hypot(x - this.lastTap.x, y - this.lastTap.y) < 30;
+    if (quick && close) {
+      const at = this.toBoard({ x, y });
+      this.showPing(at);
+      this.callbacks.ping(at);
+      this.lastTap = { at: 0, x: 0, y: 0 };
+      return;
+    }
+    this.lastTap = { at: now, x, y };
   };
 
   private onWheel = (e: WheelEvent) => {

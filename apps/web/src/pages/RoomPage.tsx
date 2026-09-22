@@ -1,8 +1,30 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { Board, type BoardHandle } from "../board/Board";
 import { loadCredentials } from "../net/identity";
 import { RoomConnection, useRoomSnapshot, type ConnectionStatus } from "../net/roomConnection";
 import { RoomPanel } from "../panels/RoomPanel";
+
+/** Below this the panel becomes tabs and sits under the board (FR-PL-03). */
+const COMPACT_WIDTH = 720;
+
+/**
+ * Tracks the narrow-screen breakpoint.
+ *
+ * matchMedia rather than a resize listener: it fires once per crossing instead of on every
+ * pixel, and it is correct on the very first render — a phone must not paint the desktop
+ * layout and then reflow.
+ */
+function useCompactLayout() {
+  return useSyncExternalStore(
+    (onChange) => {
+      const mq = window.matchMedia(`(max-width: ${COMPACT_WIDTH}px)`);
+      mq.addEventListener("change", onChange);
+      return () => mq.removeEventListener("change", onChange);
+    },
+    () => window.matchMedia(`(max-width: ${COMPACT_WIDTH}px)`).matches,
+    () => false,
+  );
+}
 
 
 const STATUS_LABEL: Record<ConnectionStatus, string> = {
@@ -38,6 +60,7 @@ export function RoomPage({ roomId }: { roomId: string }) {
 function Room({ connection, inviteCode, token }: { connection: RoomConnection; inviteCode?: string; token: string }) {
   const { status, state, you, seq } = useRoomSnapshot(connection);
   const boardRef = useRef<BoardHandle>(null);
+  const compact = useCompactLayout();
   const focusToken = useCallback((tokenId: string) => boardRef.current?.focusToken(tokenId), []);
 
   if (status === "unauthorized") {
@@ -56,7 +79,7 @@ function Room({ connection, inviteCode, token }: { connection: RoomConnection; i
   }
 
   return (
-    <div className="room">
+    <div className={compact ? "room compact" : "room"}>
       {/* Keyboard and screen-reader users should not have to tab through the canvas,
           which is a single non-navigable element, to reach the controls. */}
       <a className="skip-link" href="#room-panel">
@@ -95,6 +118,7 @@ function Room({ connection, inviteCode, token }: { connection: RoomConnection; i
           inviteCode={inviteCode}
           token={token}
           onFocusToken={focusToken}
+          compact={compact}
         />
       </aside>
     </div>
