@@ -446,18 +446,17 @@ the visibility filters address participants and cannot tell a registered user fr
 (§4.2) — which is exactly the property that makes this affordable. The work is a REST
 surface, a session cookie, and pages.
 
-**Open questions for the owner.**
+**The questions this raised — all four answered in §13.1.**
 
-1. Does claiming an account merge *all* of that browser's participants across every room,
-   or only the room the claim was offered in? Merging all is friendlier and leaks which
-   other rooms that browser has seats in.
-2. Can a room be owned by more than one account — a co-GM? `rooms.owner_user_id` as
-   specified says no.
-3. Are saved assets per user or per room? Per user is what people expect and raises a
-   quota question the project has so far avoided.
-4. Does Play create a room without an account (§11.5), and if so does FR-GM-01's wording
-   change from "create and administer" to "own and administer"? An unclaimed room needs an
-   expiry, or the table fills with abandoned ones.
+1. *Does claiming an account merge all of that browser's participants, or only one room?*
+   → Only the current room, after Leave table, requiring proof of both credentials. Never
+   a silent union of every seat the browser holds.
+2. *Can a room have a co-GM?* → No. Co-GM ownership is deferred; role stays per room.
+3. *Are saved assets per user or per room?* → Deferred entirely, navigation omitted, until
+   ownership, quota and reuse have requirements.
+4. *Does Play create a room without an account?* → No. FR-GM-01 stands unamended and
+   `rooms.owner_user_id` stays non-null; a signed-out Play routes through login with a
+   return intent instead.
 
 ---
 
@@ -972,12 +971,12 @@ What exists today, and what a usable product still needs:
 | `/join/:inviteCode` | Guest join | Built | FR-PL-01, FR-PL-02 |
 | `/r/:roomId` | The table | Built | most of the FR set |
 | — | 404 | Built — an unstyled card | — |
-| `/signup`, `/login` | Account — any role | **Missing** | FR-GM-01, §5.7 |
-| `/rooms` | Room hub — rooms you belong to | **Missing** | FR-GM-01 (§4.2: an account exists so a user can return and find their rooms). Also the second way to join, for people past their first session (§5.7) |
+| `/signup`, `/login` | Account — any role, role is per room | **Missing** | FR-GM-01, §13.1 |
+| `/rooms` | Room hub — rooms you belong to | **Missing** | FR-GM-01 (§4.2: an account exists so a user can return and find their rooms). Also where Leave table returns a signed-in user (§13.1) |
 | `/r/:roomId/prepare` | Scene preparation | **Missing** — currently crammed into the table's side panel | FR-GM-02 … FR-GM-07, FR-GM-11 |
 | `/r/:roomId/log` | Activity log and undo | **Missing** | FR-REC-01, FR-REC-02 |
 | `/r/:roomId/settings` | Access, invites, revocation | **Missing** | FR-GM-20 |
-| `/library` | Saved maps, token art, encounter templates | **Missing** | FR-GM-13 for templates; saved assets have no requirement yet (§5.7) |
+| `/library` | Saved maps, token art, encounter templates | **Deferred — do not build** | §13.1 defers saved assets and omits their navigation from the initial release; needs ownership, quota and reuse requirements first |
 
 The gap is not decoration. Three of those rows are requirements with no surface at all: a GM
 cannot currently find a room they made last week, revoke a guest, or read the log that
@@ -1036,36 +1035,36 @@ land here.
 
 **Two actions, and they are not equals.**
 
-- **Play** — primary, high contrast, impossible to miss. Creates a room and drops you
-  straight into it. No form, no account, no intermediate step. This button *is* the
-  product claim: a GM should be at a table within seconds of deciding to try it
+- **Play** — primary, high contrast, impossible to miss. For a signed-in user it creates a
+  room and opens its table. For a signed-out one it opens login or signup carrying a
+  return intent, and authenticating continues into room creation rather than dumping the
+  user on a dashboard (§13.1). Either way the journey ends at a table
 - **Log in / Sign up** — secondary, in a minimal top-right nav. For people who have been
-  here before and want their rooms back (§5.7). Quiet, never competing with Play
+  here before and want their rooms back. Quiet, never competing with Play
+
+Beside the primary action, one line of copy carries the rule so nobody discovers it at the
+password field: **"Free account required to host; players join without one"** (§13.1). That
+sentence is doing real work — it tells a GM what Play will cost them, and tells a player
+reading over their shoulder that the invite they were sent asks nothing of them.
 
 A single top bar carries the product name on the left and the auth pair on the right, and
 nothing else. There is no room for a navigation menu on a product with three pages.
 
-**The conflict this creates, and the proposed resolution.**
+**Why creation is gated — decided, §13.1.**
 
-FR-GM-01 says the GM gets "a persistent, trusted identity from which to create and
-administer a room", and §5.3 states flatly that a guest cannot "create or own rooms". A
-Play button that creates a room without an account contradicts both. `routes.ts` currently
-permits it and marks that as temporary:
-`TODO(FR-GM-01): require an authenticated GM account.`
+FR-GM-01 gives the GM "a persistent, trusted identity from which to create and administer
+a room", and `routes.ts` currently permits creation without one under a `TODO` marking
+that as temporary. Two resolutions were considered: gate Play behind sign-in, or let Play
+create an *unclaimed* room claimed afterwards.
 
-Two ways out:
+**§13.1 selects the gate, and keeps `rooms.owner_user_id` non-null.** Unclaimed-room
+authority, expiry and ownership transfer are explicitly out of the Core Loop. The return
+intent is what preserves the fast start — a signed-out Play is one extra screen, not a
+dead end — and it costs no amendment to FR-GM-01 and no new ownership state to reason
+about. The unclaimed-room alternative is recorded in §13.1 as rejected, not deferred.
 
-1. **Gate Play behind sign-in.** Honours FR-GM-01 as written, and costs the product its
-   opening move — the first thing a stranger meets is a password field
-2. **Play creates an *unclaimed* room** that behaves exactly like an owned one, and the
-   account offer comes afterwards, the same claim flow §5.7 already proposes for guests.
-   `rooms.owner_user_id` stays null until claimed; an unclaimed room expires on a timer so
-   the table is not a landfill
-
-**Historical proposal, superseded by §13.1: option 1 is selected.** Option 2 was proposed because it keeps the fast start *and* reuses a mechanism the
-identity model already needs. It requires FR-GM-01's wording to change from "create and
-administer" to something closer to "own and administer" — creation stays open, ownership
-does not. That is a requirement amendment and therefore a team decision, not a design one.
+Creation is idempotent: a retry with the same request key returns the existing room rather
+than making a second one, and a failed creation preserves the session (§13.1).
 
 **Above the fold.** An editorial split rather than centred text on a dark rectangle: the
 claim and the Play button on one side, a real battle map bleeding off the opposite edge,
