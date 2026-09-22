@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { ConditionId, TokenStats } from "./conditions";
+import { DiceVisibility } from "./dice";
 import { GridSpec, Point } from "./geometry";
 import { Id, MapImage } from "./state";
 
@@ -44,6 +46,36 @@ export const Command = z.discriminatedUnion("type", [
     type: z.literal("token.setHidden"),
     tokenId: Id,
     hidden: z.boolean(),
+  }),
+  z.object({
+    type: z.literal("token.setStats"),
+    tokenId: Id,
+    stats: TokenStats,
+  }),
+  z.object({
+    type: z.literal("token.setConditions"),
+    tokenId: Id,
+    conditions: z.array(ConditionId).max(12),
+  }),
+  /** Start or replace the turn order (FR-GM-21). Entries are sorted by score, descending. */
+  z.object({
+    type: z.literal("initiative.start"),
+    entries: z
+      .array(z.object({ tokenId: Id, score: z.number().int().min(-99).max(999) }))
+      .min(1)
+      .max(60),
+  }),
+  z.object({
+    type: z.literal("initiative.advance"),
+  }),
+  z.object({
+    type: z.literal("initiative.end"),
+  }),
+  /** Roll dice (FR-TAC-09). `gm` visibility is GM-only and never reaches players (FR-GM-22). */
+  z.object({
+    type: z.literal("dice.roll"),
+    expression: z.string().min(1).max(32),
+    visibility: DiceVisibility.default("public"),
   }),
   z.object({
     type: z.literal("participant.rename"),

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import type { Participant, RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { BoardView } from "./boardView";
@@ -9,7 +9,12 @@ interface Props {
   you: Participant;
 }
 
-export function Board({ connection, state, you }: Props) {
+/** What the roster and initiative list can ask the canvas to do (FR-GM-24). */
+export interface BoardHandle {
+  focusToken(tokenId: string): void;
+}
+
+export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<BoardView | null>(null);
   const latest = useRef({ state, you });
@@ -51,6 +56,10 @@ export function Board({ connection, state, you }: Props) {
     viewRef.current?.update(state, you);
   }, [state, you]);
 
+  useImperativeHandle(ref, () => ({
+    focusToken: (tokenId: string) => viewRef.current?.focusToken(tokenId),
+  }), []);
+
   return (
     <div className="board">
       <div ref={hostRef} className="board-canvas" />
@@ -60,4 +69,4 @@ export function Board({ connection, state, you }: Props) {
       <p className="board-hint">Drag to pan · scroll to zoom · double-click to ping · hold Alt to place freely</p>
     </div>
   );
-}
+});

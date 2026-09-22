@@ -148,3 +148,86 @@ describe("reconnect (FR-PL-02, FR-PL-05, FR-PL-06)", () => {
     ).rejects.toThrow(/unauthorized/);
   });
 });
+
+describe("tactical panels (FR-GM-21, FR-GM-22, FR-TAC-07)", () => {
+  it("never sends a GM-only roll to a player, over the real wire (FR-GM-22)", async () => {
+    const { gm, alice } = await setup();
+
+    const rolled = await gm.command({ type: "dice.roll", expression: "1d20+7", visibility: "gm" });
+    expect(rolled.type).toBe("ack");
+    await alice.waitForSeq(gm.seq);
+
+    expect(gm.state.rolls).toHaveLength(1);
+    expect(alice.state.rolls).toHaveLength(0);
+
+    // The strongest form of the assertion: the result never appeared in any byte Alice got.
+    const secret = String(gm.state.rolls[0]!.total);
+    const dice = String(gm.state.rolls[0]!.dice[0]);
+    const seen = alice.rawLog.join("");
+    expect(seen).not.toContain(`"total":${secret}`);
+    expect(seen).not.toContain(`"dice":[${dice}]`);
+  });
+
+  it("shares a public roll with everyone, with identical results (FR-TAC-09)", async () => {
+    const { gm, alice, bob } = await setup();
+
+    await alice.command({ type: "dice.roll", expression: "2d6+3" });
+    await gm.waitForSeq(alice.seq);
+    await bob.waitForSeq(alice.seq);
+
+    expect(alice.state.rolls).toHaveLength(1);
+    // Everyone sees the server's roll, not their own — convergence applies to dice too.
+    expect(bob.state.rolls).toEqual(alice.state.rolls);
+    expect(gm.state.rolls).toEqual(alice.state.rolls);
+    expect(alice.state.rolls[0]!.expression).toBe("2d6+3");
+  });
+
+  it("keeps hidden tokens out of the turn order a player receives (FR-GM-21)", async () => {
+    const { gm, alice } = await setup();
+
+    const open = await gm.command({
+      type: "token.create", name: "Guard", position: { x: 35, y: 35 }, ownerIds: [],
+    });
+    const secret = await gm.command({
+      type: "token.create", name: "Ambusher", position: { x: 105, y: 35 }, ownerIds: [], hidden: true,
+    });
+    expect(open.type).toBe("ack");
+    expect(secret.type).toBe("ack");
+    await alice.waitForSeq(gm.seq);
+
+    const ids = Object.keys(gm.state.tokens);
+    await gm.command({
+      type: "initiative.start",
+      entries: ids.map((tokenId, i) => ({ tokenId, score: 20 - i })),
+    });
+    await alice.waitForSeq(gm.seq);
+
+    expect(gm.state.initiative!.order).toHaveLength(2);
+    expect(alice.state.initiative!.order).toHaveLength(1);
+    expect(alice.rawLog.join("")).not.toContain("Ambusher");
+  });
+
+  it("lets an owner set their token's stats but refuses a stranger (FR-TAC-07)", async () => {
+    const { gm, alice, bob } = await setup();
+
+    const created = await gm.command({
+      type: "token.create", name: "Rogue", position: { x: 35, y: 35 }, ownerIds: [alice.participantId],
+    });
+    expect(created.type).toBe("ack");
+    await alice.waitForSeq(gm.seq);
+    const tokenId = Object.keys(alice.state.tokens)[0]!;
+
+    const mine = await alice.command({
+      type: "token.setStats", tokenId, stats: { hp: 12, maxHp: 20, ac: 15 },
+    });
+    expect(mine.type).toBe("ack");
+
+    const theirs = await bob.command({
+      type: "token.setStats", tokenId, stats: { hp: 1, maxHp: 20, ac: 15 },
+    });
+    expect(theirs).toMatchObject({ type: "rejected", code: "forbidden" });
+
+    await bob.waitForSeq(alice.seq);
+    expect(bob.state.tokens[tokenId]!.stats).toEqual({ hp: 12, maxHp: 20, ac: 15 });
+  });
+});

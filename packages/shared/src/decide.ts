@@ -1,6 +1,8 @@
 import type { Command } from "./commands";
+import { EMPTY_STATS } from "./conditions";
+import { formatExpression, parseDiceExpression, rollDice } from "./dice";
 import type { DomainEvent } from "./events";
-import type { Participant, RoomState, Token } from "./state";
+import { type Initiative, type Participant, type RoomState, type Token } from "./state";
 
 export type RejectionCode = "forbidden" | "not_found" | "invalid";
 
@@ -10,6 +12,11 @@ export type Decision =
 
 export interface DecideContext {
   newId: () => string;
+  /**
+   * Float in [0, 1). Injected rather than taken from `Math.random` so `decide` stays
+   * deterministic and testable (CLAUDE.md invariant 2). Only dice use it.
+   */
+  random?: () => number;
 }
 
 /** Permission helpers. Shared so the UI can hide controls, but ONLY the server's check counts. */
@@ -17,6 +24,11 @@ export const can = {
   administer: (actor: Participant) => actor.role === "gm",
   moveToken: (actor: Participant, token: Token) =>
     actor.role === "gm" || token.ownerIds.includes(actor.id),
+  /** Owners track their own resources; the GM tracks everyone's (FR-TAC-07). */
+  editToken: (actor: Participant, token: Token) =>
+    actor.role === "gm" || token.ownerIds.includes(actor.id),
+  /** Only the GM may roll where players cannot see the result (FR-GM-22). */
+  rollHidden: (actor: Participant) => actor.role === "gm",
 };
 
 /**
@@ -54,6 +66,8 @@ export function decide(
           imageUrl: command.imageUrl,
           ownerIds: command.ownerIds,
           hidden: command.hidden,
+          stats: EMPTY_STATS,
+          conditions: [],
         },
       });
     }
@@ -106,6 +120,89 @@ export function decide(
       });
     }
 
+    case "token.setStats": {
+      const token = state.tokens[command.tokenId];
+      if (!token || (token.hidden && !can.administer(actor))) return notFound("token");
+      if (!can.editToken(actor, token)) return forbidden();
+      if (command.stats.hp !== null && command.stats.maxHp !== null && command.stats.hp > command.stats.maxHp) {
+        return reject("invalid", "Current HP cannot exceed maximum HP");
+      }
+      return accept({
+        type: "TokenStatsSet",
+        tokenId: token.id,
+        stats: command.stats,
+        previous: token.stats,
+      });
+    }
+
+    case "token.setConditions": {
+      const token = state.tokens[command.tokenId];
+      if (!token || (token.hidden && !can.administer(actor))) return notFound("token");
+      if (!can.editToken(actor, token)) return forbidden();
+      return accept({
+        type: "TokenConditionsSet",
+        tokenId: token.id,
+        conditions: [...new Set(command.conditions)],
+        previous: token.conditions,
+      });
+    }
+
+    case "initiative.start": {
+      if (!can.administer(actor)) return forbidden();
+      const unknown = command.entries.find((e) => !state.tokens[e.tokenId]);
+      if (unknown) return notFound("token");
+      // Sort here, not on the client: turn order is authoritative state, and two clients
+      // sorting a tie differently would diverge. Ties break by token id for determinism.
+      const order = [...command.entries]
+        .sort((a, b) => b.score - a.score || a.tokenId.localeCompare(b.tokenId))
+        .map((e) => e.tokenId);
+      const deduped = [...new Set(order)];
+      if (deduped.length !== order.length) return reject("invalid", "A token appears twice in the order");
+      return accept({
+        type: "InitiativeStarted",
+        initiative: { order: deduped, activeIndex: 0, round: 1 },
+        previous: state.initiative,
+      });
+    }
+
+    case "initiative.advance": {
+      if (!can.administer(actor)) return forbidden();
+      const current = state.initiative;
+      if (!current) return reject("invalid", "No encounter is running");
+      return accept({
+        type: "InitiativeAdvanced",
+        initiative: advance(current),
+        previous: current,
+      });
+    }
+
+    case "initiative.end": {
+      if (!can.administer(actor)) return forbidden();
+      if (!state.initiative) return { ok: true, events: [] };
+      return accept({ type: "InitiativeEnded", previous: state.initiative });
+    }
+
+    case "dice.roll": {
+      if (command.visibility === "gm" && !can.rollHidden(actor)) return forbidden();
+      const parsed = parseDiceExpression(command.expression);
+      if (!parsed.ok) return reject("invalid", parsed.message);
+      const random = ctx.random;
+      if (!random) return reject("invalid", "Dice are unavailable");
+      const { dice, total } = rollDice(parsed.expression, random);
+      return accept({
+        type: "DiceRolled",
+        roll: {
+          id: ctx.newId(),
+          expression: formatExpression(parsed.expression),
+          byParticipantId: actor.id,
+          dice,
+          modifier: parsed.expression.modifier,
+          total,
+          visibility: command.visibility,
+        },
+      });
+    }
+
     case "participant.rename":
       return accept({
         type: "ParticipantRenamed",
@@ -114,6 +211,18 @@ export function decide(
         previous: actor.displayName,
       });
   }
+}
+
+/**
+ * Next turn. Wrapping past the last entry starts a new round (FR-GM-21).
+ * Entries whose token was deleted mid-encounter are skipped rather than removed, because
+ * `order` is carried in the event and history is never rewritten.
+ */
+function advance(current: Initiative): Initiative {
+  const next = current.activeIndex + 1;
+  return next >= current.order.length
+    ? { ...current, activeIndex: 0, round: current.round + 1 }
+    : { ...current, activeIndex: next };
 }
 
 const accept = (...events: DomainEvent[]): Decision => ({ ok: true, events });

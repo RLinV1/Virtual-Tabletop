@@ -1,5 +1,5 @@
 import type { DomainEvent } from "./events";
-import type { RoomState } from "./state";
+import { ROLL_LOG_LIMIT, type RoomState } from "./state";
 
 /**
  * Pure state transition. The ONLY way RoomState changes, on both server and client.
@@ -59,6 +59,28 @@ export function reduce(state: RoomState, event: DomainEvent): RoomState {
       const t = required(state.tokens[event.tokenId], event);
       return { ...state, tokens: { ...state.tokens, [t.id]: { ...t, hidden: event.hidden } } };
     }
+
+    case "TokenStatsSet": {
+      const t = required(state.tokens[event.tokenId], event);
+      return { ...state, tokens: { ...state.tokens, [t.id]: { ...t, stats: event.stats } } };
+    }
+
+    case "TokenConditionsSet": {
+      const t = required(state.tokens[event.tokenId], event);
+      return { ...state, tokens: { ...state.tokens, [t.id]: { ...t, conditions: event.conditions } } };
+    }
+
+    case "InitiativeStarted":
+    case "InitiativeAdvanced":
+      return { ...state, initiative: event.initiative };
+
+    case "InitiativeEnded":
+      return { ...state, initiative: null };
+
+    case "DiceRolled":
+      // Newest last, oldest dropped. The full history stays in the event log (FR-REC-01);
+      // state keeps only what the roll panel shows.
+      return { ...state, rolls: [...state.rolls, event.roll].slice(-ROLL_LOG_LIMIT) };
 
     default:
       return assertNever(event);

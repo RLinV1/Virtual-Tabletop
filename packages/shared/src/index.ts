@@ -1,3 +1,5 @@
+export * from "./conditions";
+export * from "./dice";
 export * from "./geometry";
 export * from "./state";
 export * from "./commands";

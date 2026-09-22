@@ -1,0 +1,118 @@
+import { useState, type FormEvent } from "react";
+import { parseDiceExpression, type DiceVisibility, type RoomState } from "@vtt/shared";
+import type { RoomConnection } from "../net/roomConnection";
+
+const QUICK = ["1d20", "1d20+5", "2d6", "1d8+3", "4d6"];
+
+/**
+ * Dice roller and shared roll log (FR-TAC-09, FR-GM-22).
+ *
+ * The expression is parsed here purely to give immediate feedback in the input; the
+ * server re-parses and rolls, and its result is the only one anyone sees. A GM-only roll
+ * never reaches a player, so players have no "hidden roll" placeholder in their log.
+ */
+export function DicePanel({
+  connection,
+  state,
+  isGm,
+}: {
+  connection: RoomConnection;
+  state: RoomState;
+  isGm: boolean;
+}) {
+  const [expression, setExpression] = useState("1d20");
+  const [visibility, setVisibility] = useState<DiceVisibility>("public");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const parsed = parseDiceExpression(expression);
+  const invalid = expression.trim() !== "" && !parsed.ok;
+
+  const roll = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!parsed.ok) return setError(parsed.message);
+    setBusy(true);
+    const result = await connection.command({ type: "dice.roll", expression, visibility });
+    setBusy(false);
+    setError(result.ok ? null : result.message);
+  };
+
+  const rolls = [...state.rolls].reverse();
+
+  return (
+    <section className="panel-section">
+      <h2>Dice</h2>
+
+      <form onSubmit={roll} className="dice-form">
+        <label htmlFor="dice-expression">Expression</label>
+        <div className="dice-row">
+          <input
+            id="dice-expression"
+            value={expression}
+            onChange={(e) => {
+              setExpression(e.target.value);
+              setError(null);
+            }}
+            placeholder="1d20+5"
+            aria-invalid={invalid}
+            aria-describedby={invalid ? "dice-error" : undefined}
+            autoComplete="off"
+          />
+          <button type="submit" disabled={busy || !parsed.ok}>
+            Roll
+          </button>
+        </div>
+
+        <div className="dice-quick">
+          {QUICK.map((q) => (
+            <button key={q} type="button" className="chip" onClick={() => setExpression(q)}>
+              {q}
+            </button>
+          ))}
+        </div>
+
+        {isGm && (
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={visibility === "gm"}
+              onChange={(e) => setVisibility(e.target.checked ? "gm" : "public")}
+            />
+            Roll privately — players will not see this
+          </label>
+        )}
+
+        {(invalid || error) && (
+          <p id="dice-error" role="alert" className="error">
+            {error ?? (parsed.ok ? "" : parsed.message)}
+          </p>
+        )}
+      </form>
+
+      <h3 className="sr-only">Recent rolls</h3>
+      {rolls.length === 0 ? (
+        <p className="muted">No rolls yet.</p>
+      ) : (
+        <ul className="plain roll-log" aria-live="polite">
+          {rolls.map((r) => {
+            const who = state.participants[r.byParticipantId]?.displayName ?? "Someone";
+            return (
+              <li key={r.id} className={r.visibility === "gm" ? "roll private" : "roll"}>
+                <span className="roll-total">{r.total}</span>
+                <span className="roll-detail">
+                  <strong>{who}</strong> rolled {r.expression}
+                  {r.visibility === "gm" && <em className="badge"> GM only</em>}
+                  <span className="muted">
+                    {" "}
+                    [{r.dice.join(", ")}]
+                    {r.modifier !== 0 && (r.modifier > 0 ? ` +${r.modifier}` : ` ${r.modifier}`)}
+                  </span>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}

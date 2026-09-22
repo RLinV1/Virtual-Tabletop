@@ -10,7 +10,11 @@ import {
 } from "pixi.js";
 import {
   can,
+  conditionSpec,
+  hpFraction,
   snapTokenCenter,
+  type ConditionId,
+  type ConditionShape,
   type GridSpec,
   type Participant,
   type Point,
@@ -33,6 +37,10 @@ const PREVIEW_INTERVAL_MS = 50;
 interface TokenView {
   container: Container;
   body: Graphics;
+  /** Resource bar and focus ring (FR-TAC-07). */
+  decor: Graphics;
+  /** Condition markers: one shape + abbreviation each (FR-TAC-08). */
+  markers: Container;
   label: Text;
   drawnKey: string;
 }
@@ -43,6 +51,8 @@ interface TokenView {
  */
 export class BoardView {
   private app = new Application();
+  /** Token highlighted from the roster (FR-GM-24). */
+  private focusedId: string | null = null;
   private world = new Container();
   private mapSprite = new Sprite(Texture.EMPTY);
   private grid = new Graphics();
@@ -154,6 +164,36 @@ export class BoardView {
     ghost.expires = performance.now() + 600;
   }
 
+  /**
+   * Centre the view on one token and highlight it (FR-GM-24).
+   *
+   * This is the roster's counterpart to clicking the canvas: keyboard users and anyone
+   * hunting for a token in a crowded map get there without a precise mouse gesture.
+   */
+  focusToken(tokenId: string) {
+    const token = this.state?.tokens[tokenId];
+    if (!token) return;
+    this.focusedId = tokenId;
+    this.autoFit = false;
+    const screen = this.app.screen;
+    const scale = this.world.scale.x;
+    this.world.position.set(
+      screen.width / 2 - token.position.x * scale,
+      screen.height / 2 - token.position.y * scale,
+    );
+    // Force a redraw so the focus ring appears on the newly focused token and clears
+    // from the previous one.
+    for (const view of this.tokens.values()) view.drawnKey = "";
+    this.syncTokens();
+  }
+
+  clearFocus() {
+    if (!this.focusedId) return;
+    this.focusedId = null;
+    for (const view of this.tokens.values()) view.drawnKey = "";
+    this.syncTokens();
+  }
+
   /** Fit the whole board in view and resume auto-fitting. */
   resetView() {
     this.autoFit = true;
@@ -238,21 +278,28 @@ export class BoardView {
   private createTokenView(token: Token): TokenView {
     const container = new Container();
     const body = new Graphics();
+    const decor = new Graphics();
+    const markers = new Container();
     const label = new Text({
       text: "",
       style: { fill: 0xffffff, fontSize: 14, fontFamily: "system-ui, sans-serif", stroke: { color: 0x000000, width: 3 } },
     });
     label.anchor.set(0.5, 0);
-    container.addChild(body, label);
+    container.addChild(body, decor, markers, label);
     container.on("pointerdown", (e: FederatedPointerEvent) => this.onTokenDown(e, token.id));
     this.tokenLayer.addChild(container);
-    return { container, body, label, drawnKey: "" };
+    return { container, body, decor, markers, label, drawnKey: "" };
   }
 
   private drawToken(view: TokenView, token: Token, grid: GridSpec, you: Participant) {
     const owned = token.ownerIds.includes(you.id);
     const movable = can.moveToken(you, token);
-    const key = JSON.stringify([token.name, token.size, token.color, token.hidden, owned, movable, grid.cellSize]);
+    const focused = this.focusedId === token.id;
+    const active = this.activeTokenId() === token.id;
+    const key = JSON.stringify([
+      token.name, token.size, token.color, token.hidden, owned, movable, grid.cellSize,
+      token.stats, token.conditions, focused, active,
+    ]);
     view.container.eventMode = movable ? "static" : "none";
     view.container.cursor = movable ? "grab" : "default";
     if (key === view.drawnKey) return;
@@ -264,6 +311,70 @@ export class BoardView {
     view.container.alpha = token.hidden ? 0.45 : 1;
     view.label.text = token.hidden ? `${token.name} (hidden)` : token.name;
     view.label.position.set(0, r + 2);
+
+    this.drawDecor(view, token, r, focused, active);
+    this.drawConditions(view, token.conditions, r);
+  }
+
+  /** Focus ring, active-turn ring, and the HP bar (FR-TAC-07, FR-GM-21, FR-GM-24). */
+  private drawDecor(view: TokenView, token: Token, r: number, focused: boolean, active: boolean) {
+    const g = view.decor.clear();
+
+    // Rings differ in radius and dash as well as colour, so they remain distinguishable
+    // when colour is not available (FR-TAC-08 applies to the whole board, not just markers).
+    if (active) g.circle(0, 0, r + 7).stroke({ width: 4, color: 0xf1c40f });
+    if (focused) g.circle(0, 0, r + 3).stroke({ width: 2, color: 0xffffff, alpha: 0.9 });
+
+    const fraction = hpFraction(token.stats);
+    if (fraction === null) return;
+    const w = r * 1.8;
+    const h = 6;
+    const y = -r - h - 4;
+    g.rect(-w / 2, y, w, h).fill({ color: 0x000000, alpha: 0.65 });
+    g.rect(-w / 2, y, w * fraction, h).fill({
+      // Colour is a convenience; the bar length is the real signal.
+      color: fraction > 0.5 ? 0x22c55e : fraction > 0.25 ? 0xeab308 : 0xdc2626,
+    });
+    g.rect(-w / 2, y, w, h).stroke({ width: 1, color: 0x000000, alpha: 0.8 });
+  }
+
+  /** One marker per condition: a distinct shape plus its abbreviation (FR-TAC-08). */
+  private drawConditions(view: TokenView, conditions: ConditionId[], r: number) {
+    view.markers.removeChildren().forEach((c) => c.destroy({ children: true }));
+    if (conditions.length === 0) return;
+
+    const size = Math.max(11, r * 0.34);
+    const step = size * 2.1;
+    const startX = -((conditions.length - 1) * step) / 2;
+
+    conditions.forEach((id, i) => {
+      const spec = conditionSpec(id);
+      const marker = new Container();
+      const shape = new Graphics();
+      drawShape(shape, spec.shape, size);
+      shape.fill({ color: Number(`0x${spec.color.slice(1)}`) });
+      shape.stroke({ width: 1.5, color: 0x000000, alpha: 0.85 });
+      const text = new Text({
+        text: spec.abbr,
+        style: {
+          fill: 0xffffff,
+          fontSize: size * 0.85,
+          fontFamily: "system-ui, sans-serif",
+          fontWeight: "700",
+          stroke: { color: 0x000000, width: 2 },
+        },
+      });
+      text.anchor.set(0.5);
+      marker.addChild(shape, text);
+      marker.position.set(startX + i * step, r + 22);
+      view.markers.addChild(marker);
+    });
+  }
+
+  private activeTokenId(): string | null {
+    const init = this.state?.initiative;
+    if (!init) return null;
+    return init.order[init.activeIndex] ?? null;
   }
 
   // ---------- input ----------
@@ -368,4 +479,41 @@ export class BoardView {
       }
     }
   };
+}
+
+/**
+ * Condition marker shapes (FR-TAC-08). Each is visually distinct in silhouette, so two
+ * conditions never rely on colour alone to be told apart.
+ */
+function drawShape(g: Graphics, shape: ConditionShape, size: number) {
+  const r = size;
+  switch (shape) {
+    case "circle":
+      g.circle(0, 0, r);
+      return;
+    case "square":
+      g.rect(-r * 0.85, -r * 0.85, r * 1.7, r * 1.7);
+      return;
+    case "triangle":
+      g.poly([0, -r, r, r * 0.8, -r, r * 0.8]);
+      return;
+    case "diamond":
+      g.poly([0, -r, r, 0, 0, r, -r, 0]);
+      return;
+    case "hexagon":
+      g.poly(
+        Array.from({ length: 6 }, (_, i) => {
+          const a = (Math.PI / 3) * i - Math.PI / 2;
+          return [Math.cos(a) * r, Math.sin(a) * r];
+        }).flat(),
+      );
+      return;
+    case "heart": {
+      const k = r * 0.55;
+      g.moveTo(0, r * 0.75)
+        .bezierCurveTo(-r * 1.3, -k, -k * 0.5, -r * 1.15, 0, -r * 0.35)
+        .bezierCurveTo(k * 0.5, -r * 1.15, r * 1.3, -k, 0, r * 0.75);
+      return;
+    }
+  }
 }
