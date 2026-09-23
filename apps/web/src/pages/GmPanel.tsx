@@ -1,18 +1,29 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { snapTokenCenter, type GridSpec, type RoomState } from "@vtt/shared";
 import { api } from "../net/api";
 import type { CommandResult, RoomConnection } from "../net/roomConnection";
+import { gridsEqual, parseGridDraft, type GridDraft } from "./gridDraft";
 
 interface Props {
   connection: RoomConnection;
   state: RoomState;
   inviteCode?: string;
   token: string;
+  gridDraft: GridDraft;
+  hasGridDraft: boolean;
+  onGridDraftChange: (draft: GridDraft) => void;
+  onGridDraftCancel: () => void;
+  onGridApply: (grid: GridSpec) => Promise<void>;
+  gridApplying: boolean;
+  gridError: string | null;
 }
 
 const TOKEN_COLORS = ["#c0392b", "#2980b9", "#27ae60", "#8e44ad", "#d35400", "#16a085"];
 
-export function GmPanel({ connection, state, inviteCode, token }: Props) {
+export function GmPanel({
+  connection, state, inviteCode, token,
+  gridDraft, hasGridDraft, onGridDraftChange, onGridDraftCancel, onGridApply, gridApplying, gridError,
+}: Props) {
   const [error, setError] = useState<string | null>(null);
   const players = Object.values(state.participants).filter((p) => p.role === "player");
 
@@ -31,7 +42,16 @@ export function GmPanel({ connection, state, inviteCode, token }: Props) {
         onError={setError}
         onUploaded={(map) => run(connection.command({ type: "scene.setMap", map }))}
       />
-      <GridForm grid={state.scene.grid} onApply={(grid) => run(connection.command({ type: "scene.setGrid", grid }))} />
+      <GridForm
+        grid={state.scene.grid}
+        draft={gridDraft}
+        hasDraft={hasGridDraft}
+        onChange={onGridDraftChange}
+        onCancel={onGridDraftCancel}
+        onApply={onGridApply}
+        applying={gridApplying}
+        error={gridError}
+      />
       <AddToken
         players={players}
         onAdd={(name, ownerId, hidden) => {
@@ -175,21 +195,68 @@ function imageSize(url: string) {
 }
 
 /** Manual grid correction (FR-GM-04). Automatic detection (FR-GM-03) will prefill these. */
-function GridForm({ grid, onApply }: { grid: GridSpec; onApply: (grid: GridSpec) => Promise<boolean> }) {
-  const [draft, setDraft] = useState(grid);
-  useEffect(() => setDraft(grid), [grid]);
+function GridForm({
+  grid, draft, hasDraft, onChange, onCancel, onApply, applying, error,
+}: {
+  grid: GridSpec;
+  draft: GridDraft;
+  hasDraft: boolean;
+  onChange: (draft: GridDraft) => void;
+  onCancel: () => void;
+  onApply: (grid: GridSpec) => Promise<void>;
+  applying: boolean;
+  error: string | null;
+}) {
+  const validDraft = parseGridDraft(draft);
+
+  const nudgedValue = (key: "cellSize" | "offsetX" | "offsetY", delta: number): string | null => {
+    if (draft[key].trim() === "") return null;
+    const current = Number(draft[key]);
+    if (!Number.isFinite(current)) return null;
+    if (key === "cellSize") {
+      const next = current + delta;
+      return next > 0 && next <= 2000 ? String(next) : null;
+    }
+    const size = Number(draft.cellSize);
+    if (draft.cellSize.trim() === "" || !Number.isFinite(size) || size <= 0 || size > 2000) return null;
+    return String(((current + delta) % size + size) % size);
+  };
 
   const field = (key: "cellSize" | "offsetX" | "offsetY" | "unitsPerCell", label: string) => (
-    <label>
-      {label}
-      <input
-        type="number"
-        step="0.5"
-        min={0}
-        value={draft[key]}
-        onChange={(e) => setDraft({ ...draft, [key]: Number(e.target.value) })}
-      />
-    </label>
+    <div className="grid-field" key={key}>
+      <label>
+        {label}
+        <input
+          type="number"
+          step="any"
+          min={0}
+          max={key === "cellSize" ? 2000 : undefined}
+          required
+          disabled={applying}
+          value={draft[key]}
+          onChange={(e) => onChange({ ...draft, [key]: e.target.value })}
+        />
+      </label>
+      {key !== "unitsPerCell" && (
+        <div className="grid-nudges" role="group" aria-label={`${label} nudges`}>
+          {[-5, -1, 1, 5].map((delta) => {
+            const next = nudgedValue(key, delta);
+            return (
+              <button
+                key={delta}
+                type="button"
+                className="secondary small"
+                disabled={applying || next === null}
+                aria-label={`${label}: ${delta > 0 ? "increase" : "decrease"} by ${Math.abs(delta)} pixels`}
+                onClick={() => { if (next !== null) onChange({ ...draft, [key]: next }); }}
+              >
+                {delta > 0 ? `+${delta}` : `−${Math.abs(delta)}`}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 
   return (
@@ -199,14 +266,27 @@ function GridForm({ grid, onApply }: { grid: GridSpec; onApply: (grid: GridSpec)
         className="grid-form"
         onSubmit={(e: FormEvent) => {
           e.preventDefault();
-          onApply(draft);
+          if (validDraft && !applying && !gridsEqual(validDraft, grid)) void onApply(validDraft);
         }}
       >
         {field("cellSize", "Cell size (px)")}
         {field("unitsPerCell", `Per cell (${draft.unitLabel})`)}
-        {field("offsetX", "Offset X")}
-        {field("offsetY", "Offset Y")}
-        <button type="submit">Apply grid</button>
+        {field("offsetX", "Offset X (px)")}
+        {field("offsetY", "Offset Y (px)")}
+        <p className="muted grid-confidence">Confidence: manual</p>
+        {hasDraft && !validDraft && (
+          <p className="error grid-message" role="alert">
+            Preview is paused at the last valid values. Use a cell size above 0 and at most 2000 px, positive units,
+            and offsets from 0 up to less than the cell size.
+          </p>
+        )}
+        {error && <p className="error grid-message" role="alert">{error}</p>}
+        <div className="grid-actions">
+          <button type="button" className="secondary" disabled={!hasDraft || applying} onClick={onCancel}>Cancel</button>
+          <button type="submit" disabled={!validDraft || gridsEqual(validDraft, grid) || applying}>
+            {applying ? "Applying…" : "Apply grid"}
+          </button>
+        </div>
       </form>
     </section>
   );

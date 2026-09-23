@@ -63,6 +63,12 @@ label.inline { flex-direction: row; align-items: center; gap: 0.35rem; }
 .board { position: relative; overflow: hidden; touch-action: none; }
 .board-canvas { position: absolute; inset: 0; }
 .fit-button { position: absolute; top: 0.75rem; left: 0.75rem; }
+.grid-preview-label {
+  position: absolute; top: 0.75rem; right: 0.75rem; margin: 0;
+  padding: 0.35rem 0.6rem; border: 1px solid var(--accent); border-radius: 6px;
+  background: var(--panel); color: var(--text); font-size: 0.8rem;
+  pointer-events: none;
+}
 .board-hint {
   position: absolute; bottom: 0.5rem; left: 0.75rem; margin: 0;
   font-size: 0.8rem; color: var(--muted); pointer-events: none;
@@ -85,8 +91,12 @@ label.inline { flex-direction: row; align-items: center; gap: 0.35rem; }
 .status-connecting, .status-reconnecting { color: var(--warn); }
 
 .grid-form { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
-.grid-form input { width: 100%; }
-.grid-form button { grid-column: 1 / -1; }
+.grid-field { min-width: 0; }
+.grid-field input { width: 100%; }
+.grid-nudges { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.2rem; margin-top: 0.25rem; }
+.grid-nudges button { padding: 0.25rem 0; }
+.grid-confidence, .grid-message, .grid-actions { grid-column: 1 / -1; }
+.grid-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
 
 .token-list li {
   display: grid;

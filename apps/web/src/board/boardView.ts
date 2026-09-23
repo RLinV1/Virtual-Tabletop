@@ -64,6 +64,7 @@ export class BoardView {
   private state: RoomState | null = null;
   private you: Participant | null = null;
   private mapUrl: string | null = null;
+  private gridPreview: GridSpec | null = null;
   private gridKey = "";
 
   private drag: { tokenId: string; offset: Point; lastPreview: number } | null = null;
@@ -132,6 +133,12 @@ export class BoardView {
     this.syncGrid();
     this.syncTokens();
     if (this.autoFit) this.fitToScreen();
+  }
+
+  /** Local GM calibration overlay. Room state and token interactions remain committed-only. */
+  setGridPreview(grid: GridSpec | null) {
+    this.gridPreview = grid;
+    if (this.initialized && this.state) this.syncGrid();
   }
 
   showPing(at: Point, color = 0xf1c40f) {
@@ -238,17 +245,21 @@ export class BoardView {
   }
 
   private syncGrid() {
-    const g = this.state!.scene.grid;
+    const g = this.gridPreview ?? this.state!.scene.grid;
     const { width, height } = this.boardSize();
-    const key = JSON.stringify([g, width, height]);
+    const key = JSON.stringify([g.cellSize, g.offsetX, g.offsetY, width, height, !!this.state!.scene.map, !!this.gridPreview]);
     if (key === this.gridKey) return;
     this.gridKey = key;
 
     this.grid.clear();
     if (!this.state!.scene.map) this.grid.rect(0, 0, width, height).fill({ color: 0x2b2e35 });
+    // Even a schema-valid tiny cell size could produce millions of line segments.
+    if (!Number.isFinite(g.cellSize) || g.cellSize <= 0 || (width + height) / g.cellSize > 50_000) return;
     for (let x = g.offsetX; x <= width; x += g.cellSize) this.grid.moveTo(x, 0).lineTo(x, height);
     for (let y = g.offsetY; y <= height; y += g.cellSize) this.grid.moveTo(0, y).lineTo(width, y);
-    this.grid.stroke({ width: 1, color: 0x000000, alpha: 0.35 });
+    this.grid.stroke(this.gridPreview
+      ? { width: 1.5, color: 0x5b8def, alpha: 0.8 }
+      : { width: 1, color: 0x000000, alpha: 0.35 });
   }
 
   private syncTokens() {

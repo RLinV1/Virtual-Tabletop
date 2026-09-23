@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import type { GridSpec } from "@vtt/shared";
 import { Board, type BoardHandle } from "../board/Board";
 import { loadCredentials } from "../net/identity";
 import { RoomConnection, useRoomSnapshot, type ConnectionStatus } from "../net/roomConnection";
 import { RoomPanel } from "../panels/RoomPanel";
+import { gridsEqual, parseGridDraft, toGridDraft, type GridDraft } from "./gridDraft";
 
 /** Below this the panel becomes tabs and sits under the board (FR-PL-03). */
 const COMPACT_WIDTH = 720;
@@ -40,8 +42,13 @@ export function RoomPage({ roomId }: { roomId: string }) {
 
   useEffect(() => {
     if (!connection) return;
-    connection.start();
-    return () => connection.stop();
+    // Strict Mode replays Effects on mount in development. Let its first cleanup
+    // cancel the pending start before a WebSocket handshake is opened.
+    const startTimer = window.setTimeout(() => connection.start(), 0);
+    return () => {
+      window.clearTimeout(startTimer);
+      connection.stop();
+    };
   }, [connection]);
 
   if (!creds || !connection) {
@@ -62,6 +69,45 @@ function Room({ connection, inviteCode, token }: { connection: RoomConnection; i
   const boardRef = useRef<BoardHandle>(null);
   const compact = useCompactLayout();
   const focusToken = useCallback((tokenId: string) => boardRef.current?.focusToken(tokenId), []);
+  const [gridDraft, setGridDraft] = useState<GridDraft | null>(null);
+  const [gridPreview, setGridPreview] = useState<GridSpec | null>(null);
+  const [gridApplying, setGridApplying] = useState(false);
+  const [gridError, setGridError] = useState<string | null>(null);
+  const committedGrid = state?.scene.grid;
+
+  // A new map, committed grid, or role invalidates a draft tied to the previous scene.
+  useEffect(() => {
+    setGridDraft(null);
+    setGridPreview(null);
+    setGridError(null);
+  }, [committedGrid, state?.scene.map, you?.role]);
+
+  const changeGridDraft = useCallback((draft: GridDraft) => {
+    setGridDraft(draft);
+    const parsed = parseGridDraft(draft);
+    // An incomplete field leaves the last valid preview visible while the GM edits it.
+    if (parsed && committedGrid) setGridPreview(gridsEqual(parsed, committedGrid) ? null : parsed);
+    setGridError(null);
+  }, [committedGrid]);
+
+  const cancelGridDraft = useCallback(() => {
+    setGridDraft(null);
+    setGridPreview(null);
+    setGridError(null);
+  }, []);
+
+  const applyGrid = useCallback(async (grid: GridSpec) => {
+    setGridApplying(true);
+    setGridError(null);
+    try {
+      const result = await connection.command({ type: "scene.setGrid", grid });
+      if (!result.ok) setGridError(result.message);
+    } catch (error) {
+      setGridError(error instanceof Error ? error.message : "Could not apply grid");
+    } finally {
+      setGridApplying(false);
+    }
+  }, [connection]);
 
   if (status === "unauthorized") {
     return (
@@ -85,7 +131,7 @@ function Room({ connection, inviteCode, token }: { connection: RoomConnection; i
       <a className="skip-link" href="#room-panel">
         Skip to room controls
       </a>
-      <Board ref={boardRef} connection={connection} state={state} you={you} />
+      <Board ref={boardRef} connection={connection} state={state} you={you} gridPreview={you.role === "gm" ? gridPreview : null} />
       <aside className="panel" id="room-panel">
         {/*
           On a phone this header competes with the board for a screen that has neither to
@@ -126,6 +172,13 @@ function Room({ connection, inviteCode, token }: { connection: RoomConnection; i
           inviteCode={inviteCode}
           token={token}
           onFocusToken={focusToken}
+          gridDraft={gridDraft ?? toGridDraft(state.scene.grid)}
+          hasGridDraft={gridDraft !== null}
+          onGridDraftChange={changeGridDraft}
+          onGridDraftCancel={cancelGridDraft}
+          onGridApply={applyGrid}
+          gridApplying={gridApplying}
+          gridError={gridError}
           compact={compact}
         />
       </aside>

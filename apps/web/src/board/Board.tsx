@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
-import type { Participant, RoomState } from "@vtt/shared";
+import type { GridSpec, Participant, RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { BoardView } from "./boardView";
 
@@ -7,6 +7,7 @@ interface Props {
   connection: RoomConnection;
   state: RoomState;
   you: Participant;
+  gridPreview: GridSpec | null;
 }
 
 /** What the roster and initiative list can ask the canvas to do (FR-GM-24). */
@@ -14,11 +15,11 @@ export interface BoardHandle {
   focusToken(tokenId: string): void;
 }
 
-export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you }, ref) {
+export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<BoardView | null>(null);
-  const latest = useRef({ state, you });
-  latest.current = { state, you };
+  const latest = useRef({ state, you, gridPreview });
+  latest.current = { state, you, gridPreview };
 
   useEffect(() => {
     const view = new BoardView(hostRef.current!, {
@@ -35,6 +36,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     view.init().then(() => {
       if (disposed) return view.destroy();
       viewRef.current = view;
+      view.setGridPreview(latest.current.gridPreview);
       view.update(latest.current.state, latest.current.you);
     });
     const stopEphemeral = connection.onEphemeral((_from, payload) => {
@@ -56,6 +58,10 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     viewRef.current?.update(state, you);
   }, [state, you]);
 
+  useEffect(() => {
+    viewRef.current?.setGridPreview(gridPreview);
+  }, [gridPreview]);
+
   useImperativeHandle(ref, () => ({
     focusToken: (tokenId: string) => viewRef.current?.focusToken(tokenId),
   }), []);
@@ -66,6 +72,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       <button className="fit-button" onClick={() => viewRef.current?.resetView()}>
         Fit
       </button>
+      {gridPreview && <p className="grid-preview-label">Preview · Not applied</p>}
       <p className="board-hint">Drag to pan · scroll to zoom · double-click to ping · hold Alt to place freely</p>
     </div>
   );

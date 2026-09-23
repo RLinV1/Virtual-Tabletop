@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import type { Participant, RoomState } from "@vtt/shared";
+import type { GridSpec, Participant, RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { GmPanel } from "../pages/GmPanel";
+import type { GridDraft } from "../pages/gridDraft";
 import { DicePanel } from "./DicePanel";
 import { InitiativeTracker } from "./InitiativeTracker";
 import { MyTokens } from "./MyTokens";
@@ -32,11 +33,21 @@ interface Props {
   inviteCode?: string;
   token: string;
   onFocusToken: (tokenId: string) => void;
+  gridDraft: GridDraft;
+  hasGridDraft: boolean;
+  onGridDraftChange: (draft: GridDraft) => void;
+  onGridDraftCancel: () => void;
+  onGridApply: (grid: GridSpec) => Promise<void>;
+  gridApplying: boolean;
+  gridError: string | null;
   /** True on narrow screens, where the panel becomes tabbed. */
   compact: boolean;
 }
 
-export function RoomPanel({ connection, state, you, inviteCode, token, onFocusToken, compact }: Props) {
+export function RoomPanel({
+  connection, state, you, inviteCode, token, onFocusToken,
+  gridDraft, hasGridDraft, onGridDraftChange, onGridDraftCancel, onGridApply, gridApplying, gridError, compact,
+}: Props) {
   const isGm = you.role === "gm";
   const [tab, setTab] = useState<TabId>("play");
   const baseId = useId();
@@ -80,7 +91,19 @@ export function RoomPanel({ connection, state, you, inviteCode, token, onFocusTo
     tokens: <TokenRoster connection={connection} state={state} you={you} onFocusToken={onFocusToken} />,
     dice: <DicePanel connection={connection} state={state} isGm={isGm} />,
     gm: isGm ? (
-      <GmPanel connection={connection} state={state} inviteCode={inviteCode} token={token} />
+      <GmPanel
+        connection={connection}
+        state={state}
+        inviteCode={inviteCode}
+        token={token}
+        gridDraft={gridDraft}
+        hasGridDraft={hasGridDraft}
+        onGridDraftChange={onGridDraftChange}
+        onGridDraftCancel={onGridDraftCancel}
+        onGridApply={onGridApply}
+        gridApplying={gridApplying}
+        gridError={gridError}
+      />
     ) : null,
   };
 
