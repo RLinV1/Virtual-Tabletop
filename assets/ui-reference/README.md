@@ -1,17 +1,20 @@
 # UI Reference
 
-Visual direction for the VTT interface. Referenced from [`../../docs/DESIGN.md`](../../docs/DESIGN.md) §9.
+Visual direction for the VTT interface. The written specification lives in
+[`../../docs/DESIGN.md`](../../docs/DESIGN.md) §11 — that is the source of truth for pages,
+tokens and states. This directory is for the boards.
 
-Expected boards:
+**None of the boards below exist yet.** They were planned and never produced, and §11 used
+to reference them as though they did.
 
-| File | Covers |
-| --- | --- |
-| `room-setup.png` | Four-step GM flow: map upload → grid alignment → tokens & access → ready/invite |
-| `at-the-table.png` | GM tabletop vs. player tabletop, chat & dice, reconnect states, mobile player layout |
-| `between-sessions.png` | Room hub, guest join, checkpoints, preferences, help, error states |
+| File | Covers | Status |
+| --- | --- | --- |
+| `room-setup.png` | GM flow: map upload → grid alignment → tokens & access → invite | Not made |
+| `at-the-table.png` | GM vs player table, dice, reconnect states, narrow-screen player layout | Not made |
+| `between-sessions.png` | Room hub, guest join, checkpoints, settings, error states | Not made |
 
-Palette taken from these boards and already applied in `src/client/styles.css`:
+## Palette
 
-- ground `#0f1a1f`, panel `#14242b`, hairline `#24424d`
-- parchment text `#e8e2d4`, muted `#90a8b0`
-- gold action accent `#d6b06a`, success `#4caf7d`, danger `#c4564f`
+Defined in `docs/DESIGN.md` §11 (Design system), not here, so the two cannot drift apart again. The
+shipped values in `apps/web/src/styles.css` are currently the older neutral-and-blue set
+and do not yet match it — reconciling them is open work.

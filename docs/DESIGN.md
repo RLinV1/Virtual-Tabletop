@@ -7,6 +7,12 @@
 
 ---
 
+> **Implementation decision record (2026-09-22):** §13 resolves the frontend review and
+> is authoritative wherever older proposal text or prototype descriptions disagree.
+> Private preparation until Apply was confirmed by the product owner; the remaining
+> defaults were selected under the owner's delegated authority. These are target
+> behavior and acceptance criteria, not claims that the implementation already exists.
+
 ## 1. What This Document Covers
 
 | M2 deliverable | Where it lives |
@@ -332,9 +338,9 @@ No registration, ever. A player's entire onboarding is: open link → type a dis
 
 **Hashing choice.** Passwords get argon2id because humans pick low-entropy secrets that must be expensive to guess. Guest tokens get plain **SHA-256** because 256 bits of CSPRNG output cannot be brute-forced, and argon2 would add latency to every reconnect for zero security benefit. Both are hashed — the server never persists a credential it could leak.
 
-**Why `localStorage` and not a cookie.** It is what FR-PL-02 specifies, it survives a backgrounded tab, and it is not attached to every asset request. The tradeoff is real and worth stating: unlike the GM's `HttpOnly` cookie, a guest token **is** readable by JavaScript, so an XSS bug would expose it. Mitigations are a strict CSP, never rendering user-supplied content as HTML, and the limited blast radius — the token grants one seat in one game, and the GM can revoke it.
+**Why `localStorage` and not a cookie.** It is what FR-PL-02 specifies, it survives a backgrounded tab, and it is not attached to every asset request. The tradeoff is real and worth stating: unlike the GM's `HttpOnly` cookie, a guest token **is** readable by JavaScript, so an XSS bug would expose it. Mitigations are a strict CSP, never rendering user-supplied content as HTML, and room-scoped revocation. The browser token may grant seats in multiple rooms; a compromise can affect all those memberships (§13.1).
 
-**What a guest cannot do:** create or own rooms, see GM-only state (enforced server-side, §6), move tokens they do not own, or promote themselves — `role` is server-side data, never accepted from the client.
+**What a guest cannot do:** create or own rooms (§13.1 selects authenticated creation), see GM-only state (enforced server-side, §6), move tokens they do not own, or promote themselves — `role` is server-side data, never accepted from the client.
 
 ### 5.4 Reconnect flow
 
@@ -385,11 +391,88 @@ Identity is resolved **once per connection**, at the handshake, and cached on th
 
 ---
 
+### 5.7 Accounts for returning users — historical proposal, resolved in §13.1
+
+**Status: resolved in §13.1.** Shared account types are accepted; automatic guest
+merging and a saved-asset library are not. The following is the historical proposal. This revises §5.1 and §5.2, which are the Real-Time
+Architecture owner's. It is written up because §5.5 and §12 both already flag the hole and
+defer it, and the deferral has now been overtaken: §12 says "pick before FR-PL-02 ships",
+and FR-PL-02 has shipped.
+
+**The gap.** Guest identity is one browser. A player who opens the invite on their phone,
+clears site data, or joins from a library machine is a *new person* to the system — new
+participant, no owned tokens, no history. The same is true of the GM today, and worse:
+until FR-GM-01 exists there are no accounts at all, so a GM who switches device loses the
+room outright, because ownership is a credential hash in one browser and nothing else.
+
+§5.1 says the GM "survives a different device — log in again". That is a description of
+FR-GM-01, not of anything that currently runs.
+
+**Proposal: one account type, and role stays per room.**
+
+An account is not "a GM account". It is a person who has decided to keep using the
+platform. What they do in any given room is `participants.role`, which is per-room data —
+so the same account is GM in their own campaign and a player in a friend's. The schema
+already works this way (§4.2); it has simply never been said out loud, and §5.1's
+"Can create rooms: yes / no" row reads as though it were an account-level property. It
+is not.
+
+**Three ways in, and the fast one does not change.**
+
+| Path | Friction | Who |
+| --- | --- | --- |
+| Invite link, no account | Open link, type a name, play | First-time players. Unchanged — FR-PL-01 and the 30-second target are not negotiable |
+| Claim an account afterwards | Offered *after* a session, never before | A guest who liked it. Sets `user_id` on their existing `participants` rows and clears `guest_token_hash`, so tokens and history carry over (§5.5) |
+| Sign in, then open a room | Email and password | Returning users, any device |
+
+The ordering matters. A signup wall in front of a first-time player would trade the one
+thing this product is differentiated on (README §3: Roll20's onboarding overhead) for a
+convenience only repeat users need. **The invite path must never prompt for an account
+before play** — only after.
+
+**What an account buys**, and therefore what pages it implies (§11.2):
+
+- **Cross-device identity.** The same person, same owned tokens, on a phone and a laptop
+- **A room list.** `/rooms` — the reason §4.2 gives for `users` existing at all: "so a GM
+  can come back next week and find the rooms they own". Today that sentence has no page
+- **A second way to join.** A returning player opens `/rooms` and clicks the room, instead
+  of hunting for a link in a chat log from three weeks ago. This is the point of the
+  feature: invite links are for *strangers*, not for the fourth session of a campaign
+- **Saved assets.** Maps, token art and encounter setups that outlive one room. Uploads are
+  currently one-off objects keyed by UUID and referenced by a single scene; nothing lets a
+  GM reuse last week's dungeon. FR-GM-13 covers templates and is M3 stretch, so the asset
+  half needs its own requirement
+
+**Schema delta.** `users` and `auth_sessions` as already specified in §4.1, plus:
+
+- `participants.user_id` — nullable, already in the §4.1 sketch. Set on claim
+- `rooms.owner_user_id` — nullable until FR-GM-01 lands, so existing rooms are not orphaned
+- An `assets` table keyed by `user_id`, if saved assets are accepted
+
+**What this does not cost.** Nothing in `packages/shared` changes. `decide`, `reduce` and
+the visibility filters address participants and cannot tell a registered user from a guest
+(§4.2) — which is exactly the property that makes this affordable. The work is a REST
+surface, a session cookie, and pages.
+
+**The questions this raised — all four answered in §13.1.**
+
+1. *Does claiming an account merge all of that browser's participants, or only one room?*
+   → Only the current room, after Leave table, requiring proof of both credentials. Never
+   a silent union of every seat the browser holds.
+2. *Can a room have a co-GM?* → No. Co-GM ownership is deferred; role stays per room.
+3. *Are saved assets per user or per room?* → Deferred entirely, navigation omitted, until
+   ownership, quota and reuse have requirements.
+4. *Does Play create a room without an account?* → No. FR-GM-01 stands unamended and
+   `rooms.owner_user_id` stays non-null; a signed-out Play routes through login with a
+   return intent instead.
+
+---
+
 ## 6. Security and Visibility
 
 - Authorization is enforced **server-side on every message**, not at connection time — role is data, and a socket that was a player's at handshake must not be trusted to still be one (FR-GM-15).
 - Hidden tokens, unrevealed fog, and GM-only rolls are filtered **before serialization**, so player payloads never contain data the player may not see (FR-GM-23). Filtering at render time would leak through devtools.
-- Guest tokens and session cookies are stored hashed; revoking a participant or regenerating an invite invalidates them (FR-GM-20).
+- Guest tokens and session cookies are stored hashed. Revoking a participant immediately invalidates that room membership and closes its sockets. Regenerating an invite invalidates the old invite for new joins only; it does not revoke participants or account sessions (FR-GM-20, §13.1).
 - Uploads are validated by content type and size before they reach object storage, and served from a separate origin so a malicious SVG cannot script against the app.
 
 ---
@@ -877,9 +960,312 @@ It is intentionally thin. It exists so that the *habit* and the *wiring* are in 
 
 ---
 
-## 11. UI Reference
+## 11. Interface and Page Design
 
-Visual direction for the board and panels — deep slate-teal ground, parchment text, gold action accent — is captured in [`../assets/ui-reference/`](../assets/ui-reference/) and already reflected in the prototype's palette. The reference boards cover room setup (map upload → grid alignment → tokens → invite), the GM and player tabletop views, chat/dice, connection-loss states, and the between-sessions room hub.
+### 11.1 Status
+
+§11.4 onward records the original interface proposal. **§13 now accepts or supersedes
+its individual decisions**; historical alternatives below are not implementation options. Interface direction is the Board owner's call
+(Antonio) and the page inventory is a team decision; this section exists so there is
+something concrete to argue with, because until now the document said nothing about what
+the application is beyond one room screen.
+
+Two corrections to what this section used to claim. The boards it referenced —
+`room-setup.png`, `at-the-table.png`, `between-sessions.png` — **were never produced**;
+`assets/ui-reference/` contains only a README describing them. And the palette that README
+calls "already applied" (deep slate-teal ground, parchment text, gold accent) is **not**
+what ships: `apps/web/src/styles.css` uses a neutral charcoal ground with a blue accent.
+The documented direction was abandoned silently. §11.9 picks one.
+
+### 11.2 Page inventory
+
+What exists today, and what a usable product still needs:
+
+| Route | Page | State | Serves |
+| --- | --- | --- | --- |
+| `/` | Home — the product, Play, and sign in | Built — a bare create form only | Entry for every journey (§11.5) |
+| `/join/:inviteCode` | Guest join | Built | FR-PL-01, FR-PL-02 |
+| `/r/:roomId` | The table | Built | most of the FR set |
+| — | 404 | Built — an unstyled card | — |
+| `/signup`, `/login` | Account — any role, role is per room | **Missing** | FR-GM-01, §13.1 |
+| `/rooms` | Room hub — rooms you belong to | **Missing** | FR-GM-01 (§4.2: an account exists so a user can return and find their rooms). Also where Leave table returns a signed-in user (§13.1) |
+| `/r/:roomId/prepare` | Scene preparation | **Missing** — currently crammed into the table's side panel | FR-GM-02 … FR-GM-07, FR-GM-11 |
+| `/r/:roomId/log` | Activity log and undo | **Missing** | FR-REC-01, FR-REC-02 |
+| `/r/:roomId/settings` | Access, invites, revocation | **Missing** | FR-GM-20 |
+| `/library` | Saved maps, token art, encounter templates | **Deferred — do not build** | §13.1 defers saved assets and omits their navigation from the initial release; needs ownership, quota and reuse requirements first |
+
+The gap is not decoration. Three of those rows are requirements with no surface at all: a GM
+cannot currently find a room they made last week, revoke a guest, or read the log that
+FR-REC-01 requires. Map preparation lives in a scrolling side panel beside the live table,
+which means the GM does setup and play in the same cramped column.
+
+### 11.3 Information architecture
+
+Three layers, distinguished by how long a person stays and how much they are asked to think:
+
+1. **Entry** (`/`, `/join/:code`, `/login`, `/signup`) — originating at the home page,
+   which is the only surface that explains the product and carries both Play and sign in
+   (§11.5). Past it, one decision per screen and no navigation chrome. A player arriving from an invite link must reach the table in under
+   30 seconds (README §6), so this layer is a corridor, not a lobby.
+2. **Hub** (`/rooms`, `/library`, account) — the between-sessions layer. Persistent left
+   navigation, list-dense, optimised for finding one room among many.
+3. **Table** (`/r/:roomId` and its sub-surfaces) — the encounter. No global chrome at all:
+   the board owns the viewport and everything else is a panel over it. Sub-surfaces
+   (prepare, log, settings) open as overlays rather than page navigations, because leaving
+   the table would drop the socket and force a resync.
+
+The rule that follows: **navigation chrome decreases as you go deeper.** Entry has none,
+hub has a sidebar, the table has none again.
+
+### 11.4 What we take from mature VTTs, and what we refuse
+
+Roll20 is the reference point because README §3 already names its tradeoff: broad
+functionality at the cost of onboarding and interface overhead. That is a statement about
+*pages*, not features. A mature VTT accretes surfaces — marketplace, compendium, character
+sheets, forums, a tabletop sidebar with a dozen tabs — and every one of them is a decision
+the user has to route around before play starts.
+
+README §7 already excludes most of that surface area: no character sheets, no rules
+automation, no marketplace, no video. The page design should make that exclusion *visible*
+rather than leaving room for it.
+
+| Pattern | Take | Refuse |
+| --- | --- | --- |
+| Persistent list of games you belong to | Yes — §11.2 `/rooms`. Returning to last week's table is FR-GM-01's whole purpose | — |
+| Invite link that drops a player at the table | Yes, and go further: no account at all (FR-PL-01) | An account wall anywhere in the player path |
+| Tabletop with a side panel | Yes, one panel | A sidebar of many tabs; ours caps at four |
+| Layer controls (map / token / fog / GM) | Yes, as board layers | Exposing them as a persistent toolbar the player also sees |
+| Settings, permissions, asset library | Yes, as overlays over the table | A settings tree the GM navigates away from play to reach |
+| Marketplace, compendium, forums, sheets | — | All of it. Out of scope, and each is a top-level page we then owe navigation to |
+
+The concrete rule this produces: **a player's path from link to playing contains exactly one
+screen and one field.** A GM's path from logging in to a prepared map contains no more than
+three. Any page proposal that lengthens either is rejected on that basis alone.
+
+### 11.5 The home page
+
+**This is where everything starts.** Not a form and not a marketing page bolted onto the
+side of an app — the one surface that explains the product, and the entry point for all
+three journeys in §11.3. A first-time GM, a returning user, and a curious stranger all
+land here.
+
+**Two actions, and they are not equals.**
+
+- **Play** — primary, high contrast, impossible to miss. For a signed-in user it creates a
+  room and opens its table. For a signed-out one it opens login or signup carrying a
+  return intent, and authenticating continues into room creation rather than dumping the
+  user on a dashboard (§13.1). Either way the journey ends at a table
+- **Log in / Sign up** — secondary, in a minimal top-right nav. For people who have been
+  here before and want their rooms back. Quiet, never competing with Play
+
+Beside the primary action, one line of copy carries the rule so nobody discovers it at the
+password field: **"Free account required to host; players join without one"** (§13.1). That
+sentence is doing real work — it tells a GM what Play will cost them, and tells a player
+reading over their shoulder that the invite they were sent asks nothing of them.
+
+A single top bar carries the product name on the left and the auth pair on the right, and
+nothing else. There is no room for a navigation menu on a product with three pages.
+
+**Why creation is gated — decided, §13.1.**
+
+FR-GM-01 gives the GM "a persistent, trusted identity from which to create and administer
+a room", and `routes.ts` currently permits creation without one under a `TODO` marking
+that as temporary. Two resolutions were considered: gate Play behind sign-in, or let Play
+create an *unclaimed* room claimed afterwards.
+
+**§13.1 selects the gate, and keeps `rooms.owner_user_id` non-null.** Unclaimed-room
+authority, expiry and ownership transfer are explicitly out of the Core Loop. The return
+intent is what preserves the fast start — a signed-out Play is one extra screen, not a
+dead end — and it costs no amendment to FR-GM-01 and no new ownership state to reason
+about. The unclaimed-room alternative is recorded in §13.1 as rejected, not deferred.
+
+Creation is idempotent: a retry with the same request key returns the existing room rather
+than making a second one, and a failed creation preserves the session (§13.1).
+
+**Above the fold.** An editorial split rather than centred text on a dark rectangle: the
+claim and the Play button on one side, a real battle map bleeding off the opposite edge,
+masked into the ground so it reads as depth rather than a pasted screenshot. The map is the
+product; a stock photograph of dice on a table is not.
+
+- The headline runs **two lines, never more**. It says what the product does in concrete
+  verbs — upload a map, start playing — not "elevate your tabletop". Hold it under about
+  14 words at a fluid size that stays two lines from 380px to 1920px rather than reflowing
+  into a paragraph
+- Play sits directly beneath it. One quiet tertiary link — "see a live demo room" — may sit
+  beside it for people who want to look before creating anything
+- Nothing else. No floating badges over the text, no metric pills, no logo strip
+
+**Below it,** three movements, each a full viewport-height chapter with generous separation
+so they read as distinct rather than as a stack of cards:
+
+1. **The setup claim, demonstrated.** The map-to-grid-to-tokens sequence shown as actual
+   interface, advancing on scroll. This is the differentiator and it earns the largest
+   surface on the page
+2. **What the table looks like in play,** from both sides — the GM's hidden tokens and the
+   player's filtered view, side by side. The visibility model is the hardest thing to
+   explain in words and the easiest to show
+3. **Recovery.** The activity log with an undo, because "nothing is unrecoverable" is the
+   promise that separates this from a shared image
+
+The page closes by repeating Play. A visitor who has read to the bottom should not have to
+scroll back up to act.
+
+**Banned on this page:** a row of three equal feature cards; section eyebrows reading
+"FEATURES" or "HOW IT WORKS"; a centred hero; testimonials the project does not have;
+invented usage statistics; a second call to action of equal weight to Play.
+
+### 11.6 Entry pages
+
+**`/join/:inviteCode`** — one field, one button, no chrome. A player who is already known to
+this browser skips the field entirely and gets "Resume as Alice" instead, because re-typing
+a name to rejoin a room you were in five minutes ago is a needless step and risks creating a
+second identity (§5.5).
+
+- Primary action: join
+- States: validating the code, invalid or expired code with a plain explanation, submitting
+- Not here: anything about accounts. The offer to claim one belongs after the session, on
+  the way out — never on the way in (§5.7)
+
+**`/login` and `/signup`** — for anyone who wants to be found again, not GM-only (§5.7). A
+player reaches these only *after* a session, never before: the invite path must not prompt
+for an account ahead of play. A single column at reading width, the form
+above the fold with no scrolling, and the opposite link (sign in / create account) as quiet
+text rather than a second button. Password rules stated *before* the field, not as an error
+after submitting.
+
+### 11.7 The room hub
+
+The between-sessions surface, and the one most likely to be built as a wall of identical
+cards. It should be a list, because a list scans and a card grid does not.
+
+**Layout.** A single column of rooms at reading width, one row per room, separated by
+hairlines rather than boxed. Each row: scene thumbnail at a fixed small size, room name,
+when it was last played, participant count. The row is the click target.
+
+**Ordering** is by last played, descending — not alphabetical and not by creation date. The
+room you want is almost always the one you were just in.
+
+**States.** Skeleton rows shaped like real rows while loading. The empty state is the first
+thing a new GM ever sees and should read as an invitation with the create action inline, not
+as an error. Room creation happens here too, so the hub is never a dead end.
+
+### 11.8 The table: layers and panels
+
+The most complex screen and the one with the strictest rule: **the board owns the viewport.**
+Everything else is a panel over it or a column beside it, and nothing may push the board
+smaller than it needs to be.
+
+**Regions.**
+
+- **Board** — the full remaining area, with no global navigation bar above it. There is
+  nowhere to navigate to; leaving would drop the socket
+- **Panel** — a fixed column on the right at desktop width, beneath the board as tabs below
+  720px, beside it again in landscape (KAN-55). Four tabs at most: Play, Tokens, Dice, and
+  Manage for the GM. When a fifth is proposed, something merges
+- **Board controls** — a small cluster floating over the board's corner: fit, zoom, and
+  the layer switcher. Floating rather than docked, because a docked toolbar costs board
+  height permanently for controls used occasionally
+- **Status** — connection state and seq, inline in the panel header. Never a modal. A
+  reconnect must not interrupt play, and a dialog over the board does exactly that
+
+**Layers,** in draw order, bottom to top: map, grid, drawings and templates, tokens,
+condition markers, fog, ephemeral effects (pings, drag previews, rulers). The GM can target
+a layer for editing; a player never sees a layer control, because administrative layer targeting is GM-only. Players still receive permitted
+drawing and AoE tools; tool access is distinct from layer administration (§13.5). Fog and GM-only geometry are not merely hidden in the player's
+renderer — they are absent from the payload (FR-GM-23), and the interface should not imply
+otherwise by showing a disabled control.
+
+**Overlays** open over the table and never navigate away from it: scene preparation, the
+activity log, room settings. Each is a wide sheet rather than a column, dismissible with
+Escape, and returns focus to the control that opened it. Preparation in particular needs
+width — a GM aligning a grid against a map is comparing two things and cannot do it in a
+20rem strip.
+
+**Density** is highest here and only here. The panel may compress padding and use tabular
+figures at a smaller size; the entry and hub pages may not. A GM tracking eight tokens
+through an encounter wants information per square inch, and the same person on the landing
+page wants space.
+
+### 11.9 Design system
+
+**Direction.** Resolve the palette split in favour of the team's original intent: a deep,
+slightly cool ground with a **single warm accent**. That reads as a table lit from above,
+which is what the product is, and it avoids the blue-on-charcoal default that every
+developer tool already uses. The shipped blue accent should go.
+
+| Token | Value | Use |
+| --- | --- | --- |
+| `--ground` | `#0f1418` | Page and board surround. Never pure black |
+| `--panel` | `#161d22` | Panels, overlays |
+| `--hairline` | `#24323a` | 1px separators — the primary grouping device |
+| `--text` | `#e8e2d4` | Body |
+| `--muted` | `#8a9aa3` | Secondary, labels |
+| `--accent` | `#d6a355` | The single accent: primary action, active turn |
+| `--ok` `--warn` `--danger` | `#4caf7d` `#d29922` `#c4564f` | Status only, never decoration |
+
+One accent, under 80% saturation. Status colours are never the only signal — the active
+turn carries a glyph and position as well as gold, conditions carry a shape and an
+abbreviation as well as a fill (FR-TAC-08).
+
+**Typography.** A geometric grotesk for the interface and a true monospace for anything
+numeric — initiative scores, hit points, dice results, seq numbers all need tabular figures
+so they stop jittering as they change.
+
+```
+--font-ui:   "Geist", "Satoshi", system-ui, sans-serif
+--font-mono: "Geist Mono", "JetBrains Mono", ui-monospace, monospace
+```
+
+Serifs are out: this is software, not editorial. Headings control hierarchy through weight
+and colour rather than size — a room name is `text-lg font-semibold tracking-tight`, not a
+display heading. Body copy caps at 65 characters.
+
+**Space and materiality.** Group by hairline and negative space, not by boxing everything in
+a card. A card is justified only when elevation means something — an overlay above the
+table, a menu above the panel. Panels sit flat on the ground with a single hairline.
+Shadows, when used, are tinted to the ground rather than black.
+
+**Motion.** Fluid but not cinematic. `transition: 0.24s cubic-bezier(0.16, 1, 0.3, 1)` for
+state changes; spring physics for anything the user drags or drops. Animate `transform` and
+`opacity` only — never `width`, `height`, `top` or `left`, which would fight the Pixi
+canvas for the compositor. Two things earn continuous motion and nothing else does: the
+active-turn indicator and the connection status. `prefers-reduced-motion` removes both.
+
+**Density** varies by layer: airy at entry (generous spacing, one decision per view),
+moderate in the hub, and tight at the table, where a GM tracking eight tokens needs
+information per square inch. The table panel is the only surface that may compress padding.
+
+**Icons.** One set, one stroke weight (1.5), from Phosphor or Radix. No emoji anywhere in
+the interface, ever — they render differently on every platform and read as placeholder.
+
+### 11.10 Interface states
+
+Every data surface specifies four states, not one. Prototypes ship the success case and
+discover the rest in front of a grader.
+
+- **Loading** — skeletons shaped like the content that will replace them. No spinners
+- **Empty** — says what to do next. "No rooms yet — create one to get started", not a blank
+  panel. The empty table and empty roster are the first thing a new GM sees
+- **Error** — inline and specific, next to the thing that failed. Errors that need a retry
+  carry the retry. A rejected command surfaces the server's reason, since `decide` already
+  returns one
+- **Offline** — the board stays interactive and visibly stale rather than blanking. The
+  status line owns this; nothing modal
+
+### 11.11 Responsive and accessibility
+
+Breakpoints at 720px and 1024px. Below 720 the panel moves beneath the board and becomes
+tabs; in landscape on a phone the panel returns to the side, because width is what a
+landscape phone has (see KAN-55). The board refits when the viewport changes only if the
+viewer has not positioned their own camera — an independent viewport is FR-TAC-01, and a
+rotation must not undo a deliberate pan (KAN-54).
+
+Accessibility is a stated target (README §6: WCAG 2.2 AA for non-canvas UI), which means
+concretely: every interactive element reachable by keyboard and visible when focused; touch
+targets at least 44px on coarse pointers; colour never the sole carrier of meaning; the
+canvas paired with a DOM equivalent for anything it expresses — the roster is the keyboard
+path to token selection (FR-GM-24), and any future canvas-only affordance needs the same
+treatment.
 
 ---
 
@@ -888,12 +1274,14 @@ Visual direction for the board and panels — deep slate-teal ground, parchment 
 | Item | Status | Plan |
 | --- | --- | --- |
 | Wall detection: service or client-side? | **Decided — Python service** | Wall extraction runs in the Map Analysis Service alongside grid detection, not in the browser. See §12.1 for the references we build on. |
-| Guest returning on a second device | Open | Either GM reassignment or a claim code carried by the invite link (§5.5). Pick before FR-PL-02 ships. |
+| Guest returning on a second device | Decided — §13.1 | Registered members sign in. Unlinked guests get a new seat with GM-assisted reassignment; current-room account linking is deferred. |
 | PixiJS unproven at 100 tokens / 60 FPS | Open | Benchmark in the first week of Slice 3; it can still invalidate the renderer choice. |
 | No load testing against 150 ms / 500 ms targets | Deferred | k6 or Artillery benchmark once the ephemeral channel exists |
 | Prototype is single-package | Deferred | Workspace split is Slice 0 |
 | Undo semantics for concurrent edits | Designed, unvalidated | Prototype compensating events on token moves first, where they are easiest to reason about |
-| Express vs Fastify | Deferred | Revisit before the socket surface grows (§3) |
+| Express vs Fastify | **Decided — Express** | Reverted to the documented choice; see docs/adr/0002. |
+| Saved assets across rooms | Deferred — §13.1 | No library navigation in the initial release. Requires separate ownership, quota and reuse requirements. |
+| Room co-ownership | Decided — single owner | Co-GM ownership is deferred; account roles remain per room (§13.1). |
 
 ### 12.1 Prior art for map analysis
 
@@ -905,3 +1293,435 @@ Wall and portal detection (FR-GM-11) adapts existing MIT-licensed work rather th
 | [`DimitroffVodka/foundry-auto-wall`](https://github.com/DimitroffVodka/foundry-auto-wall) — secondary | A later derivative of the same project; useful for its centreline tracing mode, which fixes the double-wall artefact thick drawn lines produce | MIT |
 
 Attribution and licence text for any adapted code will be carried in the service directory. Our output target is UVTT wall and portal geometry (FR-GM-06, FR-GM-12), not Foundry `WallDocument`s, so the serialization layer is ours regardless of which pipeline we adapt.
+
+
+---
+
+## 13. Frontend Implementation Contract — Accepted Decisions
+
+**Recorded:** 2026-09-22. This section turns the frontend review into implementation
+requirements. It overrides inconsistent statements in §§5, 8, 11 and 12. It does not
+change the shipped-status matrix in §10; implementation must be verified separately.
+The user confirmed private preparation until Apply and delegated the remaining choices.
+Exact mobile dimensions below are selected defaults, not details supplied by the user.
+
+### 13.1 Product scope, identity and entry
+
+**Play requires an authenticated account to create a room.** Keep FR-GM-01 and the
+non-null `rooms.owner_user_id`. Do not introduce unclaimed-room authority, expiry or
+ownership transfer in the Core Loop. Home explains “Free account required to host;
+players join without one” beside the primary action.
+
+- Signed-in Play creates one room and opens its table. Signed-out Play opens login/signup
+  with a same-origin return intent; successful authentication continues room creation.
+- Creation is idempotent. A retry with the same request key returns the existing result,
+  rather than creating another room. Failed creation preserves the authenticated session.
+- Accounts represent people; GM/player role remains per room. An authenticated player
+  may follow an invite and create a player membership without signing out.
+- Guest invite entry remains exactly display name → Join. A known guest gets Resume as
+  their existing name. The server validates invite/access before exposing room details.
+- Account creation is never required or promoted before a guest enters play.
+- An explicit Leave table action returns guests to a simple session-ended screen and
+  signed-in users to `/rooms`. It closes that client's socket, not the room or other tabs.
+  Closing the browser is not treated as a reliable session-end event.
+- Guest-to-account linking is a later enhancement. When enabled, offer it only after
+  Leave table, link only the current room, require proof of both guest and account
+  credentials, and preserve the participant ID. Never silently merge all browser seats.
+  If the account already has a different membership, require GM-assisted reassignment;
+  do not automatically union authority or tokens. Linking must be atomic and rebind or
+  invalidate existing guest sessions. Do not ship the offer before this backend exists.
+- Until linking exists, cross-device guests are new participants; the GM can reassign
+  tokens after confirming identity socially. Explain browser-local identity without
+  presenting an account prompt on the join path.
+- Core scope includes GM authentication, room hub, invite join, preparation, table and
+  ownership controls. Tactical Play adds encounter/recovery surfaces. Saved assets,
+  `/library`, co-GM ownership and account claiming are deferred; omit their navigation.
+- Existing prototype rooms need an explicit migration: only a verified existing GM
+  credential may claim an owner account. Do not infer ownership from an invite code or
+  participant name. Until migration is available, retain legacy access without allowing
+  creation of further unowned rooms; announce any later removal before it occurs.
+
+**Access changes.** Revocation takes effect immediately in that room, including open
+sockets and subsequent commands. Clear cached room data and previews, close overlays,
+and show an access-removed screen. Other rooms remain accessible. Invite regeneration
+only prevents new admissions through the old code; existing members can resume. Known
+members using an old invite may resume after credential verification; unknown visitors
+receive an expired-link explanation. Regeneration does not revoke account sessions.
+
+**Identity edge cases.** Two tabs with the same credential are one participant with
+separate camera/UI state. Duplicate display names are allowed; ownership menus include
+a secondary participant identifier. Storage failure uses a tab-local credential with a
+persistent warning that reload loses identity. Cache guest lookups by room and token
+hash, never by token hash alone. A browser-wide guest token can grant memberships in
+multiple rooms, so its compromise is not limited to one room.
+
+### 13.2 Preparation drafts and replacing a live map
+
+**Preparation remains private until Apply.** Draft assets, estimates, geometry and
+previews are accessible only to the GM. They are excluded from player snapshots,
+events, ephemeral traffic and asset URLs. Merely hiding a preparation sheet is not a
+privacy boundary.
+
+Use a server-persisted draft associated with a room, GM participant and base scene
+revision. Persist acknowledged edits; indicate Saving / Draft saved / Save failed.
+Closing a sheet preserves acknowledged drafts. If edits remain unsaved, offer Keep
+editing or Discard unsaved changes. Reopening loads the draft. Discard draft is an
+explicit action; abandoned draft assets are garbage-collected only after a defined
+retention window (seven days), with active references protected.
+
+**Preparation sequence:** choose/upload image → manually align grid → optionally request
+analysis → review suggested changes → place/configure draft tokens → Apply. Manual
+alignment remains usable when analysis fails or detects no grid. A late analysis result
+never overwrites manual edits: offer Preview suggestion and Accept suggestion explicitly.
+A result is tied to the draft asset revision and rejected if that asset has changed.
+
+**Apply to the current map:** grid/geometry edits are committed atomically after validating
+the draft's base revision. Players see the old accepted state until publication succeeds.
+If live scene content changed since the draft began, show a stale-draft conflict and let
+the GM reload/reconcile; never silently overwrite concurrent state. Camera-only changes
+and ephemeral traffic do not invalidate a draft.
+
+**Replacing an active map during play:**
+
+1. Uploading a replacement creates a separate draft scene. The encounter continues on
+   the current scene while the GM prepares it.
+2. Apply opens a confirmation explaining that everyone will switch scenes, current
+   tokens/fog/drawings/templates/initiative will not transfer, and the previous scene
+   will be recoverable. The replacement starts fully concealed to players; GM preview
+   remains visible. Ownership can be assigned to draft tokens before publication.
+3. In one authoritative transaction, validate the expected active scene/revision, save
+   an automatic checkpoint of the old scene, activate the prepared scene and append the
+   scene-change event. If checkpoint creation or publication fails, change nothing.
+4. Send each participant a filtered replacement snapshot. Cancel old-scene gestures and
+   pending previews, clear selection, and fit the new map once. Ordinary viewport resize
+   still preserves deliberate camera positioning.
+5. Reject late commands targeting the previous scene with `scene_changed`. Never replay
+   them onto the new map. Announce “The GM changed the scene” without a blocking modal.
+
+No automatic coordinate scaling or token migration is included. The confirmation names
+what is reset and what remains: room membership, invites, dice history and append-only
+activity history remain. The previous scene and its referenced assets remain retained
+while recoverable checkpoints reference them.
+
+### 13.3 Responsive layout and navigation
+
+Use these CSS-pixel defaults, subject to usability validation. Minimum board sizes are
+layout allocation targets; they must not force horizontal page overflow at narrow widths
+or text zoom. When space is insufficient, collapse the panel and use the mobile layout.
+
+| Context | Board and panel | Supported work |
+| --- | --- | --- |
+| Desktop, ≥1024px | Board plus 320px right panel; panel collapsible; target board ≥640×360 | All workflows |
+| Tablet, 720–1023px | 280px side panel only when board retains ≥440px width and viewport ≥400px height; otherwise bottom panel | All workflows when preparation viewport meets its size threshold |
+| Portrait/mobile fallback | Board first, bottom panel second; target board height 280px; panel normally 40% of available height, expandable to 70% | Full player play and routine GM controls |
+| Landscape phone | 240px side panel only with ≥360px board width and ≥320px usable height; otherwise collapsed panel opens as a sheet | Same mobile workflows; no orientation-only override |
+
+Use `100dvh`, safe-area padding, `minmax(0, 1fr)` tracks, and independent panel scrolling.
+At short heights or while the keyboard is open, prioritize the focused field in a sheet;
+collapse the panel rather than squeezing the board and controls into unusable strips.
+A collapsed panel retains an accessible opener and the connection indicator on the board.
+Tabs never wrap into ambiguous rows; icon-plus-short-label controls fit the available width.
+
+**Mobile GM support:** invite copy, participant revocation, ownership, token name/resources/
+conditions, hide/reveal a selected token, initiative, dice, activity log and eligible undo.
+Detailed map upload/alignment, wall editing, fog drawing, scene replacement and checkpoint
+restore require at least a 720×480 CSS-pixel viewport. Show a clear larger-screen explanation
+when invoked below this threshold; do not discard an existing draft after a resize. This
+limits complex GM editing without limiting the responsive player requirement.
+
+**Hub:** 224px navigation at desktop, compact navigation at tablet, and a labeled menu
+sheet below 720px. Room list maximum width 880px; page gutters 16/24/32px by breakpoint.
+Rows have a 56px thumbnail and flexible name; secondary metadata stacks on mobile. Use
+one semantic navigation link per room and separate sibling buttons for other actions.
+Ordering is last played descending with room ID as a stable tie-breaker; never-played
+rooms follow played rooms, newest first. Last played means the server-recorded most
+recent authorized table entry, not a background heartbeat. Count non-revoked members and
+label it “members”; expose online presence separately if available.
+
+**Entry:** forms max-width 400px; body copy ≤65ch. Home stacks text and map below 720px.
+The two-line headline is a default-content goal, not a clipping requirement: allow extra
+lines at large text sizes. Use minimum-height chapters with natural document scrolling,
+not pinned scroll or forced viewport heights. Provide static reduced-motion demonstrations.
+
+**Sheets and routes:** mount a room session provider above `/r/:roomId` and its nested
+prepare/log/settings routes. Opening a sheet pushes a route; Back closes it without
+unmounting the room session. A direct sheet URL first loads the room underneath. Close
+returns to the room route, replacing the route when there is no in-app parent history.
+Escape and the visible Close button dismiss; backdrop dismissal is disabled to avoid
+accidental closure. Dirty-state handling follows §13.2. Leaving the room uses an explicit
+Leave action; it is not hidden to preserve a socket.
+
+Preparation sheet max-width 1120px; log/settings 800px; 24px desktop outer gap. Mobile
+sheets use available viewport width/height. Sheet bodies scroll; headers/actions remain
+reachable without obscuring focused controls. Only the topmost modal receives interaction.
+
+### 13.4 Connection, concurrency and recovery
+
+**Offline means inspectable, not editable shared state.** Keep pan, zoom, token inspection,
+local selection and draft form typing available. Disable committed actions, dice rolls,
+Apply and network-dependent analysis. Do not queue gameplay commands for automatic replay.
+Clearly label the board stale and explain disabled actions inline. Re-enable shared writes
+only after identity verification and an authoritative snapshot, not merely socket reconnect.
+A persisted preparation draft can retain unsent local edits but must reconcile its base
+revision before upload or Apply after reconnect.
+
+Track commands as pending → acknowledged/rejected, with a separate unknown-outcome state
+when transport fails. An acknowledgment alone must not bypass authoritative event/snapshot
+application. Persist command IDs/results server-side with their room/participant scope;
+repeated identical IDs return the original outcome. Reusing an ID with different content
+is rejected. For room creation, use account scope. Resolve unknown outcomes through a
+command-status read or a retry of the same ID after resync; do not generate a new ID.
+If result retention has expired, return an explicit expired status and reconcile current
+state without replay. Retain results for at least 24 hours and document this API boundary.
+
+Use the current shared protocol as the integration baseline: `clientCommandId`, `welcome`,
+`event`, `redacted`, `ack`, `rejected`, `resync`. Hidden events emit a redacted sequence
+advance so clients do not mistake filtering for packet loss. A real sequence gap triggers
+resync. Duplicate events do not reapply state. Snapshot replacement resets authoritative
+state and transient previews, not independent camera/tab preferences for the same scene.
+The existing numeric sequence contract requires safe-integer validation; before exceeding
+that range, migrate all producers/consumers together to decimal strings. Do not silently
+change only the frontend representation.
+
+**Undo:** initially only token moves. The server returns eligibility and a plain-language
+reason for ineligible events. A move can be undone only if the token still exists in the
+same scene, no later mutation changed that token, and the move has not already been
+compensated. Changes to unrelated tokens do not block undo. Recheck eligibility atomically
+when requested; a stale enabled button is not authorization. Append compensation with
+actor, timestamp and reference to the original event. No redo in this milestone.
+
+**Checkpoint restore:** GM-only, explicit confirmation showing checkpoint name/time and
+what changes. Restore scene encounter state (map/grid/geometry/fog/tokens/resources/
+conditions/templates/drawings/initiative), not memberships, roles, credentials, invites,
+dice history or audit history. Save an automatic pre-restore checkpoint atomically, append
+a restore event, advance scene revision, and send filtered snapshots. Reject old-revision
+commands and clear pending gestures. Revalidate token owner references against current
+memberships; revoked or missing owners become unassigned. Restore cannot recover access
+rights or make a participant unrevoked. A reveal cannot erase information players already
+saw; the confirmation says so when relevant.
+
+### 13.5 Tool interactions and player-safe rendering
+
+Keep tool selection separate from administrative layer targeting. Players have permitted
+Select/Move, Ruler, Ping, Draw and AoE tools. Only GMs receive fog/wall/layer administration.
+Server authorization remains mandatory regardless of visible controls.
+
+- Mouse: primary pointer acts with the selected tool; middle-drag or Space+drag pans;
+  zoom controls and wheel zoom anchor on the board. Space shortcuts do not run in fields.
+- Touch: in Select mode, one-finger drag on an owned token moves it; drag on empty board
+  pans; pinch zooms. A second finger cancels any uncommitted token drag before zoom begins.
+  Drawing/measurement uses an explicit selected tool, preventing accidental map edits.
+- Escape cancels the current gesture before closing a containing sheet. Pointer cancel,
+  loss of permission, scene switch or disconnect discards the gesture.
+- Click/tap selects. Roster selection opens the same inspector. A Move control supports
+  grid-step directional buttons and numeric position fields as a non-drag alternative.
+  Initiative has Move up/Move down controls in addition to drag reordering.
+- Ping is an explicit tool with one click/tap, not a touch long-press dependency. Drawings
+  and AoE support first-point/second-point placement and numeric size/angle controls;
+  preview → Place or Cancel is explicit. Creators may edit/delete their own objects; GMs
+  may edit/delete any. Freehand remains out of scope.
+- Grid snapping is a local placement preference and does not snap existing objects on
+  toggle. Default on when an accepted grid exists. Coordinates are map-image pixels from
+  the top-left; cell size/offset use those coordinates. Persist token centers, not DOM
+  positions; zoom and device pixel ratio never enter persisted geometry.
+- Movement ruler defaults to one unit per orthogonal or diagonal grid step; an optional
+  alternating diagonal mode is a room setting. Budgets are advisory warnings, not move
+  rejection rules. Units, diagonal mode and token budget are visible beside the ruler.
+
+**Visibility contract:** clients receive only authorized tokens, resources, rolls and
+geometry. Player fog is a derived visible-area mask or equivalent safe projection, not
+private GM concealment instructions. Dynamic LoS uses a server-derived visible region;
+do not ship secret walls just to raycast them in the player browser. Masks must also
+clip ephemeral effects. The server filters drag previews and associated token IDs by
+recipient visibility; client clipping alone is insufficient. Remove newly hidden tokens
+from all client caches, inspectors, selection and accessible DOM representations.
+
+The full base map image is accessible to any participant receiving its asset URL; a fog
+mask is visual concealment, not protection of those source pixels. For current scope,
+FR-GM-23 protects hidden entities/private metadata, not secrecy of an already-delivered
+image. Use maps without baked-in secrets. Secure image-region streaming would be a
+separate requirement and is not claimed here.
+
+Preview messages include scene ID, per-sender generation and increasing preview counter.
+Discard stale/out-of-order values. Coalesce preview sends to at most 20Hz; render local
+motion independently. Token/ruler/AoE previews expire after one second without refresh;
+pings expire after 1.5 seconds. Clear a preview on commit/cancel/disconnect/scene change.
+Reduced-motion mode replaces pulses with a static marker for the same duration.
+
+### 13.6 Components, state ownership and implementation boundaries
+
+React owns routes, DOM controls, forms and accessible representations. Pixi owns drawing
+and pointer-frequency visuals. The renderer consumes authorized state; it never decides
+permissions. Keep geometry transforms and reducers independently testable.
+
+| Component | Main inputs | Local state / events | Reused pieces |
+| --- | --- | --- | --- |
+| Entry/Auth/Join pages | Session, invite validity, resumable participant | Fields, submitting, join/resume/create | Field, InlineError, Button |
+| RoomList | RoomSummary array, request state | Open/create, retry, cursor | RoomRow, Skeleton, EmptyState |
+| TableShell | Room ID, capabilities, connection | Active tab/sheet | BoardViewport, EncounterPanel |
+| BoardViewport | Authorized scene, tokens, previews | Camera, selection, gesture | RendererAdapter, BoardControls |
+| TokenRoster/Inspector | Tokens, participants, editable fields | Selection, edit draft, assign/move | TokenRow, ResourceField, ConditionBadge |
+| InitiativeTracker | Entries, active entry, capabilities | Edit/reorder/advance | InitiativeRow, MoveButtons |
+| DicePanel | Allowed audiences, roll results | Expression/audience, pending roll | ExpressionField, RollResult |
+| PreparationSheet | Draft/base revision, assets, analysis job | Grid/token edits, preview/apply | UploadField, GridEditor, JobStatus |
+| ActivityLogSheet | Events, undo eligibility, checkpoints | Load older, undo/save/restore | EventRow, ConfirmDialog |
+| SettingsSheet | Members, invite/expiry, capabilities | Copy/regenerate/revoke | ParticipantRow, InviteLink |
+
+Suggested folders: `app/` for routes/providers; `ui/` for primitives; `features/` for
+identity, rooms, preparation, encounter and recovery; `board/` for renderer/gestures;
+`services/` for REST/socket adapters; `state/` for stores; `styles/` for shared tokens.
+Wire/domain schemas remain in `packages/shared`; do not create parallel local definitions.
+
+Use the selected Zustand store for authoritative room state and narrow subscriptions.
+Keep pending commands/previews separate from accepted state, camera/tool/tab preferences
+local to the session, and input drafts local to their feature. A rejection removes only
+that command's preview; it must not restore an obsolete whole-room snapshot. Hooks such
+as `useRoomSession`, `useRoomCommands`, `useBoardViewport` and `useAnalysisJob` isolate
+lifecycles. Do not send pointer updates through a whole-app React render loop.
+
+### 13.7 Data and service contracts
+
+These are target contracts to add to shared schemas, not undocumented replacements for
+existing endpoints. REST handles account/session, room lists, assets, private drafts,
+analysis jobs and history reads. Authoritative encounter changes use committed commands;
+scene Apply/restore must use the same transaction/event path even if submitted through REST.
+
+| View / operation | Required fields and behavior |
+| --- | --- |
+| Session | User summary, room participant, capabilities; never credential hashes |
+| RoomSummary | ID, name, thumbnail URL/null, lastPlayedAt/null, memberCount, myRole |
+| SceneView | Scene ID, revision, asset dimensions, grid/null, authorized tokens/overlays, safe visibility projection |
+| TokenView | ID/name/art, center/size/rotation, permitted resources/conditions, owner reference if authorized, canMove/canEdit |
+| Draft | ID, base scene/revision, draft revision, asset revision, grid/geometry/tokens, updatedAt, save status |
+| AnalysisJob | ID, draft/asset revision, queued/running/succeeded/failed/cancelled, stage, result/confidence, structured failure |
+| Activity page | Event ID/seq, actor display label, timestamp, plain-language domain payload, undo eligibility/reason, nextCursor |
+| Checkpoint | ID/name/time, scene summary, restore eligibility; snapshot fetched only through authorized restore path |
+| API error | Stable code, safe message, fieldErrors where relevant, request/command ID, retryability |
+
+Lists use cursor pagination: room pages 25 rows, history pages 50 events with Load older.
+No search/filter system in the first release. Preserve visible rows on refresh failure
+and expose a retry; an initial failure is distinct from an empty result. Virtualize only
+if measured list performance requires it.
+
+Upload defaults: JPG/PNG/WebP, ≤20 MiB compressed, ≤16 megapixels and ≤8192px on either
+edge. Validate decoded size/type server-side as well as client-side. Reject SVG for map
+and token uploads. UVTT is stretch and needs separate container/schema limits before its
+upload control ships. Upload shows byte progress when available; analysis shows named
+stages, never fabricated percentages. Poll job status every two seconds while the sheet
+is visible, backing off to ten seconds for prolonged jobs; pause while offline. Cancel
+prevents a result from applying even if the worker cannot immediately stop. Retry creates
+a new job tied to the current asset revision.
+
+Dice defaults: accept `NdX + M` with optional whitespace and signed modifier; 1–100 dice,
+2–1000 sides, modifier between −10000 and 10000. Parse/validate and roll on the server.
+Players roll publicly; GMs choose public or GM-only, default public. Pending/unknown rolls
+retain the same command ID on retry. Empty dice history invites a first roll, not a spinner.
+Initiative ties keep stable existing order; GM can reorder. Advancing past the last entry
+increments the round. Removing the active entry selects the next remaining entry; an empty
+list has no active turn. Players inspect initiative but cannot edit it.
+
+### 13.8 Tokens, component states and accessibility
+
+Adopt §11.9's ground/panel/text/accent palette. Use Geist and Geist Mono with system
+fallbacks, self-hosted when available; numeric values also set tabular figures. Use one
+Phosphor outline icon family with a consistent optical stroke; do not mix icon families.
+
+| Token family | Selected defaults |
+| --- | --- |
+| Spacing | 4, 8, 12, 16, 24, 32, 48, 64px |
+| UI type | 14px compact secondary, 16px body, 18px panel heading, 24/32px page headings; line-height 1.5 body / 1.2 heading |
+| Hero type | Fluid 36–72px; allow wrapping rather than fixed line count |
+| Control/overlay radius | 6px / 12px |
+| Control height | 40px regular; coarse-pointer hit area at least 44×44px |
+| Borders | 1px decorative hairline; control boundary uses `#627783` |
+| Error text | `#f08a80`; original danger remains an icon/status fill only where contrast allows |
+| Primary button | Accent background, ground foreground; never parchment text on gold |
+| Focus | 2px accent outline, 2px offset; ground separation on accent-filled controls |
+| Surface states | Hover `#202b33`, selected `#30302a`; selection also has glyph/border/ARIA state |
+| Overlay shadow | `0 16px 48px rgb(15 20 24 / 45%)` |
+| DOM layers | Board 0, controls 10, menus 20, sheet backdrop 30, sheet 40, confirmation 50 |
+
+Validate foreground/background pairs in actual use. From the specified palette, body on
+panel is 13.19:1 and muted on panel 5.87:1. Original danger on panel is only 3.89:1, and
+parchment on accent 1.76:1; neither is normal text treatment. Hairline on panel is 1.29:1
+and is decorative, not the only means of recognizing an input or selected control.
+
+**Shared states:** buttons have default/hover/focus/pressed/disabled/pending; tabs and tool
+buttons add selected/pressed semantics. Pending buttons retain label/width and show a
+textual action state. Forms preserve entered values on failure, associate inline errors
+with fields and focus an error summary on failed submission. Success is communicated
+next to the action; not every save needs a toast. Disabled actions explain why when it
+is not self-evident. Destructive confirmations identify the affected room/person/scene.
+
+**Data states:** initial loading uses content-shaped skeletons; refresh keeps accepted
+content visible; empty states identify the next allowed action; errors show a specific
+retry when safe; offline keeps accepted content with a stale indicator. Skeletons are
+hidden from assistive technology and their container exposes busy state. Analysis uses
+stage text, not a skeleton pretending to be the completed map.
+
+**Keyboard and semantics:** use native links/buttons/inputs. Label every field and
+icon-only control. Tabs support arrow navigation and associated tabpanels. Modal sheets
+have a name, focus containment, inert background and focus return; if the opener no
+longer exists, focus the closest stable heading/control. Menus and tooltips are never
+the only path to an action. No global shortcut fires while typing in an input.
+
+**The focusable token roster is required with token interaction, not cuttable stretch.**
+It and the inspector provide selection, movement, statistics and condition access. The
+non-drag controls in §13.5 are required. Test keyboard operation, single-pointer alternatives,
+200% text zoom and narrow-width reflow; never force 14px labels onto essential error text
+just to preserve a panel size. Respect the 44px coarse-pointer target even in dense mode.
+
+Announce connection changes, accepted/rejected user actions, active-turn changes and scene
+replacement through restrained live regions. Do not announce seq increments, every drag
+sample or other users' every movement. Reduce motion across home demos, pings, transitions
+and drag settling. Continuous decorative pulsing is removed: active turn and connection
+use static labeled indicators by default. Animate only transform/opacity, and do not spring
+an authoritative token through misleading intermediate positions.
+
+Accessibility references: [WCAG 2.2](https://www.w3.org/TR/WCAG22/) and
+[non-drag alternatives](https://www.w3.org/WAI/WCAG22/Understanding/dragging-movements).
+
+### 13.9 Delivery order and acceptance gates
+
+These gates refine §8; they do not claim additional features are already shipped.
+
+1. **Foundations:** shared tokens/primitives, capability contracts and persistent room
+   provider. Agree required schema migrations first; benchmark the renderer with a
+   representative large map and 100 tokens early rather than after polishing screens.
+2. **Identity/rooms:** account creation/session, authenticated room creation, hub and guest
+   join/resume. Verify reload identity, storage failure, duplicate request handling and
+   two-tab behavior. Core invite-to-board target remains under 30 seconds.
+3. **Playable board:** viewport, token setup/ownership, roster and non-drag controls.
+   Verify permissions through direct API/socket attempts as well as hidden controls.
+4. **Preparation:** manual grid alignment and private persisted drafts, then detection.
+   Verify a player sees neither draft metadata nor asset access; analysis failure must
+   leave manual preparation usable. Stale results cannot overwrite edits.
+5. **Publication:** atomic Apply and scene replacement with automatic checkpoint.
+   Test checkpoint failure, concurrent live changes, duplicate Apply, late old-scene
+   commands, and reconnect during publication using two browser contexts.
+6. **Tactical state:** initiative, dice, filtered ephemeral tools, fog and conditions.
+   Test duplicate/out-of-order previews, TTL cleanup, private-roll routing and unknown
+   outcomes. Keep committed/ephemeral latency benchmarks separate.
+7. **Recovery/access:** eligibility-based move undo, checkpoint restore, revocation and
+   invite regeneration. Confirm restore does not restore revoked membership or erase
+   history, and undo cannot overwrite a later edit of the same token.
+8. **Responsive/accessibility verification:** test desktop and mobile layouts, short
+   landscape, software keyboard, rotation after manual pan, focus return, screen reader
+   announcements, contrast and non-drag alternatives. Build these behaviors throughout
+   earlier steps; this gate is verification, not the first accessibility implementation.
+9. **Release evidence:** lint/typecheck/build, domain tests, multi-client integration,
+   required browser coverage and representative benchmarks. Targets remain 60 FPS,
+   ≤150ms ephemeral propagation, ≤500ms committed propagation and ≤3s reconnect convergence
+   under the documented benchmark conditions. Measure onboarding with independent users.
+
+**Explicitly deferred:** saved-asset library, automatic participant merging, co-GM,
+unclaimed rooms, redo, secure map-tile streaming and advanced mobile map editing. Stretch
+wall/portal/LoS work retains §8's dependencies, including server-side visibility projection.
+Password reset remains out of course Core Loop scope; real-world release requires a
+recovery path rather than orphaning account-owned rooms.
+
+**Documentation follow-through:** update §10 statuses only with implementation evidence.
+Mirror the roster's earlier delivery, accepted account scope and precise map-pixel secrecy
+boundary into README requirements before declaring corresponding acceptance complete.
+Keep screenshots and implementation-status assertions current; no nonexistent reference
+image should be treated as a design dependency.
