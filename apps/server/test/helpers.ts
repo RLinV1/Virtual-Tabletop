@@ -39,12 +39,13 @@ export async function startServer() {
     close: () => app.close(),
     /** Mirrors the browser: the client generates its own credential (DESIGN.md §5.1). */
     newGuestToken,
-    createRoom: async (displayName = "GM") => {
+    createRoom: async (displayName = "GM", opts: { gmToken?: string; roomName?: string } = {}) => {
       const guestToken = newGuestToken();
       const room = await post<CreateRoomResponse>("/api/rooms", {
-        roomName: "Test",
+        roomName: opts.roomName ?? "Test",
         displayName,
         guestToken,
+        gmToken: opts.gmToken,
       });
       return { ...room, guestToken };
     },

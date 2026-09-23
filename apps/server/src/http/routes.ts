@@ -1,8 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import type { Express, Request } from "express";
-import multer from "multer";
 import {
   CreateRoomRequest,
   JoinRoomRequest,
@@ -14,12 +12,8 @@ import { hashToken, newInviteCode } from "../domain/credentials";
 import type { AssetStore } from "../store/assetStore";
 import type { RoomRegistry } from "../domain/roomRegistry";
 import type { RoomStore } from "../store/roomStore";
-
-const IMAGE_TYPES: Record<string, string> = {
-  "image/png": ".png",
-  "image/jpeg": ".jpg",
-  "image/webp": ".webp",
-};
+import { imageUploader } from "./imageUpload";
+import { registerLibraryRoutes } from "./library";
 
 export function registerRoutes(
   app: Express,
@@ -27,19 +21,7 @@ export function registerRoutes(
 ) {
   const { store, registry, uploadDir, assets } = deps;
 
-  const upload = multer({
-    storage: multer.diskStorage({
-      destination: (_req, _file, cb) => {
-        void mkdir(uploadDir, { recursive: true }).then(
-          () => cb(null, uploadDir),
-          (err: Error) => cb(err, uploadDir),
-        );
-      },
-      filename: (_req, file, cb) => cb(null, `${randomUUID()}${IMAGE_TYPES[file.mimetype] ?? ""}`),
-    }),
-    limits: { fileSize: 25 * 1024 * 1024, files: 1 },
-    fileFilter: (_req, file, cb) => cb(null, Boolean(IMAGE_TYPES[file.mimetype])),
-  });
+  const receiveImage = imageUploader(uploadDir);
 
   // `/health` is what CI's smoke test and DESIGN.md §9 use; `/api/health` is reachable through the Vite proxy.
   const health = (_req: Request, res: { json: (body: unknown) => void }) => res.json({ ok: true });
@@ -61,8 +43,10 @@ export function registerRoutes(
       const roomId = randomUUID();
       const inviteCode = newInviteCode();
       const participantId = randomUUID();
+      // The GM device identity owns the room so the dashboard can list it (ADR 0004).
+      const ownerGmId = body.data.gmToken ? await store.registerGm(hashToken(body.data.gmToken)) : null;
 
-      await store.createRoom(roomId, inviteCode);
+      await store.createRoom(roomId, inviteCode, { ownerGmId, name: body.data.roomName });
       await store.saveCredential(hashToken(body.data.guestToken), { roomId, participantId });
       const room = await registry.get(roomId);
       await room!.appendSystem(participantId, [
@@ -101,16 +85,19 @@ export function registerRoutes(
   });
 
   /** Image upload for maps/tokens. GM only (FR-GM-02). Stored in MinIO/S3 when configured. */
-  app.post("/api/uploads", upload.single("file"), (req, res) => {
+  app.post("/api/uploads", (req, res) => {
     void (async () => {
       const actor = await authenticate(req);
       if (!actor || actor.role !== "gm") return res.status(403).json({ error: "GM only" });
-      if (!req.file) return res.status(415).json({ error: "Use PNG, JPEG or WebP" });
-      const url = await assets.put(req.file.path, path.basename(req.file.path), req.file.mimetype);
+      const upload = await receiveImage(req, res);
+      if (!upload.ok) return res.status(upload.status).json({ error: upload.error });
+      const url = await assets.put(upload.file.path, path.basename(upload.file.path), upload.file.mimetype);
       const response: UploadResponse = { url };
       return res.json(response);
     })().catch(() => res.status(500).json({ error: "Internal error" }));
   });
+
+  registerLibraryRoutes(app, { store, uploadDir, assets });
 
   async function authenticate(req: Request) {
     const header = req.headers.authorization;

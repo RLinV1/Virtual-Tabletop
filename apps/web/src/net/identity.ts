@@ -83,3 +83,32 @@ export function gmRoomForInvite(inviteCode: string): string | null {
   }
   return null;
 }
+
+/**
+ * GM device identity (ADR 0004): owns this browser's rooms and asset library until
+ * accounts exist (FR-GM-01). Generated here like the guest token; the server keeps only
+ * its SHA-256. Losing site data loses it — the account screens say so.
+ */
+const GM_KEY = "vtt.gm";
+
+export function loadGmToken(): string | null {
+  try {
+    return localStorage.getItem(GM_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** Returns this browser's GM token, creating and registering one on first use. */
+export async function ensureGmToken(identify: (gmToken: string) => Promise<void>): Promise<string> {
+  const existing = loadGmToken();
+  if (existing) return existing;
+  const gmToken = newGuestToken();
+  await identify(gmToken);
+  try {
+    localStorage.setItem(GM_KEY, gmToken);
+  } catch {
+    // Storage unavailable: the identity lasts for this page load only.
+  }
+  return gmToken;
+}

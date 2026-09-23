@@ -21,13 +21,66 @@ model Room {
   id         String   @id @db.Uuid
   inviteCode String   @unique @map("invite_code")
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  /// GM device identity that created the room (ADR 0004). Null for rooms made before it existed.
+  ownerGmId  String?  @map("owner_gm_id") @db.Uuid
+  /// Denormalised from RoomCreated so the dashboard need not replay the log.
+  name       String?
 
+  owner       GmIdentity?  @relation(fields: [ownerGmId], references: [id])
   events      Event[]
   credentials Credential[]
   snapshots   Snapshot[]
   checkpoints Checkpoint[]
+  assetRefs   AssetRef[]
 
+  @@index([ownerGmId])
   @@map("rooms")
+}
+
+/// Interim GM identity until FR-GM-01 accounts (ADR 0004). Stores only the token's SHA-256.
+model GmIdentity {
+  id        String   @id @db.Uuid
+  tokenHash String   @unique @map("token_hash")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  rooms  Room[]
+  assets LibraryAsset[]
+
+  @@map("gm_identities")
+}
+
+/// A GM's stored map or token image. `grid` is set for maps only.
+model LibraryAsset {
+  id        String   @id @db.Uuid
+  ownerGmId String   @map("owner_gm_id") @db.Uuid
+  kind      String
+  objectKey String   @map("object_key")
+  url       String
+  name      String
+  width     Int
+  height    Int
+  grid      Json?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  owner GmIdentity @relation(fields: [ownerGmId], references: [id])
+
+  @@index([ownerGmId, kind])
+  @@map("library_assets")
+}
+
+/// Projection: which library assets a room's CURRENT state references (ADR 0004).
+/// Derived from RoomState after each commit; never read back into it. No FK to
+/// library_assets, and not a uuid column: the id arrives in a client command, so a room may
+/// reference an id that is malformed or owned by someone else.
+model AssetRef {
+  assetId String @map("asset_id")
+  roomId  String @map("room_id") @db.Uuid
+
+  room Room @relation(fields: [roomId], references: [id])
+
+  @@id([assetId, roomId])
+  @@index([roomId])
+  @@map("asset_refs")
 }
 
 model Event {

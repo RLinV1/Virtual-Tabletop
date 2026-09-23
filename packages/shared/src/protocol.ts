@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { Command } from "./commands";
 import { CommittedEvent } from "./events";
-import { Point } from "./geometry";
+import { GridSpec, Point } from "./geometry";
 import { Id, Participant, type RoomState } from "./state";
 import type { RejectionCode } from "./decide";
 
@@ -81,6 +81,8 @@ export const CreateRoomRequest = z.object({
   displayName: z.string().min(1).max(40),
   /** Browser-generated; the server stores only its SHA-256 (DESIGN.md §5.1). */
   guestToken: z.string().min(16).max(256),
+  /** The creating browser's GM device token; when it resolves, the room is owned by it (ADR 0004). */
+  gmToken: z.string().min(16).max(256).optional(),
 });
 export type CreateRoomRequest = z.infer<typeof CreateRoomRequest>;
 
@@ -104,4 +106,66 @@ export type JoinRoomResponse = RoomCredentials;
 
 export interface UploadResponse {
   url: string;
+}
+
+// ---------- GM identity and asset library (ADR 0004) ----------
+
+/** Browser-generated GM device token. The server stores only its SHA-256, like guest tokens. */
+export const GmToken = z.string().min(16).max(256);
+
+/** Header carrying the GM token until FR-GM-01 replaces it with a session cookie. */
+export const GM_TOKEN_HEADER = "x-gm-token";
+
+export const GmIdentifyRequest = z.object({ gmToken: GmToken });
+export type GmIdentifyRequest = z.infer<typeof GmIdentifyRequest>;
+
+export interface GmRoomSummary {
+  id: string;
+  name: string;
+  /** ISO-8601 time of the room's most recent event. */
+  lastActiveAt: string;
+}
+
+export const AssetKind = z.enum(["map", "token"]);
+export type AssetKind = z.infer<typeof AssetKind>;
+
+/** Largest image edge the library accepts, in pixels. */
+export const MAX_ASSET_EDGE = 16384;
+
+const AssetName = z.string().trim().min(1).max(80);
+const Dimension = z.coerce.number().int().positive().max(MAX_ASSET_EDGE);
+
+/** Text fields sent alongside the file in a multipart library upload. */
+export const LibraryUploadFields = z.object({
+  kind: AssetKind,
+  name: AssetName,
+  width: Dimension,
+  height: Dimension,
+});
+export type LibraryUploadFields = z.infer<typeof LibraryUploadFields>;
+
+export const LibraryPatchRequest = z
+  .object({
+    name: AssetName.optional(),
+    /** Only valid for maps. */
+    grid: GridSpec.optional(),
+  })
+  .refine((p) => p.name !== undefined || p.grid !== undefined, { message: "Nothing to change" });
+export type LibraryPatchRequest = z.infer<typeof LibraryPatchRequest>;
+
+export interface LibraryAsset {
+  id: string;
+  kind: AssetKind;
+  name: string;
+  /** Origin-relative image URL, same shape as `UploadResponse.url`. */
+  url: string;
+  width: number;
+  height: number;
+  /** Saved grid for maps; null for tokens. */
+  grid: GridSpec | null;
+  createdAt: string;
+}
+
+export interface LibraryUsageResponse {
+  rooms: { id: string; name: string }[];
 }

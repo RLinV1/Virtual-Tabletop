@@ -1,9 +1,10 @@
 import { createReadStream } from "node:fs";
-import { mkdir, stat } from "node:fs/promises";
+import { mkdir, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { Readable } from "node:stream";
 import {
   CreateBucketCommand,
+  DeleteObjectCommand,
   GetObjectCommand,
   HeadBucketCommand,
   PutBucketPolicyCommand,
@@ -33,6 +34,11 @@ export interface AssetStore {
    * (local disk is served by express.static instead).
    */
   read?(key: string): Promise<{ body: Readable; contentType?: string } | null>;
+  /**
+   * Removes an object for good (library delete, ADR 0004). Missing keys are not an error.
+   * Rooms whose event log still names the URL then get a 404 and draw a generic stand-in.
+   */
+  delete(key: string): Promise<void>;
 }
 
 /** Fallback for `pnpm dev` and CI with no containers running. Served by express.static. */
@@ -44,6 +50,13 @@ export class LocalDiskAssetStore implements AssetStore {
     // multer already wrote the file into uploadDir; just confirm and address it.
     await stat(tempPath);
     return `/uploads/${filename}`;
+  }
+
+  async delete(key: string) {
+    // basename: a key is only ever a bare filename, never a path out of uploadDir.
+    await unlink(path.join(this.uploadDir, path.basename(key))).catch((err: NodeJS.ErrnoException) => {
+      if (err.code !== "ENOENT") throw err;
+    });
   }
 }
 
@@ -113,6 +126,11 @@ export class MinioAssetStore implements AssetStore {
     );
     // Relative on purpose — see the AssetStore docstring.
     return `/uploads/${filename}`;
+  }
+
+  async delete(key: string) {
+    // S3 DeleteObject is already idempotent: a missing key succeeds.
+    await this.s3.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
   }
 
   async read(key: string) {
