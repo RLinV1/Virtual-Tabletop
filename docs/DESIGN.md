@@ -1,1727 +1,340 @@
 # Design Document — Virtual Tabletop
 
-**Milestone:** M2 — Design and setup
-**Course:** CSE 416
-**Team:** Antonio Cottone, Raymond Lin, Vincent Chen, Christos Psimadas
-**Companion document:** [`../README.md`](../README.md) — the product specification this design implements. Requirement IDs used throughout (`FR-GM-*`, `FR-PL-*`, `FR-TAC-*`, `FR-SYNC-*`, `FR-REC-*`) are defined there in §5.
+**Course:** CSE 416 · **Team:** Antonio Cottone, Raymond Lin, Vincent Chen, Christos Psimadas
 
----
+Requirements live in [`../README.md`](../README.md) and are referenced by ID (FR-PL-02).
+This document covers architecture, stack, repository, and the running prototype.
 
-> **Implementation decision record (2026-09-22):** §13 resolves the frontend review and
-> is authoritative wherever older proposal text or prototype descriptions disagree.
-> Private preparation until Apply was confirmed by the product owner; the remaining
-> defaults were selected under the owner's delegated authority. These are target
-> behavior and acceptance criteria, not claims that the implementation already exists.
-
-## 1. What This Document Covers
-
-| M2 deliverable | Where it lives |
+| Document | Contents |
 | --- | --- |
-| Architecture — boxes and arrows (clients, APIs, data, jobs) | §2 |
-| Stack — what we picked and why | §3 |
-| A repo someone else can clone, with a CI skeleton | §9, and [`../.github/workflows/ci.yml`](../.github/workflows/ci.yml) |
-| A minimal prototype that runs | §7, and [`../src`](../src) |
-| Design doc connected to the requirements | §10 traceability matrix |
-| How we deliver all three feature milestones | §8 |
+| [`DELIVERY.md`](DELIVERY.md) | Slice sequencing, task split, cut order |
+| [`INTERFACE.md`](INTERFACE.md) | Page inventory, information architecture, design system |
+| [`FRONTEND-CONTRACT.md`](FRONTEND-CONTRACT.md) | Accepted frontend decisions; overrides older statements |
+| [`adr/0001-event-model.md`](adr/0001-event-model.md) | Why state is an event log |
+| [`adr/0002-transport-and-identity.md`](adr/0002-transport-and-identity.md) | Socket.IO handshake, guest tokens |
+| [`adr/0003-tactical-state.md`](adr/0003-tactical-state.md) | Stats, conditions, initiative, dice |
 
 ---
 
-## 2. Architecture
-
-### 2.1 System overview
+## 1. Architecture
 
 ```
-        ┌──────────────────────────┐        ┌──────────────────────────┐
-        │   GM Browser (React)     │        │ Player Browser (React)   │
-        │  - Pixi board renderer   │        │  - Pixi board renderer   │
-        │  - GM-only controls      │        │  - player-safe controls  │
-        │  - fog / walls / log     │        │  - owned tokens only     │
-        └───────────┬──────────────┘        └───────────┬──────────────┘
-                    │                                    │
-                    │  REST (auth, upload, room CRUD)    │
-                    │  WS "committed" channel (reliable) │
-                    │  WS "ephemeral" channel (volatile) │
-                    └────────────────┬───────────────────┘
-                                     │
-                         ┌───────────▼────────────┐
-                         │   App Server (Node)     │
-                         │  - REST API             │
-                         │  - Socket.IO gateway    │
-                         │  - room kernel (pure)   │
-                         │  - authorization        │
-                         │  - visibility filtering │
-                         │  - event log writer     │
-                         └──┬─────────┬─────────┬──┘
-                            │         │         │
-              ┌─────────────▼──┐  ┌───▼──────┐  └────────────┐
-              │   Postgres      │  │  Redis   │               │
-              │  - users        │  │ - seq    │      ┌────────▼─────────┐
-              │  - participants │  │ - pub/sub│      │  Object Storage  │
-              │  - rooms/scenes │  │ - guest  │      │  (MinIO / S3)    │
-              │  - tokens       │  │   sessions│     │  - map images    │
-              │  - event log    │  │ - job q  │      │  - token art     │
-              │    (append-only)│  └───┬──────┘      └────────▲─────────┘
-              │  - checkpoints  │      │                      │
-              └─────────────────┘      │                      │
-                                       │                      │
-                         ┌─────────────▼──────────┐           │
-                         │  Job Workers (BullMQ)  │───────────┘
-                         │  - grid detection      │
-                         │  - wall extraction     │
-                         │  - checkpoint snapshot │
-                         │  - asset GC            │
-                         │  - invite expiry       │
-                         └─────────────┬──────────┘
-                                       │ HTTP
-                         ┌─────────────▼──────────┐
-                         │  Map Analysis Service  │
-                         │  (Python / FastAPI)    │
-                         │  - OpenCV grid detect  │
-                         │  - wall extraction     │
-                         │  - door/window class.  │
-                         └────────────────────────┘
+  Browser (GM)         Browser (player)        Browser (player)
+       │                      │                       │
+       │  HTTP /api/*         │  WebSocket            │
+       └──────────┬───────────┴───────────┬───────────┘
+                  │                       │
+         ┌────────▼───────────────────────▼────────┐
+         │          App Server (Node)              │
+         │                                         │
+         │  Express routes      Socket.IO gateway  │
+         │  /api/rooms          handshake auth     │
+         │  /api/invites/:c     committed channel  │
+         │  /api/uploads        ephemeral channel  │
+         │                                         │
+         │  ┌───────────────────────────────────┐  │
+         │  │  LiveRoom — per-room FIFO queue   │  │
+         │  │  decide() → events → append →     │  │
+         │  │  reduce() → filter → broadcast    │  │
+         │  └───────────────────────────────────┘  │
+         └───┬──────────────┬─────────────┬────────┘
+             │              │             │
+     ┌───────▼──────┐ ┌─────▼─────┐ ┌─────▼──────┐
+     │  PostgreSQL  │ │   Redis   │ │   MinIO    │
+     │  event log   │ │  seq,     │ │  map and   │
+     │  snapshots   │ │  pub/sub  │ │  token art │
+     │  credentials │ │  sessions │ │            │
+     └──────────────┘ └───────────┘ └────────────┘
+
+     Planned: Vision service (Python/FastAPI/OpenCV) for grid
+     detection and wall extraction, driven by a BullMQ queue on Redis.
 ```
 
-### 2.2 The two realtime channels
+`packages/shared` is the contract both sides import: zod schemas, `decide`, `reduce`,
+visibility filters. Pure TypeScript, no I/O, so the rules are unit-testable without a
+network or a browser.
 
-The single most important structural decision: **committed state and ephemeral interaction do not share a path.**
+### The one rule
 
-| | Committed channel | Ephemeral channel |
-| --- | --- | --- |
-| Carries | Token moves, fog changes, conditions, initiative, portal states | Pointer positions, drag previews, ping pulses, ruler lines, AoE aiming |
-| Delivery | Reliable, ordered, acknowledged | Best-effort (`socket.volatile.emit`), dropped under backpressure |
-| Persistence | Appended to the event log | Never written to the database |
-| Ordering | Monotonic per-room `seq` (FR-SYNC-04) | Unordered; last value wins |
-| Requirement | FR-SYNC-02 | FR-SYNC-03 |
-
-Mixing them is what makes VTTs feel laggy: 60 Hz pointer traffic starves the queue that token moves travel on. Separating them also means preview traffic can be dropped freely without ever risking encounter state.
-
-### 2.3 Request paths
-
-**Map preparation (FR-GM-02, FR-GM-03, FR-GM-11)**
+Persistent state changes only along this path:
 
 ```
-GM uploads image ──REST──> App Server ──> Object Storage (original)
-                                │
-                                └──> BullMQ job ──> Map Analysis Service
-                                                          │
-                                     grid estimate + walls/portals
-                                                          │
-                                     App Server <─────────┘
-                                                │
-                                     GM reviews/corrects ──> Postgres
+Command → decide() → DomainEvent[] → store.append → reduce() → filter → broadcast
 ```
 
-Detection is a job, not a request: a 4000×3000 map takes seconds to analyze, and the GM must review results before they affect play (FR-GM-04, and the map-parsing risk in README §11).
+`decide` and `reduce` are pure and deterministic. Nothing else mutates `RoomState`. Events
+are append-only; undo is a compensating event, never a delete. Events that replace data
+carry the old value, which is what makes undo and the activity log possible later.
 
-**Committed action (FR-SYNC-01, FR-SYNC-04)**
+### Two channels, one socket
 
-```
-Client intent ──WS──> App Server
-                        ├─ authorize (role + ownership)   → reject to sender only
-                        ├─ validate against current state
-                        ├─ Redis INCR room:{id}:seq
-                        ├─ append event row (Postgres)
-                        └─ broadcast event to room, filtered per participant
-```
+| Channel | Carries | Persisted | Ordered | Delivery |
+| --- | --- | --- | --- | --- |
+| Committed | Commands in, events out | Yes, with `seq` | Yes | Reliable |
+| Ephemeral | Pings, drag previews | No | No | `volatile.emit`, dropped under backpressure |
 
-**Reconnect (FR-PL-05, FR-PL-06)** — detailed in §5.4.
+Pointer chatter must never queue ahead of committed state, which is why the ephemeral
+channel gets no sequence number and no persistence (FR-SYNC-03).
 
-**Undo (FR-REC-01, FR-REC-02, FR-REC-03)**
+### Request paths
 
-```
-GM picks an action from the log ──> server derives a compensating event
-                                ──> appends it (never deletes the original)
-                                ──> broadcasts resulting state
-```
-
-The log is append-only, so undo is itself an auditable event and the history stays truthful.
-
----
-
-## 3. Stack
-
-| Layer | Choice | Why (one sentence) |
-| --- | --- | --- |
-| Board renderer | **PixiJS v8** | WebGL sprites and render-texture masks are what make 100 tokens plus fog and line-of-sight hold 60 FPS, which canvas2d will not (README §6). |
-| App shell | **React + TypeScript** | The non-canvas UI is where the WCAG 2.2 AA target lives, and coding agents are extremely strong at React, so UI work parallelizes well across four people. |
-| Build tool | **Vite** | Instant HMR during canvas work and a production build that needs no configuration. |
-| Client state | **Zustand** | Client state is mostly "apply the server's events", which needs a store, not a framework. |
-| Realtime transport | **Socket.IO** | Rooms map one-to-one onto VTT rooms, reconnection and acks are built in (FR-PL-05), and `volatile.emit` provides the drop-under-backpressure path the ephemeral channel requires (FR-SYNC-03). |
-| API server | **Node + TypeScript + Express** | Sharing protocol types and the pure room kernel between client and server eliminates a whole class of desync bug, and agents are most reliable in this stack. |
-| Database | **PostgreSQL + Prisma** | The recovery model is an append-only event table plus checkpoint snapshots — inherently relational — and Prisma's migrations keep four people from fighting over schema drift. |
-| Cache / bus | **Redis** | Atomic `INCR` gives the per-room sequence number (FR-SYNC-04), pub/sub fans events across server instances, and guest sessions rebind through it (FR-PL-02). |
-| Object storage | **MinIO (local) → S3/R2 (deploy)** | Map images do not belong in Postgres, and MinIO speaks the S3 API so local dev and demo day need no cloud account. |
-| Job queue | **BullMQ** | Grid detection, wall extraction, checkpoint snapshots and asset GC are all async work, and BullMQ rides the Redis instance the system already requires. |
-| Map analysis | **Python + FastAPI + OpenCV** | Grid detection and wall extraction are solved problems in the Python CV ecosystem, we can adapt an MIT-licensed implementation rather than write the pipeline from scratch (§12), and isolating it matches the microservice boundary FR-GM-11 specifies. |
-| Password hashing | **argon2id** | Memory-hard and the current OWASP recommendation for the low-entropy secrets humans choose. |
-| GM auth | **Opaque session token + httpOnly cookie** | Redis is already in the stack, so server-side sessions are simpler than JWT and revoke instantly (FR-GM-20) with no refresh-token choreography. |
-| Guest identity | **Opaque token in `localStorage`** | Implements FR-PL-02 literally — durable identity with no account — and revocation is a matter of deleting one row. |
-| Unit tests | **Vitest** | Shares Vite's transform pipeline, so the same TypeScript runs in tests and in the app. |
-| E2E tests | **Playwright** | It can drive two browser contexts inside one test, which is the only practical way to assert the cross-client convergence and undo semantics in README §8. |
-| CI | **GitHub Actions** | Free for the repo, and the lint/test/build matrix is three lines of YAML. |
-| Local environment | **Docker Compose** | A new teammate gets Postgres, Redis, MinIO and the analysis service with one command. |
-| Hosting | **Fly.io or Railway** | Both hold persistent WebSocket connections; serverless platforms cannot. |
-
-### Choices we deliberately did not make
-
-- **Konva instead of PixiJS** — friendlier API and better agent familiarity, but dynamic line of sight (FR-GM-19) needs cheap masking. If LoS is cut to stretch-only, Konva becomes the better call.
-- **JWT for GM sessions** — stateless verification buys nothing here: there is one app server, and the analysis service does not authenticate users. Opaque tokens in Redis give instant revocation instead.
-- **Fastify instead of Express** — built-in payload schema validation would directly serve FR-GM-15 and the forged-payload tests in README §8. Worth revisiting before the socket surface grows.
-- **A CRDT (Yjs/Automerge)** — rejected: CRDTs converge without a referee, but this system *needs* a referee. A player must not be able to move another player's token, and merge-anything semantics contradict authorization and hidden information.
-
----
-
-## 4. Data Model and User Storage
-
-### 4.1 Schema
-
-The schema is **event-sourced**, so it is much smaller than the entity list this section
-originally sketched. `participants`, `scenes` and `tokens` are not tables: they are derived
-state, rebuilt by folding `events` through `reduce` in `packages/shared`
-(docs/adr/0001-event-model.md). Adding a table for them would create a second source of
-truth that the log could disagree with.
-
-Authoritative definition: `apps/server/prisma/schema.prisma`. In SQL terms:
-
-```sql
-rooms
-  id                 uuid primary key
-  invite_code        text unique not null
-  created_at         timestamptz not null default now()
-
--- Append-only (FR-REC-03). Never UPDATE, never DELETE; undo is a compensating event.
-events
-  room_id            uuid not null references rooms(id)
-  seq                integer not null check (seq > 0)   -- monotonic per room
-  type               text not null
-  payload            jsonb not null
-  actor_id           uuid
-  created_at         timestamptz not null default now()
-  primary key (room_id, seq)          -- THE ordering guarantee (FR-SYNC-04)
-
--- One row per credential the browser holds. The token itself never reaches us.
-credentials
-  token_hash         text primary key                   -- sha256 of the browser's token
-  room_id            uuid not null references rooms(id)
-  participant_id     uuid not null
-  revoked_at         timestamptz                        -- FR-GM-20
-
--- Periodic state snapshots, so a long-lived room need not replay from seq 1.
-snapshots
-  room_id            uuid not null references rooms(id)
-  seq                integer not null
-  state              jsonb not null
-  created_at         timestamptz not null default now()
-  primary key (room_id, seq)
-
--- Named checkpoints (FR-REC).
-checkpoints
-  id                 uuid primary key
-  room_id            uuid not null references rooms(id)
-  name               text not null
-  seq                integer not null
-  created_by         uuid
-  created_at         timestamptz not null default now()
-```
-
-`primary key (room_id, seq)` is doing the real work. Ordering is enforced by the database,
-not by application code, so a duplicate `seq` is a constraint violation no matter which
-server instance attempted it — see §2.3 and `PostgresRoomStore`.
-
-**Not built yet.** `users` and `auth_sessions` are still required by FR-GM-01 (KAN-7) and
-keep the shape originally specified here:
-
-```sql
-users
-  id                 uuid primary key
-  email              citext unique not null
-  password_hash      text not null            -- argon2id
-  display_name       text not null
-  created_at         timestamptz not null default now()
-
-auth_sessions
-  id                 uuid primary key
-  user_id            uuid not null references users(id) on delete cascade
-  token_hash         text not null unique     -- sha256 of the cookie value
-  expires_at         timestamptz not null
-  revoked_at         timestamptz
-```
-
-When they land, `rooms` gains `owner_user_id`, and the participant projection gains a
-`user_id` for the GM alongside the guest credential — the distinction §4.2 describes.
-`snapshots` and `checkpoints` exist in the schema but nothing writes them yet; they are the
-foundation for FR-PL-07 and FR-REC.
-
-### 4.2 Why `participants` is the identity the game uses
-
-Game logic references a participant id, **never a user id**. A participant is either *"a registered user in this room"* or *"a guest token in this room"* — and the room kernel cannot tell the difference. The participant now lives in the event log rather than a table (§4.1), but the rule is unchanged: `credentials.participant_id` is the only bridge between a credential and the game, and nothing downstream of it knows which kind it was.
-
-That gives one code path for authorization, ownership and visibility filtering, instead of two parallel ones with subtly different bugs. `Participant` in `packages/shared/src/state.ts` has exactly this shape — id, role, display name, and nothing about how the person authenticated.
-
-It also means `users` stays small and boring: it exists only so a GM can log back in next week and find their rooms. A player who never registers still has full, durable identity — it just lives in `participants`.
-
-### 4.3 What is stored where
-
-| Data | Store | Why |
-| --- | --- | --- |
-| Rooms, events, credentials, checkpoints | Postgres | Durable, and the event log needs transactional appends |
-| Participants, scenes, tokens | **Derived** — folded from `events` | One source of truth; see §4.1 |
-| `room:{id}:seq` counter | Redis | `INCR` is atomic, so instances cannot collide on a seq (FR-SYNC-04) |
-| Live room state | In process (`LiveRoom`) | Rehydrated from Postgres on a cold start |
-| Map images, token art | Object storage (MinIO/S3) | Large binaries do not belong in a database |
-| The guest token itself | **The browser only** | Generated there; the server stores nothing but its hash (§5.1) |
-
-Two rows of this table were planned differently and are worth calling out. A
-`guest:{hash} → participant_id` Redis cache is **not** built — credential lookup goes
-straight to Postgres, which is comfortably inside the reconnect budget at this scale. And
-live room state is held **in the server process**, not Redis, so today a room must be served
-by one instance; Redis issues correct seqs across instances but nothing routes a room to a
-consistent one, and there is no pub/sub fan-out (ADR 0001).
-
----
-
-## 5. Accounts and Guest Access
-
-The defining constraint of this product: **only the GM needs an account, but every player needs identity that survives a reload** (FR-GM-01, FR-PL-01, FR-PL-02). "Anonymous" and "forgettable" are not the same thing.
-
-### 5.1 Two kinds of identity
-
-| | GM account | Guest access |
-| --- | --- | --- |
-| Row in `users` | Yes | **No** |
-| Row in `participants` | Yes, per room | Yes, per room |
-| Credential | Email + password (argon2id) | Opaque 32-byte token |
-| Credential lives in | Server (`auth_sessions`), cookie in browser | Browser `localStorage` only |
-| Survives a reload | Yes | Yes |
-| Survives a different device | Yes — log in again | **No** — see §5.5 |
-| Can create rooms | Yes | No |
-| Can be revoked | Session revoked, account retained | `participants.revoked_at` (FR-GM-20) |
-| Personal data held | Email address | Display name only |
-
-The asymmetry is deliberate: an account exists so a GM can come back next week and find the rooms they own. Players need none of that — they need to be *the same person as five minutes ago*, which is a much smaller problem.
-
-### 5.2 GM accounts
-
-**Registration** (FR-GM-01)
-
-1. Email (stored `citext`, unique) + password + display name.
-2. Password hashed with **argon2id** at the current OWASP parameters — `m = 19 MiB, t = 2, p = 1` — tuned upward if the login endpoint stays comfortably fast.
-3. Minimum length enforced (12 characters); no composition rules, which push users toward predictable patterns.
-4. Email verification is **deferred**: it costs a mail provider and buys little for a course project where GMs are known people. The column exists so it can be switched on without a migration.
-
-**Login and sessions**
-
-1. Look up by email, verify with argon2id. Failures return one generic error — never "no such user" — so the endpoint cannot be used to enumerate accounts.
-2. Rate-limited per IP and per email; repeated failures back off.
-3. On success, mint **32 random bytes**, insert an `auth_sessions` row holding only its **SHA-256 hash**, and return it as a cookie: `HttpOnly; Secure; SameSite=Lax; Path=/`.
-   - `HttpOnly` keeps it out of reach of any XSS that gets through.
-   - `SameSite=Lax` still permits arriving from an invite link, which is a top-level same-site navigation.
-4. A fresh token is issued on every login, so a fixated session cannot be reused.
-5. Expiry is 30 days, refreshed on use. Logout sets `revoked_at`; the next request finds it and fails closed.
-
-**Why opaque tokens and not JWT.** Revocation. A JWT is valid until it expires, so "remove this GM's access right now" requires a denylist — which is a session table wearing a disguise. Redis is already in the stack; a lookup per request costs microseconds and gives instant revocation, which FR-GM-20 needs anyway.
-
-**Password reset** is out of Core Loop scope. Until it exists, a forgotten password means a new account; documented here so it is a decision rather than an oversight.
-
-### 5.3 Guest access
-
-No registration, ever. A player's entire onboarding is: open link → type a display name → play (FR-PL-01, and the 30-second join target in README §6).
-
-1. Opening an invite link, the browser generates **32 bytes** from `crypto.getRandomValues` and stores the base64url result in `localStorage` under `vtt.guestToken`.
-2. The player picks a display name. No uniqueness constraint — two Miras are the GM's problem, not the database's.
-3. The server validates the invite code, creates a `participants` row carrying `guest_token_hash` and `role = 'player'`, and returns the participant.
-4. Every subsequent connection — first or fiftieth — presents that token in the Socket.IO handshake.
-5. The server hashes it and looks up `(room_id, guest_token_hash)`. Known → that participant, role and owned tokens intact. Unknown → a new participant.
-
-**Token scope: one per browser, not one per room.** The same token is presented to every room, and `participants` is keyed by `(room_id, guest_token_hash)` — so one browser can hold seats in several rooms simultaneously without juggling storage keys, and each seat is independently revocable.
-
-**Hashing choice.** Passwords get argon2id because humans pick low-entropy secrets that must be expensive to guess. Guest tokens get plain **SHA-256** because 256 bits of CSPRNG output cannot be brute-forced, and argon2 would add latency to every reconnect for zero security benefit. Both are hashed — the server never persists a credential it could leak.
-
-**Why `localStorage` and not a cookie.** It is what FR-PL-02 specifies, it survives a backgrounded tab, and it is not attached to every asset request. The tradeoff is real and worth stating: unlike the GM's `HttpOnly` cookie, a guest token **is** readable by JavaScript, so an XSS bug would expose it. Mitigations are a strict CSP, never rendering user-supplied content as HTML, and room-scoped revocation. The browser token may grant seats in multiple rooms; a compromise can affect all those memberships (§13.1).
-
-**What a guest cannot do:** create or own rooms (§13.1 selects authenticated creation), see GM-only state (enforced server-side, §6), move tokens they do not own, or promote themselves — `role` is server-side data, never accepted from the client.
-
-### 5.4 Reconnect flow
-
-```
-Player's laptop sleeps, socket drops
-        │
-        ▼
-Socket.IO reconnects automatically (FR-PL-05)
-        │
-        ├─ handshake carries the same localStorage token
-        │
-        ▼
-Server: sha256(token) → Redis guest:{hash} → participant_id
-        │                      └─ miss? fall back to Postgres, re-cache
-        ▼
-Participant resolved: same id, same role, same owned tokens
-        │
-        ▼
-Server sends state:snapshot — the full current board (FR-PL-06)
-        │
-        ▼
-Client discards local state entirely and renders the snapshot
-```
-
-Two deliberate choices here:
-
-- **Role lives on the participant record, not the connection.** The first prototype derived role from connection order, so a GM who reloaded came back demoted to player once others had joined. Role is data about a person, not about a socket.
-- **Reconnect re-sends a full snapshot rather than replaying missed deltas.** Replaying a delta stream correctly across an unknown-length disconnect is materially harder and is the documented source of the "stale or conflicting state" risk in README §11. A snapshot is a few kilobytes; correctness is worth the bytes.
-
-This is implemented in the prototype — see [`src/shared/identity.ts`](../src/shared/identity.ts) and its tests.
-
-### 5.5 Edge cases we have to answer
-
-| Case | Behaviour |
+| Action | Path |
 | --- | --- |
-| Player clears site data or joins from their phone | New token, therefore a new participant. The GM reassigns their token, or the invite link carries a claim code they re-enter. **Decision pending — see §12.** |
-| Two people open the same invite link | Two distinct tokens, two participants. Correct: an invite identifies a *room*, not a person. |
-| Player shares their token | They have shared their identity. Mitigated by GM revocation (FR-GM-20), not prevented — acceptable for a social game among friends. |
-| GM revokes a participant | `revoked_at` is set; the next handshake with that hash is refused and the socket closed. |
-| Invite code regenerated | Existing participants keep playing; only *new* joins need the new code. |
-| Private browsing / storage blocked | Identity lasts for the tab only. The client falls back to an in-memory token and the player is warned that a reload will lose their seat. |
-| A guest later wants an account | `participants` rows point at `guest_token_hash`; claiming an account sets `user_id` on those rows and clears the hash, so history and owned tokens carry over. Not in the Core Loop, but the schema does not preclude it. |
-| The GM loses their account | No password reset in the Core Loop (§5.2). Rooms are owned by `users.id`, so this orphans them — reason enough to add reset before any real use. |
+| Create a room | `POST /api/rooms` → `RoomCreated` + `ParticipantJoined`, returns invite code |
+| Join by link | `POST /api/invites/:code/join` → `ParticipantJoined` |
+| Upload map or token art | `POST /api/uploads` (GM only, 25 MB, PNG/JPEG/WebP) |
+| Connect | Socket.IO handshake carries `{ roomId, guestToken }`; server replies `welcome` with a filtered snapshot |
+| Act | `command` → `ack` with a seq, or `rejected` with a code |
+| Recover | Client detects a seq gap, sends `resync`, gets a fresh `welcome` |
 
-### 5.6 Where this is enforced
-
-Identity is resolved **once per connection**, at the handshake, and cached on the socket. Authorization is re-checked **per message** against that participant's current role, because a GM can revoke someone mid-session and a socket that was legitimate a minute ago must not stay legitimate (§6, FR-GM-15).
+Every payload containing room data passes through `filterStateForViewer` or
+`filterEventForViewer` first — snapshots, events, and REST responses alike. A seq a viewer
+may not see arrives as `redacted`, so their counter advances without leaking the content.
 
 ---
 
-### 5.7 Accounts for returning users — historical proposal, resolved in §13.1
+## 2. Stack
 
-**Status: resolved in §13.1.** Shared account types are accepted; automatic guest
-merging and a saved-asset library are not. The following is the historical proposal. This revises §5.1 and §5.2, which are the Real-Time
-Architecture owner's. It is written up because §5.5 and §12 both already flag the hole and
-defer it, and the deferral has now been overtaken: §12 says "pick before FR-PL-02 ships",
-and FR-PL-02 has shipped.
-
-**The gap.** Guest identity is one browser. A player who opens the invite on their phone,
-clears site data, or joins from a library machine is a *new person* to the system — new
-participant, no owned tokens, no history. The same is true of the GM today, and worse:
-until FR-GM-01 exists there are no accounts at all, so a GM who switches device loses the
-room outright, because ownership is a credential hash in one browser and nothing else.
-
-§5.1 says the GM "survives a different device — log in again". That is a description of
-FR-GM-01, not of anything that currently runs.
-
-**Proposal: one account type, and role stays per room.**
-
-An account is not "a GM account". It is a person who has decided to keep using the
-platform. What they do in any given room is `participants.role`, which is per-room data —
-so the same account is GM in their own campaign and a player in a friend's. The schema
-already works this way (§4.2); it has simply never been said out loud, and §5.1's
-"Can create rooms: yes / no" row reads as though it were an account-level property. It
-is not.
-
-**Three ways in, and the fast one does not change.**
-
-| Path | Friction | Who |
+| Layer | Choice | Why |
 | --- | --- | --- |
-| Invite link, no account | Open link, type a name, play | First-time players. Unchanged — FR-PL-01 and the 30-second target are not negotiable |
-| Claim an account afterwards | Offered *after* a session, never before | A guest who liked it. Sets `user_id` on their existing `participants` rows and clears `guest_token_hash`, so tokens and history carry over (§5.5) |
-| Sign in, then open a room | Email and password | Returning users, any device |
+| Board renderer | PixiJS v8 | WebGL masks are what keep 100 tokens plus fog at 60 FPS; canvas2d will not. |
+| App shell | React + TypeScript | Where the WCAG 2.2 AA target lives, and agents are strong at React, so UI parallelizes across four people. |
+| Build | Vite | Instant HMR during canvas work, zero-config production build. |
+| Transport | Socket.IO | Rooms map one-to-one onto VTT rooms; reconnection, acks and `volatile.emit` are built in. |
+| Server | Node + Express | Sharing the kernel and protocol types with the client removes a whole class of desync bug. |
+| Validation | zod | Express validates nothing on its own; zod guards every trust boundary (FR-GM-15). |
+| Database | PostgreSQL + Prisma | An append-only event table with snapshots is inherently relational, and migrations stop four people fighting over schema drift. |
+| Cache and bus | Redis | Atomic `INCR` gives the per-room seq, pub/sub fans out across instances, guest sessions rebind through it. |
+| Object storage | MinIO → S3/R2 | Map images do not belong in Postgres, and MinIO speaks S3 so local dev needs no cloud account. |
+| Jobs | BullMQ | Grid detection, wall extraction and snapshots are async, and BullMQ rides the Redis already required. |
+| Map analysis | Python + FastAPI + OpenCV | Grid and wall detection are solved in the Python CV ecosystem; isolating it matches the boundary FR-GM-11 specifies. |
+| Auth | argon2id, opaque session tokens | Memory-hard hashing, and server-side sessions revoke instantly with no refresh-token choreography. |
+| Tests | Vitest + Playwright | Vitest shares Vite's transform; Playwright drives two browser contexts in one test, the only practical way to assert convergence. |
+| CI | GitHub Actions | Free for the repo, and the whole matrix is one YAML job. |
+| Local services | Docker Compose | Everyone runs identical versions of Postgres, Redis and MinIO with one command. |
+| Hosting | Fly.io or Railway | Both hold persistent WebSocket connections; serverless cannot. |
 
-The ordering matters. A signup wall in front of a first-time player would trade the one
-thing this product is differentiated on (README §3: Roll20's onboarding overhead) for a
-convenience only repeat users need. **The invite path must never prompt for an account
-before play** — only after.
+### Running the backing services
 
-**What an account buys**, and therefore what pages it implies (§11.2):
+Every stateful dependency runs in Docker, declared in [`../docker-compose.yml`](../docker-compose.yml).
+Nobody installs Postgres, Redis or MinIO locally, so a broken environment is fixed by
+deleting a volume rather than by debugging one laptop.
 
-- **Cross-device identity.** The same person, same owned tokens, on a phone and a laptop
-- **A room list.** `/rooms` — the reason §4.2 gives for `users` existing at all: "so a GM
-  can come back next week and find the rooms they own". Today that sentence has no page
-- **A second way to join.** A returning player opens `/rooms` and clicks the room, instead
-  of hunting for a link in a chat log from three weeks ago. This is the point of the
-  feature: invite links are for *strangers*, not for the fourth session of a campaign
-- **Saved assets.** Maps, token art and encounter setups that outlive one room. Uploads are
-  currently one-off objects keyed by UUID and referenced by a single scene; nothing lets a
-  GM reuse last week's dungeon. FR-GM-13 covers templates and is M3 stretch, so the asset
-  half needs its own requirement
+| Service | Image | Ports | Volume | Holds |
+| --- | --- | --- | --- | --- |
+| `postgres` | `postgres:17` | 5432 | `pgdata` | Event log, snapshots, credentials |
+| `redis` | `redis:7-alpine` | 6379 | `redisdata` | Sequence numbers, pub/sub, sessions |
+| `minio` | `minio:latest` | 9000, 9001 | `miniodata` | Uploaded map and token images |
 
-**Schema delta.** `users` and `auth_sessions` as already specified in §4.1, plus:
+```bash
+docker compose up -d
+npm run prisma:migrate --workspace=@vtt/server
 
-- `participants.user_id` — nullable, already in the §4.1 sketch. Set on claim
-- `rooms.owner_user_id` — nullable until FR-GM-01 lands, so existing rooms are not orphaned
-- An `assets` table keyed by `user_id`, if saved assets are accepted
+DATABASE_URL=postgres://vtt:vtt@localhost:5432/vtt \
+REDIS_URL=redis://localhost:6379 \
+MINIO_ENDPOINT=http://localhost:9000 \
+npm run dev
+```
 
-**What this does not cost.** Nothing in `packages/shared` changes. `decide`, `reduce` and
-the visibility filters address participants and cannot tell a registered user from a guest
-(§4.2) — which is exactly the property that makes this affordable. The work is a REST
-surface, a session cookie, and pages.
+Credentials are `vtt`/`vtt` and `vtt`/`vttvttvtt` — local development values committed on
+purpose. Deployment supplies its own and must never reuse them. `docker compose down` keeps
+the data; `down -v` discards it, which is the reset when a migration goes wrong.
 
-**The questions this raised — all four answered in §13.1.**
+**The application is not containerised.** The server and web client run on the host, because
+the inner loop wants Vite HMR and `tsx watch`.
 
-1. *Does claiming an account merge all of that browser's participants, or only one room?*
-   → Only the current room, after Leave table, requiring proof of both credentials. Never
-   a silent union of every seat the browser holds.
-2. *Can a room have a co-GM?* → No. Co-GM ownership is deferred; role stays per room.
-3. *Are saved assets per user or per room?* → Deferred entirely, navigation omitted, until
-   ownership, quota and reuse have requirements.
-4. *Does Play create a room without an account?* → No. FR-GM-01 stands unamended and
-   `rooms.owner_user_id` stays non-null; a signed-out Play routes through login with a
-   return intent instead.
+**Containers are optional, deliberately.** Each service is selected by an environment
+variable and the server falls back when one is absent: no `DATABASE_URL` means an in-memory
+store, no `MINIO_ENDPOINT` means uploads on local disk, no `REDIS_URL` means sequencing from
+Postgres alone. A fresh checkout runs with no containers, which is what keeps CI free of a
+service matrix. Startup states the mode:
+
+```
+[vtt] using Postgres event store                    # persistent
+[vtt] DATABASE_URL unset — using in-memory store    # lost on every reload
+```
+
+In-memory mode loses every room on restart, including the restart `tsx watch` performs on
+each save. Any manual test of persistence or reconnection must run against the containers,
+and the Postgres store tests skip themselves until `DATABASE_URL` is set.
+
+The vision service is not in the compose file yet; `services/vision` does not exist. It
+becomes a fourth service when automatic grid detection (FR-GM-03) and wall extraction
+(FR-GM-11) start. Its own container keeps the CV dependency tree out of the Node services.
+
+### Choices we did not make
+
+- **Konva over PixiJS** — friendlier API, but dynamic line of sight needs cheap masking. If LoS is cut, Konva becomes the better call.
+- **JWT for sessions** — stateless verification buys nothing with one app server, and opaque tokens revoke instantly.
+- **Fastify over Express** — built-in schema validation would serve FR-GM-15 directly. Worth revisiting as the socket surface grows.
+- **A CRDT** — rejected. CRDTs converge without a referee; this system *needs* one. Merge-anything semantics contradict authorization and hidden information.
 
 ---
 
-## 6. Security and Visibility
+## 3. Repository and CI
 
-- Authorization is enforced **server-side on every message**, not at connection time — role is data, and a socket that was a player's at handshake must not be trusted to still be one (FR-GM-15).
-- Hidden tokens, unrevealed fog, and GM-only rolls are filtered **before serialization**, so player payloads never contain data the player may not see (FR-GM-23). Filtering at render time would leak through devtools.
-- Guest tokens and session cookies are stored hashed. Revoking a participant immediately invalidates that room membership and closes its sockets. Regenerating an invite invalidates the old invite for new joins only; it does not revoke participants or account sessions (FR-GM-20, §13.1).
-- Uploads are validated by content type and size before they reach object storage, and served from a separate origin so a malicious SVG cannot script against the app.
-
----
-
-## 7. The Prototype (Heartbeat)
-
-Deliberately not the product. It exists to prove the riskiest paths in the system — server-authoritative sync and durable guest identity — before any of it is built for real.
-
-**What it demonstrates**
-
-| Behavior | Requirement |
-| --- | --- |
-| Server owns state; clients send intents and render what comes back | FR-SYNC-01 |
-| Every accepted action increments one monotonic per-room `seq` | FR-SYNC-04 |
-| Players may move only tokens they own; the GM may move any | FR-PL-04, FR-GM-15 |
-| Hidden tokens are stripped from player payloads server-side | FR-GM-16, FR-GM-23 |
-| Identity persists across reload via a hashed `localStorage` token | FR-PL-02 |
-| Reconnecting rebinds the same participant, role intact | FR-PL-05 |
-| New and reconnecting clients receive a full authoritative snapshot | FR-PL-06 |
-| Rejected moves roll back the optimistic client render | FR-SYNC-01 |
-
-**What it deliberately omits:** Postgres, Redis, object storage, the analysis service, job workers, the Pixi renderer, pan/zoom, maps, fog, walls, undo. Each has a designed home above; none is needed to prove the paths that matter.
-
-**Layout**
+npm workspaces, one install from the root.
 
 ```
-src/
-  shared/protocol.ts       wire types shared by both sides
-  shared/room.ts           pure authoritative kernel — the only place state changes
-  shared/room.test.ts      10 unit tests over that kernel
-  shared/identity.ts       guest-token → participant resolution
-  shared/identity.test.ts  7 unit tests, including the GM-reload case
-  server/index.ts          Express /health + Socket.IO gateway
-  client/useRoom.ts        token persistence, socket lifecycle, optimistic apply, rollback
-  client/Board.tsx         plain-DOM board (Pixi comes later, on purpose)
+packages/shared    the contract: schemas, decide, reduce, visibility filters. No I/O.
+apps/server        Express + Socket.IO. domain/liveRoom.ts is the pipeline;
+                   store/ holds memory, Postgres, Redis and MinIO adapters.
+apps/web           React panels + PixiJS board (board/boardView.ts).
+                   net/roomConnection.ts is the sync client.
+services/vision    planned — Python/OpenCV grid and wall detection.
 ```
-
-Both kernels are pure and I/O-free, so the rules that matter — ownership, bounds, sequencing, identity resolution — are unit-tested without a network or a browser. That property is the reason to write them this way now rather than later.
-
-**Run it**
 
 ```bash
 npm install
-npm run dev          # server :3001, client :5173
+npm run dev         # server :3001, web :5173 (proxies /api, /socket.io, /uploads)
+npm run lint
+npm run typecheck
+npm test
+npm run build
 ```
 
-Open two tabs: the first is the GM, the rest are players. Drag a token in one and it moves in the other. Reload the GM tab — it comes back as the GM. Drag a token you do not own and the move is rejected and rolled back.
+CI runs on every push to `main` and every pull request: install → generate Prisma client →
+lint → typecheck → test → build → boot the server and poll `/health`. The smoke test is the
+reason the in-memory fallback exists; CI starts no containers.
+
+Conventions: commands are `noun.verb`, events are `PastTense`, tests and PR titles carry the
+FR ID. Schema changes in `packages/shared` need an ADR and review by the real-time
+architecture owner.
 
 ---
 
-## 8. Delivery Plan
+## 4. The Prototype (Heartbeat)
 
-### 8.1 A note on names
+Not the product. It proves the risky paths — server-authoritative sync, durable guest
+identity, and player-safe filtering — end to end.
 
-"M1/M2/M3" is overloaded: the course has its own milestones, and README §12 has feature milestones. To avoid collision, this section refers to the feature milestones by name — **Core Loop**, **Tactical Play**, **Stretch** — never by number. This document is the artifact for the *course's* M2.
+**Working today.** Create a room and get an invite link. Join as a guest with no account.
+Upload a battle map, set the grid, place tokens with images, colours, sizes, HP and
+conditions. Assign ownership; players move only their own tokens and the GM moves any.
+Hide a token and it never reaches player clients. Roll dice publicly or GM-only. Run
+initiative. Pan, zoom and ping. Reload and come back as the same participant with the same
+role. Kill the server and, with Postgres configured, the room is still there.
 
-### 8.2 How the work splits
+68 tests cover it: 54 unit tests over the pure kernel, 11 multi-client integration tests
+over real sockets, and 3 Postgres store tests that run when a database is configured.
 
-Ownership follows the workstreams in README §10. Each requirement gets **one primary owner** — the person who decides how it works and whose name is on it — and optionally a supporting owner for the surface they do not control.
+**Not built yet.** GM accounts (room creation is still open to anyone), automatic grid
+detection, UVTT import and export, walls, portals, fog of war, line of sight, the movement
+ruler, drawing overlays, AoE templates, undo, the activity log, encounter templates, and
+guest revocation.
 
-| Person | Workstream | Owns the surface |
-| --- | --- | --- |
-| **Antonio Cottone** | Board and Canvas Interaction | Pixi renderer, coordinate system, viewport, token rendering, tactical overlays |
-| **Raymond Lin** | Real-Time Architecture & Persistence | Schema, room kernel, sockets, identity, authorization, visibility filtering, event log |
-| **Christos Psimadas** | Map Processing & AI Pipelines | Upload pipeline, grid detection, UVTT, wall/portal geometry, analysis service |
-| **Vincent Chen** | Online UX & Product Quality | Join flow, player-safe layouts, encounter panels, accessibility, cross-browser + convergence testing |
+```bash
+npm install && npm run dev
+```
 
-**The contract that makes parallel work safe.** `packages/shared` — protocol types and the pure kernels — is agreed and frozen in Slice 0. Everyone imports it; nobody redefines a payload shape locally. Changes to it are a pull request the whole team reviews, because a silent change there desyncs three workstreams at once.
+Open <http://localhost:5173>, create a room, copy the invite link, and open it in a private
+window to join as a player.
 
 ---
 
-### 8.3 Core Loop (README §12 M1) — 18 requirements
+## 5. Data and Identity
 
-The prototype already covers the three requirements rated **High** difficulty — FR-PL-06, FR-SYNC-02, FR-SYNC-04 — because those are the expensive ones to retrofit. What remains is mostly breadth.
+### Schema
 
-#### Dependency order
-
-```
-                    ┌────────────────────────┐
-                    │ Slice 0: Foundations   │  blocks everything
-                    │ Postgres/Redis/MinIO,  │
-                    │ schema, workspace split│
-                    └───────────┬────────────┘
-                                │
-          ┌─────────────────────┼─────────────────────┐
-          ▼                     ▼                     ▼
- ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
- │ Slice 1          │  │ Slice 2          │  │ Slice 3          │
- │ Identity & rooms │  │ Map pipeline     │  │ Board renderer   │
- │ (Raymond+Vincent)│  │ (Christos)       │  │ (Antonio)        │
- └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘
-          │                     │                     │
-          └──────────┬──────────┴─────────────────────┘
-                     ▼
-          ┌────────────────────────┐
-          │ Slice 4: Tokens & roles│
-          │ (Antonio + Vincent)    │
-          └────────────────────────┘
-```
-
-Slices 1–3 run **in parallel** across three workstreams.
-
-#### The slices
-
-**Slice 0 — Foundations** · Raymond · blocks everything else
-
-| Work | Requirements |
-| --- | --- |
-| Docker Compose: Postgres, Redis, MinIO | — |
-| Prisma schema from §4.1, with migrations | — |
-| Workspace split: `apps/web`, `apps/server`, `services/map-analysis`, `packages/shared` | — |
-| Move the prototype's in-memory room onto Postgres + Redis `INCR` | FR-SYNC-01, FR-SYNC-02, FR-SYNC-04 |
-| Event-log writes on every committed action | FR-REC-03 (early, cheap now) |
-
-Writing the event log now rather than during Tactical Play costs almost nothing and means undo is later a *read* problem, not a migration.
-
-**Slice 1 — Identity and rooms** · Raymond (server), Vincent (join UX)
-
-| Work | Requirements | Owner |
+| Table | Key | Purpose |
 | --- | --- | --- |
-| GM registration/login, argon2id, opaque session cookie | FR-GM-01 | Raymond |
-| Room creation + invite code generation | FR-PL-01 | Raymond |
-| Join screen: display name, token issue, error states | FR-PL-01 | Vincent |
-| Guest token rebind against `participants` | FR-PL-02 | Raymond |
-| Reconnect rebinding + snapshot on resume | FR-PL-05, FR-PL-06 | Raymond |
+| `rooms` | `id`, unique `invite_code` | One room; the invite code is the share link |
+| `events` | `(room_id, seq)` | Append-only log. The composite key *is* the ordering guarantee (FR-SYNC-04) — a duplicate seq is a constraint violation, not an application bug |
+| `snapshots` | `(room_id, seq)` | Periodic state for fast load; derivable, never authoritative |
+| `checkpoints` | `id` | Named restore points (FR-REC) |
+| `credentials` | `token_hash` | Guest token → participant, with `revoked_at` |
 
-**Slice 2 — Map pipeline** · Christos
+Room state is the fold of its events. Snapshots are an optimization and can be deleted
+without data loss.
 
-| Work | Requirements |
-| --- | --- |
-| Map upload → MinIO, served from a separate origin | FR-GM-02 |
-| **Manual** grid alignment UI (cell size, offset, nudge) | FR-GM-04 |
-| Grid metadata stored in board coordinates | FR-GM-05 |
-| Automatic detection via BullMQ → analysis service, with confidence | FR-GM-03 |
+### Identity
 
-**Sequencing matters here:** build the *manual* alignment path first. It is low difficulty, it makes the map flow usable on its own, and it means automatic detection is an enhancement that can slip without blocking anyone.
+The browser generates an opaque token, keeps it in `localStorage`, and the server stores
+only its SHA-256 — so the server never holds a secret it could leak. Socket.IO replays the
+handshake `auth` on every automatic reconnect, so a dropped client rebinds to the same
+participant with no extra round trip (FR-PL-02, FR-PL-05).
 
-**Slice 3 — Board renderer** · Antonio
+`participants` is the identity the game uses. Tokens are owned by participants, not
+accounts, so guests are first-class and accounts remain a GM convenience.
 
-| Work | Requirements |
-| --- | --- |
-| Replace the plain-DOM board with PixiJS v8 | — |
-| Independent per-client pan and zoom | FR-TAC-01 |
-| Continuous coordinates with optional grid snapping | FR-TAC-02 |
-| 100-token / 60 FPS benchmark against README §6 | NFR gate |
+One consequence to keep in mind: guest identity is one browser. A player who joins from
+their phone is a new participant, and a GM who switches device loses the room outright until
+accounts land (FR-GM-01). See [`FRONTEND-CONTRACT.md`](FRONTEND-CONTRACT.md) §13.1.
 
-Run the benchmark **early**, not at the end. It is the one number that can invalidate the PixiJS-vs-Konva decision, and finding that out in week 4 is recoverable while week 11 is not.
+### Visibility
 
-**Slice 4 — Tokens and roles** · Antonio (board), Vincent (panels)
-
-| Work | Requirements | Owner |
-| --- | --- | --- |
-| Token upload, placement, size, rotation, HP bars | FR-GM-08 | Antonio |
-| GM assigns token ownership to participants | FR-GM-10 | Vincent |
-| Owner-only control wired to real participant IDs | FR-PL-04 | Raymond |
-| Responsive player-safe board layout | FR-PL-03 | Vincent |
-
-#### Task split — Core Loop
-
-| Owner | Requirements |
-| --- | --- |
-| Antonio | FR-GM-05, FR-GM-08, FR-TAC-01, FR-TAC-02 |
-| Raymond | Slice 0, FR-GM-01, FR-PL-02, FR-PL-04, FR-PL-05, FR-PL-06, FR-SYNC-01, FR-SYNC-02, FR-SYNC-04 |
-| Christos | FR-GM-02, FR-GM-03, FR-GM-04 |
-| Vincent | FR-PL-01 (UX), FR-PL-03, FR-GM-10 |
+Hidden information never leaves the server. Both filters in `visibility.ts` are updated
+together whenever a new kind of hidden data is added — fog regions, GM-only rolls, private
+metadata. Authorization is decided in `decide()`; the client's `can.*` helpers are UI hints
+with no security value.
 
 ---
 
-### 8.4 Tactical Play and GM Control (README §12 M2) — 18 requirements
+## 6. Requirements Traceability
 
-This is where the product stops being a shared map and becomes a tabletop. Two things gate everything else: the ephemeral channel, and the renderer landing in Core Loop Slice 3.
+**B** = built · **~** = partial · **D** = designed, not built.
 
-#### Dependency order
-
-```
-  ┌──────────────────────────┐
-  │ Slice 5: Ephemeral channel│  blocks every live preview
-  │ (Raymond)                 │
-  └────────────┬──────────────┘
-               │
-   ┌───────────┼────────────────────────┐
-   ▼           ▼                        ▼
-┌────────────────┐ ┌──────────────────┐ ┌──────────────────┐
-│ Slice 6        │ │ Slice 7          │ │ Slice 8          │
-│ Roles, hidden  │ │ Tactical overlays│ │ Encounter panels │
-│ info, fog      │ │ (Antonio)        │ │ (Vincent)        │
-│ (Raymond+A+V)  │ │                  │ │                  │
-└───────┬────────┘ └──────────────────┘ └──────────────────┘
-        │
-        ▼
-┌────────────────────┐
-│ Slice 9: Recovery  │  needs the event log from Slice 0
-│ (Raymond)          │
-└────────────────────┘
-```
-
-#### The slices
-
-**Slice 5 — Ephemeral channel** · Raymond · blocks Slice 7
-
-| Work | Requirements |
-| --- | --- |
-| Second socket namespace using `volatile.emit`, never persisted | FR-SYNC-03 |
-| Client-side throttling and coalescing of pointer traffic | FR-SYNC-03 |
-| Latency benchmark against the 150 ms target (README §6) | NFR gate |
-
-Build this before any overlay that previews. Retrofitting preview traffic onto the committed channel is the mistake that makes a VTT feel laggy, and it is much harder to unpick later than to separate now.
-
-**Slice 6 — Roles, hidden information, fog** · Raymond (server), Antonio (fog rendering), Vincent (GM controls)
-
-| Work | Requirements | Owner |
-| --- | --- | --- |
-| Role model formalized on `participants` | FR-GM-14 | Raymond |
-| Per-message authorization on every GM-only intent | FR-GM-15 | Raymond |
-| Hidden-token state and server-side payload filtering | FR-GM-16, FR-GM-23 | Raymond |
-| Fog region state on the committed channel | FR-GM-17 | Raymond |
-| Fog painting and masked rendering | FR-GM-17 | Antonio |
-| GM visibility controls (hide/reveal UI) | FR-GM-16 | Vincent |
-
-FR-GM-23 is rated **High** and deserves it: the test is that a player's payload never *contains* hidden data, not that the client declines to draw it. Vincent's automated harness should assert this against API responses, socket frames, and reconnect snapshots alike (README §8).
-
-**Slice 7 — Tactical overlays** · Antonio · needs Slice 5
-
-| Work | Requirements |
-| --- | --- |
-| Movement budget ruler with diagonal rules and thresholds | FR-TAC-03 |
-| Line/rect/circle drawing overlays | FR-TAC-04 |
-| Target pings (ephemeral, animated, self-expiring) | FR-TAC-05 |
-| AoE templates: preview on ephemeral, placement on committed | FR-TAC-06 |
-
-FR-TAC-06 is the one to watch — it straddles both channels. Aiming is ephemeral; the placed template is committed state. Getting that boundary right is the slice's real work.
-
-**Slice 8 — Encounter panels** · Vincent
-
-| Work | Requirements |
-| --- | --- |
-| Initiative list, shared and synced, add/remove/reorder | FR-GM-21 |
-| Dice expression parser (`NdX + M`) and roller | FR-TAC-09 |
-| Public vs GM-only roll routing | FR-GM-22 |
-| Token stats and condition display | FR-TAC-07 |
-| Condition markers distinguished by shape/text, not colour alone | FR-TAC-08 |
-
-Dice are rolled **server-side**. A client-side roll that reports its own result is unverifiable, which defeats the point of shared rolls.
-
-**Slice 9 — Recovery** · Raymond · needs the event log from Slice 0
-
-| Work | Requirements |
-| --- | --- |
-| Plain-language rendering of the event log with actor attribution | FR-REC-01 |
-| Compensating-event undo for a defined reversible set | FR-REC-02 |
-| Append-only guarantee enforced at the database level | FR-REC-03 |
-| Checkpoint save/restore as the universal fallback | FR-REC-02 support |
-
-Start by making **only token moves** reversible. It is the easiest action to compensate and it exercises the whole mechanism; widening the reversible set afterwards is incremental. README §11 rates surprising undo desyncs as the project's top risk, so the mitigation is a small reversible set plus checkpoint restore as the escape hatch.
-
-#### Task split — Tactical Play
-
-| Owner | Requirements |
-| --- | --- |
-| Antonio | FR-GM-17 (rendering), FR-TAC-03, FR-TAC-04, FR-TAC-05, FR-TAC-06 |
-| Raymond | FR-GM-14, FR-GM-15, FR-GM-16, FR-GM-17 (state), FR-GM-23, FR-SYNC-03, FR-REC-01, FR-REC-02, FR-REC-03 |
-| Christos | *(light — see §8.6)* |
-| Vincent | FR-GM-16 (UI), FR-GM-21, FR-GM-22, FR-TAC-07, FR-TAC-08, FR-TAC-09 |
-
----
-
-### 8.5 Stretch (README §12 M3) — 11 requirements
-
-Everything here is cut-first material. The ordering below is by dependency, and §8.5's cut order is by effort-to-value.
-
-#### Dependency order
-
-```
-┌───────────────────────────┐
-│ Slice 10: Wall data       │  nothing below works without wall geometry
-│ UVTT import + validation  │
-│ + manual wall editing     │
-│ (Christos, Antonio)       │
-└─────────────┬─────────────┘
-              │
-      ┌───────┴────────┐
-      ▼                ▼
-┌──────────────┐  ┌─────────────────┐     ┌──────────────────────┐
-│ Slice 11     │  │ Slice 12        │     │ Slice 13             │
-│ Vision       │  │ Portals + LoS   │     │ Quality of life      │
-│ pipeline     │  │ (Antonio+Ray)   │     │ (Raymond, Vincent)   │
-│ (Christos)   │  │                 │     │ — independent        │
-└──────────────┘  └─────────────────┘     └──────────────────────┘
-```
-
-Slice 13 depends on nothing and can be pulled forward whenever someone has slack.
-
-#### The slices
-
-**Slice 10 — Wall data foundation** · Christos (parsing), Antonio (editor)
-
-| Work | Requirements | Owner |
-| --- | --- | --- |
-| UVTT / `.dd2vtt` import: image, grid, walls, portals | FR-GM-06 | Christos |
-| Malformed-file reporting that names the problem | FR-GM-07 | Christos |
-| Wall/portal segment editing on canvas, door state marking | FR-GM-09 | Antonio |
-
-Import lands before detection deliberately: it gives the team real wall data to build portals and line-of-sight against without waiting on the CV pipeline.
-
-**Slice 11 — Vision pipeline** · Christos
-
-| Work | Requirements |
-| --- | --- |
-| OpenCV wall extraction adapted from prior art (§12.1) | FR-GM-11 |
-| Door/window classification | FR-GM-11 |
-| UVTT export round-trip | FR-GM-12 |
-
-Detected geometry is always **suggested**, never applied — the GM reviews before it affects visibility (README §11).
-
-**Slice 12 — Portals and line of sight** · Antonio (rendering), Raymond (state)
-
-| Work | Requirements | Owner |
-| --- | --- | --- |
-| Open/closed/locked portal state on the committed channel | FR-GM-18 | Raymond |
-| 2D raycast visibility from wall and portal segments | FR-GM-19 | Antonio |
-| Per-player visibility masking in the renderer | FR-GM-19 | Antonio |
-
-The single highest-risk item in the project. It needs Slice 10's geometry, the Pixi masking proven in Core Loop Slice 3, and per-player filtering from Tactical Play Slice 6 — three dependencies, which is exactly why it is stretch.
-
-**Slice 13 — Quality of life** · Raymond, Vincent · no dependencies
-
-| Work | Requirements | Owner |
-| --- | --- | --- |
-| Reusable encounter templates | FR-GM-13 | Raymond |
-| Replay from a checkpoint for late joiners | FR-PL-07 | Raymond |
-| Guest revocation and invite regeneration | FR-GM-20 | Raymond |
-| Focusable token roster panel | FR-GM-24 | Vincent |
-
-#### Task split — Stretch
-
-| Owner | Requirements |
-| --- | --- |
-| Antonio | FR-GM-09, FR-GM-19 |
-| Raymond | FR-GM-13, FR-GM-18, FR-GM-20, FR-PL-07 |
-| Christos | FR-GM-06, FR-GM-07, FR-GM-11, FR-GM-12 |
-| Vincent | FR-GM-24 |
-
-#### Cut order
-
-If the schedule tightens, drop in this order — highest effort and most open-ended first:
-
-1. **FR-GM-11** vision-based parsing — README §12 already names it the first to drop; UVTT import covers the same need with a manual step
-2. **FR-GM-19** dynamic line of sight — three dependencies, High difficulty
-3. **FR-GM-13**, **FR-PL-07** — convenience, not correctness
-4. **FR-GM-12** UVTT export, **FR-GM-24** roster — low effort, keep if anything survives
-
----
-
-### 8.6 Load across the team
-
-| Owner | Core Loop | Tactical Play | Stretch | Total |
-| --- | --- | --- | --- | --- |
-| Antonio | 4 | 5 | 2 | 11 |
-| Raymond | 9 + Slice 0 | 9 | 4 | 22 |
-| Christos | 3 | 0 | 4 | 7 |
-| Vincent | 3 | 6 | 1 | 10 |
-
-**Two imbalances worth fixing now rather than in week 8.**
-
-*Raymond carries roughly twice anyone else.* That is structurally true — authorization, sync, identity and recovery are one coherent problem and splitting them across people creates more coordination cost than it saves. Mitigations: Vincent already owns the GM-facing UI for FR-GM-16 and FR-GM-10, and FR-GM-13/FR-GM-20 in Stretch are self-contained enough to hand to whoever has slack.
-
-*Christos has nothing in Tactical Play.* His work is bunched into Core Loop and Stretch, leaving an idle middle. Two options: pull **Slice 10 (UVTT import) forward** into the Tactical Play window — it has no dependency on tactical features and de-risks the whole Stretch milestone — or have him take the automated convergence test harness from README §8, which needs building around then anyway.
-
-### 8.7 Definition of done for a slice
-
-A slice is done when all four hold:
-
-1. Unit tests cover the pure logic it introduced (README §8 names grid math, coordinate transforms, dice parsing, schema parsing).
-2. A Playwright test drives the flow across **two browser contexts** where the requirement is multi-user.
-3. CI is green — lint, test, build, health smoke.
-4. Its requirement IDs move from `D` to `P` in §10, honestly.
-
-### 8.8 Sequencing traps to avoid
-
-| Trap | Why it bites | Avoidance |
-| --- | --- | --- |
-| Building auth last | Everything downstream needs `participants.id` to reference | Slice 1 immediately after foundations |
-| Auto grid detection before manual alignment | A flaky CV pipeline blocks the playable path | Manual first, detection as enhancement |
-| Deferring the Pixi perf benchmark | Renderer choice becomes unchangeable | Benchmark in the first week of Slice 3 |
-| Letting slices diverge on protocol shapes | Painful merges when they converge | Freeze `packages/shared` types in Slice 0 |
-| Adding the event log during Tactical Play | Becomes a data migration | Write events from the first committed action |
-| Overlays before the ephemeral channel | Preview traffic ends up on the committed path and is painful to unpick | Slice 5 before Slice 7 |
-| Line of sight before wall data | Nothing to raycast against | Slice 10 before Slice 12 |
-| Making everything undoable at once | Undo desyncs are the top project risk | Token moves first, widen incrementally |
-
----
-
-## 9. Repository and CI
-
-The repository is an npm workspace on Node 22 (`.nvmrc`). Setup and run instructions live in `README.md`.
-
-```
-.github/workflows/ci.yml   lint → typecheck → test → build → server health smoke test
-apps/server/               Express + Socket.IO server; domain/liveRoom.ts is the command pipeline
-apps/web/                  React panels + PixiJS board
-packages/shared/           the pure kernel: state, commands, events, decide, reduce, visibility
-apps/server/prisma/        Prisma schema and migrations for the event store
-docs/DESIGN.md             this document
-docs/adr/                  architecture decision records
-openspec/                  spec-driven change proposals for future work
-assets/ui-reference/       UI direction boards
-CLAUDE.md                  layout, commands, and the invariants agents must not violate
-README.md                  product specification (the requirements)
-```
-
-CI runs on every push to `main` and `design` and on every PR into `main`:
-
-| Step | Command | Guards against |
-| --- | --- | --- |
-| Lint | `npm run lint` | Style drift and unused/unsafe code across four contributors |
-| Typecheck | `npm run typecheck` | Type errors across the workspace package boundaries |
-| Test | `npm test` | Regressions in the authoritative kernel and identity rules |
-| Build | `npm run build` | A client that compiles locally but not cleanly |
-| Smoke | `curl /health` | A server that builds but does not boot |
-
-It is intentionally thin. It exists so that the *habit* and the *wiring* are in place before there is enough code to make setting it up painful. Playwright joins the matrix in Slice 1, when there is a multi-user flow worth asserting.
-
----
-
-## 10. Requirements Traceability
-
-**P** = working in the prototype · **~** = partially exercised · **D** = designed here, built later.
-
-| ID | Requirement | Component | M2 |
+| ID | Requirement | Where | |
 | --- | --- | --- | --- |
-| FR-GM-01 | Authenticated GM session | `users` + `auth_sessions` (argon2id) | D |
-| FR-GM-02 | Battle-map setup | REST upload → Object Storage | D |
-| FR-GM-03 | Automatic grid detection | Map Analysis Service via BullMQ | D |
-| FR-GM-04 | Grid preview and correction | React setup UI + scene metadata | D |
-| FR-GM-05 | Viewport-independent grid metadata | Board coordinates on `tokens`/`scenes` | ~ |
-| FR-GM-06 | UVTT import | App Server parser → scenes/walls | D |
-| FR-GM-07 | UVTT validation | Schema validation at parse time | D |
-| FR-GM-08 | Token setup | `tokens` table + REST | D |
+| FR-GM-01 | Authenticated GM session | `credentials`, argon2id | D |
+| FR-GM-02 | Battle-map setup | `POST /api/uploads` → `MapSet` | B |
+| FR-GM-03 | Automatic grid detection | Vision service via BullMQ | D |
+| FR-GM-04 | Grid preview and correction | React setup UI | D |
+| FR-GM-05 | Viewport-independent grid metadata | `GridSet`, board coordinates | B |
+| FR-GM-06 | UVTT import | Server parser → scene + walls | D |
+| FR-GM-07 | UVTT validation | zod at parse time | D |
+| FR-GM-08 | Token setup | `token.create` | ~ |
 | FR-GM-09 | Editable walls and portals | Scene geometry + Pixi editor | D |
-| FR-GM-10 | Token ownership assignment | `tokens.owner_participant_id` | ~ |
-| FR-GM-11 | Vision-based map parsing | Map Analysis Service (see §12) | D |
-| FR-GM-12 | UVTT export | App Server serializer | D |
-| FR-GM-13 | Reusable encounter templates | Scene/token template rows | D |
-| FR-GM-14 | GM and player roles | `participants.role` | P |
-| FR-GM-15 | Server-side authorization | Room kernel, checked per message | P |
-| FR-GM-16 | Token visibility controls | `tokens.hidden` + filtering | P |
-| FR-GM-17 | Manual fog of war | Scene fog regions + committed channel | D |
-| FR-GM-18 | Interactive portal states | Portal state in scene geometry | D |
-| FR-GM-19 | Dynamic line of sight | Pixi masking + 2D raycast | D |
-| FR-GM-20 | Guest revocation / invite regeneration | `participants.revoked_at` | D |
-| FR-GM-21 | Initiative and turn-order tracking | Committed channel + scene state | D |
-| FR-GM-22 | Public and GM-only dice rolls | Server-side roll + filtered broadcast | D |
-| FR-GM-23 | Player-safe state filtering | `filterForParticipant` | P |
-| FR-GM-24 | Focusable token roster | React roster panel | D |
-| FR-PL-01 | Shareable guest link | `rooms.invite_code` | D |
-| FR-PL-02 | Durable guest identity | `localStorage` token → hashed lookup | P |
-| FR-PL-03 | Responsive Player Board | React player layout | D |
-| FR-PL-04 | Owned-token control | Room kernel ownership check | P |
-| FR-PL-05 | Automatic reconnection | Socket.IO reconnect + token rebind | P |
-| FR-PL-06 | Full-state resynchronization | `state:snapshot` on every connect | P |
-| FR-PL-07 | Encounter replay for late joiners | Event log + checkpoints | D |
-| FR-TAC-01 | Independent pan and zoom | Per-client Pixi viewport | D |
-| FR-TAC-02 | Continuous coords + grid snapping | Board coordinate system | ~ |
-| FR-TAC-03 | Movement Budget Ruler | Ephemeral channel | D |
-| FR-TAC-04 | Drawing overlays | Committed channel + scene overlays | D |
-| FR-TAC-05 | Target Pings | Ephemeral channel | D |
-| FR-TAC-06 | AoE templates | Ephemeral preview → committed placement | D |
-| FR-TAC-07 | Token statistics and conditions | `tokens.stats` | D |
-| FR-TAC-08 | Accessible condition markers | React markers (shape + text) | D |
-| FR-TAC-09 | Shared dice expressions | Server-side parser/roller | D |
-| FR-SYNC-01 | Server-authoritative room state | Room kernel | P |
-| FR-SYNC-02 | Real-time persistent synchronization | Committed channel | ~ |
-| FR-SYNC-03 | Ephemeral interaction channel | `volatile.emit` path | D |
-| FR-SYNC-04 | Ordered conflict handling | Monotonic `seq` | P |
+| FR-GM-10 | Token ownership assignment | `token.setOwners`, roster UI | B |
+| FR-GM-11 | Vision-based map parsing | Vision service | D |
+| FR-GM-12 | UVTT export | Server serializer | D |
+| FR-GM-13 | Reusable encounter templates | Template rows | D |
+| FR-GM-14 | GM and player roles | `Participant.role` | B |
+| FR-GM-15 | Server-side authorization | `decide()` | B |
+| FR-GM-16 | Token visibility controls | `token.setHidden` + filters | B |
+| FR-GM-17 | Manual fog of war | Scene fog regions | D |
+| FR-GM-18 | Interactive portal states | Portal state in geometry | D |
+| FR-GM-19 | Dynamic line of sight | Pixi masking + raycast | D |
+| FR-GM-20 | Guest revocation, invite regeneration | `credentials.revoked_at` | D |
+| FR-GM-21 | Initiative and turn order | `initiative.*` | B |
+| FR-GM-22 | Public and GM-only rolls | `DiceVisibility` + filters | B |
+| FR-GM-23 | Player-safe state filtering | `visibility.ts` | B |
+| FR-GM-24 | Focusable token roster | `TokenRoster.tsx` | B |
+| FR-PL-01 | Shareable guest link | `rooms.invite_code` | B |
+| FR-PL-02 | Durable guest identity | Hashed `localStorage` token | B |
+| FR-PL-03 | Responsive Player Board | `RoomPanel`, `MyTokens` | B |
+| FR-PL-04 | Owned-token control | Ownership check in `decide()` | B |
+| FR-PL-05 | Automatic reconnection | Handshake replay | B |
+| FR-PL-06 | Full-state resynchronization | `welcome` + `resync` | B |
+| FR-PL-07 | Replay for late joiners | Event log + checkpoints | D |
+| FR-TAC-01 | Independent pan and zoom | `boardView.ts` | B |
+| FR-TAC-02 | Continuous coords, grid snapping | `snapTokenCenter` | B |
+| FR-TAC-03 | Movement budget ruler | Ephemeral channel | D |
+| FR-TAC-04 | Drawing overlays | Committed channel | D |
+| FR-TAC-05 | Target pings | Ephemeral `ping` | B |
+| FR-TAC-06 | AoE templates | Ephemeral preview → committed | D |
+| FR-TAC-07 | Token statistics and conditions | `token.setStats/setConditions` | B |
+| FR-TAC-08 | Accessible condition markers | `ConditionMarker.tsx` | B |
+| FR-TAC-09 | Shared dice expressions | `dice.ts`, server-rolled | B |
+| FR-SYNC-01 | Server-authoritative state | `LiveRoom` | B |
+| FR-SYNC-02 | Real-time persistent sync | Postgres store | B |
+| FR-SYNC-03 | Ephemeral interaction channel | `volatile.emit` | B |
+| FR-SYNC-04 | Ordered conflict handling | `(room_id, seq)` primary key | B |
 | FR-REC-01 | Human-readable activity log | `events` table | D |
 | FR-REC-02 | Undo for reversible actions | Compensating events | D |
-| FR-REC-03 | Append-only recovery history | `events` is insert-only | D |
+| FR-REC-03 | Append-only recovery history | Schema enforces insert-only | ~ |
 
-**Why the three partials are partial**
-
-- **FR-GM-05** — tokens are stored in board coordinates, which is the right data model, but there is no zoom or viewport yet, so viewport-independence is untested by construction.
-- **FR-GM-10** — ownership is enforced server-side, but assignments are seeded in code; there is no GM interface to change them.
-- **FR-TAC-02** — coordinates snap to the grid, but there is no continuous mode and no toggle between them.
-- **FR-SYNC-02** — synchronization is real-time but not yet *persistent* (state dies with the process), and only token moves sync; conditions, initiative, fog and portals do not exist yet.
+**Why the partials are partial.** FR-GM-08 has every field the requirement asks for, but no
+dedicated setup screen — tokens are created from the GM panel. FR-REC-03 holds structurally,
+since events are never updated or deleted and every mutating event carries its replaced
+value, but nothing reads the history back yet.
 
 ---
 
-## 11. Interface and Page Design
-
-### 11.1 Status
-
-§11.4 onward records the original interface proposal. **§13 now accepts or supersedes
-its individual decisions**; historical alternatives below are not implementation options. Interface direction is the Board owner's call
-(Antonio) and the page inventory is a team decision; this section exists so there is
-something concrete to argue with, because until now the document said nothing about what
-the application is beyond one room screen.
-
-Two corrections to what this section used to claim. The boards it referenced —
-`room-setup.png`, `at-the-table.png`, `between-sessions.png` — **were never produced**;
-`assets/ui-reference/` contains only a README describing them. And the palette that README
-calls "already applied" (deep slate-teal ground, parchment text, gold accent) is **not**
-what ships: `apps/web/src/styles.css` uses a neutral charcoal ground with a blue accent.
-The documented direction was abandoned silently. §11.9 picks one.
-
-### 11.2 Page inventory
-
-What exists today, and what a usable product still needs:
-
-| Route | Page | State | Serves |
-| --- | --- | --- | --- |
-| `/` | Home — the product, Play, and sign in | Built — a bare create form only | Entry for every journey (§11.5) |
-| `/join/:inviteCode` | Guest join | Built | FR-PL-01, FR-PL-02 |
-| `/r/:roomId` | The table | Built | most of the FR set |
-| — | 404 | Built — an unstyled card | — |
-| `/signup`, `/login` | Account — any role, role is per room | **Missing** | FR-GM-01, §13.1 |
-| `/rooms` | Room hub — rooms you belong to | **Missing** | FR-GM-01 (§4.2: an account exists so a user can return and find their rooms). Also where Leave table returns a signed-in user (§13.1) |
-| `/r/:roomId/prepare` | Scene preparation | **Missing** — currently crammed into the table's side panel | FR-GM-02 … FR-GM-07, FR-GM-11 |
-| `/r/:roomId/log` | Activity log and undo | **Missing** | FR-REC-01, FR-REC-02 |
-| `/r/:roomId/settings` | Access, invites, revocation | **Missing** | FR-GM-20 |
-| `/library` | Saved maps, token art, encounter templates | **Deferred — do not build** | §13.1 defers saved assets and omits their navigation from the initial release; needs ownership, quota and reuse requirements first |
-
-The gap is not decoration. Three of those rows are requirements with no surface at all: a GM
-cannot currently find a room they made last week, revoke a guest, or read the log that
-FR-REC-01 requires. Map preparation lives in a scrolling side panel beside the live table,
-which means the GM does setup and play in the same cramped column.
-
-### 11.3 Information architecture
-
-Three layers, distinguished by how long a person stays and how much they are asked to think:
-
-1. **Entry** (`/`, `/join/:code`, `/login`, `/signup`) — originating at the home page,
-   which is the only surface that explains the product and carries both Play and sign in
-   (§11.5). Past it, one decision per screen and no navigation chrome. A player arriving from an invite link must reach the table in under
-   30 seconds (README §6), so this layer is a corridor, not a lobby.
-2. **Hub** (`/rooms`, `/library`, account) — the between-sessions layer. Persistent left
-   navigation, list-dense, optimised for finding one room among many.
-3. **Table** (`/r/:roomId` and its sub-surfaces) — the encounter. No global chrome at all:
-   the board owns the viewport and everything else is a panel over it. Sub-surfaces
-   (prepare, log, settings) open as overlays rather than page navigations, because leaving
-   the table would drop the socket and force a resync.
-
-The rule that follows: **navigation chrome decreases as you go deeper.** Entry has none,
-hub has a sidebar, the table has none again.
-
-### 11.4 What we take from mature VTTs, and what we refuse
-
-Roll20 is the reference point because README §3 already names its tradeoff: broad
-functionality at the cost of onboarding and interface overhead. That is a statement about
-*pages*, not features. A mature VTT accretes surfaces — marketplace, compendium, character
-sheets, forums, a tabletop sidebar with a dozen tabs — and every one of them is a decision
-the user has to route around before play starts.
-
-README §7 already excludes most of that surface area: no character sheets, no rules
-automation, no marketplace, no video. The page design should make that exclusion *visible*
-rather than leaving room for it.
-
-| Pattern | Take | Refuse |
-| --- | --- | --- |
-| Persistent list of games you belong to | Yes — §11.2 `/rooms`. Returning to last week's table is FR-GM-01's whole purpose | — |
-| Invite link that drops a player at the table | Yes, and go further: no account at all (FR-PL-01) | An account wall anywhere in the player path |
-| Tabletop with a side panel | Yes, one panel | A sidebar of many tabs; ours caps at four |
-| Layer controls (map / token / fog / GM) | Yes, as board layers | Exposing them as a persistent toolbar the player also sees |
-| Settings, permissions, asset library | Yes, as overlays over the table | A settings tree the GM navigates away from play to reach |
-| Marketplace, compendium, forums, sheets | — | All of it. Out of scope, and each is a top-level page we then owe navigation to |
-
-The concrete rule this produces: **a player's path from link to playing contains exactly one
-screen and one field.** A GM's path from logging in to a prepared map contains no more than
-three. Any page proposal that lengthens either is rejected on that basis alone.
-
-### 11.5 The home page
-
-**This is where everything starts.** Not a form and not a marketing page bolted onto the
-side of an app — the one surface that explains the product, and the entry point for all
-three journeys in §11.3. A first-time GM, a returning user, and a curious stranger all
-land here.
-
-**Two actions, and they are not equals.**
-
-- **Play** — primary, high contrast, impossible to miss. For a signed-in user it creates a
-  room and opens its table. For a signed-out one it opens login or signup carrying a
-  return intent, and authenticating continues into room creation rather than dumping the
-  user on a dashboard (§13.1). Either way the journey ends at a table
-- **Log in / Sign up** — secondary, in a minimal top-right nav. For people who have been
-  here before and want their rooms back. Quiet, never competing with Play
-
-Beside the primary action, one line of copy carries the rule so nobody discovers it at the
-password field: **"Free account required to host; players join without one"** (§13.1). That
-sentence is doing real work — it tells a GM what Play will cost them, and tells a player
-reading over their shoulder that the invite they were sent asks nothing of them.
-
-A single top bar carries the product name on the left and the auth pair on the right, and
-nothing else. There is no room for a navigation menu on a product with three pages.
-
-**Why creation is gated — decided, §13.1.**
-
-FR-GM-01 gives the GM "a persistent, trusted identity from which to create and administer
-a room", and `routes.ts` currently permits creation without one under a `TODO` marking
-that as temporary. Two resolutions were considered: gate Play behind sign-in, or let Play
-create an *unclaimed* room claimed afterwards.
-
-**§13.1 selects the gate, and keeps `rooms.owner_user_id` non-null.** Unclaimed-room
-authority, expiry and ownership transfer are explicitly out of the Core Loop. The return
-intent is what preserves the fast start — a signed-out Play is one extra screen, not a
-dead end — and it costs no amendment to FR-GM-01 and no new ownership state to reason
-about. The unclaimed-room alternative is recorded in §13.1 as rejected, not deferred.
-
-Creation is idempotent: a retry with the same request key returns the existing room rather
-than making a second one, and a failed creation preserves the session (§13.1).
-
-**Above the fold.** An editorial split rather than centred text on a dark rectangle: the
-claim and the Play button on one side, a real battle map bleeding off the opposite edge,
-masked into the ground so it reads as depth rather than a pasted screenshot. The map is the
-product; a stock photograph of dice on a table is not.
-
-- The headline runs **two lines, never more**. It says what the product does in concrete
-  verbs — upload a map, start playing — not "elevate your tabletop". Hold it under about
-  14 words at a fluid size that stays two lines from 380px to 1920px rather than reflowing
-  into a paragraph
-- Play sits directly beneath it. One quiet tertiary link — "see a live demo room" — may sit
-  beside it for people who want to look before creating anything
-- Nothing else. No floating badges over the text, no metric pills, no logo strip
-
-**Below it,** three movements, each a full viewport-height chapter with generous separation
-so they read as distinct rather than as a stack of cards:
-
-1. **The setup claim, demonstrated.** The map-to-grid-to-tokens sequence shown as actual
-   interface, advancing on scroll. This is the differentiator and it earns the largest
-   surface on the page
-2. **What the table looks like in play,** from both sides — the GM's hidden tokens and the
-   player's filtered view, side by side. The visibility model is the hardest thing to
-   explain in words and the easiest to show
-3. **Recovery.** The activity log with an undo, because "nothing is unrecoverable" is the
-   promise that separates this from a shared image
-
-The page closes by repeating Play. A visitor who has read to the bottom should not have to
-scroll back up to act.
-
-**Banned on this page:** a row of three equal feature cards; section eyebrows reading
-"FEATURES" or "HOW IT WORKS"; a centred hero; testimonials the project does not have;
-invented usage statistics; a second call to action of equal weight to Play.
-
-### 11.6 Entry pages
-
-**`/join/:inviteCode`** — one field, one button, no chrome. A player who is already known to
-this browser skips the field entirely and gets "Resume as Alice" instead, because re-typing
-a name to rejoin a room you were in five minutes ago is a needless step and risks creating a
-second identity (§5.5).
-
-- Primary action: join
-- States: validating the code, invalid or expired code with a plain explanation, submitting
-- Not here: anything about accounts. The offer to claim one belongs after the session, on
-  the way out — never on the way in (§5.7)
-
-**`/login` and `/signup`** — for anyone who wants to be found again, not GM-only (§5.7). A
-player reaches these only *after* a session, never before: the invite path must not prompt
-for an account ahead of play. A single column at reading width, the form
-above the fold with no scrolling, and the opposite link (sign in / create account) as quiet
-text rather than a second button. Password rules stated *before* the field, not as an error
-after submitting.
-
-### 11.7 The room hub
-
-The between-sessions surface, and the one most likely to be built as a wall of identical
-cards. It should be a list, because a list scans and a card grid does not.
-
-**Layout.** A single column of rooms at reading width, one row per room, separated by
-hairlines rather than boxed. Each row: scene thumbnail at a fixed small size, room name,
-when it was last played, participant count. The row is the click target.
-
-**Ordering** is by last played, descending — not alphabetical and not by creation date. The
-room you want is almost always the one you were just in.
-
-**States.** Skeleton rows shaped like real rows while loading. The empty state is the first
-thing a new GM ever sees and should read as an invitation with the create action inline, not
-as an error. Room creation happens here too, so the hub is never a dead end.
-
-### 11.8 The table: layers and panels
-
-The most complex screen and the one with the strictest rule: **the board owns the viewport.**
-Everything else is a panel over it or a column beside it, and nothing may push the board
-smaller than it needs to be.
-
-**Regions.**
-
-- **Board** — the full remaining area, with no global navigation bar above it. There is
-  nowhere to navigate to; leaving would drop the socket
-- **Panel** — a fixed column on the right at desktop width, beneath the board as tabs below
-  720px, beside it again in landscape (KAN-55). Four tabs at most: Play, Tokens, Dice, and
-  Manage for the GM. When a fifth is proposed, something merges
-- **Board controls** — a small cluster floating over the board's corner: fit, zoom, and
-  the layer switcher. Floating rather than docked, because a docked toolbar costs board
-  height permanently for controls used occasionally
-- **Status** — connection state and seq, inline in the panel header. Never a modal. A
-  reconnect must not interrupt play, and a dialog over the board does exactly that
-
-**Layers,** in draw order, bottom to top: map, grid, drawings and templates, tokens,
-condition markers, fog, ephemeral effects (pings, drag previews, rulers). The GM can target
-a layer for editing; a player never sees a layer control, because administrative layer targeting is GM-only. Players still receive permitted
-drawing and AoE tools; tool access is distinct from layer administration (§13.5). Fog and GM-only geometry are not merely hidden in the player's
-renderer — they are absent from the payload (FR-GM-23), and the interface should not imply
-otherwise by showing a disabled control.
-
-**Overlays** open over the table and never navigate away from it: scene preparation, the
-activity log, room settings. Each is a wide sheet rather than a column, dismissible with
-Escape, and returns focus to the control that opened it. Preparation in particular needs
-width — a GM aligning a grid against a map is comparing two things and cannot do it in a
-20rem strip.
-
-**Density** is highest here and only here. The panel may compress padding and use tabular
-figures at a smaller size; the entry and hub pages may not. A GM tracking eight tokens
-through an encounter wants information per square inch, and the same person on the landing
-page wants space.
-
-### 11.9 Design system
-
-**Direction.** Resolve the palette split in favour of the team's original intent: a deep,
-slightly cool ground with a **single warm accent**. That reads as a table lit from above,
-which is what the product is, and it avoids the blue-on-charcoal default that every
-developer tool already uses. The shipped blue accent should go.
-
-| Token | Value | Use |
-| --- | --- | --- |
-| `--ground` | `#0f1418` | Page and board surround. Never pure black |
-| `--panel` | `#161d22` | Panels, overlays |
-| `--hairline` | `#24323a` | 1px separators — the primary grouping device |
-| `--text` | `#e8e2d4` | Body |
-| `--muted` | `#8a9aa3` | Secondary, labels |
-| `--accent` | `#d6a355` | The single accent: primary action, active turn |
-| `--ok` `--warn` `--danger` | `#4caf7d` `#d29922` `#c4564f` | Status only, never decoration |
-
-One accent, under 80% saturation. Status colours are never the only signal — the active
-turn carries a glyph and position as well as gold, conditions carry a shape and an
-abbreviation as well as a fill (FR-TAC-08).
-
-**Typography.** A geometric grotesk for the interface and a true monospace for anything
-numeric — initiative scores, hit points, dice results, seq numbers all need tabular figures
-so they stop jittering as they change.
-
-```
---font-ui:   "Geist", "Satoshi", system-ui, sans-serif
---font-mono: "Geist Mono", "JetBrains Mono", ui-monospace, monospace
-```
-
-Serifs are out: this is software, not editorial. Headings control hierarchy through weight
-and colour rather than size — a room name is `text-lg font-semibold tracking-tight`, not a
-display heading. Body copy caps at 65 characters.
-
-**Space and materiality.** Group by hairline and negative space, not by boxing everything in
-a card. A card is justified only when elevation means something — an overlay above the
-table, a menu above the panel. Panels sit flat on the ground with a single hairline.
-Shadows, when used, are tinted to the ground rather than black.
-
-**Motion.** Fluid but not cinematic. `transition: 0.24s cubic-bezier(0.16, 1, 0.3, 1)` for
-state changes; spring physics for anything the user drags or drops. Animate `transform` and
-`opacity` only — never `width`, `height`, `top` or `left`, which would fight the Pixi
-canvas for the compositor. Two things earn continuous motion and nothing else does: the
-active-turn indicator and the connection status. `prefers-reduced-motion` removes both.
-
-**Density** varies by layer: airy at entry (generous spacing, one decision per view),
-moderate in the hub, and tight at the table, where a GM tracking eight tokens needs
-information per square inch. The table panel is the only surface that may compress padding.
-
-**Icons.** One set, one stroke weight (1.5), from Phosphor or Radix. No emoji anywhere in
-the interface, ever — they render differently on every platform and read as placeholder.
-
-### 11.10 Interface states
-
-Every data surface specifies four states, not one. Prototypes ship the success case and
-discover the rest in front of a grader.
-
-- **Loading** — skeletons shaped like the content that will replace them. No spinners
-- **Empty** — says what to do next. "No rooms yet — create one to get started", not a blank
-  panel. The empty table and empty roster are the first thing a new GM sees
-- **Error** — inline and specific, next to the thing that failed. Errors that need a retry
-  carry the retry. A rejected command surfaces the server's reason, since `decide` already
-  returns one
-- **Offline** — the board stays interactive and visibly stale rather than blanking. The
-  status line owns this; nothing modal
-
-### 11.11 Responsive and accessibility
-
-Breakpoints at 720px and 1024px. Below 720 the panel moves beneath the board and becomes
-tabs; in landscape on a phone the panel returns to the side, because width is what a
-landscape phone has (see KAN-55). The board refits when the viewport changes only if the
-viewer has not positioned their own camera — an independent viewport is FR-TAC-01, and a
-rotation must not undo a deliberate pan (KAN-54).
-
-Accessibility is a stated target (README §6: WCAG 2.2 AA for non-canvas UI), which means
-concretely: every interactive element reachable by keyboard and visible when focused; touch
-targets at least 44px on coarse pointers; colour never the sole carrier of meaning; the
-canvas paired with a DOM equivalent for anything it expresses — the roster is the keyboard
-path to token selection (FR-GM-24), and any future canvas-only affordance needs the same
-treatment.
-
----
-
-## 12. Known Gaps and Open Decisions
-
-| Item | Status | Plan |
-| --- | --- | --- |
-| Wall detection: service or client-side? | **Decided — Python service** | Wall extraction runs in the Map Analysis Service alongside grid detection, not in the browser. See §12.1 for the references we build on. |
-| Guest returning on a second device | Decided — §13.1 | Registered members sign in. Unlinked guests get a new seat with GM-assisted reassignment; current-room account linking is deferred. |
-| PixiJS unproven at 100 tokens / 60 FPS | Open | Benchmark in the first week of Slice 3; it can still invalidate the renderer choice. |
-| No load testing against 150 ms / 500 ms targets | Deferred | k6 or Artillery benchmark once the ephemeral channel exists |
-| Prototype is single-package | Deferred | Workspace split is Slice 0 |
-| Undo semantics for concurrent edits | Designed, unvalidated | Prototype compensating events on token moves first, where they are easiest to reason about |
-| Express vs Fastify | **Decided — Express** | Reverted to the documented choice; see docs/adr/0002. |
-| Saved assets across rooms | Deferred — §13.1 | No library navigation in the initial release. Requires separate ownership, quota and reuse requirements. |
-| Room co-ownership | Decided — single owner | Co-GM ownership is deferred; account roles remain per room (§13.1). |
-
-### 12.1 Prior art for map analysis
-
-Wall and portal detection (FR-GM-11) adapts existing MIT-licensed work rather than starting from scratch. Both references implement the same pipeline shape — colour masking → morphological cleanup → contour tracing → segment simplification and endpoint welding — so the approach is well-trodden.
-
-| Reference | What we take from it | Licence |
-| --- | --- | --- |
-| [`ThreeHats/auto-wall`](https://github.com/ThreeHats/auto-wall) — **primary** | Python/OpenCV implementation of the detection pipeline; closest to our service architecture and directly adaptable | MIT |
-| [`DimitroffVodka/foundry-auto-wall`](https://github.com/DimitroffVodka/foundry-auto-wall) — secondary | A later derivative of the same project; useful for its centreline tracing mode, which fixes the double-wall artefact thick drawn lines produce | MIT |
-
-Attribution and licence text for any adapted code will be carried in the service directory. Our output target is UVTT wall and portal geometry (FR-GM-06, FR-GM-12), not Foundry `WallDocument`s, so the serialization layer is ours regardless of which pipeline we adapt.
-
-
----
-
-## 13. Frontend Implementation Contract — Accepted Decisions
-
-**Recorded:** 2026-09-22. This section turns the frontend review into implementation
-requirements. It overrides inconsistent statements in §§5, 8, 11 and 12. It does not
-change the shipped-status matrix in §10; implementation must be verified separately.
-The user confirmed private preparation until Apply and delegated the remaining choices.
-Exact mobile dimensions below are selected defaults, not details supplied by the user.
-
-### 13.1 Product scope, identity and entry
-
-**Play requires an authenticated account to create a room.** Keep FR-GM-01 and the
-non-null `rooms.owner_user_id`. Do not introduce unclaimed-room authority, expiry or
-ownership transfer in the Core Loop. Home explains “Free account required to host;
-players join without one” beside the primary action.
-
-- Signed-in Play creates one room and opens its table. Signed-out Play opens login/signup
-  with a same-origin return intent; successful authentication continues room creation.
-- Creation is idempotent. A retry with the same request key returns the existing result,
-  rather than creating another room. Failed creation preserves the authenticated session.
-- Accounts represent people; GM/player role remains per room. An authenticated player
-  may follow an invite and create a player membership without signing out.
-- Guest invite entry remains exactly display name → Join. A known guest gets Resume as
-  their existing name. The server validates invite/access before exposing room details.
-- Account creation is never required or promoted before a guest enters play.
-- An explicit Leave table action returns guests to a simple session-ended screen and
-  signed-in users to `/rooms`. It closes that client's socket, not the room or other tabs.
-  Closing the browser is not treated as a reliable session-end event.
-- Guest-to-account linking is a later enhancement. When enabled, offer it only after
-  Leave table, link only the current room, require proof of both guest and account
-  credentials, and preserve the participant ID. Never silently merge all browser seats.
-  If the account already has a different membership, require GM-assisted reassignment;
-  do not automatically union authority or tokens. Linking must be atomic and rebind or
-  invalidate existing guest sessions. Do not ship the offer before this backend exists.
-- Until linking exists, cross-device guests are new participants; the GM can reassign
-  tokens after confirming identity socially. Explain browser-local identity without
-  presenting an account prompt on the join path.
-- Core scope includes GM authentication, room hub, invite join, preparation, table and
-  ownership controls. Tactical Play adds encounter/recovery surfaces. Saved assets,
-  `/library`, co-GM ownership and account claiming are deferred; omit their navigation.
-- Existing prototype rooms need an explicit migration: only a verified existing GM
-  credential may claim an owner account. Do not infer ownership from an invite code or
-  participant name. Until migration is available, retain legacy access without allowing
-  creation of further unowned rooms; announce any later removal before it occurs.
-
-**Access changes.** Revocation takes effect immediately in that room, including open
-sockets and subsequent commands. Clear cached room data and previews, close overlays,
-and show an access-removed screen. Other rooms remain accessible. Invite regeneration
-only prevents new admissions through the old code; existing members can resume. Known
-members using an old invite may resume after credential verification; unknown visitors
-receive an expired-link explanation. Regeneration does not revoke account sessions.
-
-**Identity edge cases.** Two tabs with the same credential are one participant with
-separate camera/UI state. Duplicate display names are allowed; ownership menus include
-a secondary participant identifier. Storage failure uses a tab-local credential with a
-persistent warning that reload loses identity. Cache guest lookups by room and token
-hash, never by token hash alone. A browser-wide guest token can grant memberships in
-multiple rooms, so its compromise is not limited to one room.
-
-### 13.2 Preparation drafts and replacing a live map
-
-**Preparation remains private until Apply.** Draft assets, estimates, geometry and
-previews are accessible only to the GM. They are excluded from player snapshots,
-events, ephemeral traffic and asset URLs. Merely hiding a preparation sheet is not a
-privacy boundary.
-
-Use a server-persisted draft associated with a room, GM participant and base scene
-revision. Persist acknowledged edits; indicate Saving / Draft saved / Save failed.
-Closing a sheet preserves acknowledged drafts. If edits remain unsaved, offer Keep
-editing or Discard unsaved changes. Reopening loads the draft. Discard draft is an
-explicit action; abandoned draft assets are garbage-collected only after a defined
-retention window (seven days), with active references protected.
-
-**Preparation sequence:** choose/upload image → manually align grid → optionally request
-analysis → review suggested changes → place/configure draft tokens → Apply. Manual
-alignment remains usable when analysis fails or detects no grid. A late analysis result
-never overwrites manual edits: offer Preview suggestion and Accept suggestion explicitly.
-A result is tied to the draft asset revision and rejected if that asset has changed.
-
-**Apply to the current map:** grid/geometry edits are committed atomically after validating
-the draft's base revision. Players see the old accepted state until publication succeeds.
-If live scene content changed since the draft began, show a stale-draft conflict and let
-the GM reload/reconcile; never silently overwrite concurrent state. Camera-only changes
-and ephemeral traffic do not invalidate a draft.
-
-**Replacing an active map during play:**
-
-1. Uploading a replacement creates a separate draft scene. The encounter continues on
-   the current scene while the GM prepares it.
-2. Apply opens a confirmation explaining that everyone will switch scenes, current
-   tokens/fog/drawings/templates/initiative will not transfer, and the previous scene
-   will be recoverable. The replacement starts fully concealed to players; GM preview
-   remains visible. Ownership can be assigned to draft tokens before publication.
-3. In one authoritative transaction, validate the expected active scene/revision, save
-   an automatic checkpoint of the old scene, activate the prepared scene and append the
-   scene-change event. If checkpoint creation or publication fails, change nothing.
-4. Send each participant a filtered replacement snapshot. Cancel old-scene gestures and
-   pending previews, clear selection, and fit the new map once. Ordinary viewport resize
-   still preserves deliberate camera positioning.
-5. Reject late commands targeting the previous scene with `scene_changed`. Never replay
-   them onto the new map. Announce “The GM changed the scene” without a blocking modal.
-
-No automatic coordinate scaling or token migration is included. The confirmation names
-what is reset and what remains: room membership, invites, dice history and append-only
-activity history remain. The previous scene and its referenced assets remain retained
-while recoverable checkpoints reference them.
-
-### 13.3 Responsive layout and navigation
-
-Use these CSS-pixel defaults, subject to usability validation. Minimum board sizes are
-layout allocation targets; they must not force horizontal page overflow at narrow widths
-or text zoom. When space is insufficient, collapse the panel and use the mobile layout.
-
-| Context | Board and panel | Supported work |
-| --- | --- | --- |
-| Desktop, ≥1024px | Board plus 320px right panel; panel collapsible; target board ≥640×360 | All workflows |
-| Tablet, 720–1023px | 280px side panel only when board retains ≥440px width and viewport ≥400px height; otherwise bottom panel | All workflows when preparation viewport meets its size threshold |
-| Portrait/mobile fallback | Board first, bottom panel second; target board height 280px; panel normally 40% of available height, expandable to 70% | Full player play and routine GM controls |
-| Landscape phone | 240px side panel only with ≥360px board width and ≥320px usable height; otherwise collapsed panel opens as a sheet | Same mobile workflows; no orientation-only override |
-
-Use `100dvh`, safe-area padding, `minmax(0, 1fr)` tracks, and independent panel scrolling.
-At short heights or while the keyboard is open, prioritize the focused field in a sheet;
-collapse the panel rather than squeezing the board and controls into unusable strips.
-A collapsed panel retains an accessible opener and the connection indicator on the board.
-Tabs never wrap into ambiguous rows; icon-plus-short-label controls fit the available width.
-
-**Mobile GM support:** invite copy, participant revocation, ownership, token name/resources/
-conditions, hide/reveal a selected token, initiative, dice, activity log and eligible undo.
-Detailed map upload/alignment, wall editing, fog drawing, scene replacement and checkpoint
-restore require at least a 720×480 CSS-pixel viewport. Show a clear larger-screen explanation
-when invoked below this threshold; do not discard an existing draft after a resize. This
-limits complex GM editing without limiting the responsive player requirement.
-
-**Hub:** 224px navigation at desktop, compact navigation at tablet, and a labeled menu
-sheet below 720px. Room list maximum width 880px; page gutters 16/24/32px by breakpoint.
-Rows have a 56px thumbnail and flexible name; secondary metadata stacks on mobile. Use
-one semantic navigation link per room and separate sibling buttons for other actions.
-Ordering is last played descending with room ID as a stable tie-breaker; never-played
-rooms follow played rooms, newest first. Last played means the server-recorded most
-recent authorized table entry, not a background heartbeat. Count non-revoked members and
-label it “members”; expose online presence separately if available.
-
-**Entry:** forms max-width 400px; body copy ≤65ch. Home stacks text and map below 720px.
-The two-line headline is a default-content goal, not a clipping requirement: allow extra
-lines at large text sizes. Use minimum-height chapters with natural document scrolling,
-not pinned scroll or forced viewport heights. Provide static reduced-motion demonstrations.
-
-**Sheets and routes:** mount a room session provider above `/r/:roomId` and its nested
-prepare/log/settings routes. Opening a sheet pushes a route; Back closes it without
-unmounting the room session. A direct sheet URL first loads the room underneath. Close
-returns to the room route, replacing the route when there is no in-app parent history.
-Escape and the visible Close button dismiss; backdrop dismissal is disabled to avoid
-accidental closure. Dirty-state handling follows §13.2. Leaving the room uses an explicit
-Leave action; it is not hidden to preserve a socket.
-
-Preparation sheet max-width 1120px; log/settings 800px; 24px desktop outer gap. Mobile
-sheets use available viewport width/height. Sheet bodies scroll; headers/actions remain
-reachable without obscuring focused controls. Only the topmost modal receives interaction.
-
-### 13.4 Connection, concurrency and recovery
-
-**Offline means inspectable, not editable shared state.** Keep pan, zoom, token inspection,
-local selection and draft form typing available. Disable committed actions, dice rolls,
-Apply and network-dependent analysis. Do not queue gameplay commands for automatic replay.
-Clearly label the board stale and explain disabled actions inline. Re-enable shared writes
-only after identity verification and an authoritative snapshot, not merely socket reconnect.
-A persisted preparation draft can retain unsent local edits but must reconcile its base
-revision before upload or Apply after reconnect.
-
-Track commands as pending → acknowledged/rejected, with a separate unknown-outcome state
-when transport fails. An acknowledgment alone must not bypass authoritative event/snapshot
-application. Persist command IDs/results server-side with their room/participant scope;
-repeated identical IDs return the original outcome. Reusing an ID with different content
-is rejected. For room creation, use account scope. Resolve unknown outcomes through a
-command-status read or a retry of the same ID after resync; do not generate a new ID.
-If result retention has expired, return an explicit expired status and reconcile current
-state without replay. Retain results for at least 24 hours and document this API boundary.
-
-Use the current shared protocol as the integration baseline: `clientCommandId`, `welcome`,
-`event`, `redacted`, `ack`, `rejected`, `resync`. Hidden events emit a redacted sequence
-advance so clients do not mistake filtering for packet loss. A real sequence gap triggers
-resync. Duplicate events do not reapply state. Snapshot replacement resets authoritative
-state and transient previews, not independent camera/tab preferences for the same scene.
-The existing numeric sequence contract requires safe-integer validation; before exceeding
-that range, migrate all producers/consumers together to decimal strings. Do not silently
-change only the frontend representation.
-
-**Undo:** initially only token moves. The server returns eligibility and a plain-language
-reason for ineligible events. A move can be undone only if the token still exists in the
-same scene, no later mutation changed that token, and the move has not already been
-compensated. Changes to unrelated tokens do not block undo. Recheck eligibility atomically
-when requested; a stale enabled button is not authorization. Append compensation with
-actor, timestamp and reference to the original event. No redo in this milestone.
-
-**Checkpoint restore:** GM-only, explicit confirmation showing checkpoint name/time and
-what changes. Restore scene encounter state (map/grid/geometry/fog/tokens/resources/
-conditions/templates/drawings/initiative), not memberships, roles, credentials, invites,
-dice history or audit history. Save an automatic pre-restore checkpoint atomically, append
-a restore event, advance scene revision, and send filtered snapshots. Reject old-revision
-commands and clear pending gestures. Revalidate token owner references against current
-memberships; revoked or missing owners become unassigned. Restore cannot recover access
-rights or make a participant unrevoked. A reveal cannot erase information players already
-saw; the confirmation says so when relevant.
-
-### 13.5 Tool interactions and player-safe rendering
-
-Keep tool selection separate from administrative layer targeting. Players have permitted
-Select/Move, Ruler, Ping, Draw and AoE tools. Only GMs receive fog/wall/layer administration.
-Server authorization remains mandatory regardless of visible controls.
-
-- Mouse: primary pointer acts with the selected tool; middle-drag or Space+drag pans;
-  zoom controls and wheel zoom anchor on the board. Space shortcuts do not run in fields.
-- Touch: in Select mode, one-finger drag on an owned token moves it; drag on empty board
-  pans; pinch zooms. A second finger cancels any uncommitted token drag before zoom begins.
-  Drawing/measurement uses an explicit selected tool, preventing accidental map edits.
-- Escape cancels the current gesture before closing a containing sheet. Pointer cancel,
-  loss of permission, scene switch or disconnect discards the gesture.
-- Click/tap selects. Roster selection opens the same inspector. A Move control supports
-  grid-step directional buttons and numeric position fields as a non-drag alternative.
-  Initiative has Move up/Move down controls in addition to drag reordering.
-- Ping is an explicit tool with one click/tap, not a touch long-press dependency. Drawings
-  and AoE support first-point/second-point placement and numeric size/angle controls;
-  preview → Place or Cancel is explicit. Creators may edit/delete their own objects; GMs
-  may edit/delete any. Freehand remains out of scope.
-- Grid snapping is a local placement preference and does not snap existing objects on
-  toggle. Default on when an accepted grid exists. Coordinates are map-image pixels from
-  the top-left; cell size/offset use those coordinates. Persist token centers, not DOM
-  positions; zoom and device pixel ratio never enter persisted geometry.
-- Movement ruler defaults to one unit per orthogonal or diagonal grid step; an optional
-  alternating diagonal mode is a room setting. Budgets are advisory warnings, not move
-  rejection rules. Units, diagonal mode and token budget are visible beside the ruler.
-
-**Visibility contract:** clients receive only authorized tokens, resources, rolls and
-geometry. Player fog is a derived visible-area mask or equivalent safe projection, not
-private GM concealment instructions. Dynamic LoS uses a server-derived visible region;
-do not ship secret walls just to raycast them in the player browser. Masks must also
-clip ephemeral effects. The server filters drag previews and associated token IDs by
-recipient visibility; client clipping alone is insufficient. Remove newly hidden tokens
-from all client caches, inspectors, selection and accessible DOM representations.
-
-The full base map image is accessible to any participant receiving its asset URL; a fog
-mask is visual concealment, not protection of those source pixels. For current scope,
-FR-GM-23 protects hidden entities/private metadata, not secrecy of an already-delivered
-image. Use maps without baked-in secrets. Secure image-region streaming would be a
-separate requirement and is not claimed here.
-
-Preview messages include scene ID, per-sender generation and increasing preview counter.
-Discard stale/out-of-order values. Coalesce preview sends to at most 20Hz; render local
-motion independently. Token/ruler/AoE previews expire after one second without refresh;
-pings expire after 1.5 seconds. Clear a preview on commit/cancel/disconnect/scene change.
-Reduced-motion mode replaces pulses with a static marker for the same duration.
-
-### 13.6 Components, state ownership and implementation boundaries
-
-React owns routes, DOM controls, forms and accessible representations. Pixi owns drawing
-and pointer-frequency visuals. The renderer consumes authorized state; it never decides
-permissions. Keep geometry transforms and reducers independently testable.
-
-| Component | Main inputs | Local state / events | Reused pieces |
-| --- | --- | --- | --- |
-| Entry/Auth/Join pages | Session, invite validity, resumable participant | Fields, submitting, join/resume/create | Field, InlineError, Button |
-| RoomList | RoomSummary array, request state | Open/create, retry, cursor | RoomRow, Skeleton, EmptyState |
-| TableShell | Room ID, capabilities, connection | Active tab/sheet | BoardViewport, EncounterPanel |
-| BoardViewport | Authorized scene, tokens, previews | Camera, selection, gesture | RendererAdapter, BoardControls |
-| TokenRoster/Inspector | Tokens, participants, editable fields | Selection, edit draft, assign/move | TokenRow, ResourceField, ConditionBadge |
-| InitiativeTracker | Entries, active entry, capabilities | Edit/reorder/advance | InitiativeRow, MoveButtons |
-| DicePanel | Allowed audiences, roll results | Expression/audience, pending roll | ExpressionField, RollResult |
-| PreparationSheet | Draft/base revision, assets, analysis job | Grid/token edits, preview/apply | UploadField, GridEditor, JobStatus |
-| ActivityLogSheet | Events, undo eligibility, checkpoints | Load older, undo/save/restore | EventRow, ConfirmDialog |
-| SettingsSheet | Members, invite/expiry, capabilities | Copy/regenerate/revoke | ParticipantRow, InviteLink |
-
-Suggested folders: `app/` for routes/providers; `ui/` for primitives; `features/` for
-identity, rooms, preparation, encounter and recovery; `board/` for renderer/gestures;
-`services/` for REST/socket adapters; `state/` for stores; `styles/` for shared tokens.
-Wire/domain schemas remain in `packages/shared`; do not create parallel local definitions.
-
-Use the selected Zustand store for authoritative room state and narrow subscriptions.
-Keep pending commands/previews separate from accepted state, camera/tool/tab preferences
-local to the session, and input drafts local to their feature. A rejection removes only
-that command's preview; it must not restore an obsolete whole-room snapshot. Hooks such
-as `useRoomSession`, `useRoomCommands`, `useBoardViewport` and `useAnalysisJob` isolate
-lifecycles. Do not send pointer updates through a whole-app React render loop.
-
-### 13.7 Data and service contracts
-
-These are target contracts to add to shared schemas, not undocumented replacements for
-existing endpoints. REST handles account/session, room lists, assets, private drafts,
-analysis jobs and history reads. Authoritative encounter changes use committed commands;
-scene Apply/restore must use the same transaction/event path even if submitted through REST.
-
-| View / operation | Required fields and behavior |
-| --- | --- |
-| Session | User summary, room participant, capabilities; never credential hashes |
-| RoomSummary | ID, name, thumbnail URL/null, lastPlayedAt/null, memberCount, myRole |
-| SceneView | Scene ID, revision, asset dimensions, grid/null, authorized tokens/overlays, safe visibility projection |
-| TokenView | ID/name/art, center/size/rotation, permitted resources/conditions, owner reference if authorized, canMove/canEdit |
-| Draft | ID, base scene/revision, draft revision, asset revision, grid/geometry/tokens, updatedAt, save status |
-| AnalysisJob | ID, draft/asset revision, queued/running/succeeded/failed/cancelled, stage, result/confidence, structured failure |
-| Activity page | Event ID/seq, actor display label, timestamp, plain-language domain payload, undo eligibility/reason, nextCursor |
-| Checkpoint | ID/name/time, scene summary, restore eligibility; snapshot fetched only through authorized restore path |
-| API error | Stable code, safe message, fieldErrors where relevant, request/command ID, retryability |
-
-Lists use cursor pagination: room pages 25 rows, history pages 50 events with Load older.
-No search/filter system in the first release. Preserve visible rows on refresh failure
-and expose a retry; an initial failure is distinct from an empty result. Virtualize only
-if measured list performance requires it.
-
-Upload defaults: JPG/PNG/WebP, ≤20 MiB compressed, ≤16 megapixels and ≤8192px on either
-edge. Validate decoded size/type server-side as well as client-side. Reject SVG for map
-and token uploads. UVTT is stretch and needs separate container/schema limits before its
-upload control ships. Upload shows byte progress when available; analysis shows named
-stages, never fabricated percentages. Poll job status every two seconds while the sheet
-is visible, backing off to ten seconds for prolonged jobs; pause while offline. Cancel
-prevents a result from applying even if the worker cannot immediately stop. Retry creates
-a new job tied to the current asset revision.
-
-Dice defaults: accept `NdX + M` with optional whitespace and signed modifier; 1–100 dice,
-2–1000 sides, modifier between −10000 and 10000. Parse/validate and roll on the server.
-Players roll publicly; GMs choose public or GM-only, default public. Pending/unknown rolls
-retain the same command ID on retry. Empty dice history invites a first roll, not a spinner.
-Initiative ties keep stable existing order; GM can reorder. Advancing past the last entry
-increments the round. Removing the active entry selects the next remaining entry; an empty
-list has no active turn. Players inspect initiative but cannot edit it.
-
-### 13.8 Tokens, component states and accessibility
-
-Adopt §11.9's ground/panel/text/accent palette. Use Geist and Geist Mono with system
-fallbacks, self-hosted when available; numeric values also set tabular figures. Use one
-Phosphor outline icon family with a consistent optical stroke; do not mix icon families.
-
-| Token family | Selected defaults |
-| --- | --- |
-| Spacing | 4, 8, 12, 16, 24, 32, 48, 64px |
-| UI type | 14px compact secondary, 16px body, 18px panel heading, 24/32px page headings; line-height 1.5 body / 1.2 heading |
-| Hero type | Fluid 36–72px; allow wrapping rather than fixed line count |
-| Control/overlay radius | 6px / 12px |
-| Control height | 40px regular; coarse-pointer hit area at least 44×44px |
-| Borders | 1px decorative hairline; control boundary uses `#627783` |
-| Error text | `#f08a80`; original danger remains an icon/status fill only where contrast allows |
-| Primary button | Accent background, ground foreground; never parchment text on gold |
-| Focus | 2px accent outline, 2px offset; ground separation on accent-filled controls |
-| Surface states | Hover `#202b33`, selected `#30302a`; selection also has glyph/border/ARIA state |
-| Overlay shadow | `0 16px 48px rgb(15 20 24 / 45%)` |
-| DOM layers | Board 0, controls 10, menus 20, sheet backdrop 30, sheet 40, confirmation 50 |
-
-Validate foreground/background pairs in actual use. From the specified palette, body on
-panel is 13.19:1 and muted on panel 5.87:1. Original danger on panel is only 3.89:1, and
-parchment on accent 1.76:1; neither is normal text treatment. Hairline on panel is 1.29:1
-and is decorative, not the only means of recognizing an input or selected control.
-
-**Shared states:** buttons have default/hover/focus/pressed/disabled/pending; tabs and tool
-buttons add selected/pressed semantics. Pending buttons retain label/width and show a
-textual action state. Forms preserve entered values on failure, associate inline errors
-with fields and focus an error summary on failed submission. Success is communicated
-next to the action; not every save needs a toast. Disabled actions explain why when it
-is not self-evident. Destructive confirmations identify the affected room/person/scene.
-
-**Data states:** initial loading uses content-shaped skeletons; refresh keeps accepted
-content visible; empty states identify the next allowed action; errors show a specific
-retry when safe; offline keeps accepted content with a stale indicator. Skeletons are
-hidden from assistive technology and their container exposes busy state. Analysis uses
-stage text, not a skeleton pretending to be the completed map.
-
-**Keyboard and semantics:** use native links/buttons/inputs. Label every field and
-icon-only control. Tabs support arrow navigation and associated tabpanels. Modal sheets
-have a name, focus containment, inert background and focus return; if the opener no
-longer exists, focus the closest stable heading/control. Menus and tooltips are never
-the only path to an action. No global shortcut fires while typing in an input.
-
-**The focusable token roster is required with token interaction, not cuttable stretch.**
-It and the inspector provide selection, movement, statistics and condition access. The
-non-drag controls in §13.5 are required. Test keyboard operation, single-pointer alternatives,
-200% text zoom and narrow-width reflow; never force 14px labels onto essential error text
-just to preserve a panel size. Respect the 44px coarse-pointer target even in dense mode.
-
-Announce connection changes, accepted/rejected user actions, active-turn changes and scene
-replacement through restrained live regions. Do not announce seq increments, every drag
-sample or other users' every movement. Reduce motion across home demos, pings, transitions
-and drag settling. Continuous decorative pulsing is removed: active turn and connection
-use static labeled indicators by default. Animate only transform/opacity, and do not spring
-an authoritative token through misleading intermediate positions.
-
-Accessibility references: [WCAG 2.2](https://www.w3.org/TR/WCAG22/) and
-[non-drag alternatives](https://www.w3.org/WAI/WCAG22/Understanding/dragging-movements).
-
-### 13.9 Delivery order and acceptance gates
-
-These gates refine §8; they do not claim additional features are already shipped.
-
-1. **Foundations:** shared tokens/primitives, capability contracts and persistent room
-   provider. Agree required schema migrations first; benchmark the renderer with a
-   representative large map and 100 tokens early rather than after polishing screens.
-2. **Identity/rooms:** account creation/session, authenticated room creation, hub and guest
-   join/resume. Verify reload identity, storage failure, duplicate request handling and
-   two-tab behavior. Core invite-to-board target remains under 30 seconds.
-3. **Playable board:** viewport, token setup/ownership, roster and non-drag controls.
-   Verify permissions through direct API/socket attempts as well as hidden controls.
-4. **Preparation:** manual grid alignment and private persisted drafts, then detection.
-   Verify a player sees neither draft metadata nor asset access; analysis failure must
-   leave manual preparation usable. Stale results cannot overwrite edits.
-5. **Publication:** atomic Apply and scene replacement with automatic checkpoint.
-   Test checkpoint failure, concurrent live changes, duplicate Apply, late old-scene
-   commands, and reconnect during publication using two browser contexts.
-6. **Tactical state:** initiative, dice, filtered ephemeral tools, fog and conditions.
-   Test duplicate/out-of-order previews, TTL cleanup, private-roll routing and unknown
-   outcomes. Keep committed/ephemeral latency benchmarks separate.
-7. **Recovery/access:** eligibility-based move undo, checkpoint restore, revocation and
-   invite regeneration. Confirm restore does not restore revoked membership or erase
-   history, and undo cannot overwrite a later edit of the same token.
-8. **Responsive/accessibility verification:** test desktop and mobile layouts, short
-   landscape, software keyboard, rotation after manual pan, focus return, screen reader
-   announcements, contrast and non-drag alternatives. Build these behaviors throughout
-   earlier steps; this gate is verification, not the first accessibility implementation.
-9. **Release evidence:** lint/typecheck/build, domain tests, multi-client integration,
-   required browser coverage and representative benchmarks. Targets remain 60 FPS,
-   ≤150ms ephemeral propagation, ≤500ms committed propagation and ≤3s reconnect convergence
-   under the documented benchmark conditions. Measure onboarding with independent users.
-
-**Explicitly deferred:** saved-asset library, automatic participant merging, co-GM,
-unclaimed rooms, redo, secure map-tile streaming and advanced mobile map editing. Stretch
-wall/portal/LoS work retains §8's dependencies, including server-side visibility projection.
-Password reset remains out of course Core Loop scope; real-world release requires a
-recovery path rather than orphaning account-owned rooms.
-
-**Documentation follow-through:** update §10 statuses only with implementation evidence.
-Mirror the roster's earlier delivery, accepted account scope and precise map-pixel secrecy
-boundary into README requirements before declaring corresponding acceptance complete.
-Keep screenshots and implementation-status assertions current; no nonexistent reference
-image should be treated as a design dependency.
+## 7. Open Decisions
+
+- **Accounts.** Resolved in [`FRONTEND-CONTRACT.md`](FRONTEND-CONTRACT.md) §13.1: hosting requires an account, players never need one. Not implemented; room creation is still open.
+- **Grid detection accuracy.** The fallback when detection is wrong is manual correction (FR-GM-04), which must ship before or with FR-GM-03.
+- **Undo scope.** Which events are reversible, and whether undo is per-actor or per-room.
+- **Duplicate names.** Participant and token names are not unique (KAN-61, KAN-62).
+- **Fog and filtering.** Fog must be filtered server-side, not masked in Pixi — masking alone ships the hidden map to the client.

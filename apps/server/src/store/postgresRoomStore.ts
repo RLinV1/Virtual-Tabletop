@@ -7,7 +7,7 @@ import { SeqConflictError, type CredentialRecord, type NewEvent, type RoomStore 
 const PRISMA_UNIQUE_VIOLATION = "P2002";
 
 /**
- * Append-only event store on Postgres via Prisma (DESIGN.md §3, §4.1;
+ * Append-only event store on Postgres via Prisma (DESIGN.md §2, §5;
  * docs/adr/0001-event-model.md).
  *
  * The ordering guarantee lives in the schema, not in application code:

@@ -34,7 +34,7 @@ a second tab in the same window is still the GM.
 
 By default the server keeps everything in memory and writes uploads to local disk, so
 restarting `npm run dev` clears every room. That is deliberate — a fresh checkout runs with
-no containers. To run the real stack (Postgres, Redis, MinIO — see [`docs/DESIGN.md`](docs/DESIGN.md) §3):
+no containers. To run the real stack (Postgres, Redis, MinIO — see [`docs/DESIGN.md`](docs/DESIGN.md) §2):
 
 ```bash
 docker compose up -d

@@ -31,7 +31,7 @@ export interface RoomClient {
   send(message: ServerMessage): void;
   /**
    * Best-effort delivery for the ephemeral channel — dropped under backpressure so
-   * pointer chatter never queues ahead of committed state (DESIGN.md §2.2, FR-SYNC-03).
+   * pointer chatter never queues ahead of committed state (DESIGN.md §1, FR-SYNC-03).
    * Falls back to `send` for transports without a volatile path.
    */
   sendVolatile?(message: ServerMessage): void;

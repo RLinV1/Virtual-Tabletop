@@ -13,7 +13,7 @@ import type { RoomStore } from "../store/roomStore";
 const EPHEMERAL_PER_SECOND = 40;
 
 /**
- * Socket.IO gateway (DESIGN.md §2.2, §3).
+ * Socket.IO gateway (DESIGN.md §1, §2).
  *
  * Identity is resolved once, in the handshake: Socket.IO replays `auth` on every
  * automatic reconnect, so a dropped client rebinds to the same participant without a

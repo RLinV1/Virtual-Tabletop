@@ -12,7 +12,7 @@ import {
 } from "@aws-sdk/client-s3";
 
 /**
- * Where uploaded map and token images live (DESIGN.md §3).
+ * Where uploaded map and token images live (DESIGN.md §2).
  *
  * Images do not belong in Postgres, so they go to object storage. MinIO speaks the S3
  * API, so local dev and the deploy target run the same code path — and a checkout with
@@ -79,7 +79,7 @@ export class MinioAssetStore implements AssetStore {
     }
 
     // Buckets are private by default, which would make every returned URL a 403 in the
-    // browser. Objects are named by UUID and carry no room data, and DESIGN.md §6 wants
+    // browser. Objects are named by UUID and carry no room data, and DESIGN.md §5 wants
     // them served from an origin separate from the app, so read is public and write is not.
     await s3.send(
       new PutBucketPolicyCommand({
