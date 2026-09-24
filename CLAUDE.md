@@ -43,7 +43,7 @@ Run `npm run lint && npm run typecheck && npm test` before declaring any task do
 Changes to existing schemas in `packages/shared` need an ADR in `docs/adr/` and review by the Real-Time Architecture owner.
 
 ## Conventions
-- TypeScript strict; no `any`. zod for anything crossing a trust boundary — DESIGN.md §3 wants runtime payload validation for FR-GM-15 and the README §8 forged-payload tests; Express has none built in, so zod supplies it.
+- TypeScript strict; no `any`. zod for anything crossing a trust boundary — DESIGN.md §2 wants runtime payload validation for FR-GM-15 and the README §8 forged-payload tests; Express has none built in, so zod supplies it.
 - Commands `noun.verb`; events `PastTense`.
 - Reference the FR ID in tests (`describe("... (FR-PL-02)")`) and PR titles.
 - Keep PixiJS code in `board/`; React components never touch Pixi objects directly.

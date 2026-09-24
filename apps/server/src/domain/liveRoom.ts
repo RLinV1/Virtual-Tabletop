@@ -2,6 +2,7 @@ import { randomInt, randomUUID } from "node:crypto";
 import {
   can,
   decide,
+  decideJoin,
   emptyRoomState,
   filterEventForViewer,
   filterStateForViewer,
@@ -12,6 +13,7 @@ import {
   type CommittedEvent,
   type DomainEvent,
   type EphemeralPayload,
+  type JoinDecision,
   type Participant,
   type RejectionCode,
   type RoomState,
@@ -32,7 +34,7 @@ export interface RoomClient {
   send(message: ServerMessage): void;
   /**
    * Best-effort delivery for the ephemeral channel — dropped under backpressure so
-   * pointer chatter never queues ahead of committed state (DESIGN.md §2.2, FR-SYNC-03).
+   * pointer chatter never queues ahead of committed state (DESIGN.md §1, FR-SYNC-03).
    * Falls back to `send` for transports without a volatile path.
    */
   sendVolatile?(message: ServerMessage): void;
@@ -90,7 +92,19 @@ export class LiveRoom {
     });
   }
 
-  /** For server-originated events (room creation, joins) that aren't client commands. */
+  /**
+   * Guest join (FR-PL-01). Decided and committed in one queue step, so two joins racing for
+   * the same display name can't both pass the uniqueness check (KAN-61).
+   */
+  join(participant: Participant): Promise<JoinDecision> {
+    return this.runExclusive(async () => {
+      const decision = decideJoin(this.state, participant);
+      if (decision.ok) await this.commit(participant.id, decision.events);
+      return decision;
+    });
+  }
+
+  /** For server-originated events (room creation) that aren't client commands. */
   appendSystem(actorId: string | null, events: DomainEvent[]) {
     return this.runExclusive(() => this.commit(actorId, events));
   }

@@ -34,16 +34,21 @@ a second tab in the same window is still the GM.
 
 By default the server keeps everything in memory and writes uploads to local disk, so
 restarting `npm run dev` clears every room. That is deliberate — a fresh checkout runs with
-no containers. To run the real stack (Postgres, Redis, MinIO — see [`docs/DESIGN.md`](docs/DESIGN.md) §3):
+no containers. To run the real stack (Postgres, Redis, MinIO — see [`docs/DESIGN.md`](docs/DESIGN.md) §2):
 
 ```bash
 docker compose up -d
+export DATABASE_URL=postgres://vtt:vtt@localhost:5432/vtt
 npm run prisma:migrate --workspace=@vtt/server
-DATABASE_URL=postgres://vtt:vtt@localhost:5432/vtt \
 REDIS_URL=redis://localhost:6379 \
 MINIO_ENDPOINT=http://localhost:9000 \
 npm run dev
 ```
+
+`export` first, and in that order: `prisma:migrate` reads `DATABASE_URL` from the
+environment and fails with `P1012` without it. **Re-run it after every pull that touches
+`apps/server/prisma/`** — `docker compose up` does not migrate, so a database left behind
+the code fails at runtime rather than at startup.
 
 Two lines on startup tell you which mode you are in:
 
@@ -72,6 +77,14 @@ DATABASE_URL=postgres://vtt:vtt@localhost:5432/vtt npm test --workspace=@vtt/ser
 The server runs from TypeScript via `tsx`; `npm start` launches it.
 
 ### Troubleshooting
+
+**"Internal error" when creating a room** means pending migrations: the code expects
+tables the database does not have. Check which are applied, then apply the rest:
+
+```bash
+export DATABASE_URL=postgres://vtt:vtt@localhost:5432/vtt
+npm run prisma:migrate --workspace=@vtt/server
+```
 
 `EADDRINUSE` on :3001 means an earlier `npm run dev` is still running:
 

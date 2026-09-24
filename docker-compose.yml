@@ -1,4 +1,4 @@
-# Local infrastructure (DESIGN.md §3).
+# Local infrastructure (DESIGN.md §2).
 #
 #   docker compose up -d
 #   export DATABASE_URL=postgres://vtt:vtt@localhost:5432/vtt

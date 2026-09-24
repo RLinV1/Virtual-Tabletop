@@ -76,6 +76,31 @@ describe("GM device identity (gm-home)", () => {
     expect((await gmFetch(gmToken, "/api/library")).status).toBe(200);
   });
 
+  it("lets a stored token the server forgot re-register (gm-identity-recovery)", async () => {
+    // A browser token from before a wipe: never registered with this store.
+    const stored = newGuestToken();
+    expect((await gmFetch(stored, "/api/library")).status).toBe(401);
+    const res = await fetch(`${server.base}/api/gm/identify`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ gmToken: stored }),
+    });
+    expect(res.status).toBe(204);
+    expect((await gmFetch(stored, "/api/library")).status).toBe(200);
+  });
+
+  it("keeps owned rooms when a known token is re-registered (gm-identity-recovery)", async () => {
+    const gmToken = await newGm();
+    await server.createRoom("GM", { gmToken, roomName: "Keep me" });
+    await fetch(`${server.base}/api/gm/identify`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ gmToken }),
+    });
+    const rooms = (await (await gmFetch(gmToken, "/api/gm/rooms")).json()) as GmRoomSummary[];
+    expect(rooms.map((r) => r.name)).toEqual(["Keep me"]);
+  });
+
   it("rejects a room guest credential on library endpoints", async () => {
     const room = await server.createRoom();
     const res = await fetch(`${server.base}/api/library`, { headers: { authorization: `Bearer ${room.guestToken}` } });

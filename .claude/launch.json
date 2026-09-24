@@ -12,6 +12,21 @@
       "port": 3001
     },
     {
+      "name": "server-compose",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--workspace=@vtt/server"
+      ],
+      "env": {
+        "DATABASE_URL": "postgres://vtt:vtt@127.0.0.1:5432/vtt",
+        "REDIS_URL": "redis://127.0.0.1:6379",
+        "MINIO_ENDPOINT": "http://127.0.0.1:9000"
+      },
+      "port": 3001
+    },
+    {
       "name": "web",
       "runtimeExecutable": "npm",
       "runtimeArgs": [
@@ -19,6 +34,9 @@
         "dev",
         "--workspace=@vtt/web"
       ],
+      "env": {
+        "VTT_SERVER": "http://127.0.0.1:3001"
+      },
       "port": 5173
     }
   ]

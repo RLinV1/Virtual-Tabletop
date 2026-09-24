@@ -10,7 +10,7 @@ const PRISMA_UNIQUE_VIOLATION = "P2002";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * Append-only event store on Postgres via Prisma (DESIGN.md §3, §4.1;
+ * Append-only event store on Postgres via Prisma (DESIGN.md §2, §5;
  * docs/adr/0001-event-model.md).
  *
  * The ordering guarantee lives in the schema, not in application code:

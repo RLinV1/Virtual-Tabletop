@@ -7,7 +7,8 @@ export function LibraryPicker(props: {
   gmToken: string;
   kind: AssetKind;
   onPick: (asset: LibraryAsset) => void;
-  onClose: () => void;
+  /** Shows a Close button when the picker is inline; omitted inside a modal. */
+  onClose?: () => void;
 }) {
   const [assets, setAssets] = useState<LibraryAsset[] | null>(null);
   const [query, setQuery] = useState("");
@@ -27,10 +28,12 @@ export function LibraryPicker(props: {
   return (
     <div className="library-picker" role="group" aria-label={`Choose a ${props.kind} from your library`}>
       <div className="row">
-        <input type="search" aria-label="Search library" placeholder="Search" value={query} onChange={(e) => setQuery(e.target.value)} />
-        <button type="button" className="secondary small" onClick={props.onClose}>
-          Close
-        </button>
+        <input type="search" aria-label="Search library" placeholder={props.kind === "map" ? "Search maps" : "Search tokens"} value={query} onChange={(e) => setQuery(e.target.value)} autoFocus />
+        {props.onClose && (
+          <button type="button" className="secondary small" onClick={props.onClose}>
+            Close
+          </button>
+        )}
       </div>
       {error && <p role="alert" className="error">{error}</p>}
       {!assets && !error && <p className="muted">Loading…</p>}

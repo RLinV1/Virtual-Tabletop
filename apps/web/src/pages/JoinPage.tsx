@@ -57,14 +57,19 @@ export function JoinPage({ inviteCode }: { inviteCode: string }) {
           Your name
           <input
             value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
+            onChange={(e) => {
+              setDisplayName(e.target.value);
+              setError(null);
+            }}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? "join-error" : undefined}
             required
             maxLength={40}
             autoFocus
             autoComplete="nickname"
           />
         </label>
-        {error && <p role="alert" className="error">{error}</p>}
+        {error && <p id="join-error" role="alert" className="error">{error}</p>}
         <button type="submit" disabled={busy}>
           {busy ? "Joining…" : "Join"}
         </button>
