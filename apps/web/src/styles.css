@@ -690,6 +690,18 @@ button.token-delete { align-self: flex-start; padding-inline: 0; }
 }
 .home-page a { color: var(--link); }
 
+/* KAN-65's base rules reach into this page: `a` is themed app-wide, and `h2` is set in
+   Alegreya Small Caps via --font-label. Both are right for the table and wrong for a
+   marketing page, so the home page states its own. */
+.home-page .brand { color: var(--text); }
+.home-page h1,
+.home-page h2,
+.home-page h3 {
+  font-family: var(--font-ui);
+  letter-spacing: -0.02em;
+  text-transform: none;
+}
+
 /* ==========================================================================
    The landing (DESIGN.md §11.5, §11.9)
 
