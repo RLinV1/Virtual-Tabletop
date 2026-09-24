@@ -39,6 +39,7 @@ export function registerRoutes(
     void (async () => {
       const body = CreateRoomRequest.safeParse(req.body);
       if (!body.success) return res.status(400).json({ error: body.error.issues });
+      if (!body.data.displayName.trim()) return res.status(400).json({ error: "Display name can't be blank." });
 
       const roomId = randomUUID();
       const inviteCode = newInviteCode();
@@ -53,7 +54,7 @@ export function registerRoutes(
         { type: "RoomCreated", name: body.data.roomName },
         {
           type: "ParticipantJoined",
-          participant: { id: participantId, role: "gm", displayName: body.data.displayName },
+          participant: { id: participantId, role: "gm", displayName: body.data.displayName.trim() },
         },
       ]);
       const response: CreateRoomResponse = { roomId, inviteCode, participantId };
@@ -72,13 +73,10 @@ export function registerRoutes(
       if (!roomId || !room) return res.status(404).json({ error: "Invite not found" });
 
       const participantId = randomUUID();
+      // Join first, credential second: a rejected join must leave no credential behind (KAN-61).
+      const joined = await room.join({ id: participantId, role: "player", displayName: body.data.displayName });
+      if (!joined.ok) return res.status(joined.reason === "name_taken" ? 409 : 400).json({ error: joined.message });
       await store.saveCredential(hashToken(body.data.guestToken), { roomId, participantId });
-      await room.appendSystem(participantId, [
-        {
-          type: "ParticipantJoined",
-          participant: { id: participantId, role: "player", displayName: body.data.displayName },
-        },
-      ]);
       const response: JoinRoomResponse = { roomId, participantId };
       return res.json(response);
     })().catch(() => res.status(500).json({ error: "Internal error" }));
