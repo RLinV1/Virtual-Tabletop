@@ -6,7 +6,9 @@
   --raised: #20242a;
   --field: #0e1013;
   --border: #272c33;
-  --border-strong: #363c46;
+  /* Control boundaries, so 3:1 against every surface it sits on (WCAG 1.4.11):
+     3.81 on --bg, 3.56 on --panel, 3.22 on --raised. The previous #363c46 was 1.66. */
+  --border-strong: #6a7280;
   --text: #e3e6ea;
   --muted: #8e96a2;
   --accent: #b9582f;        /* rust: primary actions, active turn (white text 4.9:1) */
