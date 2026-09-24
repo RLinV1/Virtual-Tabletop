@@ -20,6 +20,7 @@
 - [x] 3.2 Lit ground with a per-map bloom, feathered frames and a specular layer. Verify no horizontal overflow at 380px.
 - [x] 3.3 All motion behind `prefers-reduced-motion`, using CSS scroll-driven animation rather than a scroll listener. Verify no `animation:` sits outside the guard.
 - [x] 3.4 Three distinct maps, one per section, each with its own alt text. Verify three distinct sources load.
+- [x] 3.5 Character art on the map tokens: face crops as 192px WebP in `public/img/tokens/`, one cast per map (dragon map: Brenna, Toma, Ash; forest temple: Brenna, Toma), drawn clipped to the disc over its colour with the initial as fallback. Verify all five load, in both GM and player views, and that forcing one to fail leaves its coloured disc and initial.
 
 ## 4. Verify
 
@@ -27,5 +28,5 @@
 - [x] 4.2 Zero em-dashes in the rendered page, including the dice parser's error message.
 - [x] 4.3 `npm run lint && npm run typecheck && npm test` clean.
 - [x] 4.4 Adopt KAN-65's rust palette, keeping only the tokens that system does not provide. Verify `--accent` resolves to `#b9582f` on both `/` and `/library`, and that every contrast pair still passes in both grounds.
-- [ ] 4.5 Raise the `--border-strong` contrast defect (1.66:1) as its own change; it affects every bordered control in the app, not just this page.
+- [x] 4.5 Raise the `--border-strong` contrast defect (1.66:1) as its own change; it affects every bordered control in the app, not just this page. Fixed in PR #21 (`fix/control-border-contrast`): `--border-strong` is now `#6a7280`, 3.81:1 on `--bg`.
 - [ ] 4.6 Decide whether the home page keeps Geist or moves to Alegreya Sans.

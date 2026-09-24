@@ -313,6 +313,55 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
   min-width: 2.5ch; text-align: right;
 }
 .roll-detail { min-width: 0; }
+.roll.rolling .roll-total { color: var(--muted); }
+
+/* The tray the latest roll lands in. Rust dice for the table; a GM-only roll is thrown in
+   slate with amber numerals, and its row still carries the "GM only" badge. */
+.dice-tray {
+  --die-body: var(--accent);
+  --die-ink: var(--accent-ink);
+  --die-shadow: rgba(0, 0, 0, 0.6);
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 0.3rem 0.55rem;
+  padding: 0.7rem 0.5rem 0.8rem;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: radial-gradient(ellipse 80% 90% at 50% 30%, var(--raised), var(--field));
+  /* The dice are thrown in from outside the tray; clip them until they arrive. */
+  overflow: hidden;
+}
+.dice-tray.private { --die-body: #39404b; --die-ink: var(--warn); }
+.die3d-slot { position: relative; width: var(--die); height: var(--die); }
+.die3d-shadow {
+  position: absolute; left: 14%; right: 14%; bottom: -4%; height: 22%;
+  border-radius: 50%; background: radial-gradient(closest-side, var(--die-shadow), transparent);
+}
+.die3d-flight { position: absolute; inset: 0; perspective: calc(var(--die) * 6); }
+.die3d { position: absolute; inset: 0; transform-style: preserve-3d; }
+.die3d-face {
+  position: absolute; left: 50%; top: 50%; transform-origin: 0 0;
+  -webkit-backface-visibility: hidden; backface-visibility: hidden;
+}
+.die3d-face svg { display: block; overflow: visible; }
+.die3d-face polygon {
+  fill: color-mix(in srgb, var(--die-body), #05070a var(--shade));
+  stroke: color-mix(in srgb, var(--die-body), #fff 18%); stroke-opacity: 0.35;
+  stroke-width: 0.8; stroke-linejoin: round;
+}
+/* The result face catches a little more light than the shading alone would give it. */
+.die3d-face.front polygon { fill: color-mix(in srgb, var(--die-body), #fff 8%); }
+.die3d-face text {
+  fill: var(--die-ink); font-weight: 800; font-variant-numeric: tabular-nums;
+  text-anchor: middle; dominant-baseline: central;
+}
+.die3d-face line { stroke: var(--die-ink); stroke-linecap: round; }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* The total arrives with the dice. */
+  .roll.fresh .roll-total { animation: roll-total-in 0.35s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+  @keyframes roll-total-in {
+    from { opacity: 0; transform: scale(0.6); }
+    to { opacity: 1; transform: none; }
+  }
+}
 
 /* --- Initiative --- */
 .init-setup { display: flex; flex-direction: column; gap: 0.3rem; }
@@ -1134,6 +1183,9 @@ button.token-delete { align-self: flex-start; padding-inline: 0; }
   font-size: 0.95rem;
   line-height: 1;
 }
+/* Token art fills the disc, clipped to the circle as the board clips it. */
+.token-disc.has-art { overflow: hidden; }
+.token-disc.has-art img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .token-hp {
   width: 2.5rem;
   height: 4px;
@@ -1219,20 +1271,12 @@ button.token-delete { align-self: flex-start; padding-inline: 0; }
   align-items: flex-start;
 }
 .dice-empty { margin: auto 0; font-size: 0.92rem; }
-.dice-faces { display: flex; flex-wrap: wrap; gap: 0.4rem; }
-.die {
-  display: grid;
-  place-items: center;
-  min-width: 2.4rem;
-  height: 2.4rem;
-  padding: 0 0.35rem;
-  border-radius: 6px;
-  border: 1px solid var(--control-border);
-  background: var(--field);
-  font-family: var(--font-mono);
-  font-size: 1rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
+/* The same tray the table throws into, sitting in the demo box. The box already frames
+   it, so the tray drops its own border and stays a recessed floor for the dice. */
+.dice-result .dice-tray {
+  align-self: stretch; border: none; border-radius: 8px;
+  background: radial-gradient(ellipse 80% 90% at 50% 30%, var(--raised), var(--ground));
+  --die-shadow: var(--shadow-tint);
 }
 .dice-total {
   margin: 0;
@@ -1245,42 +1289,6 @@ button.token-delete { align-self: flex-start; padding-inline: 0; }
   color: var(--text);
 }
 
-
-/* ---- The throw. Feedback: the dice arrive, they do not appear. ---- */
-
-.die { will-change: transform; }
-
-/* A die in the air: tumbling, lifted, and lit from the side. */
-.die.is-tumbling {
-  border-color: var(--accent);
-  color: var(--accent);
-  box-shadow: 0 6px 16px rgba(6, 8, 12, 0.45);
-}
-
-.dice-result.is-throwing { /* reserved: the box itself stays still, the dice move */ }
-
-@media (prefers-reduced-motion: no-preference) {
-  .die.is-tumbling { animation: tumble 0.3s cubic-bezier(0.45, 0, 0.55, 1) infinite; }
-
-  @keyframes tumble {
-    0% { transform: translateY(0) rotate(0deg) scale(1); }
-    20% { transform: translateY(-13px) rotate(-16deg) scale(1.06); }
-    45% { transform: translateY(2px) rotate(9deg) scale(0.96); }
-    70% { transform: translateY(-7px) rotate(-6deg) scale(1.03); }
-    100% { transform: translateY(0) rotate(0deg) scale(1); }
-  }
-
-  /* Landing: overshoot, then settle, staggered so they come to rest one after another. */
-  .die { animation: land 0.46s cubic-bezier(0.26, 1.5, 0.44, 1) both; }
-
-  @keyframes land {
-    0% { opacity: 0; transform: translateY(-22px) rotate(-12deg) scale(1.3); }
-    55% { opacity: 1; transform: translateY(3px) rotate(3deg) scale(0.93); }
-    100% { opacity: 1; transform: none; }
-  }
-
-  .dice-total.is-rolling { animation: none; }
-}
 
 /* ---- Buttons and fields get states worth touching ---- */
 

@@ -22,7 +22,7 @@ Collapses the home page into one page whose content varies by what the browser o
 - **THEN** no rooms section is rendered and no error is shown on the home page
 
 ### Requirement: The home page demonstrates the product
-The home page SHALL show what the product does using the product's own behaviour, not depictions of it. It SHALL NOT contain an interface built to look like a screenshot. It SHALL include at least one real battle map image.
+The home page SHALL show what the product does using the product's own behaviour, not depictions of it. It SHALL NOT contain an interface built to look like a screenshot. It SHALL include at least one real battle map image. Tokens shown on its maps SHALL be drawn the way the board draws a token, including the token's art when it has some.
 
 #### Scenario: Grid alignment is operable
 - **WHEN** a visitor drags the cell-size control
@@ -35,6 +35,10 @@ The home page SHALL show what the product does using the product's own behaviour
 #### Scenario: Dice run the real engine
 - **WHEN** a visitor submits a dice expression
 - **THEN** it is parsed and rolled by the same shared functions the table uses, every die is shown alongside the total, and an invalid expression shows the parser's own message
+
+#### Scenario: Tokens are drawn as the board draws them
+- **WHEN** a map on the home page shows a token that has character art
+- **THEN** the art fills the token's disc, clipped to its circle, with its ring, hit-point bar and name kept; if the art fails to load, the token shows its coloured disc and initial instead
 
 ### Requirement: Both grounds, on the home page only
 The home page SHALL support a light and a dark ground, following the system preference by default and offering a manual override that persists. The setting SHALL apply to the home page only, leaving the table's ground unchanged.
