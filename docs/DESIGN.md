@@ -38,16 +38,29 @@ This document covers architecture, stack, repository, and the running prototype.
          │  │  reduce() → filter → broadcast    │  │
          │  └───────────────────────────────────┘  │
          └───┬──────────────┬─────────────┬────────┘
-             │              │             │
-     ┌───────▼──────┐ ┌─────▼─────┐ ┌─────▼──────┐
-     │  PostgreSQL  │ │   Redis   │ │   MinIO    │
-     │  event log   │ │  seq,     │ │  map and   │
-     │  snapshots   │ │  pub/sub  │ │  token art │
-     │  credentials │ │  sessions │ │            │
-     └──────────────┘ └───────────┘ └────────────┘
+             │  :5432       │  :6379      │  :9000
+   ╔═════════╪══════════════╪═════════════╪═══════════════════════╗
+   ║  Docker Compose        │             │    docker-compose.yml ║
+   ║ ┌───────▼──────┐ ┌─────▼─────┐ ┌─────▼──────┐                ║
+   ║ │  PostgreSQL  │ │   Redis   │ │   MinIO    │                ║
+   ║ │  event log   │ │  seq,     │ │  map and   │                ║
+   ║ │  snapshots   │ │  pub/sub  │ │  token art │                ║
+   ║ │  credentials │ │  sessions │ │            │                ║
+   ║ └──────┬───────┘ └─────┬─────┘ └─────┬──────┘                ║
+   ║     pgdata          redisdata     miniodata   (named volumes)║
+   ║                                                              ║
+   ║ ┌──────────────────────────────────────────┐                 ║
+   ║ │  Vision service — PLANNED                │                 ║
+   ║ │  Python / FastAPI / OpenCV               │                 ║
+   ║ │  grid detection, wall extraction         │                 ║
+   ║ │  driven by a BullMQ queue on Redis       │                 ║
+   ║ └──────────────────────────────────────────┘                 ║
+   ╚══════════════════════════════════════════════════════════════╝
 
-     Planned: Vision service (Python/FastAPI/OpenCV) for grid
-     detection and wall extraction, driven by a BullMQ queue on Redis.
+   The App Server and the web client run on the host, not in Docker.
+   Each service is optional: with DATABASE_URL, REDIS_URL or
+   MINIO_ENDPOINT unset the server falls back to in-memory state,
+   Postgres-only sequencing, and uploads on local disk.
 ```
 
 `packages/shared` is the contract both sides import: zod schemas, `decide`, `reduce`,
