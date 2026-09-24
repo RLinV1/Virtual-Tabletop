@@ -1,5 +1,6 @@
 import {
   GM_TOKEN_HEADER,
+  HistoryResponse,
   type AssetKind,
   type GmRoomSummary,
   type GridSpec,
@@ -74,6 +75,16 @@ async function errorMessage(res: Response) {
 }
 
 export const api = {
+  async history(roomId: string, token: string, player: string, before?: number, signal?: AbortSignal) {
+    const query = new URLSearchParams({ player });
+    if (before !== undefined) query.set("before", String(before));
+    const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/history?${query}`, {
+      headers: { authorization: `Bearer ${token}` }, signal,
+    });
+    if (!res.ok) throw new Error(await errorMessage(res));
+    return HistoryResponse.parse(await res.json());
+  },
+
   createRoom: (req: CreateRoomRequest) => postJson<CreateRoomResponse>("/api/rooms", req),
 
   joinRoom: (inviteCode: string, req: JoinRoomRequest) =>

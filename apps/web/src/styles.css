@@ -44,6 +44,10 @@
 }
 
 * { box-sizing: border-box; }
+.activity-log { display: flex; flex-direction: column; gap: var(--space-2); }
+.activity-log > p { margin: 0; }
+.activity-entries li { padding: var(--space-3) 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.activity-entries p { margin: 0 0 var(--space-1); }
 /* `hidden` must beat any display set by a class (.panel-body is flex); otherwise a
    collapsed panel stays rendered and spills out of its zero-width column. */
 [hidden] { display: none !important; }
