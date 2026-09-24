@@ -32,6 +32,7 @@ import { getGmToken } from "../net/gm";
 import { loadGmToken, newGuestToken, saveCredentials } from "../net/identity";
 import { navigate } from "../router";
 import { useGroundTheme, type ThemeChoice } from "../theme";
+import { DiceTray } from "../ui/DiceTray";
 
 /** One map per section, so the page shows three encounters rather than one three times. */
 const MAPS = {
@@ -203,7 +204,6 @@ function Landing({ theme, onTheme }: ThemeProps) {
 
       <footer className="landing-shell home-footer">
         <p>Built for CSE 416 at Stony Brook.</p>
-        <Link href="/library">Open the asset library</Link>
       </footer>
     </>
   );
@@ -294,7 +294,7 @@ function GridChapter() {
 }
 
 /**
- * The asset library, which is a shipped feature and was buried in the footer. No login:
+ * The asset library, and the home page's only way into it. No login:
  * the library is keyed to this browser's GM identity until FR-GM-01 lands, and the note
  * below says so rather than implying an account exists.
  */
@@ -385,27 +385,15 @@ const cryptoRandom = () => {
   return buf[0]! / 2 ** 32;
 };
 
-const TUMBLE_MS = 680;
-const TUMBLE_STEP_MS = 70;
-
 /** The table's own parser and roller, imported from @vtt/shared and run right here. */
 function DiceChapter() {
   const [input, setInput] = useState("2d6+3");
-  const [result, setResult] = useState<{ expression: DiceExpression; dice: number[]; total: number } | null>(null);
+  const [result, setResult] = useState<{ id: string; expression: DiceExpression; dice: number[]; total: number } | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
-  const [nonce, setNonce] = useState(0);
-  /** Faces shown mid-throw. Decorative: the settled values below come from rollDice. */
-  const [tumbling, setTumbling] = useState<number[] | null>(null);
-  const timers = useRef<{ step?: number; stop?: number }>({});
-
-  // A throw in flight has to be cancelled if the section unmounts.
-  useEffect(() => {
-    const t = timers.current;
-    return () => {
-      clearInterval(t.step);
-      clearTimeout(t.stop);
-    };
-  }, []);
+  /** The roll whose dice have come to rest; until then its total is withheld. */
+  const [landed, setLanded] = useState<string | null>(null);
 
   function roll(e: FormEvent) {
     e.preventDefault();
@@ -413,36 +401,19 @@ function DiceChapter() {
     if (!parsed.ok) {
       setError(parsed.message);
       setResult(null);
-      setTumbling(null);
       return;
     }
     setError(null);
-
-    // The real roll happens now, once. The tumble is only how it is shown arriving.
-    const rolled = { expression: parsed.expression, ...rollDice(parsed.expression, cryptoRandom) };
-    const settle = () => {
-      setTumbling(null);
-      setResult(rolled);
-      setNonce((n) => n + 1);
-    };
-
-    clearInterval(timers.current.step);
-    clearTimeout(timers.current.stop);
-
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      settle();
-      return;
-    }
-
-    const faces = () => rolled.dice.map(() => 1 + Math.floor(Math.random() * parsed.expression.sides));
-    setTumbling(faces());
-    timers.current.step = window.setInterval(() => setTumbling(faces()), TUMBLE_STEP_MS);
-    timers.current.stop = window.setTimeout(() => {
-      clearInterval(timers.current.step);
-      settle();
-    }, TUMBLE_MS);
+    // The real roll happens now, once. The throw is only how it is shown arriving, and it
+    // is the same 3D tray the table throws its rolls into.
+    setResult({
+      id: `demo-${Math.floor(cryptoRandom() * 2 ** 32)}`,
+      expression: parsed.expression,
+      ...rollDice(parsed.expression, cryptoRandom),
+    });
   }
 
+  const throwing = result !== null && landed !== result.id;
   const modifier = result?.expression.modifier ?? 0;
 
   return (
@@ -453,7 +424,8 @@ function DiceChapter() {
           Every die shown, not just the total.
         </h2>
         <p>
-          Type an expression and roll. This box runs the same parser and roller the table does.
+          Type an expression and roll. This box runs the same parser and roller the table does, and throws the
+          same dice.
         </p>
         <form className="dice-demo-form" onSubmit={roll}>
           <label>
@@ -473,36 +445,27 @@ function DiceChapter() {
       </div>
 
       <div className="dice-result" aria-live="polite">
-        {tumbling ? (
-          <>
-            <p className="readout">{input}</p>
-            <ul className="plain dice-faces" aria-hidden="true">
-              {tumbling.map((d, i) => (
-                <li key={i} className="die is-tumbling" style={{ animationDelay: `${i * 40}ms` }}>
-                  {d}
-                </li>
-              ))}
-            </ul>
-            <p className="dice-total is-rolling">&nbsp;</p>
-            <p className="muted small-print">Rolling…</p>
-          </>
-        ) : result ? (
+        {result ? (
           <>
             <p className="readout">{formatExpression(result.expression)}</p>
-            <ul className="plain dice-faces" key={nonce}>
-              {result.dice.map((d, i) => (
-                <li key={i} className="die" style={{ animationDelay: `${i * 55}ms` }}>
-                  {d}
-                </li>
-              ))}
-            </ul>
-            <p className="dice-total" key={`t${nonce}`}>
-              {result.total}
-            </p>
-            <p className="muted small-print">
-              {result.dice.join(" + ")}
-              {modifier !== 0 && ` ${modifier > 0 ? "+" : "-"} ${Math.abs(modifier)}`}
-            </p>
+            <DiceTray
+              key={result.id}
+              roll={{ id: result.id, sides: result.expression.sides, dice: result.dice }}
+              throwing={throwing}
+              onLanded={() => setLanded(result.id)}
+              scale={1.3}
+            />
+            {throwing ? (
+              <p className="muted small-print">Rolling…</p>
+            ) : (
+              <>
+                <p className="dice-total">{result.total}</p>
+                <p className="muted small-print">
+                  {result.dice.join(" + ")}
+                  {modifier !== 0 && ` ${modifier > 0 ? "+" : "-"} ${Math.abs(modifier)}`}
+                </p>
+              </>
+            )}
           </>
         ) : (
           <p className="muted dice-empty">Roll to see each die land.</p>
