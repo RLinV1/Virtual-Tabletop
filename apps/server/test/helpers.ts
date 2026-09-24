@@ -57,6 +57,16 @@ export async function startServer() {
       });
       return { ...joined, guestToken };
     },
+    /** Like `join`, but hands back the HTTP status and body instead of throwing on rejection. */
+    tryJoin: async (inviteCode: string, displayName: string) => {
+      const guestToken = newGuestToken();
+      const res = await fetch(`${base}/api/invites/${inviteCode}/join`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ displayName, guestToken }),
+      });
+      return { status: res.status, body: (await res.json()) as Partial<JoinRoomResponse> & { error?: string }, guestToken };
+    },
     connect: (creds: TestCredentials) => TestClient.connect(base, creds),
   };
 }

@@ -231,3 +231,77 @@ describe("tactical panels (FR-GM-21, FR-GM-22, FR-TAC-07)", () => {
     expect(bob.state.tokens[tokenId]!.stats).toEqual({ hp: 12, maxHp: 20, ac: 15 });
   });
 });
+
+describe("unique display names (KAN-61)", () => {
+  const names = (c: TestClient) => Object.values(c.state.participants).map((p) => p.displayName);
+
+  it("rejects a duplicate join with 409 and leaves the room unchanged", async () => {
+    const gmCreds = await server.createRoom();
+    await server.join(gmCreds.inviteCode, "Raymond");
+    const dup = await server.tryJoin(gmCreds.inviteCode, "raymond ");
+    expect(dup.status).toBe(409);
+    expect(dup.body.error).toMatch(/already taken/);
+
+    const gm = await server.connect(gmCreds);
+    clients.push(gm);
+    expect(names(gm).filter((n) => n === "Raymond")).toHaveLength(1);
+    expect(names(gm)).toHaveLength(2);
+  });
+
+  it("leaves no usable credential behind for a rejected join", async () => {
+    const gmCreds = await server.createRoom();
+    await server.join(gmCreds.inviteCode, "Raymond");
+    const dup = await server.tryJoin(gmCreds.inviteCode, "Raymond");
+    await expect(server.connect({ roomId: gmCreds.roomId, guestToken: dup.guestToken })).rejects.toThrow(
+      /unauthorized/,
+    );
+  });
+
+  it("lets exactly one of two racing joins take the same name", async () => {
+    const gmCreds = await server.createRoom();
+    const results = await Promise.all([
+      server.tryJoin(gmCreds.inviteCode, "Sam"),
+      server.tryJoin(gmCreds.inviteCode, "sam"),
+    ]);
+    expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
+
+    const gm = await server.connect(gmCreds);
+    clients.push(gm);
+    expect(names(gm).filter((n) => n.toLowerCase() === "sam")).toHaveLength(1);
+  });
+
+  it("stores a trimmed name and rejects a blank one with 400", async () => {
+    const gmCreds = await server.createRoom();
+    const joined = await server.join(gmCreds.inviteCode, "  Raymond  ");
+    const client = await server.connect(joined);
+    clients.push(client);
+    expect(client.state.participants[joined.participantId]!.displayName).toBe("Raymond");
+    expect((await server.tryJoin(gmCreds.inviteCode, "   ")).status).toBe(400);
+  });
+
+  it("allows the same name in a different room", async () => {
+    const roomA = await server.createRoom();
+    const roomB = await server.createRoom();
+    await server.join(roomA.inviteCode, "Raymond");
+    expect((await server.tryJoin(roomB.inviteCode, "Raymond")).status).toBe(200);
+  });
+
+  it("rejects a rename to a taken name without emitting an event", async () => {
+    const { gm, bob } = await setup();
+    const seq = gm.seq;
+    expect(await bob.command({ type: "participant.rename", displayName: "ALICE" })).toMatchObject({
+      type: "rejected",
+      code: "invalid",
+    });
+    expect(bob.seq).toBe(seq);
+    expect(bob.state.participants[bob.participantId]!.displayName).toBe("Bob");
+  });
+
+  it("lets a returning guest reconnect with their own name", async () => {
+    const { aliceCreds, alice } = await setup();
+    alice.close();
+    const again = await server.connect(aliceCreds);
+    clients.push(again);
+    expect(again.state.participants[again.participantId]!.displayName).toBe("Alice");
+  });
+});
