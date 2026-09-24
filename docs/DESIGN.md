@@ -236,12 +236,35 @@ detection, UVTT import and export, walls, portals, fog of war, line of sight, th
 ruler, drawing overlays, AoE templates, undo, the activity log, encounter templates, and
 guest revocation.
 
+**Run it — no containers.** This is the deliberate default: a fresh clone plays without
+Docker, because the store, sequencer and asset sink each fall back when their environment
+variable is unset (§2).
+
 ```bash
 npm install && npm run dev
 ```
 
 Open <http://localhost:5173>, create a room, copy the invite link, and open it in a private
-window to join as a player.
+window to join as a player. Everything in "working today" holds **except persistence** —
+rooms live in memory and die on every server restart, including the restart `tsx watch`
+performs each time you save a file.
+
+**Run it — with persistence.** Needed to exercise the Postgres event store, MinIO uploads
+and Redis sequencing, and therefore needed for any manual test of restart survival,
+reconnection or recovery.
+
+```bash
+docker compose up -d
+npm run prisma:migrate --workspace=@vtt/server
+
+DATABASE_URL=postgres://vtt:vtt@localhost:5432/vtt \
+REDIS_URL=redis://localhost:6379 \
+MINIO_ENDPOINT=http://localhost:9000 \
+npm run dev
+```
+
+The startup line tells you which one you got: `using Postgres event store` or
+`DATABASE_URL unset — using in-memory store`.
 
 ---
 
@@ -351,3 +374,14 @@ value, but nothing reads the history back yet.
 - **Undo scope.** Which events are reversible, and whether undo is per-actor or per-room.
 - **Duplicate names.** Participant and token names are not unique (KAN-61, KAN-62).
 - **Fog and filtering.** Fog must be filtered server-side, not masked in Pixi — masking alone ships the hidden map to the client.
+
+### Prior art for map analysis
+
+Wall and portal detection (FR-GM-11) adapts existing MIT-licensed work rather than starting from scratch. Both references implement the same pipeline shape — colour masking → morphological cleanup → contour tracing → segment simplification and endpoint welding — so the approach is well-trodden.
+
+| Reference | What we take from it | Licence |
+| --- | --- | --- |
+| [`ThreeHats/auto-wall`](https://github.com/ThreeHats/auto-wall) — **primary** | Python/OpenCV implementation of the detection pipeline; closest to our service architecture and directly adaptable | MIT |
+| [`DimitroffVodka/foundry-auto-wall`](https://github.com/DimitroffVodka/foundry-auto-wall) — secondary | A later derivative of the same project; useful for its centreline tracing mode, which fixes the double-wall artefact thick drawn lines produce | MIT |
+
+Attribution and licence text for any adapted code will be carried in the service directory. Our output target is UVTT wall and portal geometry (FR-GM-06, FR-GM-12), not Foundry `WallDocument`s, so the serialization layer is ours regardless of which pipeline we adapt.
