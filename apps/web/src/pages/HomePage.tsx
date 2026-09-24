@@ -50,6 +50,19 @@ const MAPS = {
   },
 } as const;
 
+/** Character art for the tokens on each map, cropped to the face. Each map has its own cast. */
+const PORTRAITS = {
+  hero: {
+    brenna: "/img/tokens/hero-brenna.webp",
+    toma: "/img/tokens/hero-toma.webp",
+    ash: "/img/tokens/hero-ash.webp",
+  },
+  visibility: {
+    brenna: "/img/tokens/jungle-brenna.webp",
+    toma: "/img/tokens/jungle-toma.webp",
+  },
+} as const;
+
 /** The shelf in the library chapter. Real files, real dimensions, real default grid. */
 const SHELF = [
   { ...MAPS.hero, name: "The Broken Span" },
@@ -120,12 +133,30 @@ function HomeBar({ theme, onTheme, children }: ThemeProps & { children: ReactNod
 /** Wounded reads at a glance, the way it does on the board. */
 const hpColor = (pct: number) => (pct > 50 ? "var(--ok)" : pct > 25 ? "var(--warn)" : "var(--danger)");
 
-/** A token as the board draws one: a coloured disc, an initial, and a hit-point bar. */
-function TokenChip(props: { name: string; color: string; hp: number; style: CSSProperties; delay?: number }) {
+/**
+ * A token as the board draws one: a coloured disc with an initial, or with the token's art
+ * clipped to it, and a hit-point bar. As on the board, art that fails to load leaves the
+ * coloured disc.
+ */
+function TokenChip(props: {
+  name: string;
+  color: string;
+  hp: number;
+  image?: string;
+  style: CSSProperties;
+  delay?: number;
+}) {
+  const [artFailed, setArtFailed] = useState(false);
+  const art = props.image && !artFailed ? props.image : null;
   return (
     <span className="token-chip" style={{ ...props.style, animationDelay: `${props.delay ?? 0}ms` }}>
-      <span className="token-disc" style={{ backgroundColor: props.color }}>
-        {props.name.slice(0, 1)}
+      <span className={art ? "token-disc has-art" : "token-disc"} style={{ backgroundColor: props.color }}>
+        {art ? (
+          // The label beneath names the token, so the art itself is decorative.
+          <img src={art} alt="" width={192} height={192} loading="lazy" onError={() => setArtFailed(true)} />
+        ) : (
+          props.name.slice(0, 1)
+        )}
       </span>
       <span className="token-hp">
         <span
@@ -178,9 +209,30 @@ function Landing({ theme, onTheme }: ThemeProps) {
                 alt={MAPS.hero.alt}
                 fetchPriority="high"
               />
-              <TokenChip name="Brenna" color="#5b8def" hp={84} style={{ left: "27%", top: "46%" }} delay={560} />
-              <TokenChip name="Toma" color="#3fb950" hp={61} style={{ left: "40%", top: "63%" }} delay={680} />
-              <TokenChip name="Ash" color="#d29922" hp={38} style={{ left: "17%", top: "68%" }} delay={800} />
+              <TokenChip
+                name="Brenna"
+                color="#5b8def"
+                hp={84}
+                image={PORTRAITS.hero.brenna}
+                style={{ left: "27%", top: "46%" }}
+                delay={560}
+              />
+              <TokenChip
+                name="Toma"
+                color="#3fb950"
+                hp={61}
+                image={PORTRAITS.hero.toma}
+                style={{ left: "40%", top: "63%" }}
+                delay={680}
+              />
+              <TokenChip
+                name="Ash"
+                color="#d29922"
+                hp={38}
+                image={PORTRAITS.hero.ash}
+                style={{ left: "17%", top: "68%" }}
+                delay={800}
+              />
             </div>
           </div>
         </section>
@@ -358,8 +410,20 @@ function VisibilityChapter() {
       <figure className="map-figure" style={{ "--map": `url(${MAPS.visibility.src})` } as CSSProperties}>
         <div className="map-frame">
           <img src={MAPS.visibility.src} width={1672} height={941} alt={MAPS.visibility.alt} loading="lazy" />
-          <TokenChip name="Brenna" color="#5b8def" hp={84} style={{ left: "27%", top: "46%" }} />
-          <TokenChip name="Toma" color="#3fb950" hp={61} style={{ left: "40%", top: "63%" }} />
+          <TokenChip
+            name="Brenna"
+            color="#5b8def"
+            hp={84}
+            image={PORTRAITS.visibility.brenna}
+            style={{ left: "27%", top: "46%" }}
+          />
+          <TokenChip
+            name="Toma"
+            color="#3fb950"
+            hp={61}
+            image={PORTRAITS.visibility.toma}
+            style={{ left: "40%", top: "63%" }}
+          />
           {asGm && (
             <span className="token-chip is-hidden" style={{ left: "61%", top: "23%" }}>
               <span className="token-disc">

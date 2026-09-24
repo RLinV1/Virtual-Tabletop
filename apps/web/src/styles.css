@@ -1183,6 +1183,9 @@ button.token-delete { align-self: flex-start; padding-inline: 0; }
   font-size: 0.95rem;
   line-height: 1;
 }
+/* Token art fills the disc, clipped to the circle as the board clips it. */
+.token-disc.has-art { overflow: hidden; }
+.token-disc.has-art img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .token-hp {
   width: 2.5rem;
   height: 4px;
