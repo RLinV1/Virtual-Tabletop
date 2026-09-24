@@ -99,7 +99,11 @@ export function loadGmToken(): string | null {
   }
 }
 
-/** Returns this browser's GM token, creating and registering one on first use. */
+/**
+ * Returns this browser's GM token, creating and registering one on first use. A stored
+ * token the server has since forgotten is re-registered by `gmRequest` on its first 401,
+ * never replaced.
+ */
 export async function ensureGmToken(identify: (gmToken: string) => Promise<void>): Promise<string> {
   const existing = loadGmToken();
   if (existing) return existing;

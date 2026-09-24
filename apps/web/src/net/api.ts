@@ -24,14 +24,39 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
   return (await res.json()) as T;
 }
 
-/** A request authorized by the GM device identity (ADR 0004). */
+/**
+ * A request authorized by the GM device identity (ADR 0004).
+ *
+ * A 401 means the server no longer knows this token (store switched or wiped), so the
+ * same token is registered again and the request retried once (gm-identity-recovery).
+ * Never mint a new token here: that would orphan the rooms this one owns. `init.body`
+ * is sent twice, so it must be resendable (a string or FormData, not a stream).
+ */
 async function gmRequest<T>(gmToken: string, url: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(url, {
-    ...init,
-    headers: { ...(init.headers as Record<string, string> | undefined), [GM_TOKEN_HEADER]: gmToken },
-  });
+  const send = () =>
+    fetch(url, {
+      ...init,
+      headers: { ...(init.headers as Record<string, string> | undefined), [GM_TOKEN_HEADER]: gmToken },
+    });
+  let res = await send();
+  if (res.status === 401) {
+    await reidentify(gmToken);
+    res = await send();
+  }
   if (!res.ok) throw new Error(await errorMessage(res));
   return (res.status === 204 ? undefined : await res.json()) as T;
+}
+
+/** In-flight re-registrations, so concurrent 401s for one token share a single identify. */
+const pendingIdentify = new Map<string, Promise<void>>();
+
+function reidentify(gmToken: string): Promise<void> {
+  let pending = pendingIdentify.get(gmToken);
+  if (!pending) {
+    pending = api.gm.identify(gmToken).finally(() => pendingIdentify.delete(gmToken));
+    pendingIdentify.set(gmToken, pending);
+  }
+  return pending;
 }
 
 const jsonBody = (body: unknown): RequestInit => ({
