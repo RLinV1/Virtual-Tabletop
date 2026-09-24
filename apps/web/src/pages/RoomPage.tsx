@@ -3,6 +3,7 @@ import { Board, type BoardHandle } from "../board/Board";
 import { loadCredentials } from "../net/identity";
 import { RoomConnection, useRoomSnapshot, type ConnectionStatus } from "../net/roomConnection";
 import { RoomPanel } from "../panels/RoomPanel";
+import { ActivityLog } from "../panels/ActivityLog";
 import { SectionCollapseProvider } from "../ui/PanelSection";
 import { ParticipantsButton } from "../ui/ParticipantsButton";
 import { ShareButton } from "../ui/ShareButton";
@@ -121,6 +122,7 @@ function Room({ connection, inviteCode, token }: { connection: RoomConnection; i
         toolbar={
           <>
             <ParticipantsButton participants={participants} />
+            {you.role === "gm" && <ActivityLog roomId={state.roomId} token={token} seq={seq} />}
             <button
               ref={guideButtonRef}
               type="button"

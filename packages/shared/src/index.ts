@@ -9,3 +9,4 @@ export * from "./decide";
 export * from "./visibility";
 export * from "./assets";
 export * from "./protocol";
+export * from "./activityLog";
