@@ -168,7 +168,7 @@ function Landing({ theme, onTheme }: ThemeProps) {
             </p>
             <CreateRoomForm firstFieldRef={roomNameRef} />
           </div>
-          <div className="hero-art enter enter-art">
+          <div className="hero-art enter enter-art" style={{ "--map": `url(${MAPS.hero.src})` } as CSSProperties}>
             <div className="hero-frame">
               <img
                 src={MAPS.hero.src}
@@ -267,9 +267,11 @@ function GridChapter() {
         Size the cells until the squares land on the ones the cartographer drew. Drag the slider: this is the
         overlay, not a picture of one.
       </p>
-      <figure className="map-figure">
-        <img src={MAPS.grid.src} width={1672} height={941} alt={MAPS.grid.alt} loading="lazy" />
-        <div className="grid-overlay live" style={{ backgroundSize: `${cell}px ${cell}px` }} aria-hidden="true" />
+      <figure className="map-figure" style={{ "--map": `url(${MAPS.grid.src})` } as CSSProperties}>
+        <div className="map-frame">
+          <img src={MAPS.grid.src} width={1672} height={941} alt={MAPS.grid.alt} loading="lazy" />
+          <div className="grid-overlay live" style={{ backgroundSize: `${cell}px ${cell}px` }} aria-hidden="true" />
+        </div>
       </figure>
       <div className="demo-bar">
         <label className="demo-slider">
@@ -353,18 +355,20 @@ function VisibilityChapter() {
         </button>
       </div>
 
-      <figure className="map-figure">
-        <img src={MAPS.visibility.src} width={1672} height={941} alt={MAPS.visibility.alt} loading="lazy" />
-        <TokenChip name="Brenna" color="#5b8def" hp={84} style={{ left: "27%", top: "46%" }} />
-        <TokenChip name="Toma" color="#3fb950" hp={61} style={{ left: "40%", top: "63%" }} />
-        {asGm && (
-          <span className="token-chip is-hidden" style={{ left: "61%", top: "23%" }}>
-            <span className="token-disc">
-              <EyeSlash weight="bold" aria-hidden="true" />
+      <figure className="map-figure" style={{ "--map": `url(${MAPS.visibility.src})` } as CSSProperties}>
+        <div className="map-frame">
+          <img src={MAPS.visibility.src} width={1672} height={941} alt={MAPS.visibility.alt} loading="lazy" />
+          <TokenChip name="Brenna" color="#5b8def" hp={84} style={{ left: "27%", top: "46%" }} />
+          <TokenChip name="Toma" color="#3fb950" hp={61} style={{ left: "40%", top: "63%" }} />
+          {asGm && (
+            <span className="token-chip is-hidden" style={{ left: "61%", top: "23%" }}>
+              <span className="token-disc">
+                <EyeSlash weight="bold" aria-hidden="true" />
+              </span>
+              <span className="token-label">Hidden</span>
             </span>
-            <span className="token-label">Hidden</span>
-          </span>
-        )}
+          )}
+        </div>
       </figure>
       <p className="figure-note" role="status">
         {asGm

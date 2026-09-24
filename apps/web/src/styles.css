@@ -32,7 +32,8 @@
   --rule: rgba(232, 233, 236, 0.14);
   --hover: rgba(232, 233, 236, 0.06);
   --control-border: #646a78;
-  --map-glow: rgba(226, 146, 62, 0.45);
+  --bloom-strength: 0.5;
+  --shadow-tint: rgba(4, 7, 12, 0.85);
   --grain-opacity: 0.055;
 
   --font-ui: "Geist Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -63,7 +64,8 @@
   --rule: rgba(21, 23, 27, 0.16);
   --hover: rgba(21, 23, 27, 0.05);
   --control-border: #7a8394;
-  --map-glow: rgba(206, 132, 54, 0.3);
+  --bloom-strength: 0.42;
+  --shadow-tint: rgba(44, 58, 84, 0.34);
   --grain-opacity: 0.022;
   color-scheme: light;
 }
@@ -428,6 +430,10 @@ img.round { border-radius: 50%; }
   min-height: 100dvh;
   font-family: var(--font-ui);
   background: var(--ground);
+  /* The blooms deliberately spill past their figures; clip that horizontally so they
+     never create a sideways scrollbar. `clip` rather than `hidden` so it does not turn
+     this into a scroll container for the fixed lighting layer below. */
+  overflow-x: clip;
 }
 
 /* The ground is three layers, none of them flat. Both are fixed and non-interactive so
@@ -526,22 +532,17 @@ img.round { border-radius: 50%; }
 
 /* The map is the product, so it is a real image, bled off the edge and seated in the
    ground with a shadow tinted to the ground rather than black (§11.9). */
-.hero-art { margin-right: calc((100vw - min(72rem, 100vw - 2.5rem)) / -2); }
+.hero-art {
+  position: relative;
+  /* Own stacking context, so the z-index:-1 bloom stays behind the map and not behind
+     the page. */
+  isolation: isolate;
+  margin-right: calc((100vw - min(72rem, 100vw - 2.5rem)) / -2);
+}
 
 /* The map is the product, so it gets depth: a tinted shadow, a lit inner edge, and a fade
    into the ground rather than a pasted rectangle. */
-.hero-frame {
-  position: relative;
-  border-radius: 12px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  box-shadow:
-    0 30px 70px rgba(8, 12, 20, 0.55),
-    0 0 90px -20px var(--map-glow),
-    inset 0 1px 0 rgba(255, 255, 255, 0.14);
-  overflow: clip;
-}
-.hero-frame img { display: block; width: 100%; height: auto; transform-origin: 60% 50%; }
+.hero-frame img { transform-origin: 60% 50%; }
 .hero-art::after {
   content: "";
   position: absolute;
@@ -586,13 +587,67 @@ img.round { border-radius: 50%; }
   font-size: 1.02rem;
 }
 
+/* The map sits IN the page, not on it. Three layers:
+   1. a bloom behind it, made from the map's own pixels, so its colours bleed into the
+      ground and each map lights the page differently
+   2. the frame, edges feathered so it melts out instead of stopping at a hard rectangle
+   3. a specular sheen across the top, which is what reads as glass and gives it depth */
 .map-figure {
   position: relative;
-  border-radius: 12px;
-  overflow: hidden;
-  border: 1px solid var(--border);
+  margin: 0;
+  isolation: isolate;
 }
-.map-figure img { display: block; width: 100%; height: auto; }
+
+/* 1. The bloom. Same image, pushed out, blurred hard, sunk behind everything. */
+.map-figure::before,
+.hero-art::before {
+  content: "";
+  position: absolute;
+  inset: -6% -4%;
+  z-index: -1;
+  background-image: var(--map);
+  background-size: cover;
+  background-position: center;
+  filter: blur(46px) saturate(1.45);
+  opacity: var(--bloom-strength);
+  border-radius: 24px;
+  pointer-events: none;
+}
+
+/* 2. The frame. */
+.map-frame,
+.hero-frame {
+  position: relative;
+  border-radius: 12px;
+  overflow: clip;
+  box-shadow:
+    0 26px 60px -18px var(--shadow-tint),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  /* Feathered corners and edges, so the picture dissolves into the ground. */
+  -webkit-mask-image: radial-gradient(125% 125% at 50% 50%, #000 62%, transparent 100%);
+  mask-image: radial-gradient(125% 125% at 50% 50%, #000 62%, transparent 100%);
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.map-frame img,
+.hero-frame img { display: block; width: 100%; height: auto; }
+
+/* 3. The sheen: light falling across the top of a sheet lying on a table. */
+.map-frame::after,
+.hero-frame::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    168deg,
+    rgba(255, 255, 255, 0.14) 0%,
+    rgba(255, 255, 255, 0.04) 18%,
+    transparent 42%
+  );
+}
+
+.map-figure:hover .map-frame { transform: translateY(-3px) scale(1.004); }
 
 /* The grid the GM lines up, drawn over the real map rather than mocked in divs. */
 .grid-overlay {
@@ -956,16 +1011,13 @@ img.round { border-radius: 50%; }
 .home-page select:focus-visible { border-color: var(--accent); }
 .home-page .seg button:focus-visible { outline-offset: -2px; }
 
-.map-figure { transition: border-color 0.25s; }
-.map-figure:hover { border-color: var(--accent); }
+
 
 :root[data-theme="light"] .cta {
   border-color: var(--accent-strong);
 }
 
-:root[data-theme="light"] .hero-frame {
-  box-shadow: 0 22px 50px rgba(41, 55, 82, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.3);
-}
+
 :root[data-theme="light"] .hero-art::after {
   background: linear-gradient(90deg, var(--bg) 0%, transparent 11%);
 }
@@ -1036,6 +1088,8 @@ img.round { border-radius: 50%; }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .map-frame,
+  .hero-frame,
   .seg button,
   .map-figure,
   .cta svg,
