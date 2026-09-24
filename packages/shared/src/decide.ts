@@ -44,7 +44,17 @@ export function decide(
   switch (command.type) {
     case "scene.setMap":
       if (!can.administer(actor)) return forbidden();
-      return accept({ type: "MapSet", map: command.map, previous: state.scene.map });
+      // One event, not MapSet + GridSet: a library map and its grid are one undoable step (ADR 0004).
+      return accept(
+        command.grid
+          ? {
+              type: "MapSet",
+              map: command.map,
+              previous: state.scene.map,
+              gridChange: { grid: command.grid, previous: state.scene.grid },
+            }
+          : { type: "MapSet", map: command.map, previous: state.scene.map },
+      );
 
     case "scene.setGrid":
       if (!can.administer(actor)) return forbidden();
@@ -64,6 +74,7 @@ export function decide(
           rotation: 0,
           color: command.color,
           imageUrl: command.imageUrl,
+          assetId: command.assetId,
           ownerIds: command.ownerIds,
           hidden: command.hidden,
           stats: EMPTY_STATS,
@@ -203,15 +214,59 @@ export function decide(
       });
     }
 
-    case "participant.rename":
+    case "participant.rename": {
+      const displayName = command.displayName.trim();
+      if (!displayName) return reject("invalid", BLANK_NAME);
+      if (isDisplayNameTaken(state, displayName, actor.id)) return reject("invalid", nameTaken(displayName));
       return accept({
         type: "ParticipantRenamed",
         participantId: actor.id,
-        displayName: command.displayName,
+        displayName,
         previous: actor.displayName,
       });
+    }
   }
 }
+
+/** Comparison key for display names: "raymond", "Raymond " and "RAYMOND" are one name (KAN-61). */
+export const normalizeDisplayName = (name: string) => name.normalize("NFC").trim().toLocaleLowerCase("en-US");
+
+/**
+ * Whether a participant holds their display name. Always true until revocation/leaving is recorded
+ * in RoomState (FR-GM-20, KAN-52); this is the single place that will change then.
+ */
+export const isActive = (_participant: Participant) => true;
+
+/** True when an active participant other than `exceptId` already uses `name` in this room. */
+export function isDisplayNameTaken(state: RoomState, name: string, exceptId?: string) {
+  const key = normalizeDisplayName(name);
+  return Object.values(state.participants).some(
+    (p) => p.id !== exceptId && isActive(p) && normalizeDisplayName(p.displayName) === key,
+  );
+}
+
+/** Server-side detail so the join route can pick 400 vs 409. Never sent to clients. */
+export type JoinRejectionReason = "blank" | "name_taken";
+export type JoinDecision =
+  | { ok: true; events: DomainEvent[] }
+  | { ok: false; code: RejectionCode; message: string; reason: JoinRejectionReason };
+
+/**
+ * Joining is an unauthenticated HTTP action with no actor, so it isn't a `Command`; this is its
+ * `decide`. The server runs it inside the room's ordered queue, so two joins racing for one name
+ * can't both pass (KAN-61).
+ */
+export function decideJoin(state: RoomState, participant: Participant): JoinDecision {
+  const displayName = participant.displayName.trim();
+  if (!displayName) return { ok: false, code: "invalid", message: BLANK_NAME, reason: "blank" };
+  if (isDisplayNameTaken(state, displayName)) {
+    return { ok: false, code: "invalid", message: nameTaken(displayName), reason: "name_taken" };
+  }
+  return { ok: true, events: [{ type: "ParticipantJoined", participant: { ...participant, displayName } }] };
+}
+
+const BLANK_NAME = "Display name can't be blank.";
+const nameTaken = (name: string) => `The name "${name}" is already taken in this room. Choose another name.`;
 
 /**
  * Next turn. Wrapping past the last entry starts a new round (FR-GM-21).

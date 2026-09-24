@@ -7,4 +7,5 @@ export * from "./events";
 export * from "./reducer";
 export * from "./decide";
 export * from "./visibility";
+export * from "./assets";
 export * from "./protocol";

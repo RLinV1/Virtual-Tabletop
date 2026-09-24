@@ -37,14 +37,15 @@ export async function startServer() {
   return {
     base,
     close: () => app.close(),
-    /** Mirrors the browser: the client generates its own credential (DESIGN.md §5.1). */
+    /** Mirrors the browser: the client generates its own credential (DESIGN.md §5). */
     newGuestToken,
-    createRoom: async (displayName = "GM") => {
+    createRoom: async (displayName = "GM", opts: { gmToken?: string; roomName?: string } = {}) => {
       const guestToken = newGuestToken();
       const room = await post<CreateRoomResponse>("/api/rooms", {
-        roomName: "Test",
+        roomName: opts.roomName ?? "Test",
         displayName,
         guestToken,
+        gmToken: opts.gmToken,
       });
       return { ...room, guestToken };
     },
@@ -55,6 +56,16 @@ export async function startServer() {
         guestToken,
       });
       return { ...joined, guestToken };
+    },
+    /** Like `join`, but hands back the HTTP status and body instead of throwing on rejection. */
+    tryJoin: async (inviteCode: string, displayName: string) => {
+      const guestToken = newGuestToken();
+      const res = await fetch(`${base}/api/invites/${inviteCode}/join`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ displayName, guestToken }),
+      });
+      return { status: res.status, body: (await res.json()) as Partial<JoinRoomResponse> & { error?: string }, guestToken };
     },
     connect: (creds: TestCredentials) => TestClient.connect(base, creds),
   };

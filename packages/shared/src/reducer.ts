@@ -31,7 +31,7 @@ export function reduce(state: RoomState, event: DomainEvent): RoomState {
     }
 
     case "MapSet":
-      return { ...state, scene: { ...state.scene, map: event.map } };
+      return { ...state, scene: { ...state.scene, map: event.map, grid: event.gridChange?.grid ?? state.scene.grid } };
 
     case "GridSet":
       return { ...state, scene: { ...state.scene, grid: event.grid } };

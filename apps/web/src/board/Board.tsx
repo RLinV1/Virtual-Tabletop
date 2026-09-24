@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, type ReactNode } from "react";
 import type { GridSpec, Participant, RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { BoardView } from "./boardView";
@@ -8,6 +8,8 @@ interface Props {
   state: RoomState;
   you: Participant;
   gridPreview: GridSpec | null;
+  /** Plain React controls shown top left, before Fit (e.g. the participants button). */
+  toolbar?: ReactNode;
 }
 
 /** What the roster and initiative list can ask the canvas to do (FR-GM-24). */
@@ -15,7 +17,7 @@ export interface BoardHandle {
   focusToken(tokenId: string): void;
 }
 
-export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview }, ref) {
+export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, toolbar }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<BoardView | null>(null);
   const latest = useRef({ state, you, gridPreview });
@@ -67,12 +69,15 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   }), []);
 
   return (
-    <div className="board">
+    <div className="board" data-tour="board">
       <div ref={hostRef} className="board-canvas" />
-      <button className="fit-button" onClick={() => viewRef.current?.resetView()}>
-        Fit
-      </button>
-      {gridPreview && <p className="grid-preview-label">Preview · Not applied</p>}
+      <div className="board-toolbar">
+        {toolbar}
+        <button type="button" className="tool-button" data-tour="fit" onClick={() => viewRef.current?.resetView()} title="Fit the map to the screen">
+          Fit
+        </button>
+      </div>
+      {gridPreview && <p className="grid-preview-label" role="status">Preview · Not applied</p>}
       <p className="board-hint">Drag to pan · scroll to zoom · double-click to ping · hold Alt to place freely</p>
     </div>
   );

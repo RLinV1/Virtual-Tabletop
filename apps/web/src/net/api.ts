@@ -1,3 +1,11 @@
+import {
+  GM_TOKEN_HEADER,
+  type AssetKind,
+  type GmRoomSummary,
+  type GridSpec,
+  type LibraryAsset,
+  type LibraryUsageResponse,
+} from "@vtt/shared";
 import type {
   CreateRoomRequest,
   CreateRoomResponse,
@@ -15,6 +23,46 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
   if (!res.ok) throw new Error(await errorMessage(res));
   return (await res.json()) as T;
 }
+
+/**
+ * A request authorized by the GM device identity (ADR 0004).
+ *
+ * A 401 means the server no longer knows this token (store switched or wiped), so the
+ * same token is registered again and the request retried once (gm-identity-recovery).
+ * Never mint a new token here: that would orphan the rooms this one owns. `init.body`
+ * is sent twice, so it must be resendable (a string or FormData, not a stream).
+ */
+async function gmRequest<T>(gmToken: string, url: string, init: RequestInit = {}): Promise<T> {
+  const send = () =>
+    fetch(url, {
+      ...init,
+      headers: { ...(init.headers as Record<string, string> | undefined), [GM_TOKEN_HEADER]: gmToken },
+    });
+  let res = await send();
+  if (res.status === 401) {
+    await reidentify(gmToken);
+    res = await send();
+  }
+  if (!res.ok) throw new Error(await errorMessage(res));
+  return (res.status === 204 ? undefined : await res.json()) as T;
+}
+
+/** In-flight re-registrations, so concurrent 401s for one token share a single identify. */
+const pendingIdentify = new Map<string, Promise<void>>();
+
+function reidentify(gmToken: string): Promise<void> {
+  let pending = pendingIdentify.get(gmToken);
+  if (!pending) {
+    pending = api.gm.identify(gmToken).finally(() => pendingIdentify.delete(gmToken));
+    pendingIdentify.set(gmToken, pending);
+  }
+  return pending;
+}
+
+const jsonBody = (body: unknown): RequestInit => ({
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify(body),
+});
 
 async function errorMessage(res: Response) {
   try {
@@ -41,5 +89,36 @@ export const api = {
     });
     if (!res.ok) throw new Error(await errorMessage(res));
     return (await res.json()) as UploadResponse;
+  },
+
+  gm: {
+    async identify(gmToken: string): Promise<void> {
+      const res = await fetch("/api/gm/identify", { method: "POST", ...jsonBody({ gmToken }) });
+      if (!res.ok) throw new Error(await errorMessage(res));
+    },
+    rooms: (gmToken: string) => gmRequest<GmRoomSummary[]>(gmToken, "/api/gm/rooms"),
+  },
+
+  library: {
+    list: (gmToken: string) => gmRequest<LibraryAsset[]>(gmToken, "/api/library"),
+
+    upload(gmToken: string, file: File, fields: { kind: AssetKind; name: string; width: number; height: number }) {
+      const form = new FormData();
+      form.append("kind", fields.kind);
+      form.append("name", fields.name);
+      form.append("width", String(fields.width));
+      form.append("height", String(fields.height));
+      form.append("file", file);
+      return gmRequest<LibraryAsset>(gmToken, "/api/library", { method: "POST", body: form });
+    },
+
+    update: (gmToken: string, id: string, patch: { name?: string; grid?: GridSpec }) =>
+      gmRequest<LibraryAsset>(gmToken, `/api/library/${encodeURIComponent(id)}`, { method: "PATCH", ...jsonBody(patch) }),
+
+    usage: (gmToken: string, id: string) =>
+      gmRequest<LibraryUsageResponse>(gmToken, `/api/library/${encodeURIComponent(id)}/usage`),
+
+    remove: (gmToken: string, id: string) =>
+      gmRequest<void>(gmToken, `/api/library/${encodeURIComponent(id)}`, { method: "DELETE" }),
   },
 };

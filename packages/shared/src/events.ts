@@ -32,6 +32,12 @@ export const DomainEvent = z.discriminatedUnion("type", [
     type: z.literal("MapSet"),
     map: MapImage,
     previous: MapImage.nullable(),
+    /**
+     * Present when the map came with its grid (a library placement, ADR 0004). One object,
+     * not two optional fields, so the contract cannot express a grid change without the
+     * grid it replaced (invariant 6).
+     */
+    gridChange: z.object({ grid: GridSpec, previous: GridSpec }).optional(),
   }),
   z.object({
     type: z.literal("GridSet"),

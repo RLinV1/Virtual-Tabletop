@@ -19,7 +19,7 @@ export interface AppOptions {
 }
 
 /**
- * Express for REST, Socket.IO for the realtime bus (DESIGN.md §3).
+ * Express for REST, Socket.IO for the realtime bus (DESIGN.md §2).
  *
  * The two share one HTTP server so a single port serves uploads, the REST API and
  * the socket upgrade — which is what the Vite dev proxy and the deploy target expect.

@@ -1,7 +1,7 @@
 # Proposal — Walking Skeleton (`vincent/walking-skeleton`)
 
 **Author:** Vincent Chen · **Status:** For team review — not for merge as-is
-**Base:** `design` @ `8a4ef17` · **Relates to:** [`DESIGN.md`](DESIGN.md) §8 Slice 0 (workspace split), Slice 3 (Pixi board), Slices 1 & 4 (join UX, panels)
+**Base:** `design` @ `8a4ef17` · **Relates to:** [`DELIVERY.md`](DELIVERY.md) Slice 0 (workspace split), Slice 3 (Pixi board), Slices 1 & 4 (join UX, panels)
 
 ---
 
@@ -11,7 +11,7 @@ A runnable, end-to-end slice built on the same architecture as `DESIGN.md`: serv
 
 It is offered as **reference material** for Slice 0/1/3/4, not as a replacement for decisions in `DESIGN.md`. Where it deviates from the documented stack (§4 below), those are open questions for the owners — mainly Raymond (real-time architecture) and Antonio (board) — not changes being pushed through.
 
-On this branch the single-package prototype in `src/` is replaced by the workspace layout `DESIGN.md` §8 already plans. `design` itself is untouched.
+On this branch the single-package prototype in `src/` is replaced by the workspace layout `DELIVERY.md` already plans. `design` itself is untouched.
 
 ## 2. Run it
 
@@ -26,7 +26,7 @@ Open http://localhost:5173 → create a room → copy the invite link. To be a p
 
 ## 3. What works
 
-| Area | Behavior | Requirement | DESIGN.md §10 today → here |
+| Area | Behavior | Requirement | DESIGN.md §6 today → here |
 | --- | --- | --- | --- |
 | Layout | `apps/web`, `apps/server`, `packages/shared` (pnpm workspaces) | Slice 0 | — → done |
 | Rooms & join | Create room (creator is GM), invite link, guest join with no account | FR-PL-01 | D → P |
@@ -79,5 +79,5 @@ Open http://localhost:5173 → create a room → copy the invite link. To be a p
 2. **Layout:** use this branch as the starting point for Slice 0's workspace split, or cherry-pick pieces into a split done from `design`?
 3. **Board:** is this Pixi board a useful base for Slice 3, or should Antonio start clean (and run the 100-token benchmark first)?
 4. **Redaction:** players learn *that* something happened at seq N (not what). Acceptable? (`docs/adr/0001-event-model.md`)
-5. **Guest token origin:** client-generated (DESIGN.md §5.1) or server-issued (here)?
+5. **Guest token origin:** client-generated (DESIGN.md §5) or server-issued (here)?
 6. **Agent tooling:** keep the `CLAUDE.md` invariants and reviewer subagents next to OpenSpec?

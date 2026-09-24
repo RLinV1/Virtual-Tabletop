@@ -2,15 +2,18 @@ import { randomInt, randomUUID } from "node:crypto";
 import {
   can,
   decide,
+  decideJoin,
   emptyRoomState,
   filterEventForViewer,
   filterStateForViewer,
   reduce,
   reduceAll,
+  referencedAssetIds,
   type Command,
   type CommittedEvent,
   type DomainEvent,
   type EphemeralPayload,
+  type JoinDecision,
   type Participant,
   type RejectionCode,
   type RoomState,
@@ -31,7 +34,7 @@ export interface RoomClient {
   send(message: ServerMessage): void;
   /**
    * Best-effort delivery for the ephemeral channel — dropped under backpressure so
-   * pointer chatter never queues ahead of committed state (DESIGN.md §2.2, FR-SYNC-03).
+   * pointer chatter never queues ahead of committed state (DESIGN.md §1, FR-SYNC-03).
    * Falls back to `send` for transports without a volatile path.
    */
   sendVolatile?(message: ServerMessage): void;
@@ -52,6 +55,8 @@ export class LiveRoom {
   private seq: number;
   private clients = new Set<RoomClient>();
   private tail: Promise<unknown> = Promise.resolve();
+  /** Sorted asset ids last written to the reference index, as a comparable key. */
+  private assetRefsKey: string | null = null;
 
   private constructor(
     readonly roomId: string,
@@ -63,7 +68,10 @@ export class LiveRoom {
   }
 
   static async load(roomId: string, store: RoomStore) {
-    return new LiveRoom(roomId, store, await store.loadEvents(roomId));
+    const room = new LiveRoom(roomId, store, await store.loadEvents(roomId));
+    // Heals an index left stale by a crash between append and projection (ADR 0004).
+    await room.syncAssetRefs();
+    return room;
   }
 
   participant(id: string): Participant | undefined {
@@ -84,7 +92,19 @@ export class LiveRoom {
     });
   }
 
-  /** For server-originated events (room creation, joins) that aren't client commands. */
+  /**
+   * Guest join (FR-PL-01). Decided and committed in one queue step, so two joins racing for
+   * the same display name can't both pass the uniqueness check (KAN-61).
+   */
+  join(participant: Participant): Promise<JoinDecision> {
+    return this.runExclusive(async () => {
+      const decision = decideJoin(this.state, participant);
+      if (decision.ok) await this.commit(participant.id, decision.events);
+      return decision;
+    });
+  }
+
+  /** For server-originated events (room creation) that aren't client commands. */
   appendSystem(actorId: string | null, events: DomainEvent[]) {
     return this.runExclusive(() => this.commit(actorId, events));
   }
@@ -146,7 +166,26 @@ export class LiveRoom {
       this.seq = c.seq;
       this.broadcast(c, before);
     }
+    await this.syncAssetRefs();
     return committed;
+  }
+
+  /**
+   * Keeps the library's "in use" index in step with current state (ADR 0004). A read
+   * model: derived from RoomState, never read back into it. The events are already
+   * committed by now, so a failure here is logged rather than failing the command; the
+   * next load rewrites the index.
+   */
+  private async syncAssetRefs() {
+    const ids = [...referencedAssetIds(this.state)].sort();
+    const key = ids.join("\n");
+    if (key === this.assetRefsKey) return;
+    try {
+      await this.store.setAssetRefs(this.roomId, ids);
+      this.assetRefsKey = key;
+    } catch (err) {
+      console.error(`[vtt] could not update asset refs for room ${this.roomId}`, err);
+    }
   }
 
   private broadcast(committed: CommittedEvent, before: RoomState) {

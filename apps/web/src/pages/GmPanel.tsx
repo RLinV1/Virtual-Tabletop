@@ -1,160 +1,89 @@
-import { useState, type FormEvent } from "react";
-import { snapTokenCenter, type GridSpec, type RoomState } from "@vtt/shared";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import type { GridSpec, LibraryAsset, MapImage, RoomState } from "@vtt/shared";
 import { api } from "../net/api";
+import { loadGmToken } from "../net/identity";
+import { imageSize } from "../net/imageFile";
 import type { CommandResult, RoomConnection } from "../net/roomConnection";
+import { Modal } from "../ui/Modal";
+import { PanelSection } from "../ui/PanelSection";
 import { gridsEqual, parseGridDraft, type GridDraft } from "./gridDraft";
+import { LibraryPicker } from "./LibraryPicker";
 
 interface Props {
   connection: RoomConnection;
   state: RoomState;
-  inviteCode?: string;
   token: string;
   gridDraft: GridDraft;
   hasGridDraft: boolean;
   onGridDraftChange: (draft: GridDraft) => void;
   onGridDraftCancel: () => void;
-  onGridApply: (grid: GridSpec) => Promise<void>;
+  onGridApply: (grid: GridSpec) => Promise<boolean>;
   gridApplying: boolean;
   gridError: string | null;
 }
 
-const TOKEN_COLORS = ["#c0392b", "#2980b9", "#27ae60", "#8e44ad", "#d35400", "#16a085"];
-
 export function GmPanel({
-  connection, state, inviteCode, token,
+  connection, state, token,
   gridDraft, hasGridDraft, onGridDraftChange, onGridDraftCancel, onGridApply, gridApplying, gridError,
 }: Props) {
   const [error, setError] = useState<string | null>(null);
-  const players = Object.values(state.participants).filter((p) => p.role === "player");
-
-  const run = async (p: Promise<CommandResult>) => {
+  // The library belongs to this device's GM identity; rooms made before it existed have none.
+  const [gmToken] = useState(loadGmToken);
+  /** Sends a command and reports failure to `report`: the panel, or the open modal. */
+  const runWith = (report: (message: string | null) => void) => async (p: Promise<CommandResult>) => {
     const result = await p;
-    setError(result.ok ? null : result.message);
+    report(result.ok ? null : result.message);
     return result.ok;
   };
 
   return (
     <>
       {error && <p role="alert" className="error">{error}</p>}
-      <InviteLink inviteCode={inviteCode} />
-      <MapUpload
+      <MapSection
         token={token}
+        gmToken={gmToken}
         onError={setError}
-        onUploaded={(map) => run(connection.command({ type: "scene.setMap", map }))}
+        onSetMap={(map, grid, report) => runWith(report)(connection.command({ type: "scene.setMap", map, grid }))}
+        onGridClose={onGridDraftCancel}
+        grid={(close) => (
+          <GridForm
+            grid={state.scene.grid}
+            draft={gridDraft}
+            hasDraft={hasGridDraft}
+            onChange={onGridDraftChange}
+            onCancel={close}
+            onApply={async (grid) => { if (await onGridApply(grid)) close(); }}
+            applying={gridApplying}
+            error={gridError}
+          >
+            {gmToken && state.scene.map?.assetId && (
+              <SaveGridToLibrary gmToken={gmToken} assetId={state.scene.map.assetId} grid={state.scene.grid} />
+            )}
+          </GridForm>
+        )}
       />
-      <GridForm
-        grid={state.scene.grid}
-        draft={gridDraft}
-        hasDraft={hasGridDraft}
-        onChange={onGridDraftChange}
-        onCancel={onGridDraftCancel}
-        onApply={onGridApply}
-        applying={gridApplying}
-        error={gridError}
-      />
-      <AddToken
-        players={players}
-        onAdd={(name, ownerId, hidden) => {
-          const map = state.scene.map;
-          const count = Object.keys(state.tokens).length;
-          const center = map ? { x: map.width / 2, y: map.height / 2 } : { x: 1050, y: 700 };
-          // Fan new tokens out around the centre instead of stacking them all on one cell,
-          // which made the roster and turn order useless the moment there was a second one.
-          const ring = Math.floor(count / 8) + 1;
-          const angle = (count % 8) * (Math.PI / 4);
-          const spread = state.scene.grid.cellSize * ring;
-          center.x += Math.cos(angle) * spread;
-          center.y += Math.sin(angle) * spread;
-          return run(
-            connection.command({
-              type: "token.create",
-              name,
-              hidden,
-              ownerIds: ownerId ? [ownerId] : [],
-              color: TOKEN_COLORS[count % TOKEN_COLORS.length],
-              position: snapTokenCenter(center, 1, state.scene.grid),
-            }),
-          );
-        }}
-      />
-      <section>
-        <h2>Manage tokens</h2>
-        {Object.values(state.tokens).length === 0 && <p className="muted">No tokens yet.</p>}
-        <ul className="plain token-list">
-          {Object.values(state.tokens).map((t) => (
-            <li key={t.id}>
-              <span className="swatch" style={{ background: t.color }} aria-hidden />
-              <span className="token-name">{t.name}</span>
-              <select
-                aria-label={`Owner of ${t.name}`}
-                value={t.ownerIds[0] ?? ""}
-                onChange={(e) =>
-                  run(connection.command({ type: "token.setOwners", tokenId: t.id, ownerIds: e.target.value ? [e.target.value] : [] }))
-                }
-              >
-                <option value="">No owner</option>
-                {players.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.displayName}
-                  </option>
-                ))}
-              </select>
-              <label className="inline">
-                <input
-                  type="checkbox"
-                  checked={t.hidden}
-                  onChange={(e) => run(connection.command({ type: "token.setHidden", tokenId: t.id, hidden: e.target.checked }))}
-                />
-                Hidden
-              </label>
-              <button
-                className="link danger"
-                onClick={() => run(connection.command({ type: "token.delete", tokenId: t.id }))}
-                aria-label={`Delete ${t.name}`}
-              >
-                Delete
-              </button>
-            </li>
-          ))}
-        </ul>
-      </section>
     </>
   );
 }
 
-function InviteLink({ inviteCode }: { inviteCode?: string }) {
-  const [copied, setCopied] = useState(false);
-  if (!inviteCode) return null;
-  const url = `${location.origin}/join/${inviteCode}`;
-  return (
-    <section>
-      <h2>Invite players</h2>
-      <div className="row">
-        <input readOnly value={url} aria-label="Invite link" onFocus={(e) => e.target.select()} />
-        <button
-          onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(url);
-              setCopied(true);
-              setTimeout(() => setCopied(false), 1500);
-            } catch {
-              /* clipboard blocked; the field is selectable */
-            }
-          }}
-        >
-          {copied ? "Copied" : "Copy"}
-        </button>
-      </div>
-    </section>
-  );
-}
-
-function MapUpload(props: {
+/** Set the battle map from a fresh upload or the GM's library (asset-library). */
+function MapSection(props: {
   token: string;
-  onUploaded: (map: { url: string; width: number; height: number }) => Promise<boolean>;
-  onError: (message: string) => void;
+  gmToken: string | null;
+  onSetMap: (map: MapImage, grid: GridSpec | undefined, report: (message: string | null) => void) => Promise<boolean>;
+  onError: (message: string | null) => void;
+  onGridClose: () => void;
+  /** The grid form, shown in its own modal; `close` dismisses it after a successful apply. */
+  grid: (close: () => void) => ReactNode;
 }) {
   const [busy, setBusy] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const [pickError, setPickError] = useState<string | null>(null);
+  const [gridOpen, setGridOpen] = useState(false);
+  const closeGrid = () => {
+    setGridOpen(false);
+    props.onGridClose();
+  };
 
   async function onChange(file: File | undefined) {
     if (!file) return;
@@ -162,7 +91,7 @@ function MapUpload(props: {
     try {
       const { url } = await api.upload(file, props.token);
       const { width, height } = await imageSize(url);
-      await props.onUploaded({ url, width, height });
+      await props.onSetMap({ url, width, height }, undefined, props.onError);
     } catch (err) {
       props.onError(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -170,33 +99,101 @@ function MapUpload(props: {
     }
   }
 
+  // Placing copies the saved grid into the room in the same event (ADR 0004); later
+  // library edits never reach back into this room.
+  const place = async (asset: LibraryAsset) => {
+    const map = { url: asset.url, width: asset.width, height: asset.height, assetId: asset.id };
+    if (await props.onSetMap(map, asset.grid ?? undefined, setPickError)) setPicking(false);
+  };
+
   return (
-    <section>
-      <h2>Battle map</h2>
-      <input
-        type="file"
-        accept="image/png,image/jpeg,image/webp"
-        disabled={busy}
-        aria-label="Upload battle map"
-        onChange={(e) => onChange(e.target.files?.[0])}
-      />
-      {busy && <p className="muted">Uploading…</p>}
-    </section>
+    <PanelSection id="gm-map" title="Battle map">
+      <div className="row button-row">
+        <label className="upload-button secondary">
+          <span>{busy ? "Uploading…" : "Upload map"}</span>
+          <input
+            type="file"
+            className="sr-only"
+            accept="image/png,image/jpeg,image/webp"
+            disabled={busy}
+            aria-label="Upload battle map"
+            onChange={(e) => onChange(e.target.files?.[0])}
+          />
+        </label>
+        {props.gmToken && (
+          <button type="button" className="secondary" onClick={() => setPicking(true)}>
+            From library
+          </button>
+        )}
+        <button type="button" className="secondary" data-tour="gm-grid" onClick={() => setGridOpen(true)}>
+          Adjust grid
+        </button>
+      </div>
+      {props.gmToken && (
+        <Modal
+          open={picking}
+          title="Choose a map"
+          onClose={() => {
+            setPicking(false);
+            setPickError(null);
+          }}
+        >
+          <LibraryPicker gmToken={props.gmToken} kind="map" onPick={(a) => void place(a)} />
+          {pickError && <p role="alert" className="error">{pickError}</p>}
+        </Modal>
+      )}
+      <Modal open={gridOpen} title="Grid" className="grid-preview-modal" onClose={closeGrid}>
+        {props.grid(closeGrid)}
+      </Modal>
+    </PanelSection>
   );
 }
 
-function imageSize(url: string) {
-  return new Promise<{ width: number; height: number }>((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
-    img.onerror = () => reject(new Error("Could not read image"));
-    img.src = url;
-  });
+/** Explicitly writes the room's current grid back to the library map it came from. */
+function SaveGridToLibrary({ gmToken, assetId, grid }: { gmToken: string; assetId: string; grid: GridSpec }) {
+  const [status, setStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setStatus("idle");
+    setError(null);
+  }, [assetId, grid]);
+  return (
+    <div className="stack">
+      <button
+        type="button"
+        className="secondary"
+        disabled={status === "saving"}
+        onClick={async () => {
+          setStatus("saving");
+          setError(null);
+          try {
+            await api.library.update(gmToken, assetId, { grid });
+            setStatus("saved");
+          } catch (err) {
+            setError(err instanceof Error ? err.message : "Could not save the grid");
+            setStatus("idle");
+          }
+        }}
+      >
+        {status === "saving" ? "Saving…" : "Save grid to library"}
+      </button>
+      {status === "saved" && <p className="muted" role="status">Saved. Future placements of this map use this grid.</p>}
+      {error && <p role="alert" className="error">{error}</p>}
+    </div>
+  );
 }
 
 /** Manual grid correction (FR-GM-04). Automatic detection (FR-GM-03) will prefill these. */
 function GridForm({
-  grid, draft, hasDraft, onChange, onCancel, onApply, applying, error,
+  grid,
+  draft,
+  hasDraft,
+  onChange,
+  onCancel,
+  onApply,
+  applying,
+  error,
+  children,
 }: {
   grid: GridSpec;
   draft: GridDraft;
@@ -206,6 +203,8 @@ function GridForm({
   onApply: (grid: GridSpec) => Promise<void>;
   applying: boolean;
   error: string | null;
+  /** "Save grid to library", when the map came from the library. */
+  children?: ReactNode;
 }) {
   const validDraft = parseGridDraft(draft);
 
@@ -260,8 +259,8 @@ function GridForm({
   );
 
   return (
-    <section>
-      <h2>Grid</h2>
+    <div className="stack">
+      <p className="muted small-print">Match the cell size and offset to the squares drawn on your map.</p>
       <form
         className="grid-form"
         onSubmit={(e: FormEvent) => {
@@ -282,55 +281,13 @@ function GridForm({
         )}
         {error && <p className="error grid-message" role="alert">{error}</p>}
         <div className="grid-actions">
-          <button type="button" className="secondary" disabled={!hasDraft || applying} onClick={onCancel}>Cancel</button>
+          <button type="button" className="secondary" disabled={applying} onClick={onCancel}>Cancel</button>
           <button type="submit" disabled={!validDraft || gridsEqual(validDraft, grid) || applying}>
             {applying ? "Applying…" : "Apply grid"}
           </button>
         </div>
       </form>
-    </section>
-  );
-}
-
-function AddToken(props: {
-  players: { id: string; displayName: string }[];
-  onAdd: (name: string, ownerId: string, hidden: boolean) => Promise<boolean>;
-}) {
-  const [name, setName] = useState("");
-  const [ownerId, setOwnerId] = useState("");
-  const [hidden, setHidden] = useState(false);
-
-  return (
-    <section>
-      <h2>Add token</h2>
-      <form
-        className="stack"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          if (await props.onAdd(name, ownerId, hidden)) setName("");
-        }}
-      >
-        <label>
-          Name
-          <input value={name} onChange={(e) => setName(e.target.value)} required maxLength={60} />
-        </label>
-        <label>
-          Owner
-          <select value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
-            <option value="">No owner (GM only)</option>
-            {props.players.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.displayName}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="inline">
-          <input type="checkbox" checked={hidden} onChange={(e) => setHidden(e.target.checked)} />
-          Hidden from players
-        </label>
-        <button type="submit">Add token</button>
-      </form>
-    </section>
+      {children}
+    </div>
   );
 }

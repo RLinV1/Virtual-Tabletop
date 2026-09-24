@@ -21,6 +21,7 @@ import {
   type RoomState,
   type Token,
 } from "@vtt/shared";
+import { recenterOnResize } from "./recenter";
 
 export interface BoardCallbacks {
   /** Commit a move. Resolves false if the server rejected it. */
@@ -33,10 +34,24 @@ const DEFAULT_BOARD = { width: 2100, height: 1400 };
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 8;
 const PREVIEW_INTERVAL_MS = 50;
+/** Neutral stand-in for a map image that no longer exists (board-asset-fallback). */
+const EMPTY_MAP_FILL = 0x2b2e35;
+
+/**
+ * Image URLs that failed to load this session — typically a deleted library asset. The
+ * log keeps old URLs forever, so without this every state sync would re-request a 404.
+ */
+const failedImageUrls = new Set<string>();
 
 interface TokenView {
   container: Container;
   body: Graphics;
+  /** Token art clipped to the token circle; hidden when there is none or it failed to load. */
+  image: Sprite;
+  imageMask: Graphics;
+  /** URL the sprite is showing or loading, so a late load for an old URL is ignored. */
+  imageUrl: string | null;
+  radius: number;
   /** Resource bar and focus ring (FR-TAC-07). */
   decor: Graphics;
   /** Condition markers: one shape + abbreviation each (FR-TAC-08). */
@@ -65,6 +80,8 @@ export class BoardView {
   private you: Participant | null = null;
   private mapUrl: string | null = null;
   private gridPreview: GridSpec | null = null;
+  /** The current map's image could not be loaded; draw the generic surface instead. */
+  private mapMissing = false;
   private gridKey = "";
 
   private drag: { tokenId: string; offset: Point; lastPreview: number } | null = null;
@@ -74,6 +91,7 @@ export class BoardView {
   private initialized = false;
   /** Keep auto-fitting (map changes, window resizes) until the viewer pans or zooms themselves. */
   private autoFit = true;
+  private hostObserver: ResizeObserver | null = null;
 
   constructor(
     private host: HTMLElement,
@@ -83,7 +101,7 @@ export class BoardView {
   async init() {
     await this.app.init({
       resizeTo: this.host,
-      background: "#1d1f24",
+      background: "#14171b",
       antialias: true,
       autoDensity: true,
       resolution: window.devicePixelRatio,
@@ -110,13 +128,28 @@ export class BoardView {
     this.app.canvas.addEventListener("touchend", this.onTouchEnd);
     this.app.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
     this.app.ticker.add(this.tick);
+    // A layout change (sidebar collapse, window resize) must not move what the viewer is
+    // looking at. Without this a panned board stays pinned to the top-left and drifts.
+    let lastSize = { width: this.app.screen.width, height: this.app.screen.height };
     this.app.renderer.on("resize", () => {
+      const size = { width: this.app.screen.width, height: this.app.screen.height };
       if (this.autoFit) this.fitToScreen();
+      else {
+        const to = recenterOnResize(this.world.position, lastSize, size);
+        this.world.position.set(to.x, to.y);
+      }
+      lastSize = size;
     });
+    // `resizeTo` only listens for window resizes. Collapsing the sidebar resizes the host
+    // without resizing the window, which left the canvas at its old width and a dead strip
+    // on the right. Watch the host itself.
+    this.hostObserver = new ResizeObserver(() => this.app.resize());
+    this.hostObserver.observe(this.host);
   }
 
   destroy() {
     if (!this.initialized) return;
+    this.hostObserver?.disconnect();
     this.app.canvas.removeEventListener("wheel", this.onWheel);
     this.app.canvas.removeEventListener("touchstart", this.onTouchStart);
     this.app.canvas.removeEventListener("touchmove", this.onTouchMove);
@@ -135,7 +168,7 @@ export class BoardView {
     if (this.autoFit) this.fitToScreen();
   }
 
-  /** Local GM calibration overlay. Room state and token interactions remain committed-only. */
+  /** Only this viewer sees the calibration overlay. Token movement keeps the committed grid. */
   setGridPreview(grid: GridSpec | null) {
     this.gridPreview = grid;
     if (this.initialized && this.state) this.syncGrid();
@@ -235,25 +268,39 @@ export class BoardView {
     if (url === this.mapUrl) return;
     this.mapUrl = url;
     this.autoFit = true;
-    if (!url) {
-      this.mapSprite.texture = Texture.EMPTY;
-      return;
-    }
-    Assets.load<Texture>(url).then((texture) => {
-      if (this.mapUrl === url && this.initialized) this.mapSprite.texture = texture;
-    });
+    this.mapMissing = false;
+    this.mapSprite.texture = Texture.EMPTY;
+    if (!url) return;
+    const markMissing = () => {
+      if (this.mapUrl !== url || !this.initialized) return;
+      // Board coordinates come from the stored width/height, not the image, so every
+      // token stays where it was on the generic surface (invariant 8).
+      this.mapMissing = true;
+      this.gridKey = "";
+      if (this.state) this.syncGrid();
+    };
+    if (failedImageUrls.has(url)) return markMissing();
+    Assets.load<Texture>(url).then(
+      (texture) => {
+        if (this.mapUrl === url && this.initialized) this.mapSprite.texture = texture;
+      },
+      () => {
+        failedImageUrls.add(url);
+        markMissing();
+      },
+    );
   }
 
   private syncGrid() {
     const g = this.gridPreview ?? this.state!.scene.grid;
     const { width, height } = this.boardSize();
-    const key = JSON.stringify([g.cellSize, g.offsetX, g.offsetY, width, height, !!this.state!.scene.map, !!this.gridPreview]);
+    const key = JSON.stringify([g.cellSize, g.offsetX, g.offsetY, width, height, this.mapMissing, !!this.gridPreview]);
     if (key === this.gridKey) return;
     this.gridKey = key;
 
     this.grid.clear();
-    if (!this.state!.scene.map) this.grid.rect(0, 0, width, height).fill({ color: 0x2b2e35 });
-    // Even a schema-valid tiny cell size could produce millions of line segments.
+    if (!this.state!.scene.map || this.mapMissing) this.grid.rect(0, 0, width, height).fill({ color: EMPTY_MAP_FILL });
+    // A schema-valid tiny cell size could otherwise create millions of line segments.
     if (!Number.isFinite(g.cellSize) || g.cellSize <= 0 || (width + height) / g.cellSize > 50_000) return;
     for (let x = g.offsetX; x <= width; x += g.cellSize) this.grid.moveTo(x, 0).lineTo(x, height);
     for (let y = g.offsetY; y <= height; y += g.cellSize) this.grid.moveTo(0, y).lineTo(width, y);
@@ -303,10 +350,16 @@ export class BoardView {
       style: { fill: 0xffffff, fontSize: 14, fontFamily: "system-ui, sans-serif", stroke: { color: 0x000000, width: 3 } },
     });
     label.anchor.set(0.5, 0);
-    container.addChild(body, decor, markers, label);
+    const image = new Sprite(Texture.EMPTY);
+    image.anchor.set(0.5);
+    image.visible = false;
+    const imageMask = new Graphics();
+    image.mask = imageMask;
+    // Disc first so it shows through while the image loads, or instead of one that failed.
+    container.addChild(body, image, imageMask, decor, markers, label);
     container.on("pointerdown", (e: FederatedPointerEvent) => this.onTokenDown(e, token.id));
     this.tokenLayer.addChild(container);
-    return { container, body, decor, markers, label, drawnKey: "" };
+    return { container, body, image, imageMask, imageUrl: null, radius: 0, decor, markers, label, drawnKey: "" };
   }
 
   private drawToken(view: TokenView, token: Token, grid: GridSpec, you: Participant) {
@@ -316,7 +369,7 @@ export class BoardView {
     const active = this.activeTokenId() === token.id;
     const key = JSON.stringify([
       token.name, token.size, token.color, token.hidden, owned, movable, grid.cellSize,
-      token.stats, token.conditions, focused, active,
+      token.stats, token.conditions, focused, active, token.imageUrl,
     ]);
     view.container.eventMode = movable ? "static" : "none";
     view.container.cursor = movable ? "grab" : "default";
@@ -324,19 +377,52 @@ export class BoardView {
     view.drawnKey = key;
 
     const r = (token.size * grid.cellSize) / 2 - 2;
+    view.radius = r;
     view.body.clear().circle(0, 0, r).fill({ color: token.color });
-    if (owned) view.body.circle(0, 0, r).stroke({ width: 3, color: 0xffffff });
+    view.imageMask.clear().circle(0, 0, r).fill({ color: 0xffffff });
+    this.syncTokenImage(view, token.imageUrl);
     view.container.alpha = token.hidden ? 0.45 : 1;
     view.label.text = token.hidden ? `${token.name} (hidden)` : token.name;
     view.label.position.set(0, r + 2);
 
-    this.drawDecor(view, token, r, focused, active);
+    this.drawDecor(view, token, r, focused, active, owned);
     this.drawConditions(view, token.conditions, r);
   }
 
+  /**
+   * Shows the token's image over its colour disc. A missing image (e.g. a deleted library
+   * asset) leaves the disc showing, unchanged in size and position (board-asset-fallback).
+   */
+  private syncTokenImage(view: TokenView, url: string | null) {
+    if (url === view.imageUrl) return this.fitTokenImage(view);
+    view.imageUrl = url;
+    view.image.visible = false;
+    if (!url || failedImageUrls.has(url)) return;
+    Assets.load<Texture>(url).then(
+      (texture) => {
+        if (view.imageUrl !== url || view.container.destroyed) return;
+        view.image.texture = texture;
+        view.image.visible = true;
+        this.fitTokenImage(view);
+      },
+      () => {
+        failedImageUrls.add(url);
+      },
+    );
+  }
+
+  /** Cover the token circle: scale the short edge to the diameter; the mask trims the rest. */
+  private fitTokenImage(view: TokenView) {
+    const { texture } = view.image;
+    if (!view.image.visible || texture.width === 0 || texture.height === 0) return;
+    view.image.scale.set((view.radius * 2) / Math.min(texture.width, texture.height));
+  }
+
   /** Focus ring, active-turn ring, and the HP bar (FR-TAC-07, FR-GM-21, FR-GM-24). */
-  private drawDecor(view: TokenView, token: Token, r: number, focused: boolean, active: boolean) {
+  private drawDecor(view: TokenView, token: Token, r: number, focused: boolean, active: boolean, owned: boolean) {
     const g = view.decor.clear();
+    // Drawn here, above the token art, so an image never hides whose token it is.
+    if (owned) g.circle(0, 0, r).stroke({ width: 3, color: 0xffffff });
 
     // Rings differ in radius and dash as well as colour, so they remain distinguishable
     // when colour is not available (FR-TAC-08 applies to the whole board, not just markers).

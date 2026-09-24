@@ -13,7 +13,7 @@ const uploadDir = process.env.UPLOAD_DIR ?? path.join(here, "..", "uploads");
 const port = Number(process.env.PORT ?? 3001);
 
 /**
- * Postgres + Redis when configured, in-memory otherwise (DESIGN.md §3).
+ * Postgres + Redis when configured, in-memory otherwise (DESIGN.md §2).
  * `pnpm dev` with no env vars still boots standalone, which is what CI's smoke test uses.
  */
 async function createStore(): Promise<RoomStore> {

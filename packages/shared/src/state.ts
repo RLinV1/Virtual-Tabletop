@@ -22,6 +22,11 @@ export const MapImage = z.object({
   /** Natural image size in pixels = board size in board coordinates. */
   width: z.number().int().positive(),
   height: z.number().int().positive(),
+  /**
+   * Library asset this map was placed from, if any (ADR 0004). Opaque — it names nothing,
+   * and no player-reachable endpoint resolves it. Nullish so older events still parse.
+   */
+  assetId: Id.nullish(),
 });
 export type MapImage = z.infer<typeof MapImage>;
 
@@ -43,6 +48,8 @@ export const Token = z.object({
   /** Hex color used when there is no token image. */
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   imageUrl: z.string().max(2048).nullable(),
+  /** Library asset the image came from, if any (ADR 0004). */
+  assetId: Id.nullish(),
   /** Player participants allowed to move this token (FR-GM-10, FR-PL-04). The GM can always move it. */
   ownerIds: z.array(Id),
   /** Hidden tokens are never sent to player clients (FR-GM-16, FR-GM-23). */

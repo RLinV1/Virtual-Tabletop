@@ -30,14 +30,13 @@ interface Props {
   connection: RoomConnection;
   state: RoomState;
   you: Participant;
-  inviteCode?: string;
   token: string;
   onFocusToken: (tokenId: string) => void;
   gridDraft: GridDraft;
   hasGridDraft: boolean;
   onGridDraftChange: (draft: GridDraft) => void;
   onGridDraftCancel: () => void;
-  onGridApply: (grid: GridSpec) => Promise<void>;
+  onGridApply: (grid: GridSpec) => Promise<boolean>;
   gridApplying: boolean;
   gridError: string | null;
   /** True on narrow screens, where the panel becomes tabbed. */
@@ -45,7 +44,7 @@ interface Props {
 }
 
 export function RoomPanel({
-  connection, state, you, inviteCode, token, onFocusToken,
+  connection, state, you, token, onFocusToken,
   gridDraft, hasGridDraft, onGridDraftChange, onGridDraftCancel, onGridApply, gridApplying, gridError, compact,
 }: Props) {
   const isGm = you.role === "gm";
@@ -74,27 +73,14 @@ export function RoomPanel({
       <>
         <MyTokens connection={connection} state={state} you={you} onFocusToken={onFocusToken} />
         <InitiativeTracker connection={connection} state={state} you={you} onFocusToken={onFocusToken} />
-        {/* Compact hides the participants section in the header; it reappears here as a
-            single inline line, since knowing who is in the room still matters. */}
-        {compact && (
-          <section className="panel-section">
-            <h2>Participants</h2>
-            <p className="who-list">
-              {Object.values(state.participants)
-                .map((p) => `${p.displayName}${p.role === "gm" ? " (GM)" : ""}`)
-                .join(" · ")}
-            </p>
-          </section>
-        )}
       </>
     ),
-    tokens: <TokenRoster connection={connection} state={state} you={you} onFocusToken={onFocusToken} />,
+    tokens: <TokenRoster connection={connection} state={state} you={you} token={token} onFocusToken={onFocusToken} />,
     dice: <DicePanel connection={connection} state={state} isGm={isGm} />,
     gm: isGm ? (
       <GmPanel
         connection={connection}
         state={state}
-        inviteCode={inviteCode}
         token={token}
         gridDraft={gridDraft}
         hasGridDraft={hasGridDraft}

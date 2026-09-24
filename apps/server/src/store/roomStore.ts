@@ -1,4 +1,5 @@
 import type { CommittedEvent, DomainEvent } from "@vtt/shared";
+import type { LibraryStore, NewRoomOptions } from "./libraryStore";
 
 export interface NewEvent {
   actorId: string | null;
@@ -24,8 +25,8 @@ export class SeqConflictError extends Error {
  *  - `append` fails with SeqConflictError if the room's last seq != expectedLastSeq.
  *  - events are never updated or deleted.
  */
-export interface RoomStore {
-  createRoom(roomId: string, inviteCode: string): Promise<void>;
+export interface RoomStore extends LibraryStore {
+  createRoom(roomId: string, inviteCode: string, options?: NewRoomOptions): Promise<void>;
   roomExists(roomId: string): Promise<boolean>;
   findRoomByInvite(inviteCode: string): Promise<string | null>;
 
