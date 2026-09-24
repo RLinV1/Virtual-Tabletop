@@ -26,4 +26,6 @@
 - [x] 4.1 Contrast measured in both grounds for text and control boundaries.
 - [x] 4.2 Zero em-dashes in the rendered page, including the dice parser's error message.
 - [x] 4.3 `npm run lint && npm run typecheck && npm test` clean.
-- [ ] 4.4 Settle the palette divergence against KAN-65's rust system before merge.
+- [x] 4.4 Adopt KAN-65's rust palette, keeping only the tokens that system does not provide. Verify `--accent` resolves to `#b9582f` on both `/` and `/library`, and that every contrast pair still passes in both grounds.
+- [ ] 4.5 Raise the `--border-strong` contrast defect (1.66:1) as its own change; it affects every bordered control in the app, not just this page.
+- [ ] 4.6 Decide whether the home page keeps Geist or moves to Alegreya Sans.

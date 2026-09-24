@@ -629,32 +629,25 @@ button.token-delete { align-self: flex-start; padding-inline: 0; }
    ========================================================================== */
 
 .home-page {
-  --accent: #5b8def;
-  --accent-strong: #2462db;
-  --accent-hover: #6d9bf2;
-  /* Labels on an --accent fill: white on #5b8def is only 3.2:1, this is 5.5:1. */
-  --on-accent: #15171b;
-  --link: var(--accent);
-  --field: #2a2e36;
-  --panel: #20232a;
-  --border: #33373f;
-  --text: #e8e9ec;
-  --muted: #9aa0aa;
-  --ok: #3fb950;
-  --warn: #d29922;
-  --danger: #e5534b;
+  /* Inherits KAN-65's slate-and-rust system. Only the values that system does not
+     provide are set here: a deeper ground for the lit-table effect, the lighting, and a
+     control border, because --border-strong is 1.66:1 against the ground and a control
+     boundary needs 3:1. */
+  --on-accent: #ffffff;        /* on rust: 4.67:1 */
+  --accent-hover: var(--focus); /* their lighter rust */
+  --accent-strong: #9c4726;     /* darker rust, for the light ground */
 
   /* The ground is lit, not ruled. */
-  --ground: #0f1318;
-  --lift: rgba(91, 141, 239, 0.1);
+  --ground: #0f1216;
+  --lift: rgba(185, 88, 47, 0.12);
   --key-warm: rgba(222, 152, 70, 0.22);
   --key-warm-low: rgba(198, 108, 52, 0.12);
-  --fill-cool: rgba(92, 134, 204, 0.18);
+  --fill-cool: rgba(92, 120, 164, 0.16);
   --shaft: rgba(255, 238, 212, 0.05);
   --vignette: rgba(3, 5, 8, 0.66);
-  --rule: rgba(232, 233, 236, 0.14);
-  --hover: rgba(232, 233, 236, 0.06);
-  --control-border: #646a78;
+  --rule: rgba(227, 230, 234, 0.14);
+  --hover: rgba(227, 230, 234, 0.06);
+  --control-border: #646a78;   /* 3.46:1 on the ground */
   --bloom-strength: 0.5;
   --shadow-tint: rgba(4, 7, 12, 0.85);
   --grain-opacity: 0.055;
@@ -665,30 +658,35 @@ button.token-delete { align-self: flex-start; padding-inline: 0; }
   color: var(--text);
 }
 
+
 :root[data-theme="light"] .home-page {
-  --bg: #eef1f5;
+  /* Their system is dark-only, so the light side of slate-and-rust is defined here. */
+  --bg: #eceef1;
+  --ground: #eceef1;
   --panel: #fbfcfd;
+  --raised: #f4f6f8;
+  --field: #fbfcfe;
   --border: #d5dae2;
   --text: #15171b;
-  --muted: #5b6270;
-  --link: var(--accent-strong);
-  --field: #fbfcfe;
-  --lift: rgba(91, 141, 239, 0.18);
-  --ground: #edf0f5;
+  --muted: #5b6270;            /* 5.27:1 */
+  --accent-hover: #a04a28;
+  --lift: rgba(185, 88, 47, 0.16);
   --key-warm: rgba(204, 138, 62, 0.2);
   --key-warm-low: rgba(184, 104, 48, 0.12);
-  --fill-cool: rgba(92, 132, 202, 0.17);
+  --fill-cool: rgba(92, 120, 164, 0.15);
   --shaft: rgba(255, 252, 244, 0.55);
   --vignette: rgba(108, 120, 144, 0.2);
   --rule: rgba(21, 23, 27, 0.16);
   --hover: rgba(21, 23, 27, 0.05);
-  --control-border: #7a8394;
+  --control-border: #7a8394;   /* 3.28:1 */
   --bloom-strength: 0.42;
   --shadow-tint: rgba(44, 58, 84, 0.34);
   --grain-opacity: 0.022;
   color-scheme: light;
 }
-.home-page a { color: var(--link); }
+
+/* Their treatment: text colour with a rust underline. Rust as link text is 4.02:1. */
+.home-page a { color: var(--text); text-decoration-color: var(--accent); }
 
 /* KAN-65's base rules reach into this page: `a` is themed app-wide, and `h2` is set in
    Alegreya Small Caps via --font-label. Both are right for the table and wrong for a
@@ -939,8 +937,8 @@ button.token-delete { align-self: flex-start; padding-inline: 0; }
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgba(91, 141, 239, 0.55) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(91, 141, 239, 0.55) 1px, transparent 1px);
+    linear-gradient(rgba(224, 138, 98, 0.6) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(224, 138, 98, 0.6) 1px, transparent 1px);
   background-size: 5.55% 9.85%;
   pointer-events: none;
 }
@@ -1298,9 +1296,7 @@ button.token-delete { align-self: flex-start; padding-inline: 0; }
 
 
 
-:root[data-theme="light"] .cta {
-  border-color: var(--accent-strong);
-}
+
 
 
 :root[data-theme="light"] .hero-art::after {

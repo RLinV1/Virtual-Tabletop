@@ -27,6 +27,14 @@ The landing half also did not do its job (KAN-56). It was a bare create-room for
 - **Dependencies added:** `@fontsource/geist-sans`, `@fontsource/geist-mono`, `@phosphor-icons/react`.
 - **Not in scope:** `/library`'s own page, GM identity ownership (see the `device-identity-bridge` change), and the recovery chapter DESIGN.md §11.5 asks for, which needs an activity-log screenshot that does not exist yet.
 
-## Divergence the team should rule on
+## Relationship to KAN-65's design system
 
-`main` gained a design system in KAN-65: rust `#b9582f`, Alegreya Sans, 4px radius. This home page is blue `#5b8def`, Geist, 6px. The blue was chosen deliberately and is kept here, scoped to `.home-page` so the room and library keep the team's palette untouched. One accent token reverts it. **This is the one decision in this change that is a matter of taste rather than correctness, and it should be settled before merge.**
+KAN-65 gave the app a slate-and-rust system. This page **adopts it**: `--accent`, `--panel`, `--border`, `--text`, `--muted`, `--field` and the status colours are all inherited, and links follow KAN-65's own treatment of text colour with a rust underline, because rust as link text is only 4.02:1 against the ground.
+
+Three things that system does not provide are still defined here, scoped to `.home-page`:
+
+- **A control border.** `--border-strong` is **1.66:1** against `--bg`, well under the 3:1 WCAG 1.4.11 asks of a control's visual boundary. This page uses `#646a78` (3.46:1) on the dark ground. **That is a defect in the shared tokens and deserves its own fix**, since every bordered control in the app has the same problem.
+- **A light palette.** KAN-65 is dark-only: its stylesheet contains no `prefers-color-scheme` or `data-theme` rules. The light side of slate-and-rust is therefore **new design work** introduced here (`#eceef1` ground, `#9c4726` rust for text, `#5b6270` muted), not adoption, and the team should review it as such.
+- **The lit ground**, the per-map bloom and the grain, which are specific to this page.
+
+Typography still differs: this page uses Geist, the app uses Alegreya Sans. That is a smaller, separate flip and is deliberately left open.
