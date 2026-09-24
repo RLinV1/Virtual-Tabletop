@@ -35,7 +35,7 @@ type EphemeralListener = (from: string, payload: EphemeralPayload) => void;
  *    so a reconnect rebinds to the same participant and the server replies with a full
  *    filtered snapshot (FR-PL-06) — there is no client-side catch-up to get wrong.
  *
- * Observable state lives in a Zustand store (DESIGN.md §3) so components subscribe to
+ * Observable state lives in a Zustand store (DESIGN.md §2) so components subscribe to
  * exactly the slice they render.
  */
 export class RoomConnection {

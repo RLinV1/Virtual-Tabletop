@@ -1,7 +1,7 @@
 import Redis from "ioredis";
 
 /**
- * Per-room sequence numbers from Redis `INCR` (DESIGN.md §3, FR-SYNC-04).
+ * Per-room sequence numbers from Redis `INCR` (DESIGN.md §2, FR-SYNC-04).
  *
  * `INCR` is atomic, so two server instances appending to the same room can never
  * be handed the same `seq`. It is an optimisation, not the guarantee: the

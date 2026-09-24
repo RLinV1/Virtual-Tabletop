@@ -37,7 +37,7 @@ export async function startServer() {
   return {
     base,
     close: () => app.close(),
-    /** Mirrors the browser: the client generates its own credential (DESIGN.md §5.1). */
+    /** Mirrors the browser: the client generates its own credential (DESIGN.md §5). */
     newGuestToken,
     createRoom: async (displayName = "GM", opts: { gmToken?: string; roomName?: string } = {}) => {
       const guestToken = newGuestToken();

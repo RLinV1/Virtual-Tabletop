@@ -1,4 +1,4 @@
-// Event store schema (DESIGN.md §3 "PostgreSQL + Prisma", §4.1; docs/adr/0001-event-model.md).
+// Event store schema (DESIGN.md §2 "PostgreSQL + Prisma", §5; docs/adr/0001-event-model.md).
 //
 // `events` is append-only: rows are never updated or deleted, and undo is a new
 // compensating event (FR-REC-03). The per-room ordering guarantee (FR-SYNC-04) lives in

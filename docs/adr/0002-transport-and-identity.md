@@ -25,7 +25,7 @@ Socket.IO replays `auth` on every automatic reconnect, so a dropped client rebin
 same participant with no application round trip (FR-PL-05) — which is what the prototype
 did, and it removes the client-side reconnect/backoff loop entirely.
 
-The ephemeral channel now uses `socket.volatile.emit` (DESIGN.md §2.2), so pointer and
+The ephemeral channel now uses `socket.volatile.emit` (DESIGN.md §1), so pointer and
 drag traffic is genuinely dropped under backpressure rather than queued ahead of committed
 events (FR-SYNC-03). The hand-rolled transport could not express that distinction.
 
@@ -47,7 +47,7 @@ hand-rolled listener set behind `useSyncExternalStore`.
 ### Guest identity: generated in the browser
 
 The browser generates 32 bytes and sends them on create/join; the server stores only the
-SHA-256 (DESIGN.md §5.1). The server no longer mints participant secrets, so it never
+SHA-256 (DESIGN.md §5). The server no longer mints participant secrets, so it never
 holds a credential it could leak.
 
 This closes the "unknown hash → new participant" hole the proposal worried about by a
@@ -72,7 +72,7 @@ zod would leave the codebase with less validation than either document asks for.
 
 pnpm is replaced by **npm workspaces** (`DESIGN.md` §7 and §9 both use npm), with
 `concurrently` driving `npm run dev` as the prototype on `design` does. Raw `pg` is
-replaced by **Prisma** (`DESIGN.md` §3 "PostgreSQL + Prisma", §8.3 "Prisma schema from
+replaced by **Prisma** (`DESIGN.md` §2 "PostgreSQL + Prisma", `DELIVERY.md` §8.3 "Prisma schema from
 §4.1, with migrations"): `apps/server/prisma/schema.prisma` replaces the hand-written
 `db/001_init.sql`, and `prisma/migrations/` is now the single source of schema truth.
 
@@ -83,7 +83,7 @@ replaced by **Prisma** (`DESIGN.md` §3 "PostgreSQL + Prisma", §8.3 "Prisma sch
 - A fresh database needs `npm run prisma:migrate --workspace=@vtt/server` before first run.
 - The asset bucket is created with a public-read policy. Objects are named by UUID and
   carry no room data; access control is at the room level, not the object level, and
-  DESIGN.md §6 wants uploads served from an origin separate from the app. Without the
+  DESIGN.md §5 wants uploads served from an origin separate from the app. Without the
   policy every URL the server hands back is a 403 in the browser.
 - MinIO is pulled from `quay.io/minio/minio`; the Docker Hub `minio/minio` image is no
   longer publicly pullable.
