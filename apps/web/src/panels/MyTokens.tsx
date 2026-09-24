@@ -1,6 +1,7 @@
 import { hpFraction, type Participant, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { ConditionMarker } from "./ConditionMarker";
+import { PanelSection } from "../ui/PanelSection";
 
 /**
  * The player's own characters, promoted above everything else (FR-PL-03).
@@ -26,24 +27,20 @@ export function MyTokens({
     .filter((t) => t.ownerIds.includes(you.id))
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  if (mine.length === 0) {
-    return (
-      <section className="panel-section">
-        <h2>My tokens</h2>
+  // A GM controls every token already; the section only earns its place if they own some.
+  if (you.role === "gm" && mine.length === 0) return null;
+
+  const activeId = state.initiative?.order[state.initiative.activeIndex] ?? null;
+
+  return (
+    <PanelSection id="my-tokens" title="My tokens">
+      {mine.length === 0 ? (
         <p className="muted">
           {you.role === "gm"
             ? "You control every token as GM."
             : "The GM has not assigned you a token yet."}
         </p>
-      </section>
-    );
-  }
-
-  const activeId = state.initiative?.order[state.initiative.activeIndex] ?? null;
-
-  return (
-    <section className="panel-section">
-      <h2>My tokens</h2>
+      ) : (
       <ul className="plain my-tokens">
         {mine.map((token) => {
           const fraction = hpFraction(token.stats);
@@ -121,7 +118,8 @@ export function MyTokens({
           );
         })}
       </ul>
-    </section>
+      )}
+    </PanelSection>
   );
 }
 

@@ -1,8 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Board, type BoardHandle } from "../board/Board";
 import { loadCredentials } from "../net/identity";
 import { RoomConnection, useRoomSnapshot, type ConnectionStatus } from "../net/roomConnection";
 import { RoomPanel } from "../panels/RoomPanel";
+import { SectionCollapseProvider } from "../ui/PanelSection";
+import { ParticipantsButton } from "../ui/ParticipantsButton";
+import { ShareButton } from "../ui/ShareButton";
+import { GuideIcon, GuideTour } from "../ui/GuideTour";
+import { isBoolean, usePersistentState } from "../ui/usePersistentState";
 
 /** Below this the panel becomes tabs and sits under the board (FR-PL-03). */
 const COMPACT_WIDTH = 720;
@@ -62,6 +67,13 @@ function Room({ connection, inviteCode, token }: { connection: RoomConnection; i
   const boardRef = useRef<BoardHandle>(null);
   const compact = useCompactLayout();
   const focusToken = useCallback((tokenId: string) => boardRef.current?.focusToken(tokenId), []);
+  const [sidebarCollapsed, setSidebarCollapsed] = usePersistentState("vtt.ui.sidebar", false, isBoolean);
+  const [guideOpen, setGuideOpen] = useState(false);
+  const guideButtonRef = useRef<HTMLButtonElement>(null);
+  const closeGuide = useCallback(() => {
+    setGuideOpen(false);
+    guideButtonRef.current?.focus();
+  }, []);
 
   if (status === "unauthorized") {
     return (
@@ -78,57 +90,118 @@ function Room({ connection, inviteCode, token }: { connection: RoomConnection; i
     return <main className="centered" aria-busy="true">{STATUS_LABEL[status]}</main>;
   }
 
+  const participants = Object.values(state.participants);
+  // The rail is a desktop affordance. On a phone the panel is already below the board, so
+  // the remembered preference is ignored there and applies again once the window widens.
+  const collapsed = sidebarCollapsed && !compact;
+
   return (
-    <div className={compact ? "room compact" : "room"}>
+    <div className={["room", compact && "compact", collapsed && "sidebar-collapsed"].filter(Boolean).join(" ")}>
       {/* Keyboard and screen-reader users should not have to tab through the canvas,
           which is a single non-navigable element, to reach the controls. */}
-      <a className="skip-link" href="#room-panel">
+      <a
+        className="skip-link"
+        href="#room-panel"
+        onClick={(e) => {
+          e.preventDefault();
+          setSidebarCollapsed(false);
+          // After the expand renders, so focus does not land on a hidden body.
+          requestAnimationFrame(() => document.getElementById("room-panel")?.focus());
+        }}
+      >
         Skip to room controls
       </a>
-      <Board ref={boardRef} connection={connection} state={state} you={you} />
-      <aside className="panel" id="room-panel">
-        {/*
-          On a phone this header competes with the board for a screen that has neither to
-          spare, so it collapses to one line: room name, who you are, and connection state.
-          The participant list moves into the Play tab, where it is one line of names
-          rather than a titled section.
-        */}
-        <header className="panel-header">
-          <h1>{state.name}</h1>
-          <span className={`status status-${status}`} role="status">
-            {STATUS_LABEL[status]} · seq {seq}
-          </span>
-          <p className="whoami">
-            You are <strong>{you.displayName}</strong> ({you.role === "gm" ? "GM" : "player"})
-          </p>
-        </header>
+      {/* Same element, same position in both states: collapsing must never remount the
+          canvas or reset the viewer's zoom and pan. */}
+      <Board
+        ref={boardRef}
+        connection={connection}
+        state={state}
+        you={you}
+        toolbar={
+          <>
+            <ParticipantsButton participants={participants} />
+            <button
+              ref={guideButtonRef}
+              type="button"
+              className="tool-button"
+              data-tour="guide"
+              title="A quick tour of this page"
+              onClick={() => {
+                // The sidebar's steps need it open. It animates open, and its sections have
+                // no width until it has, so wait out the transition before starting.
+                const wait = collapsed && !matchMedia("(prefers-reduced-motion: reduce)").matches ? 220 : 0;
+                setSidebarCollapsed(false);
+                window.setTimeout(() => setGuideOpen(true), wait);
+              }}
+            >
+              <GuideIcon />
+              Guide
+            </button>
+          </>
+        }
+      />
+      <aside className="panel" id="room-panel" tabIndex={-1} aria-label="Room controls">
         {!compact && (
-          <section className="participants">
-            <h2>Participants</h2>
-            <ul className="plain">
-              {Object.values(state.participants).map((p) => (
-                <li key={p.id}>
-                  {p.displayName} <span className="muted">{p.role === "gm" ? "GM" : ""}</span>
-                </li>
-              ))}
-            </ul>
-          </section>
+          // A tab on the panel's inner edge, vertically centred. With the panel collapsed to
+          // zero width it sits on the right edge of the screen. It stays mounted in both
+          // states, so collapsing from it keeps focus on it.
+          <button
+            type="button"
+            className="sidebar-handle"
+            data-tour="sidebar-handle"
+            aria-expanded={!collapsed}
+            aria-controls="room-panel-body"
+            aria-label={collapsed ? "Show sidebar" : "Hide sidebar"}
+            title={collapsed ? "Show sidebar" : "Hide sidebar"}
+            onClick={() => setSidebarCollapsed((c) => !c)}
+          >
+            <Chevron pointsLeft={collapsed} />
+          </button>
         )}
-        {/*
-          One panel for both roles. A player needs the turn order, their own token's
-          resources and the shared dice log as much as the GM does; what differs is the
-          administration section, and the server enforces that regardless.
-        */}
-        <RoomPanel
-          connection={connection}
-          state={state}
-          you={you}
-          inviteCode={inviteCode}
-          token={token}
-          onFocusToken={focusToken}
-          compact={compact}
-        />
+        <div className="panel-body" id="room-panel-body" hidden={collapsed}>
+          {/*
+            On a phone this header competes with the board for a screen that has neither to
+            spare, so it collapses to one line: room name, who you are, and connection state.
+          */}
+          <header className="panel-header">
+            <div className="panel-title-row">
+              <h1>{state.name}</h1>
+              {you.role === "gm" && inviteCode && <ShareButton inviteCode={inviteCode} />}
+            </div>
+            <span className={`status status-${status}`} role="status">
+              {STATUS_LABEL[status]} · seq {seq}
+            </span>
+            <p className="whoami">
+              You are <strong>{you.displayName}</strong> ({you.role === "gm" ? "GM" : "player"})
+            </p>
+          </header>
+          {/*
+            One panel for both roles. A player needs the turn order, their own token's
+            resources and the shared dice log as much as the GM does; what differs is the
+            administration section, and the server enforces that regardless.
+          */}
+          <SectionCollapseProvider>
+            <RoomPanel
+              connection={connection}
+              state={state}
+              you={you}
+              token={token}
+              onFocusToken={focusToken}
+              compact={compact}
+            />
+          </SectionCollapseProvider>
+        </div>
       </aside>
+      {guideOpen && <GuideTour role={you.role} onClose={closeGuide} />}
     </div>
+  );
+}
+
+function Chevron({ pointsLeft }: { pointsLeft: boolean }) {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d={pointsLeft ? "M7.5 2.5 4 6l3.5 3.5" : "M4.5 2.5 8 6l-3.5 3.5"} />
+    </svg>
   );
 }

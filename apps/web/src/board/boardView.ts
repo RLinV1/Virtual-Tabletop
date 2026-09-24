@@ -21,6 +21,7 @@ import {
   type RoomState,
   type Token,
 } from "@vtt/shared";
+import { recenterOnResize } from "./recenter";
 
 export interface BoardCallbacks {
   /** Commit a move. Resolves false if the server rejected it. */
@@ -89,6 +90,7 @@ export class BoardView {
   private initialized = false;
   /** Keep auto-fitting (map changes, window resizes) until the viewer pans or zooms themselves. */
   private autoFit = true;
+  private hostObserver: ResizeObserver | null = null;
 
   constructor(
     private host: HTMLElement,
@@ -98,7 +100,7 @@ export class BoardView {
   async init() {
     await this.app.init({
       resizeTo: this.host,
-      background: "#1d1f24",
+      background: "#14171b",
       antialias: true,
       autoDensity: true,
       resolution: window.devicePixelRatio,
@@ -125,13 +127,28 @@ export class BoardView {
     this.app.canvas.addEventListener("touchend", this.onTouchEnd);
     this.app.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
     this.app.ticker.add(this.tick);
+    // A layout change (sidebar collapse, window resize) must not move what the viewer is
+    // looking at. Without this a panned board stays pinned to the top-left and drifts.
+    let lastSize = { width: this.app.screen.width, height: this.app.screen.height };
     this.app.renderer.on("resize", () => {
+      const size = { width: this.app.screen.width, height: this.app.screen.height };
       if (this.autoFit) this.fitToScreen();
+      else {
+        const to = recenterOnResize(this.world.position, lastSize, size);
+        this.world.position.set(to.x, to.y);
+      }
+      lastSize = size;
     });
+    // `resizeTo` only listens for window resizes. Collapsing the sidebar resizes the host
+    // without resizing the window, which left the canvas at its old width and a dead strip
+    // on the right. Watch the host itself.
+    this.hostObserver = new ResizeObserver(() => this.app.resize());
+    this.hostObserver.observe(this.host);
   }
 
   destroy() {
     if (!this.initialized) return;
+    this.hostObserver?.disconnect();
     this.app.canvas.removeEventListener("wheel", this.onWheel);
     this.app.canvas.removeEventListener("touchstart", this.onTouchStart);
     this.app.canvas.removeEventListener("touchmove", this.onTouchMove);
