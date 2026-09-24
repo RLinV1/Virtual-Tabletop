@@ -8,6 +8,35 @@
   --danger: #e5534b;
   --ok: #3fb950;
   --warn: #d29922;
+
+  /* Same hue as --accent, dark enough for white text (see .cta and --link below). */
+  --accent-strong: #2462db;
+  --accent-hover: #6d9bf2;
+  /* Labels on an --accent fill: white on #5b8def is only 3.2:1, this is 5.5:1. */
+  --on-accent: #15171b;
+  --link: var(--accent);
+  --field: #2a2e36;
+
+  /* Home-page ground, never flat: overhead light, the battle grid, and grain. */
+  --lift: rgba(91, 141, 239, 0.1);
+  /* A deeper, cooler ground than the app chrome: this page is a lit table, not a panel.
+     --bg stays untouched so the room keeps its own surround. */
+  --ground: #0f1318;
+  /* Warm key light, echoing the braziers burning in the map art. Ambient light, not an
+     accent: the only accent on this page is still --accent. */
+  --key-warm: rgba(222, 152, 70, 0.22);
+  --key-warm-low: rgba(198, 108, 52, 0.12);
+  --fill-cool: rgba(92, 134, 204, 0.18);
+  --shaft: rgba(255, 238, 212, 0.05);
+  --vignette: rgba(3, 5, 8, 0.66);
+  --rule: rgba(232, 233, 236, 0.14);
+  --hover: rgba(232, 233, 236, 0.06);
+  --control-border: #646a78;
+  --map-glow: rgba(226, 146, 62, 0.45);
+  --grain-opacity: 0.055;
+
+  --font-ui: "Geist Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
   color-scheme: dark;
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size: 15px;
@@ -15,11 +44,35 @@
   background: var(--bg);
 }
 
+/* Light ground for the home page only (theme.ts). Not pure white: #8.B. */
+:root[data-theme="light"] {
+  --bg: #eef1f5;
+  --panel: #fbfcfd;
+  --border: #d5dae2;
+  --text: #15171b;
+  --muted: #5b6270;
+  --link: var(--accent-strong);
+  --field: #fbfcfe;
+  --lift: rgba(91, 141, 239, 0.18);
+  --ground: #edf0f5;
+  --key-warm: rgba(204, 138, 62, 0.2);
+  --key-warm-low: rgba(184, 104, 48, 0.12);
+  --fill-cool: rgba(92, 132, 202, 0.17);
+  --shaft: rgba(255, 252, 244, 0.55);
+  --vignette: rgba(108, 120, 144, 0.2);
+  --rule: rgba(21, 23, 27, 0.16);
+  --hover: rgba(21, 23, 27, 0.05);
+  --control-border: #7a8394;
+  --map-glow: rgba(206, 132, 54, 0.3);
+  --grain-opacity: 0.022;
+  color-scheme: light;
+}
+
 * { box-sizing: border-box; }
 body { margin: 0; }
 h1 { font-size: 1.25rem; margin: 0 0 0.5rem; }
 h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 0.5rem; }
-a { color: var(--accent); }
+a { color: var(--link); }
 
 input, select, button {
   font: inherit;
@@ -286,6 +339,7 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 
 @media (prefers-reduced-motion: reduce) {
   .skip-link { transition: none; }
+  .cta { transition: none; }
 }
 
 /* ---------- Home, account and asset library (gm-home, asset-library) ---------- */
@@ -294,14 +348,8 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 .home-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
 .brand { font-weight: 700; font-size: 1.05rem; color: var(--text); text-decoration: none; }
 .home-nav { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
-.hero { padding: 1.5rem 0 0.5rem; max-width: 40rem; }
-.hero h1 { font-size: clamp(1.6rem, 4vw, 2.4rem); line-height: 1.15; margin-bottom: 0.75rem; }
-.hero p { margin: 0; font-size: 1.05rem; line-height: 1.5; }
-.home-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 1rem; align-items: start; }
-.home-grid .card { width: 100%; }
 .home .card h2 { margin: 0; }
 .home .card p { margin: 0; }
-@media (max-width: 760px) { .home-grid { grid-template-columns: 1fr; } }
 
 .room-list li {
   display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
@@ -366,3 +414,683 @@ img.round { border-radius: 50%; }
 .field-label { font-size: 0.9rem; }
 .token-image-chosen { align-items: center; }
 .token-image-chosen img { width: 2rem; height: 2rem; object-fit: cover; }
+
+/* ==========================================================================
+   The landing (DESIGN.md §11.5, §11.9)
+
+   Radius rule for this page, one system: controls 6px, surfaces 12px, swatches
+   circular. Motion: transform and opacity only, so nothing fights the compositor;
+   every animation below is listed in the PR description with its justification.
+   ========================================================================== */
+
+.home-page {
+  position: relative;
+  min-height: 100dvh;
+  font-family: var(--font-ui);
+  background: var(--ground);
+}
+
+/* The ground is three layers, none of them flat. Both are fixed and non-interactive so
+   scrolling never repaints them (§6.E). */
+.home-page::before,
+.home-page::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* The battle grid the product itself draws, faded out below the fold. */
+.home-page::before {
+  /* The lighting rig. Fixed, so every section sits under it rather than only the hero:
+     two warm sources off-centre, a cool fill from overhead, a shaft down the page, and a
+     vignette that lets the edges fall away. */
+  background-image:
+    radial-gradient(132% 96% at 50% 40%, transparent 42%, var(--vignette) 100%),
+    linear-gradient(98deg, transparent 20%, var(--shaft) 40%, var(--shaft) 54%, transparent 76%),
+    radial-gradient(58% 48% at 80% 8%, var(--key-warm), transparent 70%),
+    radial-gradient(46% 40% at 10% 72%, var(--key-warm-low), transparent 68%),
+    radial-gradient(96% 60% at 38% -12%, var(--fill-cool), transparent 64%);
+}
+
+/* Grain, so a gradient that wide does not band on an 8-bit display. */
+.home-page::after {
+  opacity: var(--grain-opacity);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.home-page > * { position: relative; z-index: 1; }
+
+.landing-shell { width: min(72rem, 100% - 2.5rem); margin-inline: auto; }
+.landing-bar { padding-top: 1.1rem; }
+
+/* Fields and buttons have to follow the ground: the base rules hard-code a dark fill. */
+.home-page input,
+.home-page select {
+  background: var(--field);
+  border-color: var(--control-border);
+  border-radius: 6px;
+}
+.home-page ::placeholder { color: var(--muted); opacity: 1; }
+.home-page input[type="range"] { background: transparent; border: none; border-radius: 0; }
+
+
+
+/* ---- Hero: editorial split, map bleeding off the right edge ---- */
+
+.landing-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.04fr);
+  align-items: center;
+  gap: clamp(1.75rem, 4vw, 3.5rem);
+  padding: clamp(1.75rem, 5vw, 4.5rem) 0 clamp(2.5rem, 6vw, 4.5rem);
+}
+
+.landing-hero h1 {
+  margin: 0 0 0.85rem;
+  max-width: 19ch;
+  font-size: clamp(2.05rem, 5.1vw, 3.3rem);
+  font-weight: 700;
+  line-height: 1.06;
+  letter-spacing: -0.032em;
+}
+
+.landing-sub {
+  margin: 0 0 1.75rem;
+  max-width: 44ch;
+  font-size: clamp(1rem, 1.35vw, 1.1rem);
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.hero-form { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem 0.9rem; max-width: 31rem; }
+.hero-form .cta { grid-column: 1 / -1; margin-top: 0.15rem; }
+.hero-form .error { grid-column: 1 / -1; margin: 0; }
+
+.cta {
+  min-height: 2.85rem;
+  padding: 0.5rem 1.25rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--on-accent);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  transition:
+    background-color 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.cta:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+.cta:active:not(:disabled) { transform: translateY(1px); }
+
+/* The map is the product, so it is a real image, bled off the edge and seated in the
+   ground with a shadow tinted to the ground rather than black (§11.9). */
+.hero-art { margin-right: calc((100vw - min(72rem, 100vw - 2.5rem)) / -2); }
+
+/* The map is the product, so it gets depth: a tinted shadow, a lit inner edge, and a fade
+   into the ground rather than a pasted rectangle. */
+.hero-frame {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  box-shadow:
+    0 30px 70px rgba(8, 12, 20, 0.55),
+    0 0 90px -20px var(--map-glow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  overflow: clip;
+}
+.hero-frame img { display: block; width: 100%; height: auto; transform-origin: 60% 50%; }
+.hero-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, var(--bg) 0%, transparent 22%);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* ---- Invite: the other way in, one quiet band ---- */
+
+.invite-band {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.9rem 1.25rem;
+  padding: 1.5rem 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.invite-band p { margin: 0 auto 0 0; font-size: 0.95rem; color: var(--muted); max-width: 26ch; }
+.invite-band label { flex: 1 1 18rem; }
+.invite-band .error { flex-basis: 100%; margin: 0; }
+
+/* ---- Chapters ---- */
+
+.chapter { padding: clamp(3rem, 8vw, 5.5rem) 0; }
+.chapter h2 {
+  margin: 0 0 0.7rem;
+  font-size: clamp(1.45rem, 2.9vw, 2rem);
+  font-weight: 650;
+  line-height: 1.15;
+  letter-spacing: -0.022em;
+  color: var(--text);
+  text-transform: none;
+}
+.chapter > p {
+  margin: 0 0 1.75rem;
+  max-width: 58ch;
+  color: var(--muted);
+  line-height: 1.6;
+  font-size: 1.02rem;
+}
+
+.map-figure {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.map-figure img { display: block; width: 100%; height: auto; }
+
+/* The grid the GM lines up, drawn over the real map rather than mocked in divs. */
+.grid-overlay {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(91, 141, 239, 0.55) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(91, 141, 239, 0.55) 1px, transparent 1px);
+  background-size: 5.55% 9.85%;
+  pointer-events: none;
+}
+
+.view-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.view-pair figure { margin: 0; }
+.view-pair figcaption {
+  margin-top: 0.6rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+.view-frame {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+.view-frame img { display: block; width: 100%; height: auto; }
+
+/* Tokens are circles on the board, so they are circles here too. */
+.token-dot {
+  position: absolute;
+  width: 8.5%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 2px 10px rgba(6, 8, 12, 0.55);
+  transform: translate(-50%, -50%);
+}
+/* Hidden is marked by a dashed ring and a gap in the fill, never by colour alone. */
+.token-dot.is-hidden {
+  border-style: dashed;
+  border-color: #e8e9ec;
+  background-color: rgba(10, 12, 16, 0.45) !important;
+  box-shadow: 0 0 0 2px rgba(10, 12, 16, 0.55);
+}
+
+/* ---- Closing and footer ---- */
+
+.closing {
+  padding: clamp(3rem, 7vw, 5rem) 0;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem 2rem;
+}
+.closing h2 {
+  margin: 0 auto 0 0;
+  max-width: 20ch;
+  font-size: clamp(1.4rem, 2.6vw, 1.85rem);
+  font-weight: 650;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  text-transform: none;
+}
+
+.home-footer {
+  padding: 1.5rem 0 2.5rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  align-items: baseline;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+.home-footer p { margin: 0; }
+
+/* ---- Mobile: every multi-column block above collapses here ---- */
+
+
+
+/* ---- Header controls. Underlined blue links read as an unstyled page, so the nav is
+   built from real controls: a quiet ghost link, an outlined action, an icon toggle. ---- */
+
+.home-page .home-header {
+  padding: 0.55rem 0;
+  gap: 0.75rem;
+}
+.home-page .home-nav { gap: 0.4rem; }
+
+.home-page .brand {
+  font-size: 1.02rem;
+  letter-spacing: -0.015em;
+  padding: 0.35rem 0;
+  text-decoration: none;
+}
+.home-page .brand:hover { color: var(--accent); }
+
+/* ONE secondary control family. Everything that is a bordered, non-primary action on this
+   page uses it: the header pair, the theme toggle, Open, Join, Roll. Same border token,
+   same fill, same radius, same type. Only the primary action (.cta) looks different, and
+   it is the only thing that should. */
+.home-page .nav-link,
+.home-page .nav-cta,
+.home-page .ui-button,
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0 0.85rem;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 0.92rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: color 0.16s, border-color 0.16s, background-color 0.16s, transform 0.16s;
+}
+
+/* Two heights, by context: header chrome is compact, anything sitting beside a field
+   matches that field so the row has one baseline. */
+.home-page .nav-link,
+.home-page .nav-cta,
+.icon-button { min-height: 2.1rem; }
+.home-page .ui-button { min-height: 2.25rem; }
+
+/* Sign in is the quieter of the header pair; weight and colour carry that, not the box. */
+.home-page .nav-link { color: var(--muted); font-weight: 550; }
+.icon-button { color: var(--muted); }
+
+.home-page .nav-link:hover,
+.home-page .nav-cta:hover,
+.home-page .ui-button:hover,
+.icon-button:hover { border-color: var(--accent); background: var(--hover); color: var(--text); }
+
+.home-page .nav-link:active,
+.home-page .nav-cta:active,
+.home-page .ui-button:active,
+.icon-button:active { transform: translateY(1px); }
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 1.05rem;
+  transition: color 0.16s, border-color 0.16s, background-color 0.16s;
+}
+.icon-button:hover { color: var(--text); border-color: var(--accent); background: var(--hover); }
+.icon-button:active { transform: translateY(1px); }
+
+/* The account menu's trigger belongs to the same family. */
+.home-page .account-menu > button {
+  min-height: 2.1rem;
+  padding: 0 0.7rem;
+  border-radius: 6px;
+  font-size: 0.92rem;
+}
+
+/* Hairlines that fade at both ends, rather than a flat rule edge to edge. */
+.invite-band,
+.closing,
+.home-footer {
+  border-image: linear-gradient(90deg, transparent, var(--rule) 12%, var(--rule) 88%, transparent) 1;
+}
+
+/* ---- Tokens on a map, drawn the way the board draws them ---- */
+
+.token-chip {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  z-index: 1;
+  width: 4.4rem;
+}
+.token-disc {
+  display: grid;
+  place-items: center;
+  width: 2.3rem;
+  height: 2.3rem;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 3px 12px rgba(6, 8, 12, 0.6);
+  color: #0f1216;
+  font-weight: 700;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+.token-hp {
+  width: 2.5rem;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(8, 10, 14, 0.75);
+  overflow: hidden;
+}
+.token-hp-fill { display: block; height: 100%; background: var(--ok); }
+.token-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #f2f4f8;
+  text-shadow: 0 1px 4px rgba(6, 8, 12, 0.95);
+  white-space: nowrap;
+}
+/* Hidden is a dashed ring and an empty fill, never colour alone (FR-TAC-08 convention). */
+.token-chip.is-hidden .token-disc {
+  background: rgba(10, 12, 16, 0.55);
+  border-style: dashed;
+  color: #e8e9ec;
+  backdrop-filter: blur(2px);
+}
+
+/* ---- Demo controls ---- */
+
+.demo-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.5rem;
+  margin-top: 0.9rem;
+}
+.demo-slider { flex: 1 1 18rem; flex-direction: row; align-items: center; gap: 0.75rem; font-size: 0.9rem; }
+.demo-slider input[type="range"] { flex: 1; min-width: 8rem; padding: 0; min-height: 1.5rem; accent-color: var(--accent); }
+.readout {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.readout b { color: var(--text); font-weight: 600; }
+
+.seg {
+  display: inline-flex;
+  margin-bottom: 1rem;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.seg button {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  padding: 0.45rem 0.95rem;
+  transition: background-color 0.18s, color 0.18s;
+}
+.seg button + button { border-left: 1px solid var(--control-border); }
+/* Selected carries weight and a fill, not colour alone. */
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); font-weight: 650; }
+
+.figure-note { margin: 0.7rem 0 0; font-size: 0.9rem; color: var(--muted); }
+
+/* ---- Dice: the shared engine, running on the page ---- */
+
+.dice-chapter { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.85fr); gap: clamp(1.5rem, 4vw, 3rem); align-items: start; }
+.dice-demo-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.75rem; max-width: 26rem; }
+.dice-demo-form label { flex: 1 1 11rem; }
+.dice-demo-form input { font-family: var(--font-mono); }
+.dice-demo-form .error { flex-basis: 100%; margin: 0; }
+
+.dice-result {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  padding: 1.25rem;
+  min-height: 12rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  align-items: flex-start;
+}
+.dice-empty { margin: auto 0; font-size: 0.92rem; }
+.dice-faces { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.die {
+  display: grid;
+  place-items: center;
+  min-width: 2.4rem;
+  height: 2.4rem;
+  padding: 0 0.35rem;
+  border-radius: 6px;
+  border: 1px solid var(--control-border);
+  background: var(--field);
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.dice-total {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: clamp(2.4rem, 5vw, 3.4rem);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+
+/* ---- The throw. Feedback: the dice arrive, they do not appear. ---- */
+
+.die { will-change: transform; }
+
+/* A die in the air: tumbling, lifted, and lit from the side. */
+.die.is-tumbling {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 6px 16px rgba(6, 8, 12, 0.45);
+}
+
+.dice-result.is-throwing { /* reserved: the box itself stays still, the dice move */ }
+
+@media (prefers-reduced-motion: no-preference) {
+  .die.is-tumbling { animation: tumble 0.3s cubic-bezier(0.45, 0, 0.55, 1) infinite; }
+
+  @keyframes tumble {
+    0% { transform: translateY(0) rotate(0deg) scale(1); }
+    20% { transform: translateY(-13px) rotate(-16deg) scale(1.06); }
+    45% { transform: translateY(2px) rotate(9deg) scale(0.96); }
+    70% { transform: translateY(-7px) rotate(-6deg) scale(1.03); }
+    100% { transform: translateY(0) rotate(0deg) scale(1); }
+  }
+
+  /* Landing: overshoot, then settle, staggered so they come to rest one after another. */
+  .die { animation: land 0.46s cubic-bezier(0.26, 1.5, 0.44, 1) both; }
+
+  @keyframes land {
+    0% { opacity: 0; transform: translateY(-22px) rotate(-12deg) scale(1.3); }
+    55% { opacity: 1; transform: translateY(3px) rotate(3deg) scale(0.93); }
+    100% { opacity: 1; transform: none; }
+  }
+
+  .dice-total.is-rolling { animation: none; }
+}
+
+/* ---- Buttons and fields get states worth touching ---- */
+
+.cta { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; }
+.cta svg { transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1); }
+.cta:hover:not(:disabled) svg { transform: translateX(3px); }
+
+.chapter h2 { display: flex; align-items: flex-start; gap: 0.6rem; }
+.chapter h2 svg { color: var(--accent); flex: none; font-size: 1.5rem; margin-top: 0.12em; }
+.invite-band p svg { color: var(--accent); vertical-align: -0.15em; margin-right: 0.4rem; }
+
+.home-page input:focus-visible,
+.home-page select:focus-visible { border-color: var(--accent); }
+.home-page .seg button:focus-visible { outline-offset: -2px; }
+
+.map-figure { transition: border-color 0.25s; }
+.map-figure:hover { border-color: var(--accent); }
+
+:root[data-theme="light"] .cta {
+  border-color: var(--accent-strong);
+}
+
+:root[data-theme="light"] .hero-frame {
+  box-shadow: 0 22px 50px rgba(41, 55, 82, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+:root[data-theme="light"] .hero-art::after {
+  background: linear-gradient(90deg, var(--bg) 0%, transparent 11%);
+}
+
+@media (max-width: 860px) {
+  .landing-hero { grid-template-columns: 1fr; gap: 1.75rem; }
+  .landing-hero h1 { max-width: 16ch; }
+  .hero-art { margin-right: calc((100vw - min(72rem, 100vw - 2.5rem)) / -2); margin-left: -1.25rem; }
+  .hero-art::after { background: linear-gradient(0deg, var(--bg) 0%, transparent 28%); }
+  .view-pair { grid-template-columns: 1fr; }
+  .dice-chapter { grid-template-columns: 1fr; }
+  .dice-result { min-height: 0; }
+  .chapter { padding: 2.25rem 0; }
+}
+
+@media (max-width: 560px) {
+  .hero-form { grid-template-columns: 1fr; }
+  .invite-band p { max-width: none; }
+}
+
+/* ---- Motion. Each animation below earns its place: hierarchy, storytelling, or
+   feedback. Nothing loops, and everything animates transform or opacity only. ---- */
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Hierarchy: the hero arrives in reading order instead of all at once. */
+  .enter { animation: enter 0.62s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  .enter-2 { animation-delay: 0.07s; }
+  .enter-3 { animation-delay: 0.14s; }
+  .enter-art { animation-delay: 0.1s; }
+
+  @keyframes enter {
+    from { opacity: 0; transform: translateY(18px); }
+    to { opacity: 1; transform: none; }
+  }
+
+  /* Storytelling: tokens land on the map after it, the way a GM places them. */
+  .hero-frame .token-chip { animation: token-land 0.5s cubic-bezier(0.34, 1.4, 0.5, 1) both; }
+  @keyframes token-land {
+    from { opacity: 0; transform: translate(-50%, -50%) scale(0.55); }
+    to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  }
+
+  .dice-total { animation: total-in 0.42s cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: 0.12s; }
+  @keyframes total-in {
+    from { opacity: 0; transform: scale(0.88); }
+    to { opacity: 1; transform: none; }
+  }
+
+  /* Scroll-driven, so there is no scroll listener and no JavaScript (§5.D). */
+  @supports (animation-timeline: view()) {
+    .reveal {
+      animation: enter linear both;
+      animation-timeline: view();
+      animation-range: entry 4% entry 58%;
+    }
+    /* Depth: the map drifts against the page as it passes, so the hero has a foreground
+       and a background rather than one flat plane. */
+    .hero-frame img {
+      animation: drift linear both;
+      animation-timeline: view();
+      animation-range: cover;
+    }
+    @keyframes drift {
+      from { transform: scale(1.06) translateY(-1.6%); }
+      to { transform: scale(1.06) translateY(1.6%); }
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seg button,
+  .map-figure,
+  .cta svg,
+  .icon-button,
+  .home-page .nav-link,
+  .home-page .nav-cta { transition: none; }
+}
+
+/* Rooms you own, on the one home page rather than on a second one that replaced it. */
+.your-rooms {
+  padding: clamp(1.5rem, 4vw, 2.25rem) 0 0;
+}
+.your-rooms h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.15rem;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  color: var(--text);
+  text-transform: none;
+}
+.your-rooms .room-list li { border-bottom-color: var(--border); }
+.your-rooms .small-print { margin-top: 0.6rem; }
+
+/* The library shelf. Uneven widths so it reads as a shelf of real files rather than a row
+   of three equal feature cards. */
+.shelf {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+.shelf li { display: flex; flex-direction: column; gap: 0.4rem; min-width: 0; }
+.shelf img {
+  display: block;
+  width: 100%;
+  /* height:auto so the intrinsic 1672x941 from the width/height attributes does not win
+     over the crop ratio below (the attributes stay, they are what reserve the space). */
+  /* One height across the shelf so the captions sit on a line; the widths stay uneven. */
+  height: clamp(8rem, 13vw, 11rem);
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  transition: border-color 0.2s, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.shelf li:hover img { border-color: var(--accent); transform: translateY(-2px); }
+.shelf strong { font-size: 0.95rem; font-weight: 600; }
+.shelf .readout { font-size: 0.76rem; }
+
+.shelf-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1.25rem; }
+.shelf-foot .small-print { flex: 1 1 22rem; margin: 0; max-width: 46ch; }
+
+@media (max-width: 760px) {
+  .shelf { grid-template-columns: 1fr; gap: 1.25rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shelf img { transition: none; }
+}
