@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, type ReactNode } from "react";
 import type { Participant, RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { BoardView } from "./boardView";
@@ -7,6 +7,8 @@ interface Props {
   connection: RoomConnection;
   state: RoomState;
   you: Participant;
+  /** Plain React controls shown top left, before Fit (e.g. the participants button). */
+  toolbar?: ReactNode;
 }
 
 /** What the roster and initiative list can ask the canvas to do (FR-GM-24). */
@@ -14,7 +16,7 @@ export interface BoardHandle {
   focusToken(tokenId: string): void;
 }
 
-export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you }, ref) {
+export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, toolbar }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<BoardView | null>(null);
   const latest = useRef({ state, you });
@@ -61,11 +63,14 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   }), []);
 
   return (
-    <div className="board">
+    <div className="board" data-tour="board">
       <div ref={hostRef} className="board-canvas" />
-      <button className="fit-button" onClick={() => viewRef.current?.resetView()}>
-        Fit
-      </button>
+      <div className="board-toolbar">
+        {toolbar}
+        <button type="button" className="tool-button" data-tour="fit" onClick={() => viewRef.current?.resetView()} title="Fit the map to the screen">
+          Fit
+        </button>
+      </div>
       <p className="board-hint">Drag to pan · scroll to zoom · double-click to ping · hold Alt to place freely</p>
     </div>
   );
