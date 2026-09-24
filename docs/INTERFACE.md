@@ -1,12 +1,21 @@
 # Interface and Page Design — Virtual Tabletop
 
-Split out of `DESIGN.md` §11. Page inventory, information architecture, design system.
+Part of the [design document](DESIGN.md) — see also [`DELIVERY.md`](DELIVERY.md) and
+[`FRONTEND-CONTRACT.md`](FRONTEND-CONTRACT.md).
 
+Page inventory, information architecture, per-page specifications and the design system.
 
-### 11.1 Status
+> Section numbers (§11.x) are kept from when this was `DESIGN.md` §11, so existing
+> references still resolve. Where this document and `FRONTEND-CONTRACT.md` disagree, the
+> contract wins — it was written later and accepts or supersedes what is proposed here.
 
-§11.4 onward records the original interface proposal. **§13 now accepts or supersedes
-its individual decisions**; historical alternatives below are not implementation options. Interface direction is the Board owner's call
+---
+
+## 11.1 Status
+
+§11.4 onward records the original interface proposal.
+**[`FRONTEND-CONTRACT.md`](FRONTEND-CONTRACT.md) now accepts or supersedes its individual
+decisions**; historical alternatives below are not implementation options. Interface direction is the Board owner's call
 (Antonio) and the page inventory is a team decision; this section exists so there is
 something concrete to argue with, because until now the document said nothing about what
 the application is beyond one room screen.
@@ -18,7 +27,7 @@ calls "already applied" (deep slate-teal ground, parchment text, gold accent) is
 what ships: `apps/web/src/styles.css` uses a neutral charcoal ground with a blue accent.
 The documented direction was abandoned silently. §11.9 picks one.
 
-### 11.2 Page inventory
+## 11.2 Page inventory
 
 What exists today, and what a usable product still needs:
 
@@ -28,19 +37,19 @@ What exists today, and what a usable product still needs:
 | `/join/:inviteCode` | Guest join | Built | FR-PL-01, FR-PL-02 |
 | `/r/:roomId` | The table | Built | most of the FR set |
 | — | 404 | Built — an unstyled card | — |
-| `/signup`, `/login` | Account — any role, role is per room | **Missing** | FR-GM-01, §13.1 |
-| `/rooms` | Room hub — rooms you belong to | **Missing** | FR-GM-01 (§4.2: an account exists so a user can return and find their rooms). Also where Leave table returns a signed-in user (§13.1) |
+| `/signup`, `/login` | Account — any role, role is per room | **Missing** | FR-GM-01, [`FRONTEND-CONTRACT.md`](FRONTEND-CONTRACT.md) §13.1 |
+| `/rooms` | Room hub — rooms you belong to | **Missing** | FR-GM-01 (`DESIGN.md` §5: an account exists so a user can return and find their rooms). Also where Leave table returns a signed-in user ([`FRONTEND-CONTRACT.md`](FRONTEND-CONTRACT.md) §13.1) |
 | `/r/:roomId/prepare` | Scene preparation | **Missing** — currently crammed into the table's side panel | FR-GM-02 … FR-GM-07, FR-GM-11 |
 | `/r/:roomId/log` | Activity log and undo | **Missing** | FR-REC-01, FR-REC-02 |
 | `/r/:roomId/settings` | Access, invites, revocation | **Missing** | FR-GM-20 |
-| `/library` | Saved maps, token art, encounter templates | **Deferred — do not build** | §13.1 defers saved assets and omits their navigation from the initial release; needs ownership, quota and reuse requirements first |
+| `/library` | Saved maps, token art, encounter templates | **Deferred — do not build** | [`FRONTEND-CONTRACT.md`](FRONTEND-CONTRACT.md) §13.1 defers saved assets and omits their navigation from the initial release; needs ownership, quota and reuse requirements first |
 
 The gap is not decoration. Three of those rows are requirements with no surface at all: a GM
 cannot currently find a room they made last week, revoke a guest, or read the log that
 FR-REC-01 requires. Map preparation lives in a scrolling side panel beside the live table,
 which means the GM does setup and play in the same cramped column.
 
-### 11.3 Information architecture
+## 11.3 Information architecture
 
 Three layers, distinguished by how long a person stays and how much they are asked to think:
 
@@ -58,7 +67,7 @@ Three layers, distinguished by how long a person stays and how much they are ask
 The rule that follows: **navigation chrome decreases as you go deeper.** Entry has none,
 hub has a sidebar, the table has none again.
 
-### 11.4 What we take from mature VTTs, and what we refuse
+## 11.4 What we take from mature VTTs, and what we refuse
 
 Roll20 is the reference point because README §3 already names its tradeoff: broad
 functionality at the cost of onboarding and interface overhead. That is a statement about
@@ -83,7 +92,7 @@ The concrete rule this produces: **a player's path from link to playing contains
 screen and one field.** A GM's path from logging in to a prepared map contains no more than
 three. Any page proposal that lengthens either is rejected on that basis alone.
 
-### 11.5 The home page
+## 11.5 The home page
 
 **This is where everything starts.** Not a form and not a marketing page bolted onto the
 side of an app — the one surface that explains the product, and the entry point for all
@@ -95,33 +104,33 @@ land here.
 - **Play** — primary, high contrast, impossible to miss. For a signed-in user it creates a
   room and opens its table. For a signed-out one it opens login or signup carrying a
   return intent, and authenticating continues into room creation rather than dumping the
-  user on a dashboard (§13.1). Either way the journey ends at a table
+  user on a dashboard (`FRONTEND-CONTRACT.md` §13.1). Either way the journey ends at a table
 - **Log in / Sign up** — secondary, in a minimal top-right nav. For people who have been
   here before and want their rooms back. Quiet, never competing with Play
 
 Beside the primary action, one line of copy carries the rule so nobody discovers it at the
-password field: **"Free account required to host; players join without one"** (§13.1). That
+password field: **"Free account required to host; players join without one"** (`FRONTEND-CONTRACT.md` §13.1). That
 sentence is doing real work — it tells a GM what Play will cost them, and tells a player
 reading over their shoulder that the invite they were sent asks nothing of them.
 
 A single top bar carries the product name on the left and the auth pair on the right, and
 nothing else. There is no room for a navigation menu on a product with three pages.
 
-**Why creation is gated — decided, §13.1.**
+**Why creation is gated — decided in `FRONTEND-CONTRACT.md` §13.1.**
 
 FR-GM-01 gives the GM "a persistent, trusted identity from which to create and administer
 a room", and `routes.ts` currently permits creation without one under a `TODO` marking
 that as temporary. Two resolutions were considered: gate Play behind sign-in, or let Play
 create an *unclaimed* room claimed afterwards.
 
-**§13.1 selects the gate, and keeps `rooms.owner_user_id` non-null.** Unclaimed-room
+**`FRONTEND-CONTRACT.md` §13.1 selects the gate, and keeps `rooms.owner_user_id` non-null.** Unclaimed-room
 authority, expiry and ownership transfer are explicitly out of the Core Loop. The return
 intent is what preserves the fast start — a signed-out Play is one extra screen, not a
 dead end — and it costs no amendment to FR-GM-01 and no new ownership state to reason
-about. The unclaimed-room alternative is recorded in §13.1 as rejected, not deferred.
+about. The unclaimed-room alternative is recorded in `FRONTEND-CONTRACT.md` §13.1 as rejected, not deferred.
 
 Creation is idempotent: a retry with the same request key returns the existing room rather
-than making a second one, and a failed creation preserves the session (§13.1).
+than making a second one, and a failed creation preserves the session (`FRONTEND-CONTRACT.md` §13.1).
 
 **Above the fold.** An editorial split rather than centred text on a dark rectangle: the
 claim and the Play button on one side, a real battle map bleeding off the opposite edge,
@@ -155,26 +164,26 @@ scroll back up to act.
 "FEATURES" or "HOW IT WORKS"; a centred hero; testimonials the project does not have;
 invented usage statistics; a second call to action of equal weight to Play.
 
-### 11.6 Entry pages
+## 11.6 Entry pages
 
 **`/join/:inviteCode`** — one field, one button, no chrome. A player who is already known to
 this browser skips the field entirely and gets "Resume as Alice" instead, because re-typing
 a name to rejoin a room you were in five minutes ago is a needless step and risks creating a
-second identity (§5.5).
+second identity (`DESIGN.md` §5).
 
 - Primary action: join
 - States: validating the code, invalid or expired code with a plain explanation, submitting
 - Not here: anything about accounts. The offer to claim one belongs after the session, on
-  the way out — never on the way in (§5.7)
+  the way out — never on the way in (`FRONTEND-CONTRACT.md` §13.1)
 
-**`/login` and `/signup`** — for anyone who wants to be found again, not GM-only (§5.7). A
+**`/login` and `/signup`** — for anyone who wants to be found again, not GM-only (`FRONTEND-CONTRACT.md` §13.1). A
 player reaches these only *after* a session, never before: the invite path must not prompt
 for an account ahead of play. A single column at reading width, the form
 above the fold with no scrolling, and the opposite link (sign in / create account) as quiet
 text rather than a second button. Password rules stated *before* the field, not as an error
 after submitting.
 
-### 11.7 The room hub
+## 11.7 The room hub
 
 The between-sessions surface, and the one most likely to be built as a wall of identical
 cards. It should be a list, because a list scans and a card grid does not.
@@ -190,7 +199,7 @@ room you want is almost always the one you were just in.
 thing a new GM ever sees and should read as an invitation with the create action inline, not
 as an error. Room creation happens here too, so the hub is never a dead end.
 
-### 11.8 The table: layers and panels
+## 11.8 The table: layers and panels
 
 The most complex screen and the one with the strictest rule: **the board owns the viewport.**
 Everything else is a panel over it or a column beside it, and nothing may push the board
@@ -212,7 +221,7 @@ smaller than it needs to be.
 **Layers,** in draw order, bottom to top: map, grid, drawings and templates, tokens,
 condition markers, fog, ephemeral effects (pings, drag previews, rulers). The GM can target
 a layer for editing; a player never sees a layer control, because administrative layer targeting is GM-only. Players still receive permitted
-drawing and AoE tools; tool access is distinct from layer administration (§13.5). Fog and GM-only geometry are not merely hidden in the player's
+drawing and AoE tools; tool access is distinct from layer administration (`FRONTEND-CONTRACT.md` §13.5). Fog and GM-only geometry are not merely hidden in the player's
 renderer — they are absent from the payload (FR-GM-23), and the interface should not imply
 otherwise by showing a disabled control.
 
@@ -227,7 +236,7 @@ figures at a smaller size; the entry and hub pages may not. A GM tracking eight 
 through an encounter wants information per square inch, and the same person on the landing
 page wants space.
 
-### 11.9 Design system
+## 11.9 Design system
 
 **Direction.** Resolve the palette split in favour of the team's original intent: a deep,
 slightly cool ground with a **single warm accent**. That reads as a table lit from above,
@@ -279,7 +288,7 @@ information per square inch. The table panel is the only surface that may compre
 **Icons.** One set, one stroke weight (1.5), from Phosphor or Radix. No emoji anywhere in
 the interface, ever — they render differently on every platform and read as placeholder.
 
-### 11.10 Interface states
+## 11.10 Interface states
 
 Every data surface specifies four states, not one. Prototypes ship the success case and
 discover the rest in front of a grader.
@@ -293,7 +302,7 @@ discover the rest in front of a grader.
 - **Offline** — the board stays interactive and visibly stale rather than blanking. The
   status line owns this; nothing modal
 
-### 11.11 Responsive and accessibility
+## 11.11 Responsive and accessibility
 
 Breakpoints at 720px and 1024px. Below 720 the panel moves beneath the board and becomes
 tabs; in landscape on a phone the panel returns to the side, because width is what a

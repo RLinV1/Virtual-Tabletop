@@ -1,15 +1,21 @@
 # Frontend Implementation Contract — Virtual Tabletop
 
-Split out of `DESIGN.md` §13. Accepted decisions; overrides older statements elsewhere.
+Part of the [design document](DESIGN.md) — see also [`DELIVERY.md`](DELIVERY.md) and
+[`INTERFACE.md`](INTERFACE.md).
 
+Accepted decisions from the frontend review of 2026-09-22, written as implementation
+requirements. **This document overrides** older statements in `DESIGN.md`,
+[`INTERFACE.md`](INTERFACE.md) and [`DELIVERY.md`](DELIVERY.md) wherever they conflict.
 
-**Recorded:** 2026-09-22. This section turns the frontend review into implementation
-requirements. It overrides inconsistent statements in §§5, 8, 11 and 12. It does not
-change the shipped-status matrix in §10; implementation must be verified separately.
-The user confirmed private preparation until Apply and delegated the remaining choices.
-Exact mobile dimensions below are selected defaults, not details supplied by the user.
+It does not change the built/not-built matrix in `DESIGN.md` §6; accepting a decision here
+is not evidence that it ships.
 
-### 13.1 Product scope, identity and entry
+> Section numbers (§13.x) are kept from when this was `DESIGN.md` §13, so existing
+> references still resolve.
+
+---
+
+## 13.1 Product scope, identity and entry
 
 **Play requires an authenticated account to create a room.** Keep FR-GM-01 and the
 non-null `rooms.owner_user_id`. Do not introduce unclaimed-room authority, expiry or
@@ -59,7 +65,7 @@ persistent warning that reload loses identity. Cache guest lookups by room and t
 hash, never by token hash alone. A browser-wide guest token can grant memberships in
 multiple rooms, so its compromise is not limited to one room.
 
-### 13.2 Preparation drafts and replacing a live map
+## 13.2 Preparation drafts and replacing a live map
 
 **Preparation remains private until Apply.** Draft assets, estimates, geometry and
 previews are accessible only to the GM. They are excluded from player snapshots,
@@ -107,7 +113,7 @@ what is reset and what remains: room membership, invites, dice history and appen
 activity history remain. The previous scene and its referenced assets remain retained
 while recoverable checkpoints reference them.
 
-### 13.3 Responsive layout and navigation
+## 13.3 Responsive layout and navigation
 
 Use these CSS-pixel defaults, subject to usability validation. Minimum board sizes are
 layout allocation targets; they must not force horizontal page overflow at narrow widths
@@ -159,7 +165,7 @@ Preparation sheet max-width 1120px; log/settings 800px; 24px desktop outer gap. 
 sheets use available viewport width/height. Sheet bodies scroll; headers/actions remain
 reachable without obscuring focused controls. Only the topmost modal receives interaction.
 
-### 13.4 Connection, concurrency and recovery
+## 13.4 Connection, concurrency and recovery
 
 **Offline means inspectable, not editable shared state.** Keep pan, zoom, token inspection,
 local selection and draft form typing available. Disable committed actions, dice rolls,
@@ -204,7 +210,7 @@ memberships; revoked or missing owners become unassigned. Restore cannot recover
 rights or make a participant unrevoked. A reveal cannot erase information players already
 saw; the confirmation says so when relevant.
 
-### 13.5 Tool interactions and player-safe rendering
+## 13.5 Tool interactions and player-safe rendering
 
 Keep tool selection separate from administrative layer targeting. Players have permitted
 Select/Move, Ruler, Ping, Draw and AoE tools. Only GMs receive fog/wall/layer administration.
@@ -252,7 +258,7 @@ motion independently. Token/ruler/AoE previews expire after one second without r
 pings expire after 1.5 seconds. Clear a preview on commit/cancel/disconnect/scene change.
 Reduced-motion mode replaces pulses with a static marker for the same duration.
 
-### 13.6 Components, state ownership and implementation boundaries
+## 13.6 Components, state ownership and implementation boundaries
 
 React owns routes, DOM controls, forms and accessible representations. Pixi owns drawing
 and pointer-frequency visuals. The renderer consumes authorized state; it never decides
@@ -283,7 +289,7 @@ that command's preview; it must not restore an obsolete whole-room snapshot. Hoo
 as `useRoomSession`, `useRoomCommands`, `useBoardViewport` and `useAnalysisJob` isolate
 lifecycles. Do not send pointer updates through a whole-app React render loop.
 
-### 13.7 Data and service contracts
+## 13.7 Data and service contracts
 
 These are target contracts to add to shared schemas, not undocumented replacements for
 existing endpoints. REST handles account/session, room lists, assets, private drafts,
@@ -324,9 +330,9 @@ Initiative ties keep stable existing order; GM can reorder. Advancing past the l
 increments the round. Removing the active entry selects the next remaining entry; an empty
 list has no active turn. Players inspect initiative but cannot edit it.
 
-### 13.8 Tokens, component states and accessibility
+## 13.8 Tokens, component states and accessibility
 
-Adopt §11.9's ground/panel/text/accent palette. Use Geist and Geist Mono with system
+Adopt [`INTERFACE.md`](INTERFACE.md) §11.9's ground/panel/text/accent palette. Use Geist and Geist Mono with system
 fallbacks, self-hosted when available; numeric values also set tabular figures. Use one
 Phosphor outline icon family with a consistent optical stroke; do not mix icon families.
 
@@ -385,9 +391,9 @@ an authoritative token through misleading intermediate positions.
 Accessibility references: [WCAG 2.2](https://www.w3.org/TR/WCAG22/) and
 [non-drag alternatives](https://www.w3.org/WAI/WCAG22/Understanding/dragging-movements).
 
-### 13.9 Delivery order and acceptance gates
+## 13.9 Delivery order and acceptance gates
 
-These gates refine §8; they do not claim additional features are already shipped.
+These gates refine [`DELIVERY.md`](DELIVERY.md); they do not claim additional features are already shipped.
 
 1. **Foundations:** shared tokens/primitives, capability contracts and persistent room
    provider. Agree required schema migrations first; benchmark the renderer with a
@@ -420,11 +426,11 @@ These gates refine §8; they do not claim additional features are already shippe
 
 **Explicitly deferred:** saved-asset library, automatic participant merging, co-GM,
 unclaimed rooms, redo, secure map-tile streaming and advanced mobile map editing. Stretch
-wall/portal/LoS work retains §8's dependencies, including server-side visibility projection.
+wall/portal/LoS work retains [`DELIVERY.md`](DELIVERY.md)'s dependencies, including server-side visibility projection.
 Password reset remains out of course Core Loop scope; real-world release requires a
 recovery path rather than orphaning account-owned rooms.
 
-**Documentation follow-through:** update §10 statuses only with implementation evidence.
+**Documentation follow-through:** update the `DESIGN.md` §6 matrix only with implementation evidence.
 Mirror the roster's earlier delivery, accepted account scope and precise map-pixel secrecy
 boundary into README requirements before declaring corresponding acceptance complete.
 Keep screenshots and implementation-status assertions current; no nonexistent reference

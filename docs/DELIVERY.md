@@ -1,13 +1,22 @@
 # Delivery Plan — Virtual Tabletop
 
-Split out of `DESIGN.md` §8. Slice sequencing, task split and cut order.
+Part of the [design document](DESIGN.md) — see also [`INTERFACE.md`](INTERFACE.md) and
+[`FRONTEND-CONTRACT.md`](FRONTEND-CONTRACT.md).
 
+Slice sequencing, dependency order, task split and cut order for the three feature
+milestones. `DESIGN.md` §6 records what is actually built; this document records the order
+in which the rest arrives.
 
-### 8.1 A note on names
+> Section numbers (§8.x) are kept from when this was `DESIGN.md` §8, so existing references
+> in commits, ADRs and pull requests still resolve.
+
+---
+
+## 8.1 A note on names
 
 "M1/M2/M3" is overloaded: the course has its own milestones, and README §12 has feature milestones. To avoid collision, this section refers to the feature milestones by name — **Core Loop**, **Tactical Play**, **Stretch** — never by number. This document is the artifact for the *course's* M2.
 
-### 8.2 How the work splits
+## 8.2 How the work splits
 
 Ownership follows the workstreams in README §10. Each requirement gets **one primary owner** — the person who decides how it works and whose name is on it — and optionally a supporting owner for the surface they do not control.
 
@@ -22,11 +31,11 @@ Ownership follows the workstreams in README §10. Each requirement gets **one pr
 
 ---
 
-### 8.3 Core Loop (README §12 M1) — 18 requirements
+## 8.3 Core Loop (README §12 M1) — 18 requirements
 
 The prototype already covers the three requirements rated **High** difficulty — FR-PL-06, FR-SYNC-02, FR-SYNC-04 — because those are the expensive ones to retrofit. What remains is mostly breadth.
 
-#### Dependency order
+## Dependency order
 
 ```
                     ┌────────────────────────┐
@@ -53,14 +62,14 @@ The prototype already covers the three requirements rated **High** difficulty �
 
 Slices 1–3 run **in parallel** across three workstreams.
 
-#### The slices
+## The slices
 
 **Slice 0 — Foundations** · Raymond · blocks everything else
 
 | Work | Requirements |
 | --- | --- |
 | Docker Compose: Postgres, Redis, MinIO | — |
-| Prisma schema from §4.1, with migrations | — |
+| Prisma schema from `DESIGN.md` §5, with migrations | — |
 | Workspace split: `apps/web`, `apps/server`, `services/map-analysis`, `packages/shared` | — |
 | Move the prototype's in-memory room onto Postgres + Redis `INCR` | FR-SYNC-01, FR-SYNC-02, FR-SYNC-04 |
 | Event-log writes on every committed action | FR-REC-03 (early, cheap now) |
@@ -108,7 +117,7 @@ Run the benchmark **early**, not at the end. It is the one number that can inval
 | Owner-only control wired to real participant IDs | FR-PL-04 | Raymond |
 | Responsive player-safe board layout | FR-PL-03 | Vincent |
 
-#### Task split — Core Loop
+## Task split — Core Loop
 
 | Owner | Requirements |
 | --- | --- |
@@ -119,11 +128,11 @@ Run the benchmark **early**, not at the end. It is the one number that can inval
 
 ---
 
-### 8.4 Tactical Play and GM Control (README §12 M2) — 18 requirements
+## 8.4 Tactical Play and GM Control (README §12 M2) — 18 requirements
 
 This is where the product stops being a shared map and becomes a tabletop. Two things gate everything else: the ephemeral channel, and the renderer landing in Core Loop Slice 3.
 
-#### Dependency order
+## Dependency order
 
 ```
   ┌──────────────────────────┐
@@ -147,7 +156,7 @@ This is where the product stops being a shared map and becomes a tabletop. Two t
 └────────────────────┘
 ```
 
-#### The slices
+## The slices
 
 **Slice 5 — Ephemeral channel** · Raymond · blocks Slice 7
 
@@ -206,7 +215,7 @@ Dice are rolled **server-side**. A client-side roll that reports its own result 
 
 Start by making **only token moves** reversible. It is the easiest action to compensate and it exercises the whole mechanism; widening the reversible set afterwards is incremental. README §11 rates surprising undo desyncs as the project's top risk, so the mitigation is a small reversible set plus checkpoint restore as the escape hatch.
 
-#### Task split — Tactical Play
+## Task split — Tactical Play
 
 | Owner | Requirements |
 | --- | --- |
@@ -217,11 +226,11 @@ Start by making **only token moves** reversible. It is the easiest action to com
 
 ---
 
-### 8.5 Stretch (README §12 M3) — 11 requirements
+## 8.5 Stretch (README §12 M3) — 11 requirements
 
 Everything here is cut-first material. The ordering below is by dependency, and §8.5's cut order is by effort-to-value.
 
-#### Dependency order
+## Dependency order
 
 ```
 ┌───────────────────────────┐
@@ -243,7 +252,7 @@ Everything here is cut-first material. The ordering below is by dependency, and 
 
 Slice 13 depends on nothing and can be pulled forward whenever someone has slack.
 
-#### The slices
+## The slices
 
 **Slice 10 — Wall data foundation** · Christos (parsing), Antonio (editor)
 
@@ -259,7 +268,7 @@ Import lands before detection deliberately: it gives the team real wall data to 
 
 | Work | Requirements |
 | --- | --- |
-| OpenCV wall extraction adapted from prior art (§12.1) | FR-GM-11 |
+| OpenCV wall extraction adapted from prior art (`DESIGN.md` §7) | FR-GM-11 |
 | Door/window classification | FR-GM-11 |
 | UVTT export round-trip | FR-GM-12 |
 
@@ -284,7 +293,7 @@ The single highest-risk item in the project. It needs Slice 10's geometry, the P
 | Guest revocation and invite regeneration | FR-GM-20 | Raymond |
 | Focusable token roster panel | FR-GM-24 | Vincent |
 
-#### Task split — Stretch
+## Task split — Stretch
 
 | Owner | Requirements |
 | --- | --- |
@@ -293,7 +302,7 @@ The single highest-risk item in the project. It needs Slice 10's geometry, the P
 | Christos | FR-GM-06, FR-GM-07, FR-GM-11, FR-GM-12 |
 | Vincent | FR-GM-24 |
 
-#### Cut order
+## Cut order
 
 If the schedule tightens, drop in this order — highest effort and most open-ended first:
 
@@ -304,7 +313,7 @@ If the schedule tightens, drop in this order — highest effort and most open-en
 
 ---
 
-### 8.6 Load across the team
+## 8.6 Load across the team
 
 | Owner | Core Loop | Tactical Play | Stretch | Total |
 | --- | --- | --- | --- | --- |
@@ -319,16 +328,16 @@ If the schedule tightens, drop in this order — highest effort and most open-en
 
 *Christos has nothing in Tactical Play.* His work is bunched into Core Loop and Stretch, leaving an idle middle. Two options: pull **Slice 10 (UVTT import) forward** into the Tactical Play window — it has no dependency on tactical features and de-risks the whole Stretch milestone — or have him take the automated convergence test harness from README §8, which needs building around then anyway.
 
-### 8.7 Definition of done for a slice
+## 8.7 Definition of done for a slice
 
 A slice is done when all four hold:
 
 1. Unit tests cover the pure logic it introduced (README §8 names grid math, coordinate transforms, dice parsing, schema parsing).
 2. A Playwright test drives the flow across **two browser contexts** where the requirement is multi-user.
 3. CI is green — lint, test, build, health smoke.
-4. Its requirement IDs move from `D` to `P` in §10, honestly.
+4. Its requirement IDs move from `D` to `B` in the `DESIGN.md` §6 matrix, honestly.
 
-### 8.8 Sequencing traps to avoid
+## 8.8 Sequencing traps to avoid
 
 | Trap | Why it bites | Avoidance |
 | --- | --- | --- |
