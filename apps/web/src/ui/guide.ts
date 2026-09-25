@@ -13,6 +13,8 @@ export interface GuideStep {
   target: string;
   title: string;
   body: string;
+  /** The step asks the viewer to use the spotlit control, so clicks inside it get through. */
+  interactive?: boolean;
 }
 
 interface StepSpec {
@@ -20,6 +22,7 @@ interface StepSpec {
   title: string;
   /** Text for both roles, or per role. A role missing from the map skips the step. */
   body: string | Partial<Record<Role, string>>;
+  interactive?: boolean;
 }
 
 const STEPS: StepSpec[] = [
@@ -33,7 +36,7 @@ const STEPS: StepSpec[] = [
   },
   { target: "fit", title: "Fit", body: "Lost your place? Fit brings the whole map back into view." },
   { target: "participants", title: "Who's here", body: "See everyone in the room. The GM is marked." },
-  { target: "share", title: "Invite players", body: { gm: "Copy the invite link here and send it to your players. Anyone with it joins as a player." } },
+  { target: "share", title: "Invite players", body: { gm: "Click Share to copy the invite link, then send it to your players. Anyone with it joins as a player." } },
   { target: "gm-map", title: "Battle map", body: { gm: "Upload a map image, or place one from your library." } },
   { target: "gm-grid", title: "Grid", body: { gm: "Line the grid up with the squares drawn on your map, so tokens snap to the right cells." } },
   {
@@ -66,14 +69,19 @@ const STEPS: StepSpec[] = [
       player: "Roll any expression, like 1d20+5. Everyone sees the result.",
     },
   },
-  { target: "sidebar-handle", title: "More room", body: "Hide the sidebar to give the map the whole screen. Click again to bring it back." },
+  {
+    target: "sidebar-handle",
+    title: "More room",
+    body: "Hide the sidebar to give the map the whole screen. Click again to bring it back.",
+    interactive: true,
+  },
   { target: "guide", title: "That's it", body: "Open this guide again anytime." },
 ];
 
 export function guideSteps(role: Role): GuideStep[] {
   return STEPS.flatMap((s) => {
     const body = typeof s.body === "string" ? s.body : s.body[role];
-    return body ? [{ target: s.target, title: s.title, body }] : [];
+    return body ? [{ target: s.target, title: s.title, body, ...(s.interactive && { interactive: true }) }] : [];
   });
 }
 

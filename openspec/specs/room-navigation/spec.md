@@ -1,0 +1,21 @@
+# room-navigation Specification
+
+## Purpose
+Defines how a participant leaves the room page from inside it: the GM can go back to the home page, and players, who arrive by invite, simply close the tab.
+
+## Requirements
+
+### Requirement: GM can return home from a room
+The room page SHALL show the GM a "Home" link in the board toolbar that opens the home page. It SHALL NOT be shown to players.
+
+#### Scenario: GM goes home
+- **WHEN** the GM activates "Home" in a room
+- **THEN** the home page opens without a full page reload, and the room's live connection is closed
+
+#### Scenario: Player sees no Home link
+- **WHEN** a player is in a room
+- **THEN** the board toolbar has no Home link
+
+#### Scenario: Reachable with the sidebar hidden
+- **WHEN** the GM has collapsed the sidebar
+- **THEN** the Home link is still visible in the toolbar

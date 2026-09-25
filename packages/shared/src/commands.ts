@@ -9,6 +9,9 @@ import { Id, MapImage } from "./state";
  * then turns each accepted command into one or more committed events.
  * Naming: `noun.verb`, imperative.
  */
+/** Colour of a new token when none is given; the Add token preview draws the same disc. */
+export const DEFAULT_TOKEN_COLOR = "#c0392b";
+
 export const Command = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("scene.setMap"),
@@ -25,7 +28,7 @@ export const Command = z.discriminatedUnion("type", [
     name: z.string().min(1).max(60),
     position: Point,
     size: z.number().positive().max(10).default(1),
-    color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#c0392b"),
+    color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default(DEFAULT_TOKEN_COLOR),
     imageUrl: z.string().max(2048).nullable().default(null),
     assetId: Id.nullable().default(null),
     ownerIds: z.array(Id).default([]),

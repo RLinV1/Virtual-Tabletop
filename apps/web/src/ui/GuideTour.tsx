@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { guideSteps, placeCard, type GuideStep, type Rect, type Role } from "./guide";
 
 const PAD = 6;
@@ -59,13 +59,16 @@ export function GuideTour({ role, onClose }: { role: Role; onClose: () => void }
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // Follow the target through window resizes and any scrolling, including the panel's own.
+  // Follow the target through window resizes and any scrolling, including the panel's own,
+  // and through layout transitions such as the sidebar collapsing from an interactive step.
   useEffect(() => {
     window.addEventListener("resize", measure);
     document.addEventListener("scroll", measure, true);
+    document.addEventListener("transitionend", measure, true);
     return () => {
       window.removeEventListener("resize", measure);
       document.removeEventListener("scroll", measure, true);
+      document.removeEventListener("transitionend", measure, true);
     };
   }, [measure]);
 
@@ -79,8 +82,13 @@ export function GuideTour({ role, onClose }: { role: Role; onClose: () => void }
 
   return (
     <div className="guide-layer">
-      {/* Blocks clicks on the page while the guide is open; the dimming is the spotlight's shadow. */}
-      <div className="guide-blocker" aria-hidden />
+      {/* Blocks clicks on the page while the guide is open; the dimming is the spotlight's shadow.
+          A step that asks for a click leaves a hole over its target instead. */}
+      {step.interactive && rect ? (
+        blockersAround(rect).map((style, i) => <div key={i} className="guide-blocker" style={style} aria-hidden />)
+      ) : (
+        <div className="guide-blocker" aria-hidden />
+      )}
       {rect && (
         <div
           className="guide-spotlight"
@@ -140,6 +148,18 @@ export function GuideTour({ role, onClose }: { role: Role; onClose: () => void }
       </div>
     </div>
   );
+}
+
+/** Four strips covering everything except `hole`. */
+function blockersAround(hole: Rect): CSSProperties[] {
+  const right = hole.left + hole.width;
+  const bottom = hole.top + hole.height;
+  return [
+    { top: 0, left: 0, right: 0, height: Math.max(0, hole.top) },
+    { top: bottom, left: 0, right: 0, bottom: 0 },
+    { top: hole.top, left: 0, width: Math.max(0, hole.left), height: hole.height },
+    { top: hole.top, left: right, right: 0, height: hole.height },
+  ];
 }
 
 export function GuideIcon() {

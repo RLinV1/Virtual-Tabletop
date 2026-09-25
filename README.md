@@ -32,8 +32,11 @@ a second tab in the same window is still the GM.
 
 ### Running with persistence
 
-By default the server keeps everything in memory and writes uploads to local disk, so
-restarting `npm run dev` clears every room. That is deliberate — a fresh checkout runs with
+By default the server keeps everything in memory, so restarting `npm run dev` clears every
+room. Uploads go to MinIO whenever it is running: with `MINIO_ENDPOINT` unset, the dev server
+looks for the compose MinIO at `127.0.0.1:9000` and only falls back to local disk when nothing
+answers (`MINIO_AUTODETECT=0` skips the check; production refuses to start without
+`MINIO_ENDPOINT`). That is deliberate — a fresh checkout runs with
 no containers. To run the real stack (Postgres, Redis, MinIO — see [`docs/DESIGN.md`](docs/DESIGN.md) §2):
 
 ```bash

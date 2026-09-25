@@ -6,7 +6,9 @@
   --raised: #20242a;
   --field: #0e1013;
   --border: #272c33;
-  --border-strong: #363c46;
+  /* Control boundaries, so 3:1 against every surface it sits on (WCAG 1.4.11):
+     3.81 on --bg, 3.56 on --panel, 3.22 on --raised. The previous #363c46 was 1.66. */
+  --border-strong: #6a7280;
   --text: #e3e6ea;
   --muted: #8e96a2;
   --accent: #b9582f;        /* rust: primary actions, active turn (white text 4.9:1) */
@@ -42,6 +44,20 @@
 }
 
 * { box-sizing: border-box; }
+.activity-log { display: flex; flex-direction: column; gap: var(--space-2); }
+.activity-log > p { margin: 0; }
+/* Refresh is a small icon beside the search field, not a full-width bar above the log. */
+.activity-search { display: flex; gap: var(--space-2); align-items: stretch; }
+.activity-search input { flex: 1; min-width: 0; }
+.activity-refresh {
+  flex: none; display: grid; place-items: center;
+  width: 2.25rem; min-height: 0; padding: 0;
+  background: transparent; color: var(--muted);
+  border: 1px solid var(--border-strong); border-radius: var(--radius);
+}
+.activity-refresh:hover:not(:disabled) { filter: none; color: var(--text); border-color: var(--muted); }
+.activity-entries li { padding: var(--space-3) 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.activity-entries p { margin: 0 0 var(--space-1); }
 /* `hidden` must beat any display set by a class (.panel-body is flex); otherwise a
    collapsed panel stays rendered and spills out of its zero-width column. */
 [hidden] { display: none !important; }
@@ -109,6 +125,9 @@ label.inline { flex-direction: row; align-items: center; gap: 0.35rem; color: va
   grid-template-columns: minmax(0, 1fr) var(--panel-width);
   height: 100vh;
   height: 100dvh;
+  /* The panel body keeps its full width while its column animates (see .panel-body), so
+     it overhangs the right edge mid-slide. Clip it without making a scroll container. */
+  overflow-x: clip;
 }
 /* Collapsed: nothing of the panel is left; the board takes the full width. */
 .room.sidebar-collapsed { grid-template-columns: minmax(0, 1fr) 0; }
@@ -116,7 +135,12 @@ label.inline { flex-direction: row; align-items: center; gap: 0.35rem; color: va
   .room { transition: grid-template-columns 0.18s ease-out; }
 }
 
-.board { position: relative; overflow: hidden; touch-action: none; min-width: 0; }
+.board {
+  position: relative; overflow: hidden; touch-action: none; min-width: 0;
+  /* The canvas's own clear colour: while the sidebar slides, the canvas waits for the
+     final size before resizing, and any strip it has not reached yet must not show. */
+  background: #14171b;
+}
 .board-canvas { position: absolute; inset: 0; }
 .board-toolbar {
   position: absolute; top: var(--space-3); left: var(--space-3); z-index: 5;
@@ -134,9 +158,9 @@ label.inline { flex-direction: row; align-items: center; gap: 0.35rem; color: va
   background: rgba(18, 20, 23, 0.85); color: var(--text);
   border: 1px solid var(--border-strong); border-radius: var(--radius);
   font-weight: 500; font-size: var(--fs-sm);
-  backdrop-filter: blur(4px);
 }
 .tool-button:hover:not(:disabled) { filter: none; border-color: var(--muted); }
+a.tool-button { text-decoration: none; }
 .tool-button[aria-expanded="true"] { border-color: var(--accent); }
 .icon-count { font-variant-numeric: tabular-nums; }
 .board-hint {
@@ -170,10 +194,13 @@ label.inline { flex-direction: row; align-items: center; gap: 0.35rem; color: va
   border-left: 1px solid var(--border);
 }
 .sidebar-collapsed .panel { border-left: none; }
-/* The collapse tab, centred on the panel's inner edge (or the screen's right edge). */
+/* The collapse tab, centred on the panel's inner edge (or the screen's right edge).
+   Offset with `translate`, not `transform`: the global `button:active` rule sets
+   `transform`, which would drop the offset mid-press and slide the tab out from under
+   the pointer, so the release missed it and the click was lost. */
 .sidebar-handle {
   position: absolute; top: 50%; left: 0; z-index: 6;
-  transform: translate(-100%, -50%);
+  translate: -100% -50%;
   width: 1.1rem; min-height: 0; height: 3.5rem; padding: 0;
   display: grid; place-items: center;
   background: var(--panel); color: var(--muted);
@@ -186,6 +213,9 @@ label.inline { flex-direction: row; align-items: center; gap: 0.35rem; color: va
   /* Also the containing block for .sr-only children, so they scroll with the panel and
      never stretch the page below the 100vh room. */
   position: relative;
+  /* Full width even while the column animates open: re-wrapping every section on each
+     frame of the slide stuttered and flashed a scrollbar. Less the panel's 1px border. */
+  width: calc(var(--panel-width) - 1px);
   height: 100%;
   overflow-y: auto;
   padding: var(--space-4);
@@ -204,12 +234,6 @@ label.inline { flex-direction: row; align-items: center; gap: 0.35rem; color: va
   font-weight: 500; font-size: var(--fs-sm); min-height: 1.9rem; padding: 0.2rem 0.7rem;
 }
 .share-button:hover:not(:disabled) { filter: none; border-color: var(--muted); }
-.share-button[aria-expanded="true"] { border-color: var(--accent); }
-/* As wide as the panel's content box and no wider: the header scrolls with the panel, so
-   anything past the panel's edge would be clipped. (panel padding 2rem, popover padding
-   1.5rem, border 2px) */
-.share-panel { display: flex; flex-direction: column; gap: var(--space-2); width: calc(var(--panel-width) - 3.5rem - 2px); padding-block: var(--space-1); }
-.share-panel input { font-size: var(--fs-sm); }
 .whoami { font-size: var(--fs-sm); color: var(--muted); }
 .whoami strong { color: var(--text); font-weight: 500; }
 .status { font-size: var(--fs-xs); }
@@ -241,6 +265,103 @@ label.inline { flex-direction: row; align-items: center; gap: 0.35rem; color: va
 .panel-section-body { display: flex; flex-direction: column; gap: var(--space-2); padding-bottom: var(--space-3); }
 
 .grid-form { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+/* ---- Grid line style, behind "Advanced" (grid-line-style) ---- */
+.grid-advanced { grid-column: 1 / -1; border-top: 1px solid var(--border); padding-top: var(--space-2); }
+button.grid-advanced-toggle {
+  width: 100%; display: flex; align-items: center; gap: var(--space-2);
+  min-height: 2.25rem; padding: 0 var(--space-1);
+  background: transparent; border: none; border-radius: var(--radius);
+  color: var(--text); font-weight: 500; text-align: left;
+}
+button.grid-advanced-toggle:hover:not(:disabled) { filter: none; background: var(--raised); }
+.grid-advanced-title { flex: 1; }
+.grid-advanced-caret { color: var(--muted); transition: transform 0.24s cubic-bezier(0.32, 0.72, 0, 1); }
+.grid-advanced-toggle[aria-expanded="true"] .grid-advanced-caret { transform: rotate(180deg); }
+.grid-advanced-body { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-2) var(--space-1) var(--space-1); }
+@media (prefers-reduced-motion: no-preference) {
+  .grid-advanced-body:not([hidden]) { animation: advanced-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  @keyframes advanced-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+}
+
+/* The preview is the map at board scale, so it gets the full width. */
+.grid-line-preview {
+  display: block; width: 100%; aspect-ratio: 5 / 2; height: auto;
+  border-radius: var(--radius); background: #2b2e35;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 0 0 1px var(--border);
+}
+
+/* Themed range inputs: a thin track and a ringed thumb in the accent, no browser blue. */
+.range-field { display: flex; flex-direction: column; gap: 0.35rem; }
+.range-label { display: flex; justify-content: space-between; font-size: var(--fs-sm); color: var(--muted); }
+.range-value { color: var(--text); font-variant-numeric: tabular-nums; }
+input.range {
+  appearance: none; -webkit-appearance: none; width: 100%; height: 1.25rem; margin: 0;
+  background: transparent; border: none; padding: 0; min-height: 0; cursor: pointer;
+}
+input.range::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--border-strong); }
+input.range::-moz-range-track { height: 4px; border-radius: 2px; background: var(--border-strong); }
+input.range::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5px; border-radius: 50%;
+  background: var(--text); border: 3px solid var(--accent);
+  transition: transform 0.16s cubic-bezier(0.32, 0.72, 0, 1);
+}
+input.range::-moz-range-thumb { width: 8px; height: 8px; border-radius: 50%; background: var(--text); border: 3px solid var(--accent); }
+input.range:active::-webkit-slider-thumb { transform: scale(1.15); }
+input.range:focus-visible { outline: none; }
+input.range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--focus); }
+input.range:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(--focus); }
+/* Brightness runs black to the picked hue; opacity fades the colour in over a checkerboard. */
+input.range-brightness::-webkit-slider-runnable-track { height: 6px; background: linear-gradient(90deg, #000, var(--range-to)); }
+input.range-brightness::-moz-range-track { height: 6px; background: linear-gradient(90deg, #000, var(--range-to)); }
+input.range-opacity::-webkit-slider-runnable-track {
+  height: 6px;
+  background: linear-gradient(90deg, transparent, var(--range-to)), repeating-conic-gradient(#3a3f47 0 25%, #262a30 0 50%) 0 0 / 6px 6px;
+}
+input.range-opacity::-moz-range-track {
+  height: 6px;
+  background: linear-gradient(90deg, transparent, var(--range-to)), repeating-conic-gradient(#3a3f47 0 25%, #262a30 0 50%) 0 0 / 6px 6px;
+}
+input.range-brightness::-webkit-slider-thumb,
+input.range-opacity::-webkit-slider-thumb { margin-top: -4px; }
+.range-stops { display: flex; justify-content: space-between; font-size: var(--fs-xs); color: var(--muted); }
+.range-stops .is-current { color: var(--text); }
+
+.color-wheel { display: flex; gap: var(--space-4); align-items: center; }
+.color-wheel-disc {
+  position: relative; flex: none; border-radius: 50%; touch-action: none; cursor: crosshair;
+  box-shadow: 0 0 0 1px var(--border-strong);
+}
+.color-wheel-disc canvas { display: block; border-radius: 50%; }
+.color-wheel-disc:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.color-wheel-marker {
+  position: absolute; left: 0; top: 0; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%;
+  border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(10, 12, 16, 0.7), 0 2px 6px rgba(10, 12, 16, 0.45);
+  pointer-events: none;
+}
+.color-wheel-controls { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.color-wheel-row { display: flex; align-items: center; gap: var(--space-2); }
+.color-wheel-hex {
+  /* A label, so it would otherwise inherit the stacked label layout. */
+  flex: 1; min-width: 0; display: flex; flex-direction: row; align-items: center; gap: 0.4rem; height: 2rem;
+  padding: 0 0.5rem; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--bg);
+}
+.color-wheel-hex:focus-within { border-color: var(--accent); }
+.color-wheel-hex input {
+  flex: 1; min-width: 0; border: none; background: transparent; padding: 0.35rem 0; min-height: 0;
+  font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-sm); text-transform: lowercase;
+}
+.color-wheel-hex input:focus-visible { outline: none; }
+.color-wheel-hex:has(input[aria-invalid="true"]) { border-color: var(--danger); }
+.color-wheel-chip { width: 0.9rem; height: 0.9rem; flex: none; border-radius: 2px; box-shadow: 0 0 0 1px var(--border-strong); }
+.color-wheel-swatches { display: flex; gap: 0.35rem; }
+button.color-swatch {
+  width: 1.5rem; height: 1.5rem; min-height: 0; padding: 0; border-radius: var(--radius);
+  border: 1px solid var(--border-strong);
+  transition: transform 0.16s cubic-bezier(0.32, 0.72, 0, 1);
+}
+button.color-swatch:hover:not(:disabled) { filter: none; transform: translateY(-1px); }
+button.color-swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--accent); }
+@media (max-width: 420px) { .color-wheel { flex-direction: column; align-items: stretch; } .color-wheel-disc { align-self: center; } }
 .grid-form input { width: 100%; }
 .grid-field { min-width: 0; }
 .grid-nudges { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.2rem; margin-top: 0.25rem; }
@@ -321,6 +442,55 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
   min-width: 2.5ch; text-align: right;
 }
 .roll-detail { min-width: 0; }
+.roll.rolling .roll-total { color: var(--muted); }
+
+/* The tray the latest roll lands in. Rust dice for the table; a GM-only roll is thrown in
+   slate with amber numerals, and its row still carries the "GM only" badge. */
+.dice-tray {
+  --die-body: var(--accent);
+  --die-ink: var(--accent-ink);
+  --die-shadow: rgba(0, 0, 0, 0.6);
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 0.3rem 0.55rem;
+  padding: 0.7rem 0.5rem 0.8rem;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: radial-gradient(ellipse 80% 90% at 50% 30%, var(--raised), var(--field));
+  /* The dice are thrown in from outside the tray; clip them until they arrive. */
+  overflow: hidden;
+}
+.dice-tray.private { --die-body: #39404b; --die-ink: var(--warn); }
+.die3d-slot { position: relative; width: var(--die); height: var(--die); }
+.die3d-shadow {
+  position: absolute; left: 14%; right: 14%; bottom: -4%; height: 22%;
+  border-radius: 50%; background: radial-gradient(closest-side, var(--die-shadow), transparent);
+}
+.die3d-flight { position: absolute; inset: 0; perspective: calc(var(--die) * 6); }
+.die3d { position: absolute; inset: 0; transform-style: preserve-3d; }
+.die3d-face {
+  position: absolute; left: 50%; top: 50%; transform-origin: 0 0;
+  -webkit-backface-visibility: hidden; backface-visibility: hidden;
+}
+.die3d-face svg { display: block; overflow: visible; }
+.die3d-face polygon {
+  fill: color-mix(in srgb, var(--die-body), #05070a var(--shade));
+  stroke: color-mix(in srgb, var(--die-body), #fff 18%); stroke-opacity: 0.35;
+  stroke-width: 0.8; stroke-linejoin: round;
+}
+/* The result face catches a little more light than the shading alone would give it. */
+.die3d-face.front polygon { fill: color-mix(in srgb, var(--die-body), #fff 8%); }
+.die3d-face text {
+  fill: var(--die-ink); font-weight: 800; font-variant-numeric: tabular-nums;
+  text-anchor: middle; dominant-baseline: central;
+}
+.die3d-face line { stroke: var(--die-ink); stroke-linecap: round; }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* The total arrives with the dice. */
+  .roll.fresh .roll-total { animation: roll-total-in 0.35s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+  @keyframes roll-total-in {
+    from { opacity: 0; transform: scale(0.6); }
+    to { opacity: 1; transform: none; }
+  }
+}
 
 /* --- Initiative --- */
 .init-setup { display: flex; flex-direction: column; gap: 0.3rem; }
@@ -427,7 +597,7 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 
   .panel { border-left: none; border-top: 1px solid var(--border); }
   /* The page scrolls on a phone, not a nested panel. */
-  .panel-body { height: auto; overflow: visible; padding: 0.6rem 0.75rem; gap: var(--space-2); }
+  .panel-body { width: auto; height: auto; overflow: visible; padding: 0.6rem 0.75rem; gap: var(--space-2); }
 
   /* The header was eating the panel before the tabs came into view. One line each. */
   .panel-header { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.5rem; padding-bottom: 0; }
@@ -504,6 +674,8 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 .upload-button.secondary { background: transparent; border: 1px solid var(--border-strong); color: var(--text); font-weight: 500; font-size: var(--fs-md); }
 .upload-button:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+.builtin-assets { margin-top: var(--space-4); }
+.builtin-assets > p { margin: 0 0 var(--space-3); }
 .asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: 0.9rem; }
 .asset-card {
   background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 0.6rem;
@@ -531,14 +703,26 @@ button.danger-fill { background: var(--danger); border-color: var(--danger); col
 img.round { border-radius: 50%; }
 .field-label { font-size: 0.9rem; }
 .token-image-chosen { align-items: center; }
-.token-image-chosen img { width: 2rem; height: 2rem; object-fit: cover; }
+.token-image-chosen .token-name { flex: 1; min-width: 0; }
+/* Remove hugs the row's right edge, in line with the form's full-width controls, instead of
+   stretching like the Upload/Library buttons and centring its text mid-row. */
+.token-image-field .token-image-chosen > button { flex: none; margin-left: auto; }
+/* The chosen token image, drawn the way the board draws it (token-image-preview): a fixed
+   circle over the token's colour disc, the image's short edge filling the diameter. */
+.token-preview {
+  flex: none; display: block; position: relative; overflow: hidden;
+  width: 2.5rem; height: 2.5rem; border-radius: 50%;
+}
+.token-preview img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center; }
+.token-preview.is-hidden { opacity: 0.45; }
 
 /* ---------- Guided tour (room-sidebar-layout: Guided tour on demand) ---------- */
 
-.guide-layer { position: fixed; inset: 0; z-index: 100; }
+.guide-layer { position: fixed; inset: 0; z-index: 100; pointer-events: none; }
 /* Catches clicks so the page behind cannot be used mid-tour. The dimming comes from the
-   spotlight's shadow, which leaves the highlighted area at full brightness. */
-.guide-blocker { position: absolute; inset: 0; }
+   spotlight's shadow, which leaves the highlighted area at full brightness. The layer
+   itself lets clicks through, so a step that leaves a hole in the blockers really does. */
+.guide-blocker { position: absolute; inset: 0; pointer-events: auto; }
 .guide-spotlight {
   position: fixed; pointer-events: none;
   border-radius: var(--radius);
@@ -546,7 +730,7 @@ img.round { border-radius: 50%; }
   box-shadow: 0 0 0 100vmax rgba(6, 8, 11, 0.66);
 }
 .guide-card {
-  position: fixed; z-index: 1;
+  position: fixed; z-index: 1; pointer-events: auto;
   width: min(20rem, calc(100vw - 1.5rem));
   display: flex; flex-direction: column; gap: var(--space-2);
   padding: var(--space-3) var(--space-4) var(--space-4);
@@ -616,18 +800,779 @@ dialog.modal.grid-preview-modal::backdrop { background: rgba(6, 8, 11, 0.35); }
 [data-tour="gm-add-token"] { margin-top: var(--space-1); }
 
 .token-editor { display: flex; flex-direction: column; gap: var(--space-3); }
-.token-editor .stats-row { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 0.35rem; align-items: end; }
+.token-editor .stats-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.35rem; align-items: end; }
 .token-editor-gm {
   display: flex; flex-direction: column; gap: var(--space-2);
   padding-top: var(--space-3); border-top: 1px solid var(--border);
 }
-button.token-delete { align-self: flex-start; padding-inline: 0; }
+/* Delete on the left, Save in the bottom-right corner where a dialog's primary action sits. */
+.token-editor-actions { display: flex; align-items: center; gap: var(--space-2); padding-top: var(--space-3); border-top: 1px solid var(--border); }
+.token-editor-actions .token-save { margin-left: auto; }
+.icon-button.token-delete:hover { border-color: var(--danger); color: var(--danger); }
 .roll-history { max-height: none; }
 .small-print { font-size: var(--fs-sm); }
 
 /* Image choice: two equal, quiet options side by side. */
-.token-image-field .row > * { flex: 1; }
+.token-image-field .row > button,
+.token-image-field .row > label { flex: 1; }
 .field-label { font-size: var(--fs-sm); color: var(--muted); }
 
 .button-row > .upload-button { flex: 1; }
 .roll-history .roll { padding: 0.35rem 0; }
+
+
+/* ==========================================================================
+   Home page tokens.
+
+   KAN-65 gave the app a rust-and-slate system. This page keeps the blue accent
+   and Geist while that divergence is decided (openspec/changes/home-page-redesign,
+   "Divergence the team should rule on"). Everything here is scoped to .home-page,
+   so the table and the asset library render entirely on the team's tokens and one
+   deletion reverts this page to them.
+   ========================================================================== */
+
+.home-page {
+  /* Inherits KAN-65's slate-and-rust system. Only the values that system does not
+     provide are set here: a deeper ground for the lit-table effect, the lighting, and a
+     control border, because --border-strong is 1.66:1 against the ground and a control
+     boundary needs 3:1. */
+  --on-accent: #ffffff;        /* on rust: 4.67:1 */
+  --accent-hover: var(--focus); /* their lighter rust */
+  --accent-strong: #9c4726;     /* darker rust, for the light ground */
+
+  /* The ground is lit, not ruled. */
+  --ground: #0f1216;
+  --lift: rgba(185, 88, 47, 0.12);
+  --key-warm: rgba(222, 152, 70, 0.22);
+  --key-warm-low: rgba(198, 108, 52, 0.12);
+  --fill-cool: rgba(92, 120, 164, 0.16);
+  --shaft: rgba(255, 238, 212, 0.05);
+  --vignette: rgba(3, 5, 8, 0.66);
+  --rule: rgba(227, 230, 234, 0.14);
+  --hover: rgba(227, 230, 234, 0.06);
+  --control-border: #646a78;   /* 3.46:1 on the ground */
+  --bloom-strength: 0.5;
+  --shadow-tint: rgba(4, 7, 12, 0.85);
+  --grain-opacity: 0.055;
+
+  --font-ui: "Geist Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark;
+  color: var(--text);
+}
+
+
+:root[data-theme="light"] .home-page {
+  /* Their system is dark-only, so the light side of slate-and-rust is defined here. */
+  --bg: #eceef1;
+  --ground: #eceef1;
+  --panel: #fbfcfd;
+  --raised: #f4f6f8;
+  --field: #fbfcfe;
+  --border: #d5dae2;
+  --text: #15171b;
+  --muted: #5b6270;            /* 5.27:1 */
+  --accent-hover: #a04a28;
+  --lift: rgba(185, 88, 47, 0.16);
+  --key-warm: rgba(204, 138, 62, 0.2);
+  --key-warm-low: rgba(184, 104, 48, 0.12);
+  --fill-cool: rgba(92, 120, 164, 0.15);
+  --shaft: rgba(255, 252, 244, 0.55);
+  --vignette: rgba(108, 120, 144, 0.2);
+  --rule: rgba(21, 23, 27, 0.16);
+  --hover: rgba(21, 23, 27, 0.05);
+  --control-border: #7a8394;   /* 3.28:1 */
+  --bloom-strength: 0.42;
+  --shadow-tint: rgba(44, 58, 84, 0.34);
+  --grain-opacity: 0.022;
+  color-scheme: light;
+}
+
+/* Their treatment: text colour with a rust underline. Rust as link text is 4.02:1. */
+.home-page a { color: var(--text); text-decoration-color: var(--accent); }
+
+/* KAN-65's base rules reach into this page: `a` is themed app-wide, and `h2` is set in
+   Alegreya Small Caps via --font-label. Both are right for the table and wrong for a
+   marketing page, so the home page states its own. */
+.home-page .brand { color: var(--text); }
+.home-page h1,
+.home-page h2,
+.home-page h3 {
+  font-family: var(--font-ui);
+  letter-spacing: -0.02em;
+  text-transform: none;
+}
+
+/* ==========================================================================
+   The landing (DESIGN.md §11.5, §11.9)
+
+   Radius rule for this page, one system: controls 6px, surfaces 12px, swatches
+   circular. Motion: transform and opacity only, so nothing fights the compositor;
+   every animation below is listed in the PR description with its justification.
+   ========================================================================== */
+
+.home-page {
+  position: relative;
+  min-height: 100dvh;
+  font-family: var(--font-ui);
+  background: var(--ground);
+  /* The blooms deliberately spill past their figures; clip that horizontally so they
+     never create a sideways scrollbar. `clip` rather than `hidden` so it does not turn
+     this into a scroll container for the fixed lighting layer below. */
+  overflow-x: clip;
+}
+
+/* The ground is three layers, none of them flat. Both are fixed and non-interactive so
+   scrolling never repaints them (§6.E). */
+.home-page::before,
+.home-page::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* The battle grid the product itself draws, faded out below the fold. */
+.home-page::before {
+  /* The lighting rig. Fixed, so every section sits under it rather than only the hero:
+     two warm sources off-centre, a cool fill from overhead, a shaft down the page, and a
+     vignette that lets the edges fall away. */
+  background-image:
+    radial-gradient(132% 96% at 50% 40%, transparent 42%, var(--vignette) 100%),
+    linear-gradient(98deg, transparent 20%, var(--shaft) 40%, var(--shaft) 54%, transparent 76%),
+    radial-gradient(58% 48% at 80% 8%, var(--key-warm), transparent 70%),
+    radial-gradient(46% 40% at 10% 72%, var(--key-warm-low), transparent 68%),
+    radial-gradient(96% 60% at 38% -12%, var(--fill-cool), transparent 64%);
+}
+
+/* Grain, so a gradient that wide does not band on an 8-bit display. */
+.home-page::after {
+  opacity: var(--grain-opacity);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.home-page > * { position: relative; z-index: 1; }
+
+.landing-shell { width: min(72rem, 100% - 2.5rem); margin-inline: auto; }
+.landing-bar { padding-top: 1.1rem; }
+
+/* Fields and buttons have to follow the ground: the base rules hard-code a dark fill. */
+.home-page input,
+.home-page select {
+  background: var(--field);
+  border-color: var(--control-border);
+  border-radius: 6px;
+}
+.home-page ::placeholder { color: var(--muted); opacity: 1; }
+.home-page input[type="range"] { background: transparent; border: none; border-radius: 0; }
+
+
+
+/* ---- Hero: editorial split, map bleeding off the right edge ---- */
+
+.landing-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.04fr);
+  align-items: center;
+  gap: clamp(1.75rem, 4vw, 3.5rem);
+  padding: clamp(1.75rem, 5vw, 4.5rem) 0 clamp(2.5rem, 6vw, 4.5rem);
+}
+
+.landing-hero h1 {
+  margin: 0 0 0.85rem;
+  max-width: 19ch;
+  font-size: clamp(2.05rem, 5.1vw, 3.3rem);
+  font-weight: 700;
+  line-height: 1.06;
+  letter-spacing: -0.032em;
+}
+
+.landing-sub {
+  margin: 0 0 1.75rem;
+  max-width: 44ch;
+  font-size: clamp(1rem, 1.35vw, 1.1rem);
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.hero-form { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem 0.9rem; max-width: 31rem; }
+.hero-form .cta { grid-column: 1 / -1; margin-top: 0.15rem; }
+.hero-form .error { grid-column: 1 / -1; margin: 0; }
+
+.cta {
+  min-height: 2.85rem;
+  padding: 0.5rem 1.25rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--on-accent);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  transition:
+    background-color 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.cta:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+.cta:active:not(:disabled) { transform: translateY(1px); }
+
+/* The map is the product, so it is a real image, bled off the edge and seated in the
+   ground with a shadow tinted to the ground rather than black (§11.9). */
+.hero-art {
+  position: relative;
+  /* Own stacking context, so the z-index:-1 bloom stays behind the map and not behind
+     the page. */
+  isolation: isolate;
+  margin-right: calc((100vw - min(72rem, 100vw - 2.5rem)) / -2);
+}
+
+/* The map is the product, so it gets depth: a tinted shadow, a lit inner edge, and a fade
+   into the ground rather than a pasted rectangle. */
+.hero-frame img { transform-origin: 60% 50%; }
+.hero-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, var(--bg) 0%, transparent 22%);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* ---- Invite: the other way in, one quiet band ---- */
+
+.invite-band {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.9rem 1.25rem;
+  padding: 1.5rem 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.invite-band p { margin: 0 auto 0 0; font-size: 0.95rem; color: var(--muted); max-width: 26ch; }
+.invite-band label { flex: 1 1 18rem; }
+.invite-band .error { flex-basis: 100%; margin: 0; }
+
+/* ---- Chapters ---- */
+
+.chapter { padding: clamp(3rem, 8vw, 5.5rem) 0; }
+.chapter h2 {
+  margin: 0 0 0.7rem;
+  font-size: clamp(1.45rem, 2.9vw, 2rem);
+  font-weight: 650;
+  line-height: 1.15;
+  letter-spacing: -0.022em;
+  color: var(--text);
+  text-transform: none;
+}
+.chapter > p {
+  margin: 0 0 1.75rem;
+  max-width: 58ch;
+  color: var(--muted);
+  line-height: 1.6;
+  font-size: 1.02rem;
+}
+
+/* The map sits IN the page, not on it. Three layers:
+   1. a bloom behind it, made from the map's own pixels, so its colours bleed into the
+      ground and each map lights the page differently
+   2. the frame, edges feathered so it melts out instead of stopping at a hard rectangle
+   3. a specular sheen across the top, which is what reads as glass and gives it depth */
+.map-figure {
+  position: relative;
+  margin: 0;
+  isolation: isolate;
+}
+
+/* 1. The bloom. Same image, pushed out, blurred hard, sunk behind everything. */
+.map-figure::before,
+.hero-art::before {
+  content: "";
+  position: absolute;
+  inset: -6% -4%;
+  z-index: -1;
+  background-image: var(--map);
+  background-size: cover;
+  background-position: center;
+  filter: blur(46px) saturate(1.45);
+  opacity: var(--bloom-strength);
+  border-radius: 24px;
+  pointer-events: none;
+}
+
+/* 2. The frame. */
+.map-frame,
+.hero-frame {
+  position: relative;
+  border-radius: 12px;
+  overflow: clip;
+  box-shadow:
+    0 26px 60px -18px var(--shadow-tint),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  /* Feathered corners and edges, so the picture dissolves into the ground. */
+  -webkit-mask-image: radial-gradient(125% 125% at 50% 50%, #000 62%, transparent 100%);
+  mask-image: radial-gradient(125% 125% at 50% 50%, #000 62%, transparent 100%);
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.map-frame img,
+.hero-frame img { display: block; width: 100%; height: auto; }
+
+/* 3. The sheen: light falling across the top of a sheet lying on a table. */
+.map-frame::after,
+.hero-frame::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    168deg,
+    rgba(255, 255, 255, 0.14) 0%,
+    rgba(255, 255, 255, 0.04) 18%,
+    transparent 42%
+  );
+}
+
+.map-figure:hover .map-frame { transform: translateY(-3px) scale(1.004); }
+
+/* The grid the GM lines up, drawn over the real map rather than mocked in divs. */
+.grid-overlay {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(224, 138, 98, 0.6) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(224, 138, 98, 0.6) 1px, transparent 1px);
+  background-size: 5.55% 9.85%;
+  pointer-events: none;
+}
+
+.view-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.view-pair figure { margin: 0; }
+.view-pair figcaption {
+  margin-top: 0.6rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+.view-frame {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+.view-frame img { display: block; width: 100%; height: auto; }
+
+/* Tokens are circles on the board, so they are circles here too. */
+.token-dot {
+  position: absolute;
+  width: 8.5%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 2px 10px rgba(6, 8, 12, 0.55);
+  transform: translate(-50%, -50%);
+}
+/* Hidden is marked by a dashed ring and a gap in the fill, never by colour alone. */
+.token-dot.is-hidden {
+  border-style: dashed;
+  border-color: #e8e9ec;
+  background-color: rgba(10, 12, 16, 0.45) !important;
+  box-shadow: 0 0 0 2px rgba(10, 12, 16, 0.55);
+}
+
+/* ---- Closing and footer ---- */
+
+.closing {
+  padding: clamp(3rem, 7vw, 5rem) 0;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem 2rem;
+}
+.closing h2 {
+  margin: 0 auto 0 0;
+  max-width: 20ch;
+  font-size: clamp(1.4rem, 2.6vw, 1.85rem);
+  font-weight: 650;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  text-transform: none;
+}
+
+.home-footer {
+  padding: 1.5rem 0 2.5rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  align-items: baseline;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+.home-footer p { margin: 0; }
+
+/* ---- Mobile: every multi-column block above collapses here ---- */
+
+
+
+/* ---- Header controls. Underlined blue links read as an unstyled page, so the nav is
+   built from real controls: a quiet ghost link, an outlined action, an icon toggle. ---- */
+
+.home-page .home-header {
+  padding: 0.55rem 0;
+  gap: 0.75rem;
+}
+.home-page .home-nav { gap: 0.4rem; }
+
+.home-page .brand {
+  font-size: 1.02rem;
+  letter-spacing: -0.015em;
+  padding: 0.35rem 0;
+  text-decoration: none;
+}
+.home-page .brand:hover { color: var(--accent); }
+
+/* ONE secondary control family. Everything that is a bordered, non-primary action on this
+   page uses it: the header pair, the theme toggle, Open, Join, Roll. Same border token,
+   same fill, same radius, same type. Only the primary action (.cta) looks different, and
+   it is the only thing that should. */
+.home-page .nav-link,
+.home-page .nav-cta,
+.home-page .ui-button,
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0 0.85rem;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 0.92rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: color 0.16s, border-color 0.16s, background-color 0.16s, transform 0.16s;
+}
+
+/* Two heights, by context: header chrome is compact, anything sitting beside a field
+   matches that field so the row has one baseline. */
+.home-page .nav-link,
+.home-page .nav-cta,
+.icon-button { min-height: 2.1rem; }
+.home-page .ui-button { min-height: 2.25rem; }
+
+/* Sign in is the quieter of the header pair; weight and colour carry that, not the box. */
+.home-page .nav-link { color: var(--muted); font-weight: 550; }
+.icon-button { color: var(--muted); }
+
+.home-page .nav-link:hover,
+.home-page .nav-cta:hover,
+.home-page .ui-button:hover,
+.icon-button:hover { border-color: var(--accent); background: var(--hover); color: var(--text); }
+
+.home-page .nav-link:active,
+.home-page .nav-cta:active,
+.home-page .ui-button:active,
+.icon-button:active { transform: translateY(1px); }
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 1.05rem;
+  transition: color 0.16s, border-color 0.16s, background-color 0.16s;
+}
+.icon-button:hover { color: var(--text); border-color: var(--accent); background: var(--hover); }
+.icon-button:active { transform: translateY(1px); }
+
+/* The account menu's trigger belongs to the same family. */
+.home-page .account-menu > button {
+  min-height: 2.1rem;
+  padding: 0 0.7rem;
+  border-radius: 6px;
+  font-size: 0.92rem;
+}
+
+/* Hairlines that fade at both ends, rather than a flat rule edge to edge. */
+.invite-band,
+.closing,
+.home-footer {
+  border-image: linear-gradient(90deg, transparent, var(--rule) 12%, var(--rule) 88%, transparent) 1;
+}
+
+/* ---- Tokens on a map, drawn the way the board draws them ---- */
+
+.token-chip {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  z-index: 1;
+  width: 4.4rem;
+}
+.token-disc {
+  display: grid;
+  place-items: center;
+  width: 2.3rem;
+  height: 2.3rem;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 3px 12px rgba(6, 8, 12, 0.6);
+  color: #0f1216;
+  font-weight: 700;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+/* Token art fills the disc, clipped to the circle as the board clips it. */
+.token-disc.has-art { overflow: hidden; }
+.token-disc.has-art img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.token-hp {
+  width: 2.5rem;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(8, 10, 14, 0.75);
+  overflow: hidden;
+}
+.token-hp-fill { display: block; height: 100%; background: var(--ok); }
+.token-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #f2f4f8;
+  text-shadow: 0 1px 4px rgba(6, 8, 12, 0.95);
+  white-space: nowrap;
+}
+/* Hidden is a dashed ring and an empty fill, never colour alone (FR-TAC-08 convention). */
+.token-chip.is-hidden .token-disc {
+  background: rgba(10, 12, 16, 0.55);
+  border-style: dashed;
+  color: #e8e9ec;
+}
+
+/* ---- Demo controls ---- */
+
+.demo-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.5rem;
+  margin-top: 0.9rem;
+}
+.demo-slider { flex: 1 1 18rem; flex-direction: row; align-items: center; gap: 0.75rem; font-size: 0.9rem; }
+.demo-slider input[type="range"] { flex: 1; min-width: 8rem; padding: 0; min-height: 1.5rem; accent-color: var(--accent); }
+.readout {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.readout b { color: var(--text); font-weight: 600; }
+
+.seg {
+  display: inline-flex;
+  margin-bottom: 1rem;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.seg button {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  padding: 0.45rem 0.95rem;
+  transition: background-color 0.18s, color 0.18s;
+}
+.seg button + button { border-left: 1px solid var(--control-border); }
+/* Selected carries weight and a fill, not colour alone. */
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); font-weight: 650; }
+
+.figure-note { margin: 0.7rem 0 0; font-size: 0.9rem; color: var(--muted); }
+
+/* ---- Dice: the shared engine, running on the page ---- */
+
+.dice-chapter { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.85fr); gap: clamp(1.5rem, 4vw, 3rem); align-items: start; }
+.dice-demo-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.75rem; max-width: 26rem; }
+.dice-demo-form label { flex: 1 1 11rem; }
+.dice-demo-form input { font-family: var(--font-mono); }
+.dice-demo-form .error { flex-basis: 100%; margin: 0; }
+
+.dice-result {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  padding: 1.25rem;
+  min-height: 12rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  align-items: flex-start;
+}
+.dice-empty { margin: auto 0; font-size: 0.92rem; }
+/* The same tray the table throws into, sitting in the demo box. The box already frames
+   it, so the tray drops its own border and stays a recessed floor for the dice. */
+.dice-result .dice-tray {
+  align-self: stretch; border: none; border-radius: 8px;
+  background: radial-gradient(ellipse 80% 90% at 50% 30%, var(--raised), var(--ground));
+  --die-shadow: var(--shadow-tint);
+}
+.dice-total {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: clamp(2.4rem, 5vw, 3.4rem);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+
+/* ---- Buttons and fields get states worth touching ---- */
+
+.cta { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; }
+.cta svg { transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1); }
+.cta:hover:not(:disabled) svg { transform: translateX(3px); }
+
+.chapter h2 { display: flex; align-items: flex-start; gap: 0.6rem; }
+.chapter h2 svg { color: var(--accent); flex: none; font-size: 1.5rem; margin-top: 0.12em; }
+.invite-band p svg { color: var(--accent); vertical-align: -0.15em; margin-right: 0.4rem; }
+
+.home-page input:focus-visible,
+.home-page select:focus-visible { border-color: var(--accent); }
+.home-page .seg button:focus-visible { outline-offset: -2px; }
+
+
+
+
+
+
+:root[data-theme="light"] .hero-art::after {
+  background: linear-gradient(90deg, var(--bg) 0%, transparent 11%);
+}
+
+@media (max-width: 860px) {
+  .landing-hero { grid-template-columns: 1fr; gap: 1.75rem; }
+  .landing-hero h1 { max-width: 16ch; }
+  .hero-art { margin-right: calc((100vw - min(72rem, 100vw - 2.5rem)) / -2); margin-left: -1.25rem; }
+  .hero-art::after { background: linear-gradient(0deg, var(--bg) 0%, transparent 28%); }
+  .view-pair { grid-template-columns: 1fr; }
+  .dice-chapter { grid-template-columns: 1fr; }
+  .dice-result { min-height: 0; }
+  .chapter { padding: 2.25rem 0; }
+}
+
+@media (max-width: 560px) {
+  .hero-form { grid-template-columns: 1fr; }
+  .invite-band p { max-width: none; }
+}
+
+/* ---- Motion. Each animation below earns its place: hierarchy, storytelling, or
+   feedback. Nothing loops, and everything animates transform or opacity only. ---- */
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Hierarchy: the hero arrives in reading order instead of all at once. */
+  .enter { animation: enter 0.62s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  .enter-2 { animation-delay: 0.07s; }
+  .enter-3 { animation-delay: 0.14s; }
+  .enter-art { animation-delay: 0.1s; }
+
+  @keyframes enter {
+    from { opacity: 0; transform: translateY(18px); }
+    to { opacity: 1; transform: none; }
+  }
+
+  /* Storytelling: tokens land on the map after it, the way a GM places them. */
+  .hero-frame .token-chip { animation: token-land 0.5s cubic-bezier(0.34, 1.4, 0.5, 1) both; }
+  @keyframes token-land {
+    from { opacity: 0; transform: translate(-50%, -50%) scale(0.55); }
+    to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  }
+
+  .dice-total { animation: total-in 0.42s cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: 0.12s; }
+  @keyframes total-in {
+    from { opacity: 0; transform: scale(0.88); }
+    to { opacity: 1; transform: none; }
+  }
+
+  /* Storytelling: each section rises in once, the first time it scrolls into view
+     (ui/reveal.ts). Not tied to the scroll position: a scroll-linked timeline re-ran on
+     every frame over the blurred map blooms and made scrolling stutter. */
+  .reveal-pending:not(.revealed) { opacity: 0; }
+  .revealed { animation: enter 0.62s cubic-bezier(0.16, 1, 0.3, 1) both; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .map-frame,
+  .hero-frame,
+  .seg button,
+  .map-figure,
+  .cta svg,
+  .icon-button,
+  .home-page .nav-link,
+  .home-page .nav-cta { transition: none; }
+}
+
+/* Rooms you own, on the one home page rather than on a second one that replaced it. */
+.your-rooms {
+  padding: clamp(1.5rem, 4vw, 2.25rem) 0 0;
+}
+.your-rooms h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.15rem;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  color: var(--text);
+  text-transform: none;
+}
+.your-rooms .room-list li { border-bottom-color: var(--border); }
+.your-rooms .small-print { margin-top: 0.6rem; }
+
+/* The library shelf. Uneven widths so it reads as a shelf of real files rather than a row
+   of three equal feature cards. */
+.shelf {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+.shelf li { display: flex; flex-direction: column; gap: 0.4rem; min-width: 0; }
+.shelf img {
+  display: block;
+  width: 100%;
+  /* height:auto so the intrinsic 1672x941 from the width/height attributes does not win
+     over the crop ratio below (the attributes stay, they are what reserve the space). */
+  /* One height across the shelf so the captions sit on a line; the widths stay uneven. */
+  height: clamp(8rem, 13vw, 11rem);
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  transition: border-color 0.2s, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.shelf li:hover img { border-color: var(--accent); transform: translateY(-2px); }
+.shelf strong { font-size: 0.95rem; font-weight: 600; }
+.shelf .readout { font-size: 0.76rem; }
+
+.shelf-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1.25rem; }
+.shelf-foot .small-print { flex: 1 1 22rem; margin: 0; max-width: 46ch; }
+
+@media (max-width: 760px) {
+  .shelf { grid-template-columns: 1fr; gap: 1.25rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shelf img { transition: none; }
+}

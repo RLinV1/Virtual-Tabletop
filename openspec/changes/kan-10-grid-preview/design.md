@@ -21,7 +21,7 @@ The room already stores one accepted `GridSpec` and commits changes through the 
 
 ### Keep the draft at the room-page level
 
-`RoomPage` owns string-valued draft fields and the last valid preview so the modal and board can share them. `gridDraft.ts` converts accepted grid values to editable strings and validates the complete draft against `GridSpec`, including the canonical offset range. This preserves an empty input while editing. Keeping a numeric draft inside the modal would lose that intermediate state or require a second synchronization path to the board.
+`RoomPage` owns string-valued alignment fields, optional line-style fields, and the last valid preview so the modal and board can share them. `gridDraft.ts` converts accepted grid values to editable strings and validates the complete draft against `GridSpec`, including the canonical offset range. It retains the line style added on mainline and compares resolved defaults so a style-only edit can be applied without making a historical default grid look changed. This preserves an empty input while editing. Keeping a numeric draft inside the modal would lose that intermediate state or require a second synchronization path to the board.
 
 The draft is reset when the map identity, accepted grid or viewer role changes. The identity uses grid and map values, so unrelated room events such as token movement do not discard an in-progress correction.
 
@@ -29,7 +29,7 @@ The draft is reset when the map identity, accepted grid or viewer role changes. 
 
 `Board` passes the optional preview to `BoardView`; the renderer draws the draft with a distinct stroke and shows an unapplied label. The renderer continues using the accepted grid for token layout and movement. The preview is not sent through `RoomConnection`, and only the GM receives a non-null preview prop. This uses the existing canvas instead of adding a second overlay whose pan and zoom could drift from the map.
 
-The renderer keys redraws by grid geometry, board dimensions, missing-map state and preview mode. A line-count guard prevents very small valid cell sizes from producing an unbounded draw loop.
+The renderer keys redraws by grid geometry and line style, board dimensions, missing-map state and preview mode. The GM board uses a distinct calibration stroke; the Advanced section shows the precise line style over the map inside the modal. The on-demand renderer invalidates its frame when the preview changes. A line-count guard prevents very small valid cell sizes from producing an unbounded draw loop.
 
 ### Apply through the existing authoritative command
 
@@ -47,4 +47,4 @@ The form stays in the Battle map section's Adjust grid dialog. A grid-specific c
 
 ## Migration Plan
 
-No data migration is needed. The change is client-side and uses the existing room command and grid schema. Reverting the UI changes restores the prior editor without changing stored room data.
+No KAN-10 data migration is needed. The change uses the existing room command and the current grid schema, including mainline's optional line-style fields.

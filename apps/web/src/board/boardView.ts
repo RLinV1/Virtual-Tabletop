@@ -6,11 +6,13 @@ import {
   Sprite,
   Text,
   Texture,
+  Ticker,
   type FederatedPointerEvent,
 } from "pixi.js";
 import {
   can,
   conditionSpec,
+  gridLineStyle,
   hpFraction,
   snapTokenCenter,
   type ConditionId,
@@ -92,6 +94,17 @@ export class BoardView {
   /** Keep auto-fitting (map changes, window resizes) until the viewer pans or zooms themselves. */
   private autoFit = true;
   private hostObserver: ResizeObserver | null = null;
+  /**
+   * Rendering is on demand: nothing draws while the picture is unchanged. `invalidate()`
+   * marks the picture dirty and asks for a frame; running animations (pings), drag ghosts
+   * and a host that is still changing size keep frames coming until they settle.
+   */
+  private frame = 0;
+  private dirty = false;
+  /** Host size seen last frame while a resize waits to settle; null when none is pending. */
+  private pendingSize: { width: number; height: number } | null = null;
+  /** Per-frame animation steps; each returns false once it has finished. */
+  private animations = new Set<(now: number) => boolean>();
 
   constructor(
     private host: HTMLElement,
@@ -100,12 +113,20 @@ export class BoardView {
 
   async init() {
     await this.app.init({
-      resizeTo: this.host,
+      width: Math.max(1, this.host.clientWidth),
+      height: Math.max(1, this.host.clientHeight),
       background: "#14171b",
       antialias: true,
       autoDensity: true,
-      resolution: window.devicePixelRatio,
+      // Beyond 2x the extra pixels are not visible on a map, but they cost fill rate.
+      resolution: Math.min(window.devicePixelRatio, 2),
+      // No continuous render loop; see `invalidate`.
+      autoStart: false,
     });
+    // Pixi's event system also re-tests hover on every frame of the shared system ticker,
+    // for a scene moving under a still pointer. Every change here comes with a pointer
+    // event or a render we asked for, so that loop is idle work.
+    Ticker.system.stop();
     this.initialized = true;
     this.host.appendChild(this.app.canvas);
 
@@ -127,7 +148,6 @@ export class BoardView {
     this.app.canvas.addEventListener("touchmove", this.onTouchMove, { passive: false });
     this.app.canvas.addEventListener("touchend", this.onTouchEnd);
     this.app.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
-    this.app.ticker.add(this.tick);
     // A layout change (sidebar collapse, window resize) must not move what the viewer is
     // looking at. Without this a panned board stays pinned to the top-left and drifts.
     let lastSize = { width: this.app.screen.width, height: this.app.screen.height };
@@ -139,16 +159,72 @@ export class BoardView {
         this.world.position.set(to.x, to.y);
       }
       lastSize = size;
+      this.dirty = true;
     });
-    // `resizeTo` only listens for window resizes. Collapsing the sidebar resizes the host
-    // without resizing the window, which left the canvas at its old width and a dead strip
-    // on the right. Watch the host itself.
-    this.hostObserver = new ResizeObserver(() => this.app.resize());
+    // Watch the host, not the window: collapsing the sidebar resizes the host without
+    // resizing the window. Reallocating the canvas every frame of the sidebar's slide made
+    // it stutter, so the resize waits until the host has kept one size for a frame. In the
+    // meantime the canvas keeps its old size; the board's background covers any gap.
+    this.hostObserver = new ResizeObserver(() => {
+      this.pendingSize ??= { width: -1, height: -1 };
+      this.schedule();
+    });
     this.hostObserver.observe(this.host);
+    this.invalidate();
+  }
+
+  /** Draw once on the next animation frame. Calls within one frame share it. */
+  private invalidate() {
+    this.dirty = true;
+    this.schedule();
+  }
+
+  private schedule() {
+    if (this.frame || !this.initialized) return;
+    this.frame = requestAnimationFrame(this.renderFrame);
+  }
+
+  private renderFrame = (now: number) => {
+    if (!this.initialized) return;
+    if (this.pendingSize) this.settleResize();
+    if (this.animations.size > 0) {
+      for (const step of this.animations) if (!step(now)) this.animations.delete(step);
+      this.dirty = true;
+    }
+    for (const [id, ghost] of this.ghosts) {
+      if (now > ghost.expires) {
+        ghost.g.destroy();
+        this.ghosts.delete(id);
+        this.dirty = true;
+      }
+    }
+    if (this.dirty) this.app.render();
+    this.dirty = false;
+    // Cleared only now, so changes made while drawing this frame don't queue another.
+    this.frame = 0;
+    if (this.animations.size > 0 || this.ghosts.size > 0 || this.pendingSize) this.schedule();
+  };
+
+  /** Resize the canvas once the host has held the same size for a whole frame. */
+  private settleResize() {
+    const size = { width: this.host.clientWidth, height: this.host.clientHeight };
+    const last = this.pendingSize!;
+    if (size.width !== last.width || size.height !== last.height) {
+      this.pendingSize = size;
+      return;
+    }
+    this.pendingSize = null;
+    if (size.width === 0 || size.height === 0) return;
+    if (size.width === this.app.screen.width && size.height === this.app.screen.height) return;
+    // Emits "resize", whose handler keeps the view in place and marks the frame dirty.
+    this.app.renderer.resize(size.width, size.height);
   }
 
   destroy() {
     if (!this.initialized) return;
+    cancelAnimationFrame(this.frame);
+    this.frame = 0;
+    this.animations.clear();
     this.hostObserver?.disconnect();
     this.app.canvas.removeEventListener("wheel", this.onWheel);
     this.app.canvas.removeEventListener("touchstart", this.onTouchStart);
@@ -166,6 +242,7 @@ export class BoardView {
     this.syncGrid();
     this.syncTokens();
     if (this.autoFit) this.fitToScreen();
+    this.invalidate();
   }
 
   /** Only this viewer sees the calibration overlay. Token movement keeps the committed grid. */
@@ -179,20 +256,21 @@ export class BoardView {
     ring.position.set(at.x, at.y);
     this.fxLayer.addChild(ring);
     const started = performance.now();
-    const animate = () => {
-      const t = (performance.now() - started) / 1200;
+    this.animations.add((now) => {
+      // rAF timestamps can trail performance.now() slightly on the first frame.
+      const t = Math.max(0, (now - started) / 1200);
       if (t >= 1 || ring.destroyed) {
-        this.app.ticker.remove(animate);
         if (!ring.destroyed) ring.destroy();
-        return;
+        return false;
       }
       const cell = this.state?.scene.grid.cellSize ?? 70;
       ring
         .clear()
         .circle(0, 0, cell * (0.2 + t * 1.2))
         .stroke({ width: 4 / this.world.scale.x, color, alpha: 1 - t });
-    };
-    this.app.ticker.add(animate);
+      return true;
+    });
+    this.invalidate();
   }
 
   showDragPreview(tokenId: string, at: Point) {
@@ -209,6 +287,7 @@ export class BoardView {
     ghost.g.clear().circle(0, 0, r).stroke({ width: 3, color: token.color, alpha: 0.8 });
     ghost.g.position.set(at.x, at.y);
     ghost.expires = performance.now() + 600;
+    this.invalidate();
   }
 
   /**
@@ -232,6 +311,7 @@ export class BoardView {
     // from the previous one.
     for (const view of this.tokens.values()) view.drawnKey = "";
     this.syncTokens();
+    this.invalidate();
   }
 
   clearFocus() {
@@ -239,12 +319,14 @@ export class BoardView {
     this.focusedId = null;
     for (const view of this.tokens.values()) view.drawnKey = "";
     this.syncTokens();
+    this.invalidate();
   }
 
   /** Fit the whole board in view and resume auto-fitting. */
   resetView() {
     this.autoFit = true;
     this.fitToScreen();
+    this.invalidate();
   }
 
   private fitToScreen() {
@@ -278,11 +360,14 @@ export class BoardView {
       this.mapMissing = true;
       this.gridKey = "";
       if (this.state) this.syncGrid();
+      this.invalidate();
     };
     if (failedImageUrls.has(url)) return markMissing();
     Assets.load<Texture>(url).then(
       (texture) => {
-        if (this.mapUrl === url && this.initialized) this.mapSprite.texture = texture;
+        if (this.mapUrl !== url || !this.initialized) return;
+        this.mapSprite.texture = texture;
+        this.invalidate();
       },
       () => {
         failedImageUrls.add(url);
@@ -294,7 +379,10 @@ export class BoardView {
   private syncGrid() {
     const g = this.gridPreview ?? this.state!.scene.grid;
     const { width, height } = this.boardSize();
-    const key = JSON.stringify([g.cellSize, g.offsetX, g.offsetY, width, height, this.mapMissing, !!this.gridPreview]);
+    const key = JSON.stringify([
+      g.cellSize, g.offsetX, g.offsetY, g.lineColor, g.lineWidth, g.lineOpacity,
+      width, height, this.mapMissing, !!this.gridPreview,
+    ]);
     if (key === this.gridKey) return;
     this.gridKey = key;
 
@@ -304,9 +392,12 @@ export class BoardView {
     if (!Number.isFinite(g.cellSize) || g.cellSize <= 0 || (width + height) / g.cellSize > 50_000) return;
     for (let x = g.offsetX; x <= width; x += g.cellSize) this.grid.moveTo(x, 0).lineTo(x, height);
     for (let y = g.offsetY; y <= height; y += g.cellSize) this.grid.moveTo(0, y).lineTo(width, y);
+    // The GM's preview stays identifiable while the modal shows the precise line style.
+    const style = gridLineStyle(g);
     this.grid.stroke(this.gridPreview
-      ? { width: 1.5, color: 0x5b8def, alpha: 0.8 }
-      : { width: 1, color: 0x000000, alpha: 0.35 });
+      ? { width: Math.max(style.width, 1.5), color: 0x5b8def, alpha: 0.8 }
+      : { width: style.width, color: Number(`0x${style.color.slice(1)}`), alpha: style.opacity });
+    this.invalidate();
   }
 
   private syncTokens() {
@@ -404,6 +495,7 @@ export class BoardView {
         view.image.texture = texture;
         view.image.visible = true;
         this.fitTokenImage(view);
+        this.invalidate();
       },
       () => {
         failedImageUrls.add(url);
@@ -501,6 +593,7 @@ export class BoardView {
     };
     view.container.cursor = "grabbing";
     this.tokenLayer.addChild(view.container); // bring to front
+    this.invalidate();
   };
 
   private onBackgroundDown = (e: FederatedPointerEvent) => {
@@ -519,12 +612,14 @@ export class BoardView {
         this.drag.lastPreview = now;
         this.callbacks.dragPreview(this.drag.tokenId, at);
       }
+      this.invalidate();
     } else if (this.pan) {
       this.autoFit = false;
       this.world.position.set(
         this.pan.origin.x + e.global.x - this.pan.start.x,
         this.pan.origin.y + e.global.y - this.pan.start.y,
       );
+      this.invalidate();
     }
   };
 
@@ -538,6 +633,7 @@ export class BoardView {
     if (!token || !view) return;
     view.container.cursor = "grab";
 
+    this.invalidate();
     const dropped = { x: view.container.x, y: view.container.y };
     // Snap by default; hold Alt for free placement (FR-TAC-02).
     const to = e.altKey ? dropped : snapTokenCenter(dropped, token.size, this.state.scene.grid);
@@ -552,6 +648,7 @@ export class BoardView {
       this.pendingMoves.delete(token.id);
       const current = this.state?.tokens[token.id];
       if (current) this.tokens.get(token.id)?.container.position.set(current.position.x, current.position.y);
+      this.invalidate();
     });
   };
 
@@ -590,6 +687,7 @@ export class BoardView {
       const token = this.state?.tokens[this.drag.tokenId];
       if (view && token) view.container.position.set(token.position.x, token.position.y);
       this.drag = null;
+      this.invalidate();
     }
     const { distance, midpoint } = this.touchInfo(e.touches);
     this.pinch = { distance, midpoint, scale: this.world.scale.x };
@@ -614,6 +712,7 @@ export class BoardView {
     this.world.scale.set(scale);
     this.world.position.set(midpoint.x - anchor.x * scale, midpoint.y - anchor.y * scale);
     this.pinch = { distance, midpoint, scale };
+    this.invalidate();
   };
 
   private onTouchEnd = (e: TouchEvent) => {
@@ -649,6 +748,7 @@ export class BoardView {
     const scale = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, this.world.scale.x * factor));
     this.world.scale.set(scale);
     this.world.position.set(screenPoint.x - before.x * scale, screenPoint.y - before.y * scale);
+    this.invalidate();
   };
 
   private onDoubleClick = (e: MouseEvent) => {
@@ -656,16 +756,6 @@ export class BoardView {
     const at = this.toBoard({ x: e.clientX - rect.left, y: e.clientY - rect.top });
     this.showPing(at);
     this.callbacks.ping(at);
-  };
-
-  private tick = () => {
-    const now = performance.now();
-    for (const [id, ghost] of this.ghosts) {
-      if (now > ghost.expires) {
-        ghost.g.destroy();
-        this.ghosts.delete(id);
-      }
-    }
   };
 }
 

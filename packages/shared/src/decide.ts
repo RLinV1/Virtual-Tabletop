@@ -64,11 +64,13 @@ export function decide(
       if (!can.administer(actor)) return forbidden();
       const unknownOwner = command.ownerIds.find((id) => !state.participants[id]);
       if (unknownOwner) return reject("not_found", `Unknown participant ${unknownOwner}`);
+      if (!command.name.trim()) return reject("invalid", "Token name can't be blank.");
       return accept({
         type: "TokenCreated",
         token: {
           id: ctx.newId(),
-          name: command.name,
+          // Duplicates are numbered, not rejected: placing five goblins is routine (KAN-62).
+          name: uniqueTokenName(state, command.name),
           position: command.position,
           size: command.size,
           rotation: 0,
@@ -228,8 +230,36 @@ export function decide(
   }
 }
 
-/** Comparison key for display names: "raymond", "Raymond " and "RAYMOND" are one name (KAN-61). */
-export const normalizeDisplayName = (name: string) => name.normalize("NFC").trim().toLocaleLowerCase("en-US");
+/** Comparison key for names: "raymond", "Raymond " and "RAYMOND" are one name (KAN-61, KAN-62). */
+export const normalizeName = (name: string) => name.normalize("NFC").trim().toLocaleLowerCase("en-US");
+/** Display names compare the same way as every other name. Kept for KAN-61 callers. */
+export const normalizeDisplayName = normalizeName;
+
+/** True when a token other than `exceptId` already uses `name` in this room. Hidden tokens count. */
+export function isTokenNameTaken(state: RoomState, name: string, exceptId?: string) {
+  const key = normalizeName(name);
+  return Object.values(state.tokens).some((t) => t.id !== exceptId && normalizeName(t.name) === key);
+}
+
+const MAX_TOKEN_NAME = 60;
+
+/**
+ * The name a new token actually gets (KAN-62): `name` trimmed if it's free, otherwise its base
+ * plus the lowest free number from 2 ("Goblin" -> "Goblin 2"). A typed trailing number is part of
+ * the suffix, so a taken "Goblin 2" becomes "Goblin 3", not "Goblin 2 2". Depends on `state` only,
+ * so it's deterministic; the result goes into `TokenCreated`, so replay never re-runs it.
+ */
+export function uniqueTokenName(state: RoomState, name: string): string {
+  const trimmed = name.trim();
+  const taken = new Set(Object.values(state.tokens).map((t) => normalizeName(t.name)));
+  if (!taken.has(normalizeName(trimmed))) return trimmed;
+  const base = trimmed.replace(/\s+\d+$/, "") || trimmed;
+  for (let n = 2; ; n++) {
+    const suffix = ` ${n}`;
+    const candidate = base.slice(0, MAX_TOKEN_NAME - suffix.length).trimEnd() + suffix;
+    if (!taken.has(normalizeName(candidate))) return candidate;
+  }
+}
 
 /**
  * Whether a participant holds their display name. Always true until revocation/leaving is recorded

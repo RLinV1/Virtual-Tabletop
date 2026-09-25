@@ -51,7 +51,7 @@ export type ParseResult =
 /** `NdX`, `NdX+M`, `NdX-M`, or `dX`. Whitespace and case are ignored. */
 export function parseDiceExpression(input: string): ParseResult {
   const match = PATTERN.exec(input);
-  if (!match) return { ok: false, message: "Use NdX, NdX+M or NdX-M — for example 1d20+5" };
+  if (!match) return { ok: false, message: "Use NdX, NdX+M or NdX-M, for example 1d20+5" };
 
   const count = match[1] === "" ? 1 : Number(match[1]);
   const sides = Number(match[2]);

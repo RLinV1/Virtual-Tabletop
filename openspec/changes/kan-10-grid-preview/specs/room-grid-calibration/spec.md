@@ -24,6 +24,8 @@ The GM SHALL be able to open Adjust grid from the Battle map controls and edit t
 ### Requirement: Draft changes preview only for the GM
 When the GM enters a valid grid different from the accepted grid, the board SHALL draw that grid in a visually distinct style and label it as an unapplied preview. The draft SHALL remain local to that GM's browser and SHALL NOT update room state, send an event or ephemeral message, or change what players see. Token interactions SHALL continue to use the accepted grid until application succeeds.
 
+The draft SHALL retain any accepted grid line colour, thickness, and opacity. Editing those fields in Advanced SHALL use the same local draft and Apply action, with a true-style preview over the map inside the modal.
+
 #### Scenario: Valid edit previews locally
 - **WHEN** the GM changes the cell size from its accepted value to another valid value
 - **THEN** the GM sees a distinct grid and an unapplied-preview label, while a connected player continues to see the accepted grid
@@ -35,6 +37,10 @@ When the GM enters a valid grid different from the accepted grid, the board SHAL
 #### Scenario: Draft returns to accepted values
 - **WHEN** the GM edits the draft back to the accepted grid values
 - **THEN** the distinct preview and its label disappear
+
+#### Scenario: Edit line style during calibration
+- **WHEN** the GM changes line colour, thickness, or opacity in Advanced
+- **THEN** the modal preview updates locally, Apply becomes available, and the accepted style remains visible to players until Apply succeeds
 
 ### Requirement: Invalid drafts cannot be applied
 The form SHALL accept incomplete text while the GM edits it, but SHALL disable Apply for an empty or invalid value. Cell size SHALL be greater than zero and at most 2000 pixels; distance per cell SHALL be positive; each offset SHALL be at least zero and less than the cell size. An invalid edit SHALL leave the last valid preview visible and show a correction message.

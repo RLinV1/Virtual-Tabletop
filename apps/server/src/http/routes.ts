@@ -4,6 +4,9 @@ import type { Express, Request } from "express";
 import {
   CreateRoomRequest,
   JoinRoomRequest,
+  HistoryQuery,
+  HistoryResponse,
+  activityHistory,
   type CreateRoomResponse,
   type JoinRoomResponse,
   type UploadResponse,
@@ -96,6 +99,24 @@ export function registerRoutes(
   });
 
   registerLibraryRoutes(app, { store, uploadDir, assets });
+
+  /** FR-REC-01: history belongs to this room's GM, never merely any valid GM token. */
+  app.get("/api/rooms/:roomId/history", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void (async () => {
+      const header = req.headers.authorization;
+      const cred = header?.startsWith("Bearer ")
+        ? await store.findCredential(hashToken(header.slice(7))) : null;
+      if (!cred || cred.roomId !== req.params.roomId) return res.status(403).json({ error: "GM only" });
+      const room = await registry.get(cred.roomId);
+      const viewer = room?.participant(cred.participantId);
+      if (!viewer || viewer.role !== "gm") return res.status(403).json({ error: "GM only" });
+      const query = HistoryQuery.safeParse(req.query);
+      if (!query.success) return res.status(400).json({ error: "Invalid history query" });
+      const events = await store.loadEvents(cred.roomId);
+      return res.json(HistoryResponse.parse(activityHistory(cred.roomId, events, viewer, query.data)));
+    })().catch(() => res.status(500).json({ error: "Internal error" }));
+  });
 
   async function authenticate(req: Request) {
     const header = req.headers.authorization;

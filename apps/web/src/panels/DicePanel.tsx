@@ -3,6 +3,7 @@ import { parseDiceExpression, type DiceVisibility, type RoomState } from "@vtt/s
 import type { RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
 import { PanelSection } from "../ui/PanelSection";
+import { DiceTray, type TrayRoll } from "../ui/DiceTray";
 
 const QUICK = ["1d20", "1d20+5", "2d6", "1d8+3", "4d6"];
 
@@ -15,6 +16,11 @@ const QUICK = ["1d20", "1d20+5", "2d6", "1d8+3", "4d6"];
  * The expression is parsed here purely to give immediate feedback in the input; the
  * server re-parses and rolls, and its result is the only one anyone sees. A GM-only roll
  * never reaches a player, so players have no "hidden roll" placeholder in their log.
+ *
+ * Each new roll is thrown as 3D dice for everyone at the table, and its text row waits
+ * until they land so the total is not read before the dice show it. Rolls already on the
+ * table when the panel mounts have landed: joining, reconnecting or switching tabs does
+ * not replay them.
  */
 export function DicePanel({
   connection,
@@ -45,6 +51,9 @@ export function DicePanel({
   };
 
   const rolls = [...state.rolls].reverse();
+  const latest = rolls[0];
+  const [landed, setLanded] = useState<{ id: string | undefined; thrown: boolean }>({ id: latest?.id, thrown: false });
+  const throwing = latest !== undefined && latest.id !== landed.id;
 
   return (
     <PanelSection id="dice" title="Dice">
@@ -95,12 +104,26 @@ export function DicePanel({
       </form>
 
       <h3 className="sr-only">Latest roll</h3>
-      {!rolls[0] ? (
+      {!latest ? (
         <p className="muted">No rolls yet.</p>
       ) : (
         <>
+          <DiceTray
+            key={latest.id}
+            roll={trayRoll(latest)}
+            throwing={throwing}
+            onLanded={() => setLanded({ id: latest.id, thrown: true })}
+          />
           <ul className="plain roll-log" aria-live="polite">
-            <RollRow roll={rolls[0]} state={state} />
+            {/* A new key when the dice land, so the live region announces the result once,
+                as it appears, and not the placeholder before it. */}
+            <RollRow
+              key={throwing ? `${latest.id}:rolling` : latest.id}
+              roll={latest}
+              state={state}
+              rolling={throwing}
+              fresh={!throwing && landed.thrown}
+            />
           </ul>
           <button type="button" className="secondary small history-button" onClick={() => setHistoryOpen(true)}>
             Roll history ({rolls.length})
@@ -121,10 +144,42 @@ export function DicePanel({
   );
 }
 
-function RollRow({ roll: r, state }: { roll: RoomState["rolls"][number]; state: RoomState }) {
+function trayRoll(r: RoomState["rolls"][number]): TrayRoll {
+  const parsed = parseDiceExpression(r.expression);
+  // The server parsed this expression before rolling it; the fallback only guards a log
+  // entry written by some older build.
+  const sides = parsed.ok ? parsed.expression.sides : Math.max(20, ...r.dice);
+  return { id: r.id, sides, dice: r.dice, gmOnly: r.visibility === "gm" };
+}
+
+function RollRow({
+  roll: r,
+  state,
+  rolling = false,
+  fresh = false,
+}: {
+  roll: RoomState["rolls"][number];
+  state: RoomState;
+  /** The dice are still in the air: say who is rolling what, not the result. */
+  rolling?: boolean;
+  /** Just landed from a throw: the total arrives with the dice. */
+  fresh?: boolean;
+}) {
   const who = state.participants[r.byParticipantId]?.displayName ?? "Someone";
+  const className = ["roll", r.visibility === "gm" && "private", fresh && "fresh"].filter(Boolean).join(" ");
+  if (rolling) {
+    return (
+      <li className={`${className} rolling`} aria-hidden="true">
+        <span className="roll-total">…</span>
+        <span className="roll-detail">
+          <strong>{who}</strong> is rolling {r.expression}
+          {r.visibility === "gm" && <em className="badge"> GM only</em>}
+        </span>
+      </li>
+    );
+  }
   return (
-    <li className={r.visibility === "gm" ? "roll private" : "roll"}>
+    <li className={className}>
       <span className="roll-total">{r.total}</span>
       <span className="roll-detail">
         <strong>{who}</strong> rolled {r.expression}

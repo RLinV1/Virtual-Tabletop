@@ -1,10 +1,12 @@
 import { useState } from "react";
-import { snapTokenCenter, type RoomState } from "@vtt/shared";
+import { DEFAULT_TOKEN_COLOR, snapTokenCenter, type RoomState } from "@vtt/shared";
 import { api } from "../net/api";
 import { loadGmToken } from "../net/identity";
 import type { RoomConnection } from "../net/roomConnection";
+import { libraryAssetId } from "../net/builtinAssets";
 import { LibraryPicker } from "../pages/LibraryPicker";
 import { Modal } from "../ui/Modal";
+import { TokenPreview } from "../ui/TokenPreview";
 
 const TOKEN_COLORS = ["#c0392b", "#2980b9", "#27ae60", "#8e44ad", "#d35400", "#16a085"];
 
@@ -111,7 +113,18 @@ function AddToken(props: {
       >
         <label>
           Name
-          <input value={name} onChange={(e) => setName(e.target.value)} required maxLength={60} autoFocus />
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+            maxLength={60}
+            autoFocus
+            aria-describedby="add-token-name-hint"
+          />
+          {/* The server does the numbering (KAN-62); this only tells the GM to expect it. */}
+          <span id="add-token-name-hint" className="muted">
+            Duplicate names are numbered automatically, e.g. Goblin 2.
+          </span>
         </label>
         <label>
           Owner
@@ -128,8 +141,8 @@ function AddToken(props: {
           <span className="field-label">Image</span>
           {image ? (
             <div className="row token-image-chosen">
-              <img src={image.url} alt="" className="round" />
-              <span className="token-name">{image.label}</span>
+              <TokenPreview url={image.url} color={DEFAULT_TOKEN_COLOR} hidden={hidden} />
+              <span className="token-name" title={image.label}>{image.label}</span>
               <button type="button" className="link" onClick={() => setImage(null)}>
                 Remove
               </button>
@@ -171,7 +184,7 @@ function AddToken(props: {
             onPick={(asset) => {
               // The token name is left to the GM on purpose: prefilling the library name
               // would put it in front of players (asset-library: details stay private).
-              setImage({ url: asset.url, assetId: asset.id, label: asset.name });
+              setImage({ url: asset.url, assetId: libraryAssetId(asset), label: asset.name });
               setPicking(false);
             }}
           />

@@ -305,3 +305,24 @@ describe("unique display names (KAN-61)", () => {
     expect(again.state.participants[again.participantId]!.displayName).toBe("Alice");
   });
 });
+
+describe("unique token names (KAN-62)", () => {
+  it("numbers two concurrent creates of the same name instead of duplicating it", async () => {
+    const { gm, alice } = await setup();
+    const goblin = { type: "token.create" as const, name: "Goblin", position: { x: 0, y: 0 } };
+    const results = await Promise.all([gm.command(goblin), gm.command(goblin)]);
+    expect(results.map((r) => r.type)).toEqual(["ack", "ack"]);
+
+    await alice.waitForSeq(gm.seq);
+    for (const c of [gm, alice]) expect(tokens(c).map((t) => t.name).sort()).toEqual(["Goblin", "Goblin 2"]);
+  });
+
+  it("rejects a whitespace-only name and appends nothing", async () => {
+    const { gm } = await setup();
+    const seqBefore = gm.seq;
+    const res = await gm.command({ type: "token.create", name: "   ", position: { x: 0, y: 0 } });
+    expect(res).toMatchObject({ type: "rejected", code: "invalid" });
+    expect(gm.seq).toBe(seqBefore);
+    expect(tokens(gm)).toEqual([]);
+  });
+});

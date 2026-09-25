@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { House } from "@phosphor-icons/react";
 import type { GridSpec } from "@vtt/shared";
 import { Board, type BoardHandle } from "../board/Board";
+import { Link } from "../Link";
 import { loadCredentials } from "../net/identity";
 import { RoomConnection, useRoomSnapshot, type ConnectionStatus } from "../net/roomConnection";
 import { RoomPanel } from "../panels/RoomPanel";
+import { ActivityLog } from "../panels/ActivityLog";
 import { gridsEqual, parseGridDraft, toGridDraft, type GridDraft } from "./gridDraft";
 import { SectionCollapseProvider } from "../ui/PanelSection";
 import { ParticipantsButton } from "../ui/ParticipantsButton";
@@ -78,6 +81,7 @@ function Room({ connection, inviteCode, token }: { connection: RoomConnection; i
     state.scene.map?.url, state.scene.map?.assetId, state.scene.map?.width, state.scene.map?.height,
     state.scene.grid.cellSize, state.scene.grid.offsetX, state.scene.grid.offsetY,
     state.scene.grid.unitsPerCell, state.scene.grid.unitLabel,
+    state.scene.grid.lineColor, state.scene.grid.lineWidth, state.scene.grid.lineOpacity,
   ]);
 
   // A new map, committed grid, or role invalidates a draft tied to the previous scene.
@@ -169,7 +173,16 @@ function Room({ connection, inviteCode, token }: { connection: RoomConnection; i
         gridPreview={you.role === "gm" ? gridPreview : null}
         toolbar={
           <>
+            {/* The GM has rooms, a library and "Create room" to get back to; a player came
+                from an invite and just closes the tab (room-navigation). */}
+            {you.role === "gm" && (
+              <Link href="/" className="tool-button" title="Back to the home page">
+                <House size={16} aria-hidden="true" />
+                Home
+              </Link>
+            )}
             <ParticipantsButton participants={participants} />
+            {you.role === "gm" && <ActivityLog roomId={state.roomId} token={token} seq={seq} />}
             <button
               ref={guideButtonRef}
               type="button"
