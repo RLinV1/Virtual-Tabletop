@@ -31,6 +31,7 @@ export type FilteredEvent =
   /** The viewer's visible world changed shape; send a fresh filtered snapshot instead. */
   | { kind: "resync" };
 
+/** Decides what one viewer receives for a committed event: as-is, a redacted seq, or a resync. */
 export function filterEventForViewer(
   committed: CommittedEvent,
   before: RoomState,
@@ -41,6 +42,7 @@ export function filterEventForViewer(
   const e = committed.event;
   const redacted: FilteredEvent = { kind: "redacted", seq: committed.seq };
   const pass: FilteredEvent = { kind: "event", committed };
+  /** Whether the viewer could not see this token before the event; unknown tokens count as hidden. */
   const hiddenBefore = (tokenId: string) => before.tokens[tokenId]?.hidden ?? true;
 
   switch (e.type) {
@@ -69,8 +71,10 @@ export function filterEventForViewer(
     case "RoomCreated":
     case "ParticipantJoined":
     case "ParticipantRenamed":
+    case "ParticipantLeft":
     case "MapSet":
     case "GridSet":
+      // The participant list is public, and leaving reveals nothing hidden (ADR 0006).
       return pass;
   }
 }

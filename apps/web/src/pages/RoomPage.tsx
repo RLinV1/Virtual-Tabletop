@@ -2,10 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { House } from "@phosphor-icons/react";
 import { Board, type BoardHandle } from "../board/Board";
 import { Link } from "../Link";
-import { loadCredentials } from "../net/identity";
+import { forgetCredentials, loadCredentials } from "../net/identity";
 import { RoomConnection, useRoomSnapshot, type ConnectionStatus } from "../net/roomConnection";
 import { RoomPanel } from "../panels/RoomPanel";
 import { ActivityLog } from "../panels/ActivityLog";
+import { LeaveTable } from "../panels/LeaveTable";
+import { ResolveDepartureModal } from "../panels/ResolveDeparture";
+import { DepartureNotices } from "../ui/DepartureNotice";
 import { SectionCollapseProvider } from "../ui/PanelSection";
 import { ParticipantsButton } from "../ui/ParticipantsButton";
 import { ShareButton } from "../ui/ShareButton";
@@ -40,8 +43,10 @@ const STATUS_LABEL: Record<ConnectionStatus, string> = {
   open: "Connected",
   reconnecting: "Reconnecting…",
   unauthorized: "No access",
+  ended: "Left the room",
 };
 
+/** Route for `/r/:roomId`: loads this browser's credential for the room and runs its connection. */
 export function RoomPage({ roomId }: { roomId: string }) {
   const creds = useMemo(() => loadCredentials(roomId), [roomId]);
   const connection = useMemo(() => (creds ? new RoomConnection(roomId, creds.guestToken) : null), [roomId, creds]);
@@ -62,11 +67,47 @@ export function RoomPage({ roomId }: { roomId: string }) {
       </main>
     );
   }
-  return <Room connection={connection} inviteCode={creds.inviteCode} token={creds.guestToken} />;
+  return <Room roomId={roomId} connection={connection} inviteCode={creds.inviteCode} token={creds.guestToken} />;
 }
 
-function Room({ connection, inviteCode, token }: { connection: RoomConnection; inviteCode?: string; token: string }) {
+/**
+ * After Leave table (KAN-58). Deliberately plain: no account prompt, per FRONTEND-CONTRACT
+ * §13.1. `roomName` is null when the page loaded after the seat had already ended.
+ */
+function SessionEnded({ roomName }: { roomName: string | null }) {
+  return (
+    <main className="centered">
+      <div className="card">
+        <h1>{roomName ? `You left ${roomName}` : "You left this room"}</h1>
+        <p className="muted">
+          Your seat at this table has ended. If the GM sends you the invite link again, you can join as a new player.
+        </p>
+        <Link href="/">Go to the home page</Link>
+      </div>
+    </main>
+  );
+}
+
+/** The room once a credential exists: board, side panel, and the connection's terminal screens. */
+function Room({
+  roomId,
+  connection,
+  inviteCode,
+  token,
+}: {
+  roomId: string;
+  connection: RoomConnection;
+  inviteCode?: string;
+  token: string;
+}) {
   const { status, state, you, seq } = useRoomSnapshot(connection);
+  const [reviewing, setReviewing] = useState<string | null>(null);
+
+  // The seat is gone for good, on every tab that shared it: forget it, so the invite link
+  // offers the join form rather than bouncing back to a room that refuses us (ADR 0006).
+  useEffect(() => {
+    if (status === "ended") forgetCredentials(roomId);
+  }, [status, roomId]);
   const boardRef = useRef<BoardHandle>(null);
   const compact = useCompactLayout();
   const focusToken = useCallback((tokenId: string) => boardRef.current?.focusToken(tokenId), []);
@@ -77,6 +118,8 @@ function Room({ connection, inviteCode, token }: { connection: RoomConnection; i
     setGuideOpen(false);
     guideButtonRef.current?.focus();
   }, []);
+
+  if (status === "ended") return <SessionEnded roomName={state?.name ?? null} />;
 
   if (status === "unauthorized") {
     return (
@@ -121,6 +164,7 @@ function Room({ connection, inviteCode, token }: { connection: RoomConnection; i
         connection={connection}
         state={state}
         you={you}
+        notices={you.role === "gm" ? <DepartureNotices state={state} onReview={setReviewing} /> : undefined}
         toolbar={
           <>
             {/* The GM has rooms, a library and "Create room" to get back to, all on the GM
@@ -184,9 +228,17 @@ function Room({ connection, inviteCode, token }: { connection: RoomConnection; i
             <span className={`status status-${status}`} role="status">
               {STATUS_LABEL[status]} · seq {seq}
             </span>
-            <p className="whoami">
+            {/* A div, not a p: Leave table renders its confirmation <dialog> in here. */}
+            <div className="whoami">
               You are <strong>{you.displayName}</strong> ({you.role === "gm" ? "GM" : "player"})
-            </p>
+              {/* Players only: the GM can't leave their own room; Home is their way out. */}
+              {you.role === "player" && (
+                <>
+                  {" · "}
+                  <LeaveTable connection={connection} state={state} you={you} />
+                </>
+              )}
+            </div>
           </header>
           {/*
             One panel for both roles. A player needs the turn order, their own token's
@@ -201,11 +253,20 @@ function Room({ connection, inviteCode, token }: { connection: RoomConnection; i
               token={token}
               onFocusToken={focusToken}
               compact={compact}
+              onReviewDeparture={setReviewing}
             />
           </SectionCollapseProvider>
         </div>
       </aside>
       {guideOpen && <GuideTour role={you.role} onClose={closeGuide} />}
+      {you.role === "gm" && (
+        <ResolveDepartureModal
+          connection={connection}
+          state={state}
+          participantId={reviewing}
+          onClose={() => setReviewing(null)}
+        />
+      )}
     </div>
   );
 }

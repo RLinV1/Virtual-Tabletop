@@ -61,6 +61,8 @@ export type ServerMessage =
   | { type: "ack"; clientCommandId: string; seq: number | null }
   | { type: "rejected"; clientCommandId: string; code: RejectionCode | "bad_request"; message: string }
   | { type: "ephemeral"; from: Id; payload: EphemeralPayload }
+  /** Terminal: this seat has ended (ADR 0006). The server disconnects right after; do not reconnect. */
+  | { type: "sessionEnded"; reason: "left" }
   | { type: "error"; code: "unauthorized" | "bad_request" | "not_found"; message: string };
 
 /**

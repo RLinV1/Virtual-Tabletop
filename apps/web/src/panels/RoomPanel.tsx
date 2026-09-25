@@ -33,9 +33,12 @@ interface Props {
   onFocusToken: (tokenId: string) => void;
   /** True on narrow screens, where the panel becomes tabbed. */
   compact: boolean;
+  /** GM only: open the review of a departed player's tokens (KAN-58). */
+  onReviewDeparture: (participantId: string) => void;
 }
 
-export function RoomPanel({ connection, state, you, token, onFocusToken, compact }: Props) {
+/** Renders the side panel's sections, as one column or as tabs on narrow screens. */
+export function RoomPanel({ connection, state, you, token, onFocusToken, compact, onReviewDeparture }: Props) {
   const isGm = you.role === "gm";
   const [tab, setTab] = useState<TabId>("play");
   const baseId = useId();
@@ -67,7 +70,7 @@ export function RoomPanel({ connection, state, you, token, onFocusToken, compact
     tokens: <TokenRoster connection={connection} state={state} you={you} token={token} onFocusToken={onFocusToken} />,
     dice: <DicePanel connection={connection} state={state} isGm={isGm} />,
     gm: isGm ? (
-      <GmPanel connection={connection} state={state} token={token} />
+      <GmPanel connection={connection} state={state} token={token} onReviewDeparture={onReviewDeparture} />
     ) : null,
   };
 

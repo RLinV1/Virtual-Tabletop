@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode, type RefObject } from "react";
 
 /**
  * A modal on the native `<dialog>` (room-sidebar-layout: GM setup forms open in modals).
@@ -10,11 +10,14 @@ export function Modal({
   open,
   title,
   onClose,
+  initialFocus,
   children,
 }: {
   open: boolean;
   title: string;
   onClose: () => void;
+  /** Focused on open instead of the first control, e.g. the safe choice in a confirmation. */
+  initialFocus?: RefObject<HTMLElement | null>;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -28,10 +31,11 @@ export function Modal({
     if (open && !dialog.open) {
       opener.current = document.activeElement as HTMLElement | null;
       dialog.showModal();
+      initialFocus?.current?.focus();
     } else if (!open && dialog.open) {
       dialog.close();
     }
-  }, [open]);
+  }, [open, initialFocus]);
 
   return (
     <dialog

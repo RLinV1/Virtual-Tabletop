@@ -1,4 +1,4 @@
-import type { Participant } from "@vtt/shared";
+import { isActive, type Participant } from "@vtt/shared";
 import { PopoverButton } from "./Popover";
 
 /**
@@ -6,9 +6,11 @@ import { PopoverButton } from "./Popover";
  *
  * The list is reference information, not something anyone acts on mid-encounter, so it no
  * longer takes a permanent slot in the sidebar. `participants` comes from the server's
- * filtered snapshot; nothing here is persisted.
+ * filtered snapshot; nothing here is persisted. Only active participants are listed.
  */
-export function ParticipantsButton({ participants }: { participants: Participant[] }) {
+export function ParticipantsButton({ participants: everyone }: { participants: Participant[] }) {
+  // Someone who left stays in state for history, but is no longer in the room (ADR 0006).
+  const participants = everyone.filter(isActive);
   const count = participants.length;
   return (
     <PopoverButton

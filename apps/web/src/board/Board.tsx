@@ -9,6 +9,8 @@ interface Props {
   you: Participant;
   /** Plain React controls shown top left, before Fit (e.g. the participants button). */
   toolbar?: ReactNode;
+  /** Notices pinned to the top right of the board, e.g. the GM's "Sam left the table". */
+  notices?: ReactNode;
 }
 
 /** What the roster and initiative list can ask the canvas to do (FR-GM-24). */
@@ -16,7 +18,8 @@ export interface BoardHandle {
   focusToken(tokenId: string): void;
 }
 
-export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, toolbar }, ref) {
+/** The PixiJS board plus its React toolbar and notices; Pixi objects stay inside `BoardView`. */
+export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, toolbar, notices }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<BoardView | null>(null);
   const latest = useRef({ state, you });
@@ -71,6 +74,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
           Fit
         </button>
       </div>
+      {notices}
       <p className="board-hint">Drag to pan · scroll to zoom · double-click to ping · hold Alt to place freely</p>
     </div>
   );

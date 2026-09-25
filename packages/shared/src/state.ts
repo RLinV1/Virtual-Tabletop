@@ -13,6 +13,11 @@ export const Participant = z.object({
   id: Id,
   role: Role,
   displayName: z.string().min(1).max(40),
+  /**
+   * Set once the participant leaves the table (ADR 0006). They stay in state because tokens,
+   * rolls and history still name them. Optional so older events and snapshots parse unchanged.
+   */
+  left: z.boolean().optional(),
 });
 export type Participant = z.infer<typeof Participant>;
 

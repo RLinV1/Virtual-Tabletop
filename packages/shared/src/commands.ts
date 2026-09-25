@@ -12,6 +12,19 @@ import { Id, MapImage } from "./state";
 /** Colour of a new token when none is given; the Add token preview draws the same disc. */
 export const DEFAULT_TOKEN_COLOR = "#c0392b";
 
+/** Upper bound on tokens resolved in one `participant.resolveDeparture`. */
+export const MAX_DEPARTURE_ACTIONS = 200;
+
+/** One token's fate after its owner left. "Decide later" is simply not sending an action. */
+export const DepartureAction = z.discriminatedUnion("action", [
+  /** Replace the departed player with `to` in the owners; other co-owners stay. */
+  z.object({ tokenId: Id, action: z.literal("reassign"), to: Id }),
+  /** Drop the departed player from the owners. */
+  z.object({ tokenId: Id, action: z.literal("unassign") }),
+  z.object({ tokenId: Id, action: z.literal("delete") }),
+]);
+export type DepartureAction = z.infer<typeof DepartureAction>;
+
 export const Command = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("scene.setMap"),
@@ -86,6 +99,16 @@ export const Command = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("participant.rename"),
     displayName: z.string().min(1).max(40),
+  }),
+  /** A player permanently gives up their seat (KAN-58, ADR 0006). The GM cannot leave. */
+  z.object({
+    type: z.literal("participant.leave"),
+  }),
+  /** GM decides, token by token, what happens to what a departed player owned (ADR 0006). */
+  z.object({
+    type: z.literal("participant.resolveDeparture"),
+    participantId: Id,
+    actions: z.array(DepartureAction).min(1).max(MAX_DEPARTURE_ACTIONS),
   }),
 ]);
 export type Command = z.infer<typeof Command>;

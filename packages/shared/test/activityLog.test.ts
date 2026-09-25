@@ -13,6 +13,7 @@ describe("Human-readable activity formatter (FR-REC-01)", () => {
   const cases: Record<DomainEventType, [DomainEvent, string]> = {
     RoomCreated: [{ type: "RoomCreated", name: "Dungeon" }, "Mara created room Dungeon"],
     ParticipantJoined: [{ type: "ParticipantJoined", participant: alice }, "Mara joined the room as a player"],
+    ParticipantLeft: [{ type: "ParticipantLeft", participant: alice }, "Alice left the table"],
     ParticipantRenamed: [{ type: "ParticipantRenamed", participantId: alice.id, previous: "Alice", displayName: "Tomas" }, "Mara renamed Alice to Tomas"],
     MapSet: [{ type: "MapSet", map: { url: "/map.png", width: 100, height: 100 }, previous: null }, "Mara set the map"],
     GridSet: [{ type: "GridSet", grid: state.scene.grid, previous: state.scene.grid }, "Mara updated the grid"],

@@ -58,6 +58,22 @@ export function loadCredentials(roomId: string): StoredCredentials | null {
   }
 }
 
+/**
+ * Drops this browser's seat in a room after leaving it (ADR 0006), including the invite
+ * shortcut, so the invite link shows the join form again instead of a dead room.
+ */
+export function forgetCredentials(roomId: string) {
+  try {
+    localStorage.removeItem(credKey(roomId));
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (key?.startsWith("vtt.invite.") && localStorage.getItem(key) === roomId) localStorage.removeItem(key);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 /** Room this browser previously joined as a guest through this invite, if any. */
 export function guestRoomForInvite(inviteCode: string): string | null {
   try {
