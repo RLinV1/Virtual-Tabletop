@@ -103,12 +103,14 @@ function RemoveParticipant({
   const cancelRef = useRef<HTMLButtonElement>(null);
   const owned = target ? Object.values(state.tokens).filter((t) => t.ownerIds.includes(target.id)).length : 0;
 
+  /** Closes the confirmation unless a removal is in flight. */
   const close = () => {
     if (busy) return;
     setError(null);
     onClose();
   };
 
+  /** Sends `participant.revoke`, then opens the token review if the player still owns tokens. */
   async function remove() {
     if (!target) return;
     setBusy(true);

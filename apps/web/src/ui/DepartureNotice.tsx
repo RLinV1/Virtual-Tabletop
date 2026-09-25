@@ -15,6 +15,7 @@ export function DepartureNotices({ state, onReview }: { state: RoomState; onRevi
   useEffect(() => {
     // Only leaving is news to the GM. A removal is their own action, and its review opens directly.
     const departed = Object.values(state.participants).filter((p) => !isActive(p)).map((p) => p.id);
+    /** True for a player who left on their own; the GM's own removals get no notice. */
     const newsworthy = (id: string) => state.participants[id]?.left === true && !state.participants[id]?.revoked;
     if (known.current === null) {
       known.current = new Set(departed);

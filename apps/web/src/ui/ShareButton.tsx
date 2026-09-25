@@ -20,6 +20,7 @@ export function ShareButton({ roomId, token }: { roomId: string; token: string }
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
 
+  /** Shows a short-lived result on the Share button. */
   const flash = (value: typeof result) => {
     setResult(value);
     clearTimeout(timer.current);
@@ -32,6 +33,7 @@ export function ShareButton({ roomId, token }: { roomId: string; token: string }
     if (creds && creds.inviteCode !== inviteCode) saveCredentials({ ...creds, inviteCode });
   };
 
+  /** Fetches the current invite code from the server and copies its link. */
   const copy = async () => {
     let url: string;
     try {
@@ -50,6 +52,7 @@ export function ShareButton({ roomId, token }: { roomId: string; token: string }
     flash(ok ? "copied" : "failed");
   };
 
+  /** Replaces the invite code after confirmation; the old link stops working. */
   async function reset() {
     setBusy(true);
     setError(null);

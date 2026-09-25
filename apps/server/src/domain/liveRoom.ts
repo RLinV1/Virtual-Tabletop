@@ -72,6 +72,7 @@ export class LiveRoom {
     this.seq = events.at(-1)?.seq ?? 0;
   }
 
+  /** Replays the room's log, then heals the derived projections: the asset index and removed players' credential locks. */
   static async load(roomId: string, store: RoomStore) {
     const room = new LiveRoom(roomId, store, await store.loadEvents(roomId));
     // Heals an index left stale by a crash between append and projection (ADR 0004).
