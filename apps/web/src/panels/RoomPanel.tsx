@@ -37,6 +37,7 @@ interface Props {
   onReviewDeparture: (participantId: string) => void;
 }
 
+/** Renders the side panel's sections, as one column or as tabs on narrow screens. */
 export function RoomPanel({ connection, state, you, token, onFocusToken, compact, onReviewDeparture }: Props) {
   const isGm = you.role === "gm";
   const [tab, setTab] = useState<TabId>("play");

@@ -30,7 +30,9 @@ export type HistoryResponse = z.infer<typeof HistoryResponse>;
 
 /** Pure, exhaustive sentence formatter. Context must already be viewer-filtered. */
 export function formatActivity(event: DomainEvent, actorName: string, before: RoomState): string {
+  /** A token's name as it was just before this event. */
   const tokenName = (id: string) => before.tokens[id]?.name ?? "an unknown token";
+  /** A participant's name as it was just before this event. */
   const participantName = (id: string) => before.participants[id]?.displayName ?? "an unknown participant";
   switch (event.type) {
     case "RoomCreated": return `${actorName} created room ${event.name}`;

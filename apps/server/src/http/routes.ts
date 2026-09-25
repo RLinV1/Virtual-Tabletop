@@ -18,6 +18,7 @@ import type { RoomStore } from "../store/roomStore";
 import { imageUploader } from "./imageUpload";
 import { registerLibraryRoutes } from "./library";
 
+/** Registers the REST API: rooms, invite joins, uploads, the library and GM history. */
 export function registerRoutes(
   app: Express,
   deps: { store: RoomStore; registry: RoomRegistry; uploadDir: string; assets: AssetStore },
@@ -118,6 +119,7 @@ export function registerRoutes(
     })().catch(() => res.status(500).json({ error: "Internal error" }));
   });
 
+  /** The participant behind a bearer guest credential, only while they are still in the room. */
   async function authenticate(req: Request) {
     const header = req.headers.authorization;
     if (!header?.startsWith("Bearer ")) return null;

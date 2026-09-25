@@ -12,6 +12,7 @@ import { Modal } from "../ui/Modal";
 /** "" is "Decide later"; "reassign:<id>" names the new owner. */
 type Choice = "" | "unassign" | "delete" | `reassign:${string}`;
 
+/** Modal wrapper for one departed participant's review; closed while `participantId` is null. */
 export function ResolveDepartureModal({
   connection,
   state,
@@ -34,6 +35,7 @@ export function ResolveDepartureModal({
   );
 }
 
+/** One row per token the departed participant owns, each with its own choice, plus Apply to all. */
 function ResolveForm({
   connection,
   state,
@@ -54,8 +56,10 @@ function ResolveForm({
     .filter((t) => t.ownerIds.includes(departed.id))
     .sort((a, b) => a.name.localeCompare(b.name));
   const players = Object.values(state.participants).filter((p) => p.role === "player" && isActive(p));
+  /** Display name for a participant id, for the co-owner line. */
   const name = (id: string) => state.participants[id]?.displayName ?? "someone";
 
+  /** The row's current choice; unset rows are "Decide later". */
   const choiceOf = (tokenId: string): Choice => choices[tokenId] ?? "";
   const actions: DepartureAction[] = tokens.flatMap((t): DepartureAction[] => {
     const c = choiceOf(t.id);
@@ -68,6 +72,7 @@ function ResolveForm({
     ? choiceOf(tokens[0]!.id)
     : "mixed";
 
+  /** Sends every choice except "Decide later" as one `participant.resolveDeparture`. */
   async function apply() {
     // The command takes at most this many; past it the server would reject the whole batch
     // with a schema error. Say so in words, and keep every row's choice (ADR 0006).

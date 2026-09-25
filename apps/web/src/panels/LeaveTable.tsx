@@ -23,12 +23,14 @@ export function LeaveTable({ connection, state, you }: { connection: RoomConnect
     .filter((t) => t.ownerIds.includes(you.id))
     .sort((a, b) => a.name.localeCompare(b.name));
 
+  /** Closes the confirmation unless a leave is already in flight. */
   const close = () => {
     if (busy) return;
     setOpen(false);
     setError(null);
   };
 
+  /** Sends `participant.leave`; success arrives as `sessionEnded`, so only a rejection is handled here. */
   async function leave() {
     setBusy(true);
     setError(null);

@@ -121,6 +121,7 @@ export class LiveRoom {
     return this.runExclusive(() => this.commit(actorId, events));
   }
 
+  /** Binds a connected socket to the room and sends it a snapshot, unless its seat has already ended. */
   attach(client: RoomClient) {
     // The handshake checked this too, but Socket.IO runs the connection handler a tick
     // later; a leave committed in between must not let this socket in (ADR 0006).
@@ -172,6 +173,7 @@ export class LiveRoom {
     }
   }
 
+  /** Appends events atomically, then reduces, broadcasts and ends any seats they close, in seq order. */
   private async commit(actorId: string | null, events: DomainEvent[]) {
     if (events.length === 0) return [];
     const committed = await this.store.append(

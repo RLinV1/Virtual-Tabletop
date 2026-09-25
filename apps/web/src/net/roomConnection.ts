@@ -61,6 +61,7 @@ export class RoomConnection {
     return this.store.getState();
   }
 
+  /** Opens the socket with this seat's credential and wires up message and connection handling. */
   start() {
     const socket = io({
       path: "/socket.io",
@@ -112,6 +113,7 @@ export class RoomConnection {
     if (this.snapshot.status === "open") this.send({ type: "ephemeral", payload });
   }
 
+  /** Applies one server message: snapshots, ordered events, acks, and terminal session ends. */
   private handle(msg: ServerMessage) {
     switch (msg.type) {
       case "welcome":
@@ -166,6 +168,7 @@ export class RoomConnection {
     }
   }
 
+  /** True once the connection can never recover: no access, or this seat has ended. */
   private isTerminal() {
     const { status } = this.snapshot;
     return status === "unauthorized" || status === "ended";

@@ -18,6 +18,7 @@ export interface BoardHandle {
   focusToken(tokenId: string): void;
 }
 
+/** The PixiJS board plus its React toolbar and notices; Pixi objects stay inside `BoardView`. */
 export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, toolbar, notices }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<BoardView | null>(null);

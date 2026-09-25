@@ -47,6 +47,7 @@ export function registerSocket(
     const room = socket.data.room as LiveRoom;
     const participantId = socket.data.participantId as string;
 
+    /** Reliable, ordered delivery to this socket. */
     const send = (msg: ServerMessage) => socket.emit(SOCKET_EVENTS.event, msg);
     const client: RoomClient = {
       participantId,

@@ -46,6 +46,7 @@ const STATUS_LABEL: Record<ConnectionStatus, string> = {
   ended: "Left the room",
 };
 
+/** Route for `/r/:roomId`: loads this browser's credential for the room and runs its connection. */
 export function RoomPage({ roomId }: { roomId: string }) {
   const creds = useMemo(() => loadCredentials(roomId), [roomId]);
   const connection = useMemo(() => (creds ? new RoomConnection(roomId, creds.guestToken) : null), [roomId, creds]);
@@ -87,6 +88,7 @@ function SessionEnded({ roomName }: { roomName: string | null }) {
   );
 }
 
+/** The room once a credential exists: board, side panel, and the connection's terminal screens. */
 function Room({
   roomId,
   connection,

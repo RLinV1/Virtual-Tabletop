@@ -19,6 +19,7 @@ interface Props {
   onReviewDeparture: (participantId: string) => void;
 }
 
+/** The GM's administration section: departed players to resolve, then map and grid setup. */
 export function GmPanel({ connection, state, token, onReviewDeparture }: Props) {
   const [error, setError] = useState<string | null>(null);
   // The library belongs to this device's GM identity; rooms made before it existed have none.

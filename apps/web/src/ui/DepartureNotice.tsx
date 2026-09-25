@@ -25,6 +25,7 @@ export function DepartureNotices({ state, onReview }: { state: RoomState; onRevi
   }, [state.participants]);
 
   const pending = new Set(pendingDepartures(state).map((d) => d.participant.id));
+  /** Hides one notice; the departure stays listed in the GM panel until resolved. */
   const dismiss = (id: string) => setNotices((n) => n.filter((x) => x !== id));
 
   return (
