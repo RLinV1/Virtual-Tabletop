@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { snapTokenCenter, type RoomState } from "@vtt/shared";
+import { DEFAULT_TOKEN_COLOR, snapTokenCenter, type RoomState } from "@vtt/shared";
 import { api } from "../net/api";
 import { loadGmToken } from "../net/identity";
 import type { RoomConnection } from "../net/roomConnection";
 import { libraryAssetId } from "../net/builtinAssets";
 import { LibraryPicker } from "../pages/LibraryPicker";
 import { Modal } from "../ui/Modal";
+import { TokenPreview } from "../ui/TokenPreview";
 
 const TOKEN_COLORS = ["#c0392b", "#2980b9", "#27ae60", "#8e44ad", "#d35400", "#16a085"];
 
@@ -129,8 +130,8 @@ function AddToken(props: {
           <span className="field-label">Image</span>
           {image ? (
             <div className="row token-image-chosen">
-              <img src={image.url} alt="" className="round" />
-              <span className="token-name">{image.label}</span>
+              <TokenPreview url={image.url} color={DEFAULT_TOKEN_COLOR} hidden={hidden} />
+              <span className="token-name" title={image.label}>{image.label}</span>
               <button type="button" className="link" onClick={() => setImage(null)}>
                 Remove
               </button>
