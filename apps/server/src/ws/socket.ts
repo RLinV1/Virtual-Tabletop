@@ -35,6 +35,8 @@ export function registerSocket(
 
     const room = await deps.registry.get(cred.roomId);
     if (!room) return next(new Error("not_found"));
+    // A seat that has ended stays ended: the credential is refused, not rebound (ADR 0006).
+    if (!room.activeParticipant(cred.participantId)) return next(new Error("left"));
 
     socket.data.room = room;
     socket.data.participantId = cred.participantId;
@@ -50,6 +52,7 @@ export function registerSocket(
       participantId,
       send,
       sendVolatile: (msg) => socket.volatile.emit(SOCKET_EVENTS.event, msg),
+      close: () => socket.disconnect(true),
     };
 
     // FR-PL-06: every connection starts from an authoritative, filtered snapshot.

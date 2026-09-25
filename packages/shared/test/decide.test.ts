@@ -56,8 +56,9 @@ describe("display name uniqueness (KAN-61)", () => {
     expect(isDisplayNameTaken(baseRoom(), "alice", alice.id)).toBe(false);
   });
 
-  it("counts every participant as active until revocation is recorded in RoomState (KAN-52)", () => {
+  it("counts a participant as active until they leave (KAN-58)", () => {
     expect(isActive(alice)).toBe(true);
+    expect(isActive({ ...alice, left: true })).toBe(false);
   });
 
   it("accepts a join and stores the trimmed name", () => {

@@ -35,6 +35,7 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
   switch (event.type) {
     case "RoomCreated": return `${actorName} created room ${event.name}`;
     case "ParticipantJoined": return `${actorName} joined the room as ${event.participant.role === "gm" ? "GM" : "a player"}`;
+    case "ParticipantLeft": return `${event.participant.displayName} left the table`;
     case "ParticipantRenamed": return `${actorName} renamed ${event.previous} to ${event.displayName}`;
     case "MapSet": return `${actorName} ${event.previous ? "replaced" : "set"} the map${event.gridChange ? " and grid" : ""}`;
     case "GridSet": return `${actorName} updated the grid`;

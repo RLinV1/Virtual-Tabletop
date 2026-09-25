@@ -31,9 +31,13 @@ players join without one” beside the primary action.
 - Guest invite entry remains exactly display name → Join. A known guest gets Resume as
   their existing name. The server validates invite/access before exposing room details.
 - Account creation is never required or promoted before a guest enters play.
-- An explicit Leave table action returns guests to a simple session-ended screen and
-  signed-in users to `/rooms`. It closes that client's socket, not the room or other tabs.
-  Closing the browser is not treated as a reliable session-end event.
+- An explicit Leave table action, after a confirmation that lists what the player loses,
+  ends that player's seat: every tab and device on that credential gets a session-ended
+  screen, and the credential is refused afterwards. It never closes the room or affects
+  other participants. The GM does not leave; their Home link closes only their socket and
+  returns them to their rooms. The departed player's tokens stay as they are until the GM
+  reassigns, unassigns or deletes them (ADR 0006). Closing the browser is not treated as a
+  reliable session-end event.
 - Guest-to-account linking is a later enhancement. When enabled, offer it only after
   Leave table, link only the current room, require proof of both guest and account
   credentials, and preserve the participant ID. Never silently merge all browser seats.

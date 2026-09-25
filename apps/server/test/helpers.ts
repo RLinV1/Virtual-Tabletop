@@ -92,7 +92,11 @@ export class TestClient {
   private waiters: Array<() => void> = [];
   private nextId = 0;
 
+  /** Resolves with Socket.IO's reason once this client is disconnected, by either side. */
+  readonly disconnected: Promise<string>;
+
   private constructor(private socket: Socket) {
+    this.disconnected = new Promise((resolve) => socket.once("disconnect", (reason) => resolve(reason)));
     socket.on(SOCKET_EVENTS.event, (msg: ServerMessage) => {
       this.rawLog.push(JSON.stringify(msg));
       this.apply(msg);

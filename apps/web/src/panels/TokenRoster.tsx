@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   can,
   hpFraction,
+  isActive,
   type ConditionId,
   type Participant,
   type RoomState,
@@ -98,7 +99,8 @@ export function TokenRoster({
             key={editing.id}
             token={editing}
             isGm={isGm}
-            players={Object.values(state.participants).filter((p) => p.role === "player")}
+            players={Object.values(state.participants).filter((p) => p.role === "player" && isActive(p))}
+            departedOwner={departedOwner(state, editing.ownerIds)}
             error={error}
             onStats={(stats) => send({ type: "token.setStats", tokenId: editing.id, stats })}
             onConditions={(conditions) => void send({ type: "token.setConditions", tokenId: editing.id, conditions })}
@@ -181,10 +183,17 @@ function RosterRow({
   );
 }
 
+/** The token's owner if they have left, so the picker can show them instead of "No one" (ADR 0006). */
+function departedOwner(state: RoomState, ownerIds: string[]): Participant | null {
+  const owner = ownerIds[0] ? state.participants[ownerIds[0]] : undefined;
+  return owner && !isActive(owner) ? owner : null;
+}
+
 function TokenEditor({
   token,
   isGm,
   players,
+  departedOwner,
   error,
   onStats,
   onConditions,
@@ -195,6 +204,8 @@ function TokenEditor({
   token: Token;
   isGm: boolean;
   players: Participant[];
+  /** Set when the current owner left the room and the GM hasn't resolved the token yet. */
+  departedOwner: Participant | null;
   error: string | null;
   onStats: (stats: TokenStats) => Promise<boolean>;
   onConditions: (conditions: ConditionId[]) => void;
@@ -247,6 +258,11 @@ function TokenEditor({
             Controlled by
             <select value={token.ownerIds[0] ?? ""} onChange={(e) => onOwner(e.target.value)}>
               <option value="">No one (GM only)</option>
+              {departedOwner && (
+                <option value={departedOwner.id} disabled>
+                  {departedOwner.displayName} (left)
+                </option>
+              )}
               {players.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.displayName}

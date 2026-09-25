@@ -1,6 +1,6 @@
 import { CaretDown } from "@phosphor-icons/react";
 import { useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
-import { GRID_LINE_WIDTHS, gridLineStyle, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
+import { GRID_LINE_WIDTHS, gridLineStyle, pendingDepartures, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
 import { api } from "../net/api";
 import { loadGmToken } from "../net/identity";
 import { imageSize } from "../net/imageFile";
@@ -15,9 +15,11 @@ interface Props {
   connection: RoomConnection;
   state: RoomState;
   token: string;
+  /** Opens the per-token review for a player who left (KAN-58). */
+  onReviewDeparture: (participantId: string) => void;
 }
 
-export function GmPanel({ connection, state, token }: Props) {
+export function GmPanel({ connection, state, token, onReviewDeparture }: Props) {
   const [error, setError] = useState<string | null>(null);
   // The library belongs to this device's GM identity; rooms made before it existed have none.
   const [gmToken] = useState(loadGmToken);
@@ -31,6 +33,7 @@ export function GmPanel({ connection, state, token }: Props) {
   return (
     <>
       {error && <p role="alert" className="error">{error}</p>}
+      <DepartedPlayers state={state} onReview={onReviewDeparture} />
       <MapSection
         token={token}
         gmToken={gmToken}
@@ -51,6 +54,32 @@ export function GmPanel({ connection, state, token }: Props) {
         )}
       />
     </>
+  );
+}
+
+/**
+ * Players who left while still controlling tokens (KAN-58, ADR 0006). Derived from state, so
+ * "Decide later" survives a reload, and a player drops off once nothing names them.
+ */
+function DepartedPlayers({ state, onReview }: { state: RoomState; onReview: (participantId: string) => void }) {
+  const pending = pendingDepartures(state);
+  if (pending.length === 0) return null;
+  return (
+    <PanelSection id="departed-players" title="Departed players">
+      <ul className="plain departed-list">
+        {pending.map(({ participant, tokenIds }) => (
+          <li key={participant.id} className="departed-row">
+            <span>
+              <strong>{participant.displayName}</strong>
+              <span className="muted"> left, {tokenIds.length} {tokenIds.length === 1 ? "token" : "tokens"} to decide</span>
+            </span>
+            <button type="button" className="small secondary" onClick={() => onReview(participant.id)}>
+              Review
+            </button>
+          </li>
+        ))}
+      </ul>
+    </PanelSection>
   );
 }
 

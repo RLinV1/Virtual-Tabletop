@@ -28,6 +28,11 @@ export const DomainEvent = z.discriminatedUnion("type", [
     displayName: z.string(),
     previous: z.string(),
   }),
+  /** Carries the whole participant as it was before leaving (invariant 6, ADR 0006). */
+  z.object({
+    type: z.literal("ParticipantLeft"),
+    participant: Participant,
+  }),
   z.object({
     type: z.literal("MapSet"),
     map: MapImage,

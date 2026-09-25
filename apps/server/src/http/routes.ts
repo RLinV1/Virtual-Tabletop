@@ -109,7 +109,7 @@ export function registerRoutes(
         ? await store.findCredential(hashToken(header.slice(7))) : null;
       if (!cred || cred.roomId !== req.params.roomId) return res.status(403).json({ error: "GM only" });
       const room = await registry.get(cred.roomId);
-      const viewer = room?.participant(cred.participantId);
+      const viewer = room?.activeParticipant(cred.participantId);
       if (!viewer || viewer.role !== "gm") return res.status(403).json({ error: "GM only" });
       const query = HistoryQuery.safeParse(req.query);
       if (!query.success) return res.status(400).json({ error: "Invalid history query" });
@@ -124,6 +124,6 @@ export function registerRoutes(
     const cred = await store.findCredential(hashToken(header.slice(7)));
     if (!cred) return null;
     const room = await registry.get(cred.roomId);
-    return room?.participant(cred.participantId) ?? null;
+    return room?.activeParticipant(cred.participantId) ?? null;
   }
 }

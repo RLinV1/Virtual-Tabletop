@@ -30,6 +30,11 @@ export function reduce(state: RoomState, event: DomainEvent): RoomState {
       };
     }
 
+    case "ParticipantLeft": {
+      const p = required(state.participants[event.participant.id], event);
+      return { ...state, participants: { ...state.participants, [p.id]: { ...p, left: true } } };
+    }
+
     case "MapSet":
       return { ...state, scene: { ...state.scene, map: event.map, grid: event.gridChange?.grid ?? state.scene.grid } };
 
