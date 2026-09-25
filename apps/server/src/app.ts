@@ -49,20 +49,21 @@ export async function buildApp({
 
   app.use(express.json({ limit: "64kb" }));
   // Objects in MinIO are streamed through here so their URLs stay origin-relative and
-  // work from any device. Falls through to disk when MinIO is not configured.
+  // work from any device. Anything MinIO does not have falls through to the disk folder,
+  // so images uploaded before a checkout started using MinIO still load (upload-storage).
   if (assets?.read) {
-    app.get("/uploads/:key", (req, res) => {
+    app.get("/uploads/:key", (req, res, next) => {
       void assets
         .read!(req.params.key)
         .then((object) => {
-          if (!object) return res.status(404).end();
+          if (!object) return next();
           if (object.contentType) res.type(object.contentType);
           // Content-addressed by UUID, so it can never change under a cached copy.
           res.setHeader("cache-control", "public, max-age=31536000, immutable");
           object.body.on("error", () => res.destroy());
           object.body.pipe(res);
         })
-        .catch(() => res.status(404).end());
+        .catch(() => next());
     });
   }
   app.use("/uploads", express.static(path.resolve(uploadDir)));

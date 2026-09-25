@@ -60,7 +60,8 @@ This document covers architecture, stack, repository, and the running prototype.
    The App Server and the web client run on the host, not in Docker.
    Each service is optional: with DATABASE_URL, REDIS_URL or
    MINIO_ENDPOINT unset the server falls back to in-memory state,
-   Postgres-only sequencing, and uploads on local disk.
+   Postgres-only sequencing, and uploads on local disk (dev only,
+   and only when no MinIO answers at 127.0.0.1:9000).
 ```
 
 `packages/shared` is the contract both sides import: zod schemas, `decide`, `reduce`,
@@ -158,7 +159,8 @@ the inner loop wants Vite HMR and `tsx watch`.
 
 **Containers are optional, deliberately.** Each service is selected by an environment
 variable and the server falls back when one is absent: no `DATABASE_URL` means an in-memory
-store, no `MINIO_ENDPOINT` means uploads on local disk, no `REDIS_URL` means sequencing from
+store, no `MINIO_ENDPOINT` means the compose MinIO at `127.0.0.1:9000` if it answers and local disk
+otherwise (never in production, which refuses to start without it), no `REDIS_URL` means sequencing from
 Postgres alone. A fresh checkout runs with no containers, which is what keeps CI free of a
 service matrix. Startup states the mode:
 

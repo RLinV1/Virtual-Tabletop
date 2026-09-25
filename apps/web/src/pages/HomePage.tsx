@@ -28,6 +28,7 @@ import {
 } from "@phosphor-icons/react";
 import { Link } from "../Link";
 import { api } from "../net/api";
+import { revealOnEnter } from "../ui/reveal";
 import { getGmToken } from "../net/gm";
 import { loadGmToken, newGuestToken, saveCredentials } from "../net/identity";
 import { navigate } from "../router";
@@ -153,7 +154,7 @@ function TokenChip(props: {
       <span className={art ? "token-disc has-art" : "token-disc"} style={{ backgroundColor: props.color }}>
         {art ? (
           // The label beneath names the token, so the art itself is decorative.
-          <img src={art} alt="" width={192} height={192} loading="lazy" onError={() => setArtFailed(true)} />
+          <img src={art} alt="" width={192} height={192} loading="lazy" decoding="async" onError={() => setArtFailed(true)} />
         ) : (
           props.name.slice(0, 1)
         )}
@@ -282,7 +283,7 @@ function YourRooms() {
   if (!rooms?.length) return null;
 
   return (
-    <section className="your-rooms reveal">
+    <section className="your-rooms" ref={revealOnEnter}>
       <h2>Your rooms</h2>
       <ul className="plain room-list">
         {rooms.map((room) => (
@@ -310,7 +311,7 @@ function GridChapter() {
   const [cell, setCell] = useState(70); // DEFAULT_GRID.cellSize
 
   return (
-    <section className="chapter reveal">
+    <section className="chapter" ref={revealOnEnter}>
       <h2>
         <GridFour weight="duotone" aria-hidden="true" />
         Use the map you already have.
@@ -321,7 +322,7 @@ function GridChapter() {
       </p>
       <figure className="map-figure" style={{ "--map": `url(${MAPS.grid.src})` } as CSSProperties}>
         <div className="map-frame">
-          <img src={MAPS.grid.src} width={1672} height={941} alt={MAPS.grid.alt} loading="lazy" />
+          <img src={MAPS.grid.src} width={1672} height={941} alt={MAPS.grid.alt} loading="lazy" decoding="async" />
           <div className="grid-overlay live" style={{ backgroundSize: `${cell}px ${cell}px` }} aria-hidden="true" />
         </div>
       </figure>
@@ -352,7 +353,7 @@ function GridChapter() {
  */
 function LibraryChapter() {
   return (
-    <section className="chapter reveal">
+    <section className="chapter" ref={revealOnEnter}>
       <h2>
         <Stack weight="duotone" aria-hidden="true" />
         Keep your maps for next time.
@@ -364,7 +365,7 @@ function LibraryChapter() {
       <ul className="plain shelf">
         {SHELF.map((asset) => (
           <li key={asset.src}>
-            <img src={asset.src} width={1672} height={941} alt={asset.alt} loading="lazy" />
+            <img src={asset.src} width={1672} height={941} alt={asset.alt} loading="lazy" decoding="async" />
             <strong>{asset.name}</strong>
             <span className="readout">1672 × 941 · 70px grid</span>
           </li>
@@ -388,7 +389,7 @@ function VisibilityChapter() {
   const [asGm, setAsGm] = useState(true);
 
   return (
-    <section className="chapter reveal">
+    <section className="chapter" ref={revealOnEnter}>
       <h2>
         {asGm ? <Eye weight="duotone" aria-hidden="true" /> : <EyeSlash weight="duotone" aria-hidden="true" />}
         Your players see what you decide they see.
@@ -409,7 +410,7 @@ function VisibilityChapter() {
 
       <figure className="map-figure" style={{ "--map": `url(${MAPS.visibility.src})` } as CSSProperties}>
         <div className="map-frame">
-          <img src={MAPS.visibility.src} width={1672} height={941} alt={MAPS.visibility.alt} loading="lazy" />
+          <img src={MAPS.visibility.src} width={1672} height={941} alt={MAPS.visibility.alt} loading="lazy" decoding="async" />
           <TokenChip
             name="Brenna"
             color="#5b8def"
@@ -481,7 +482,7 @@ function DiceChapter() {
   const modifier = result?.expression.modifier ?? 0;
 
   return (
-    <section className="chapter dice-chapter reveal">
+    <section className="chapter dice-chapter" ref={revealOnEnter}>
       <div>
         <h2>
           <DiceFive weight="duotone" aria-hidden="true" />

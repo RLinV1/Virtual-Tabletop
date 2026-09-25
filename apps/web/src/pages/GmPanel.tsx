@@ -6,6 +6,7 @@ import { imageSize } from "../net/imageFile";
 import type { CommandResult, RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
 import { PanelSection } from "../ui/PanelSection";
+import { libraryAssetId } from "../net/builtinAssets";
 import { LibraryPicker } from "./LibraryPicker";
 
 interface Props {
@@ -81,7 +82,7 @@ function MapSection(props: {
   // Placing copies the saved grid into the room in the same event (ADR 0004); later
   // library edits never reach back into this room.
   const place = async (asset: LibraryAsset) => {
-    const map = { url: asset.url, width: asset.width, height: asset.height, assetId: asset.id };
+    const map = { url: asset.url, width: asset.width, height: asset.height, assetId: libraryAssetId(asset) };
     if (await props.onSetMap(map, asset.grid ?? undefined, setPickError)) setPicking(false);
   };
 

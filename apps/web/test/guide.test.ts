@@ -19,6 +19,13 @@ describe("guided tour on demand (room-sidebar-layout)", () => {
     expect(steps.find((s) => s.target === "dice")!.body).not.toMatch(/privately/);
   });
 
+  it("lets only the step that asks for a click through to its target (room-ui-refinements)", () => {
+    for (const role of ["gm", "player"] as const) {
+      const interactive = guideSteps(role).filter((s) => s.interactive).map((s) => s.target);
+      expect(interactive).toEqual(["sidebar-handle"]);
+    }
+  });
+
   it("uses no em or en dashes in the copy", () => {
     for (const role of ["gm", "player"] as const)
       for (const s of guideSteps(role)) expect(`${s.title} ${s.body}`).not.toMatch(/[–—]/);

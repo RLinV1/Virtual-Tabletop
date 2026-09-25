@@ -3,6 +3,7 @@ import { snapTokenCenter, type RoomState } from "@vtt/shared";
 import { api } from "../net/api";
 import { loadGmToken } from "../net/identity";
 import type { RoomConnection } from "../net/roomConnection";
+import { libraryAssetId } from "../net/builtinAssets";
 import { LibraryPicker } from "../pages/LibraryPicker";
 import { Modal } from "../ui/Modal";
 
@@ -171,7 +172,7 @@ function AddToken(props: {
             onPick={(asset) => {
               // The token name is left to the GM on purpose: prefilling the library name
               // would put it in front of players (asset-library: details stay private).
-              setImage({ url: asset.url, assetId: asset.id, label: asset.name });
+              setImage({ url: asset.url, assetId: libraryAssetId(asset), label: asset.name });
               setPicking(false);
             }}
           />
