@@ -1634,3 +1634,10 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 @media (max-width: 420px) {
   .resolve-row { grid-template-columns: 1fr; }
 }
+
+/* ---------- Access controls (FR-GM-20) ---------- */
+.share-group { display: flex; flex-direction: column; align-items: flex-end; gap: 0.15rem; }
+button.link.share-reset { padding: 0; min-height: 0; font-size: var(--fs-xs); color: var(--muted); text-decoration-color: var(--border-strong); }
+button.link.share-reset:hover { color: var(--danger); text-decoration-color: var(--danger); }
+.participant-list li { display: flex; align-items: center; gap: var(--space-2); }
+button.link.participant-remove { margin-left: auto; padding: 0 0 0 var(--space-2); min-height: 0; font-size: var(--fs-sm); }

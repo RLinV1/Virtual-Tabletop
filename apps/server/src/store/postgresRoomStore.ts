@@ -46,6 +46,37 @@ export class PostgresRoomStore implements RoomStore {
     return room?.id ?? null;
   }
 
+  async getInviteCode(roomId: string) {
+    const room = await this.prisma.room.findUnique({ where: { id: roomId }, select: { inviteCode: true } });
+    return room?.inviteCode ?? null;
+  }
+
+  async setInviteCode(roomId: string, generate: () => string) {
+    for (let attempt = 0; ; attempt++) {
+      const inviteCode = generate();
+      try {
+        await this.prisma.room.update({ where: { id: roomId }, data: { inviteCode } });
+        return inviteCode;
+      } catch (err) {
+        // P2002: another room already has this code (unique index). Try a fresh one.
+        const collided = (err as { code?: string }).code === "P2002";
+        if (!collided || attempt >= 2) throw err;
+      }
+    }
+  }
+
+  async findRevokedCredential(tokenHash: string) {
+    const row = await this.prisma.credential.findUnique({ where: { tokenHash } });
+    return row?.revokedAt ? { roomId: row.roomId, participantId: row.participantId } : null;
+  }
+
+  async revokeCredentials(roomId: string, participantId: string) {
+    await this.prisma.credential.updateMany({
+      where: { roomId, participantId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }
+
   async saveCredential(tokenHash: string, record: CredentialRecord) {
     const data = { roomId: record.roomId, participantId: record.participantId };
     await this.prisma.credential.upsert({

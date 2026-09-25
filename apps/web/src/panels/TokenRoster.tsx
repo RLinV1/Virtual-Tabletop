@@ -3,6 +3,7 @@ import { Trash } from "@phosphor-icons/react";
 import {
   can,
   hpFraction,
+  inactiveLabel,
   isActive,
   type Command,
   type ConditionId,
@@ -185,7 +186,7 @@ function RosterRow({
   );
 }
 
-/** The token's owner if they have left, so the picker can show them instead of "No one" (ADR 0006). */
+/** The token's owner if they left or were removed, so the picker can show them instead of "No one" (ADR 0006). */
 function departedOwner(state: RoomState, ownerIds: string[]): Participant | null {
   const owner = ownerIds[0] ? state.participants[ownerIds[0]] : undefined;
   return owner && !isActive(owner) ? owner : null;
@@ -275,7 +276,7 @@ function TokenEditor({
               <option value="">No one (GM only)</option>
               {departedOwner && (
                 <option value={departedOwner.id} disabled>
-                  {departedOwner.displayName} (left)
+                  {departedOwner.displayName} ({inactiveLabel(departedOwner)})
                 </option>
               )}
               {players.map((p) => (

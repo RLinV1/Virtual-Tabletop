@@ -1,5 +1,5 @@
 import { useId, useState } from "react";
-import { isActive, MAX_DEPARTURE_ACTIONS, type DepartureAction, type Participant, type RoomState } from "@vtt/shared";
+import { inactiveLabel, isActive, MAX_DEPARTURE_ACTIONS, type DepartureAction, type Participant, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
 
@@ -125,7 +125,7 @@ function ResolveForm({
       }}
     >
       <p>
-        {departed.displayName} left the table. Choose what happens to each token they controlled. Tokens set to
+        {departed.displayName} {inactiveLabel(departed) === "removed" ? "was removed from" : "left"} the table. Choose what happens to each token they controlled. Tokens set to
         "Decide later" stay as they are, and you can come back to them from the GM panel.
       </p>
 

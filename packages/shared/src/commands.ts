@@ -104,6 +104,11 @@ export const Command = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("participant.leave"),
   }),
+  /** GM removes a player from the room for good (FR-GM-20, ADR 0006). Tokens are left for the review. */
+  z.object({
+    type: z.literal("participant.revoke"),
+    participantId: Id,
+  }),
   /** GM decides, token by token, what happens to what a departed player owned (ADR 0006). */
   z.object({
     type: z.literal("participant.resolveDeparture"),

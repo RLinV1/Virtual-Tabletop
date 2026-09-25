@@ -56,5 +56,28 @@ describe.skipIf(!store)("PostgresRoomStore (docs/adr/0001-event-model.md)", () =
     await store!.saveCredential(hash, { roomId, participantId });
     expect(await store!.findCredential(hash)).toEqual({ roomId, participantId });
     expect(await store!.findCredential("unknown")).toBeNull();
+    expect(await store!.findRevokedCredential(hash)).toBeNull();
+
+    await store!.revokeCredentials(roomId, participantId);
+    expect(await store!.findCredential(hash)).toBeNull();
+    expect(await store!.findRevokedCredential(hash)).toEqual({ roomId, participantId });
+  });
+
+  it("replaces a room's invite code; the old one stops resolving (FR-GM-20)", async () => {
+    const roomId = randomUUID();
+    const oldCode = randomUUID().slice(0, 10);
+    await store!.createRoom(roomId, oldCode);
+    expect(await store!.getInviteCode(roomId)).toBe(oldCode);
+
+    // A colliding code is retried: the first candidate belongs to another room.
+    const taken = randomUUID().slice(0, 10);
+    await store!.createRoom(randomUUID(), taken);
+    const fresh = randomUUID().slice(0, 10);
+    const candidates = [taken, fresh];
+    expect(await store!.setInviteCode(roomId, () => candidates.shift()!)).toBe(fresh);
+
+    expect(await store!.findRoomByInvite(oldCode)).toBeNull();
+    expect(await store!.findRoomByInvite(fresh)).toBe(roomId);
+    expect(await store!.getInviteCode(roomId)).toBe(fresh);
   });
 });

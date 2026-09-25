@@ -30,13 +30,21 @@ export function registerSocket(
     const auth = HandshakeAuth.safeParse(socket.handshake.auth);
     if (!auth.success) return next(new Error("bad_request"));
 
-    const cred = await deps.store.findCredential(hashToken(auth.data.guestToken));
-    if (!cred || cred.roomId !== auth.data.roomId) return next(new Error("unauthorized"));
+    const tokenHash = hashToken(auth.data.guestToken);
+    const cred = await deps.store.findCredential(tokenHash);
+    if (!cred) {
+      // The credential row's own lock (FR-GM-20): say why, so the guest sees "removed".
+      const revoked = await deps.store.findRevokedCredential(tokenHash);
+      return next(new Error(revoked?.roomId === auth.data.roomId ? "revoked" : "unauthorized"));
+    }
+    if (cred.roomId !== auth.data.roomId) return next(new Error("unauthorized"));
 
     const room = await deps.registry.get(cred.roomId);
     if (!room) return next(new Error("not_found"));
     // A seat that has ended stays ended: the credential is refused, not rebound (ADR 0006).
-    if (!room.activeParticipant(cred.participantId)) return next(new Error("left"));
+    // The message says why ("left" or "revoked"), so the client can word its screen.
+    const ended = room.endReason(cred.participantId);
+    if (ended) return next(new Error(ended));
 
     socket.data.room = room;
     socket.data.participantId = cred.participantId;

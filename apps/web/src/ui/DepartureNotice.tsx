@@ -13,7 +13,9 @@ export function DepartureNotices({ state, onReview }: { state: RoomState; onRevi
   const [notices, setNotices] = useState<string[]>([]);
 
   useEffect(() => {
+    // Only leaving is news to the GM. A removal is their own action, and its review opens directly.
     const departed = Object.values(state.participants).filter((p) => !isActive(p)).map((p) => p.id);
+    const newsworthy = (id: string) => state.participants[id]?.left === true && !state.participants[id]?.revoked;
     if (known.current === null) {
       known.current = new Set(departed);
       return;
@@ -21,7 +23,8 @@ export function DepartureNotices({ state, onReview }: { state: RoomState; onRevi
     const fresh = departed.filter((id) => !known.current!.has(id));
     if (fresh.length === 0) return;
     fresh.forEach((id) => known.current!.add(id));
-    setNotices((n) => [...n, ...fresh]);
+    const shown = fresh.filter(newsworthy);
+    if (shown.length > 0) setNotices((n) => [...n, ...shown]);
   }, [state.participants]);
 
   const pending = new Set(pendingDepartures(state).map((d) => d.participant.id));
