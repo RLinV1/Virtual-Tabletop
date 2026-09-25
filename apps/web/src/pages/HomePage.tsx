@@ -22,6 +22,7 @@ import {
   EyeSlash,
   GridFour,
   LinkSimple,
+  MapTrifold,
   Moon,
   Stack,
   Sun,
@@ -196,10 +197,15 @@ function Landing({ theme, onTheme }: ThemeProps) {
           <div>
             <h1 className="enter">From battle map to table in minutes.</h1>
             <p className="landing-sub enter enter-2">
-              Upload a map, line up the grid, place your tokens. Players join from any browser, no account
-              needed.
+              Set up a map, drop in tokens, and send your players a link. They join from any browser, no
+              account needed.
             </p>
-            <CreateRoomForm firstFieldRef={roomNameRef} />
+            {/* Two readers arrive here. Players outnumber GMs at every table and their path is
+                one field, so it comes first; the GM's path keeps the only filled button. */}
+            <div className="hero-paths enter enter-3">
+              <JoinBlock />
+              <CreateRoomForm firstFieldRef={roomNameRef} />
+            </div>
           </div>
           <div className="hero-art enter enter-art" style={{ "--map": `url(${MAPS.hero.src})` } as CSSProperties}>
             <div className="hero-frame">
@@ -239,15 +245,22 @@ function Landing({ theme, onTheme }: ThemeProps) {
         </section>
 
         <YourRooms />
-        <JoinByInviteBand />
 
-        <GridChapter />
-        <LibraryChapter />
-        <VisibilityChapter />
-        <DiceChapter />
+        {/* Everything under this heading is about running a game, so "you" below is the GM
+            and players are "your players". */}
+        <section aria-labelledby="running-your-game">
+          <header className="part-head" ref={revealOnEnter}>
+            <h2 id="running-your-game">Running your game</h2>
+            <p>What you get as the GM. Your players only need the link.</p>
+          </header>
+          <GridChapter />
+          <LibraryChapter />
+          <VisibilityChapter />
+          <DiceChapter />
+        </section>
 
         <section className="closing">
-          <h2>Start a room and send the link.</h2>
+          <h2>Ready to run a game? Start a room and send your players the link.</h2>
           <button type="button" className="cta" onClick={focusCreate}>
             Create room
             <ArrowRight weight="bold" aria-hidden="true" />
@@ -312,13 +325,13 @@ function GridChapter() {
 
   return (
     <section className="chapter" ref={revealOnEnter}>
-      <h2>
+      <h3>
         <GridFour weight="duotone" aria-hidden="true" />
         Use the map you already have.
-      </h2>
+      </h3>
       <p>
-        Size the cells until the squares land on the ones the cartographer drew. Drag the slider: this is the
-        overlay, not a picture of one.
+        Got a map with a grid already drawn on it? Match ours to it in seconds, so movement and distances
+        line up with the squares your players see. Try it: drag the slider.
       </p>
       <figure className="map-figure" style={{ "--map": `url(${MAPS.grid.src})` } as CSSProperties}>
         <div className="map-frame">
@@ -328,7 +341,7 @@ function GridChapter() {
       </figure>
       <div className="demo-bar">
         <label className="demo-slider">
-          Cell size
+          Square size
           <input
             type="range"
             min={36}
@@ -339,7 +352,7 @@ function GridChapter() {
           />
         </label>
         <output className="readout">
-          cellSize <b>{cell}</b> px · one square = <b>5</b> ft
+          <b>{cell}</b> px squares · 1 square = <b>5</b> ft
         </output>
       </div>
     </section>
@@ -354,10 +367,10 @@ function GridChapter() {
 function LibraryChapter() {
   return (
     <section className="chapter" ref={revealOnEnter}>
-      <h2>
+      <h3>
         <Stack weight="duotone" aria-hidden="true" />
         Keep your maps for next time.
-      </h2>
+      </h3>
       <p>
         Upload a map once and set its grid once. It is then one click away in every room you run, along with
         your token art.
@@ -376,8 +389,8 @@ function LibraryChapter() {
           Open the asset library
         </Link>
         <p className="muted small-print">
-          No sign-in needed. The library is tied to this browser until accounts arrive, so it does not follow
-          you to another device yet.
+          No sign-in needed. Your library is saved in this browser until accounts arrive, so it won't follow
+          you to another computer or phone yet.
         </p>
       </div>
     </section>
@@ -390,13 +403,13 @@ function VisibilityChapter() {
 
   return (
     <section className="chapter" ref={revealOnEnter}>
-      <h2>
+      <h3>
         {asGm ? <Eye weight="duotone" aria-hidden="true" /> : <EyeSlash weight="duotone" aria-hidden="true" />}
         Your players see what you decide they see.
-      </h2>
+      </h3>
       <p>
-        Hide a token and it never reaches the player's browser. The server filters every snapshot, every
-        update, and the turn order itself.
+        Keep the ambush a surprise. Hide a monster and your players can't see it, can't find it in the turn
+        order, and can't dig it out of their browser either.
       </p>
 
       <div className="seg" role="group" aria-label="Whose view to show">
@@ -437,8 +450,8 @@ function VisibilityChapter() {
       </figure>
       <p className="figure-note" role="status">
         {asGm
-          ? "The dashed token is hidden. Only the GM's browser ever receives it."
-          : "The hidden token is gone, and so is its place in the turn order."}
+          ? "The dashed token is hidden. Only you can see it."
+          : "Your players see no token and no gap in the turn order. Nothing gives it away."}
       </p>
     </section>
   );
@@ -484,17 +497,16 @@ function DiceChapter() {
   return (
     <section className="chapter dice-chapter" ref={revealOnEnter}>
       <div>
-        <h2>
+        <h3>
           <DiceFive weight="duotone" aria-hidden="true" />
           Every die shown, not just the total.
-        </h2>
+        </h3>
         <p>
-          Type an expression and roll. This box runs the same parser and roller the table does, and throws the
-          same dice.
+          Type a roll like 2d6+3. Everyone at the table sees every die land, not just the total.
         </p>
         <form className="dice-demo-form" onSubmit={roll}>
           <label>
-            Dice expression
+            What to roll
             <input value={input} onChange={(e) => setInput(e.target.value)} maxLength={32} spellCheck={false} />
           </label>
           <button type="submit" className="ui-button">
@@ -569,7 +581,11 @@ function useCreateRoom() {
 function CreateRoomForm({ firstFieldRef }: { firstFieldRef?: RefObject<HTMLInputElement | null> }) {
   const f = useCreateRoom();
   return (
-    <form className="hero-form enter enter-3" onSubmit={f.onSubmit}>
+    <form className="hero-form" aria-labelledby="create-path-label" onSubmit={f.onSubmit}>
+      <p id="create-path-label" className="path-label">
+        <MapTrifold weight="bold" aria-hidden="true" />
+        Running a game?
+      </p>
       <label>
         Room name
         <input
@@ -582,7 +598,7 @@ function CreateRoomForm({ firstFieldRef }: { firstFieldRef?: RefObject<HTMLInput
         />
       </label>
       <label>
-        Your name (GM)
+        Your name
         <input
           value={f.displayName}
           onChange={(e) => f.setDisplayName(e.target.value)}
@@ -626,31 +642,35 @@ function useJoinByInvite() {
   return { value, setValue, error, onSubmit };
 }
 
-function JoinByInviteBand() {
+/** The player's way in, first in the hero. "You" here is someone their GM invited. */
+function JoinBlock() {
   const j = useJoinByInvite();
   return (
-    <form className="invite-band" onSubmit={j.onSubmit}>
-      <p>
+    <form className="join-form" aria-labelledby="join-path-label" onSubmit={j.onSubmit}>
+      <p id="join-path-label" className="path-label">
         <LinkSimple weight="bold" aria-hidden="true" />
-        Someone sent you a link? You do not need an account.
+        Joining a game?
       </p>
-      <label>
-        Invite link or code
+      <p className="path-hint">Paste the link your GM sent you. No account needed.</p>
+      <label htmlFor="join-invite">Invite link or code</label>
+      {/* The label sits outside the row so the field and Join share one height. */}
+      <div className="join-row">
         <input
+          id="join-invite"
           value={j.value}
           onChange={(e) => j.setValue(e.target.value)}
           required
           placeholder="https://…/join/abc123"
         />
-      </label>
+        <button type="submit" className="ui-button">
+          Join
+        </button>
+      </div>
       {j.error && (
         <p role="alert" className="error">
           {j.error}
         </p>
       )}
-      <button type="submit" className="ui-button">
-        Join
-      </button>
     </form>
   );
 }
