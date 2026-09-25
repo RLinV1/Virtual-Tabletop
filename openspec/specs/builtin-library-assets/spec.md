@@ -1,7 +1,7 @@
 # builtin-library-assets Specification
 
 ## Purpose
-TBD - created by archiving change builtin-library-assets. Update Purpose after archive.
+Gives every GM a ready-to-use set of maps and token art that ship with the app, so the library and room pickers are useful before anything has been uploaded, without anyone being able to remove the defaults for others.
 
 ## Requirements
 

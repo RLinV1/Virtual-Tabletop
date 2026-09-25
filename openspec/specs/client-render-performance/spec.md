@@ -1,7 +1,7 @@
 # client-render-performance Specification
 
 ## Purpose
-TBD - created by archiving change fix-sidebar-tour-and-render-performance. Update Purpose after archive.
+Keeps the board and pages from doing work when nothing changes. The board draws only when its picture changes, and decorative effects never cost work on every frame, so rooms and the home page stay responsive on ordinary hardware.
 
 ## Requirements
 

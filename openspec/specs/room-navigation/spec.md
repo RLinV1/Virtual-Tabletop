@@ -1,7 +1,7 @@
 # room-navigation Specification
 
 ## Purpose
-TBD - created by archiving change gm-home-link. Update Purpose after archive.
+Defines how a participant leaves the room page from inside it: the GM can go back to the home page, and players, who arrive by invite, simply close the tab.
 
 ## Requirements
 

@@ -1,7 +1,7 @@
 # upload-storage Specification
 
 ## Purpose
-TBD - created by archiving change prefer-minio-when-available. Update Purpose after archive.
+Defines where uploaded images are kept and served from: MinIO whenever it is available and always in production, with a local disk copy as the fallback, and deletes that remove every copy.
 
 ## Requirements
 

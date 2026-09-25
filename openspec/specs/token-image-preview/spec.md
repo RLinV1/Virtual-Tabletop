@@ -1,7 +1,7 @@
 # token-image-preview Specification
 
 ## Purpose
-TBD - created by archiving change fix-token-image-preview. Update Purpose after archive.
+Shows a chosen token image exactly as the board will draw it before the token is placed, so the GM can judge the crop and look.
 
 ## Requirements
 

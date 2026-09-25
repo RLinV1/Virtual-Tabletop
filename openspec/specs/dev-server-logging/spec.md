@@ -1,7 +1,7 @@
 # dev-server-logging Specification
 
 ## Purpose
-TBD - created by archiving change quiet-dev-proxy-disconnects. Update Purpose after archive.
+Keeps the web dev server's terminal readable by hiding the routine disconnect noise from its WebSocket proxy, while every real error still prints.
 
 ## Requirements
 

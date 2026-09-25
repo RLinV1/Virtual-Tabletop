@@ -1,7 +1,7 @@
 # room-ui-refinements Specification
 
 ## Purpose
-TBD - created by archiving change fix-sidebar-tour-and-render-performance. Update Purpose after archive.
+Small room-page behaviours that make existing controls dependable: the sidebar handle responds to every click, the guided tour lets through the click it asks for, and the activity log's refresh is compact.
 
 ## Requirements
 

@@ -1,7 +1,7 @@
 # grid-line-style Specification
 
 ## Purpose
-TBD - created by archiving change grid-line-style. Update Purpose after archive.
+Lets the GM make the grid readable on any map by choosing its line colour, thickness and opacity, with everyone in the room seeing the same grid.
 
 ## Requirements
 
