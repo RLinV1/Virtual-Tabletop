@@ -29,4 +29,4 @@
 - [x] 4.3 `npm run lint && npm run typecheck && npm test` clean.
 - [x] 4.4 Adopt KAN-65's rust palette, keeping only the tokens that system does not provide. Verify `--accent` resolves to `#b9582f` on both `/` and `/library`, and that every contrast pair still passes in both grounds.
 - [x] 4.5 Raise the `--border-strong` contrast defect (1.66:1) as its own change; it affects every bordered control in the app, not just this page. Fixed in PR #21 (`fix/control-border-contrast`): `--border-strong` is now `#6a7280`, 3.81:1 on `--bg`.
-- [ ] 4.6 Decide whether the home page keeps Geist or moves to Alegreya Sans.
+- [ ] 4.6 Decide whether the home page keeps Geist or moves to Alegreya Sans. **Deferred** to a follow-up change at archive time (2026-09-25).

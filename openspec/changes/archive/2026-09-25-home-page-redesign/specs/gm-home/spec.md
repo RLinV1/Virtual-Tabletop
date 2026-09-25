@@ -1,10 +1,6 @@
 # Spec Delta
 
-## Purpose
-
-Collapses the home page into one page whose content varies by what the browser owns, and states what that page must demonstrate, how it must behave in both grounds, and what it must not claim.
-
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: One home page
 `/` SHALL render one page for every visitor. Its content MAY vary by what the browser owns, but it SHALL NOT render a structurally different page depending on whether a GM identity exists. Navigating away from `/` and returning, by link or by browser history, SHALL return the visitor to the same page they left.
@@ -55,8 +51,6 @@ The home page SHALL support a light and a dark ground, following the system pref
 - **WHEN** local storage cannot be read or written
 - **THEN** the home page renders on the system-preferred ground and the override silently does not persist
 
-## ADDED Requirements
-
 ### Requirement: Contrast and motion on the home page
 Every text label on the home page SHALL meet WCAG AA contrast against its own background, and every interactive control's visual boundary SHALL meet 3:1, in both grounds. All animation SHALL be disabled under `prefers-reduced-motion: reduce`, and no scroll position listener SHALL be used to drive it.
 
@@ -74,3 +68,13 @@ Where the home page offers to save a room or an asset without an account, it SHA
 #### Scenario: The library is presented honestly
 - **WHEN** the asset library is promoted on the home page
 - **THEN** the page states that no sign-in is needed and that the library does not follow the user to another device
+
+## REMOVED Requirements
+
+### Requirement: Landing page
+**Reason**: `/` no longer branches on whether the browser holds a GM token. The separate landing page is replaced by one home page for every visitor.
+**Migration**: See "One home page" and "The home page demonstrates the product". The landing page's actions (create a room, open the asset library, join with an invite link or code, sign in, create an account) remain on that page.
+
+### Requirement: GM dashboard
+**Reason**: A GM token no longer swaps `/` for a dashboard. That swap made opening the asset library silently replace the home page for the rest of the session.
+**Migration**: See "One home page". Owned rooms appear as a "Your rooms" section on the same page, with name, last activity and Open, and only when the browser owns rooms.
