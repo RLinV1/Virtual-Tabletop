@@ -58,7 +58,7 @@ Open http://localhost:5173 → create a room → copy the invite link. To be a p
 | Seq source | Redis `INCR` | In-process FIFO queue + store-level `expectedLastSeq` check | Single process for now; the store check is what a Postgres `UNIQUE (room_id, seq)` would enforce. | Medium once multi-instance is needed. |
 | Client state | Zustand | `useSyncExternalStore` over `RoomConnection` | Not needed yet at this size. | Small. |
 | Agent workflow | OpenSpec (`/opsx:*`) | Adds `CLAUDE.md` invariants, `implement-fr` skill, `sync-reviewer` / `visibility-auditor` subagents alongside OpenSpec | Reviewers encode the invariants from `DESIGN.md` §2/§6. | Keep, drop, or fold into OpenSpec `config.yaml` rules. |
-| UI palette | Slate-teal / parchment / gold (`assets/ui-reference`) | Neutral dark | Not yet applied. | Styling only. |
+| UI palette | Slate-teal / parchment / gold (from a UI reference README, since removed) | Neutral dark | Not yet applied. | Styling only. |
 
 ## 5. Mapping from the prototype on `design`
 

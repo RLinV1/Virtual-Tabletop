@@ -22,8 +22,8 @@ the application is beyond one room screen.
 
 Two corrections to what this section used to claim. The boards it referenced —
 `room-setup.png`, `at-the-table.png`, `between-sessions.png` — **were never produced**;
-`assets/ui-reference/` contains only a README describing them. And the palette that README
-calls "already applied" (deep slate-teal ground, parchment text, gold accent) is **not**
+`assets/ui-reference/` held only a README describing them, and has since been removed. And the
+palette that README called "already applied" (deep slate-teal ground, parchment text, gold accent) is **not**
 what ships: `apps/web/src/styles.css` uses a neutral charcoal ground with a blue accent.
 The documented direction was abandoned silently. §11.9 picks one.
 

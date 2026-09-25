@@ -1,13 +1,14 @@
 import { useState } from "react";
+import { Trash } from "@phosphor-icons/react";
 import {
   can,
   hpFraction,
   isActive,
+  type Command,
   type ConditionId,
   type Participant,
   type RoomState,
   type Token,
-  type TokenStats,
 } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { ConditionMarker, ConditionPicker } from "./ConditionMarker";
@@ -102,10 +103,11 @@ export function TokenRoster({
             players={Object.values(state.participants).filter((p) => p.role === "player" && isActive(p))}
             departedOwner={departedOwner(state, editing.ownerIds)}
             error={error}
-            onStats={(stats) => send({ type: "token.setStats", tokenId: editing.id, stats })}
-            onConditions={(conditions) => void send({ type: "token.setConditions", tokenId: editing.id, conditions })}
-            onOwner={(ownerId) => void send({ type: "token.setOwners", tokenId: editing.id, ownerIds: ownerId ? [ownerId] : [] })}
-            onHidden={(hidden) => void send({ type: "token.setHidden", tokenId: editing.id, hidden })}
+            onSave={async (commands) => {
+              // One command per changed field, in order; stop at the first the server rejects.
+              for (const c of commands) if (!(await send(c))) return;
+              setEditingId(null);
+            }}
             onDelete={async () => {
               if (await send({ type: "token.delete", tokenId: editing.id })) setEditingId(null);
             }}
@@ -189,16 +191,17 @@ function departedOwner(state: RoomState, ownerIds: string[]): Participant | null
   return owner && !isActive(owner) ? owner : null;
 }
 
+/**
+ * Edits are a draft until Save, and Save asks once more before anything is sent, so a
+ * stray click in the modal never changes a token everyone can see. Delete asks too.
+ */
 function TokenEditor({
   token,
   isGm,
   players,
   departedOwner,
   error,
-  onStats,
-  onConditions,
-  onOwner,
-  onHidden,
+  onSave,
   onDelete,
 }: {
   token: Token;
@@ -207,29 +210,47 @@ function TokenEditor({
   /** Set when the current owner left the room and the GM hasn't resolved the token yet. */
   departedOwner: Participant | null;
   error: string | null;
-  onStats: (stats: TokenStats) => Promise<boolean>;
-  onConditions: (conditions: ConditionId[]) => void;
-  onOwner: (ownerId: string) => void;
-  onHidden: (hidden: boolean) => void;
+  onSave: (commands: Command[]) => Promise<void>;
   onDelete: () => void;
 }) {
   const [hp, setHp] = useState(token.stats.hp?.toString() ?? "");
   const [maxHp, setMaxHp] = useState(token.stats.maxHp?.toString() ?? "");
   const [ac, setAc] = useState(token.stats.ac?.toString() ?? "");
-  const [saved, setSaved] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [conditions, setConditions] = useState<ConditionId[]>(token.conditions);
+  const [ownerId, setOwnerId] = useState(token.ownerIds[0] ?? "");
+  const [hidden, setHidden] = useState(token.hidden);
+  const [confirming, setConfirming] = useState<"save" | "delete" | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const num = (v: string) => (v.trim() === "" ? null : Number(v));
+  const stats = { hp: num(hp), maxHp: num(maxHp), ac: num(ac) };
+  const sameConditions =
+    conditions.length === token.conditions.length && conditions.every((c) => token.conditions.includes(c));
+
+  const changes: Command[] = [];
+  if (stats.hp !== token.stats.hp || stats.maxHp !== token.stats.maxHp || stats.ac !== token.stats.ac)
+    changes.push({ type: "token.setStats", tokenId: token.id, stats });
+  if (!sameConditions) changes.push({ type: "token.setConditions", tokenId: token.id, conditions });
+  if (isGm && ownerId !== (token.ownerIds[0] ?? ""))
+    changes.push({ type: "token.setOwners", tokenId: token.id, ownerIds: ownerId ? [ownerId] : [] });
+  if (isGm && hidden !== token.hidden) changes.push({ type: "token.setHidden", tokenId: token.id, hidden });
+
+  const save = async () => {
+    setBusy(true);
+    await onSave(changes);
+    setBusy(false);
+    setConfirming(null);
+  };
 
   return (
-    <div className="token-editor">
-      <form
-        className="stats-row"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setSaved(await onStats({ hp: num(hp), maxHp: num(maxHp), ac: num(ac) }));
-        }}
-      >
+    <form
+      className="token-editor"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (changes.length) setConfirming("save");
+      }}
+    >
+      <div className="stats-row">
         <label>
           HP
           <input type="number" inputMode="numeric" value={hp} onChange={(e) => setHp(e.target.value)} autoFocus />
@@ -242,21 +263,15 @@ function TokenEditor({
           AC
           <input type="number" inputMode="numeric" value={ac} onChange={(e) => setAc(e.target.value)} />
         </label>
-        <button type="submit">Save</button>
-      </form>
-      {saved && !error && (
-        <p className="muted small-print" role="status">
-          Saved.
-        </p>
-      )}
+      </div>
 
-      <ConditionPicker value={token.conditions} onChange={onConditions} />
+      <ConditionPicker value={conditions} onChange={setConditions} />
 
       {isGm && (
         <div className="token-editor-gm">
           <label>
             Controlled by
-            <select value={token.ownerIds[0] ?? ""} onChange={(e) => onOwner(e.target.value)}>
+            <select value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
               <option value="">No one (GM only)</option>
               {departedOwner && (
                 <option value={departedOwner.id} disabled>
@@ -271,30 +286,60 @@ function TokenEditor({
             </select>
           </label>
           <label className="inline">
-            <input type="checkbox" checked={token.hidden} onChange={(e) => onHidden(e.target.checked)} />
+            <input type="checkbox" checked={hidden} onChange={(e) => setHidden(e.target.checked)} />
             Hidden from players
           </label>
-          {confirmDelete ? (
-            <div className="confirm" role="group" aria-label="Confirm delete">
-              <p>Delete {token.name}? Everyone loses it from the map.</p>
-              <div className="row">
-                <button type="button" className="secondary" onClick={() => setConfirmDelete(false)}>
-                  Keep
-                </button>
-                <button type="button" className="danger-fill" onClick={onDelete}>
-                  Delete token
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button type="button" className="link danger token-delete" onClick={() => setConfirmDelete(true)}>
-              Delete token
-            </button>
-          )}
         </div>
       )}
+
       {error && <p role="alert" className="error">{error}</p>}
-    </div>
+
+      {confirming === "save" ? (
+        <div className="confirm" role="group" aria-label="Confirm changes">
+          <p>
+            Save {changes.length} {changes.length === 1 ? "change" : "changes"} to {token.name}? Everyone in the
+            room sees the update.
+          </p>
+          <div className="row">
+            <button type="button" className="secondary" disabled={busy} onClick={() => setConfirming(null)}>
+              Back
+            </button>
+            <button type="button" disabled={busy} onClick={() => void save()} autoFocus>
+              Confirm
+            </button>
+          </div>
+        </div>
+      ) : confirming === "delete" ? (
+        <div className="confirm" role="group" aria-label="Confirm delete">
+          <p>Delete {token.name}? Everyone loses it from the map.</p>
+          <div className="row">
+            <button type="button" className="secondary" onClick={() => setConfirming(null)}>
+              Keep
+            </button>
+            <button type="button" className="danger-fill" onClick={onDelete} autoFocus>
+              Delete token
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="token-editor-actions">
+          {isGm && (
+            <button
+              type="button"
+              className="icon-button token-delete"
+              aria-label={`Delete ${token.name}`}
+              title="Delete token"
+              onClick={() => setConfirming("delete")}
+            >
+              <Trash size={18} aria-hidden />
+            </button>
+          )}
+          <button type="submit" className="token-save" disabled={!changes.length}>
+            Save
+          </button>
+        </div>
+      )}
+    </form>
   );
 }
 

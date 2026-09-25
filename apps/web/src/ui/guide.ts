@@ -36,7 +36,7 @@ const STEPS: StepSpec[] = [
   },
   { target: "fit", title: "Fit", body: "Lost your place? Fit brings the whole map back into view." },
   { target: "participants", title: "Who's here", body: "See everyone in the room. The GM is marked." },
-  { target: "share", title: "Invite players", body: { gm: "Copy the invite link here and send it to your players. Anyone with it joins as a player." } },
+  { target: "share", title: "Invite players", body: { gm: "Click Share to copy the invite link, then send it to your players. Anyone with it joins as a player." } },
   { target: "gm-map", title: "Battle map", body: { gm: "Upload a map image, or place one from your library." } },
   { target: "gm-grid", title: "Grid", body: { gm: "Line the grid up with the squares drawn on your map, so tokens snap to the right cells." } },
   {

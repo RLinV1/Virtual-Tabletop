@@ -165,10 +165,10 @@ function Room({
         notices={you.role === "gm" ? <DepartureNotices state={state} onReview={setReviewing} /> : undefined}
         toolbar={
           <>
-            {/* The GM has rooms, a library and "Create room" to get back to; a player came
-                from an invite and just closes the tab (room-navigation). */}
+            {/* The GM has rooms, a library and "Create room" to get back to, all on the GM
+                dashboard; a player came from an invite and just closes the tab (room-navigation). */}
             {you.role === "gm" && (
-              <Link href="/" className="tool-button" title="Back to the home page">
+              <Link href="/gm-dashboard" className="tool-button" title="Back to your GM dashboard">
                 <House size={16} aria-hidden="true" />
                 Home
               </Link>
