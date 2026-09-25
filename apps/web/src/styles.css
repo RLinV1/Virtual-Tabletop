@@ -228,12 +228,6 @@ a.tool-button { text-decoration: none; }
   font-weight: 500; font-size: var(--fs-sm); min-height: 1.9rem; padding: 0.2rem 0.7rem;
 }
 .share-button:hover:not(:disabled) { filter: none; border-color: var(--muted); }
-.share-button[aria-expanded="true"] { border-color: var(--accent); }
-/* As wide as the panel's content box and no wider: the header scrolls with the panel, so
-   anything past the panel's edge would be clipped. (panel padding 2rem, popover padding
-   1.5rem, border 2px) */
-.share-panel { display: flex; flex-direction: column; gap: var(--space-2); width: calc(var(--panel-width) - 3.5rem - 2px); padding-block: var(--space-1); }
-.share-panel input { font-size: var(--fs-sm); }
 .whoami { font-size: var(--fs-sm); color: var(--muted); }
 .whoami strong { color: var(--text); font-weight: 500; }
 .status { font-size: var(--fs-xs); }
@@ -791,12 +785,15 @@ dialog.modal::backdrop { background: rgba(6, 8, 11, 0.62); }
 [data-tour="gm-add-token"] { margin-top: var(--space-1); }
 
 .token-editor { display: flex; flex-direction: column; gap: var(--space-3); }
-.token-editor .stats-row { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 0.35rem; align-items: end; }
+.token-editor .stats-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.35rem; align-items: end; }
 .token-editor-gm {
   display: flex; flex-direction: column; gap: var(--space-2);
   padding-top: var(--space-3); border-top: 1px solid var(--border);
 }
-button.token-delete { align-self: flex-start; padding-inline: 0; }
+/* Delete on the left, Save in the bottom-right corner where a dialog's primary action sits. */
+.token-editor-actions { display: flex; align-items: center; gap: var(--space-2); padding-top: var(--space-3); border-top: 1px solid var(--border); }
+.token-editor-actions .token-save { margin-left: auto; }
+.icon-button.token-delete:hover { border-color: var(--danger); color: var(--danger); }
 .roll-history { max-height: none; }
 .small-print { font-size: var(--fs-sm); }
 
