@@ -1,5 +1,5 @@
 import { useId, useState } from "react";
-import { isActive, type DepartureAction, type Participant, type RoomState } from "@vtt/shared";
+import { isActive, MAX_DEPARTURE_ACTIONS, type DepartureAction, type Participant, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
 
@@ -69,6 +69,14 @@ function ResolveForm({
     : "mixed";
 
   async function apply() {
+    // The command takes at most this many; past it the server would reject the whole batch
+    // with a schema error. Say so in words, and keep every row's choice (ADR 0006).
+    if (actions.length > MAX_DEPARTURE_ACTIONS) {
+      setError(
+        `You can apply up to ${MAX_DEPARTURE_ACTIONS} tokens at a time. Set the rest to "Decide later", apply, then review again.`,
+      );
+      return;
+    }
     setBusy(true);
     setError(null);
     const result = await connection.command({ type: "participant.resolveDeparture", participantId: departed.id, actions });
