@@ -20,8 +20,26 @@ export const GridSpec = z.object({
   /** Distance one cell represents, e.g. 5 (ft). Used by rulers/AoE later. */
   unitsPerCell: z.number().positive(),
   unitLabel: z.string().min(1).max(12),
+  /**
+   * Line style (ADR 0005). Optional, not defaulted: stored events and library grids from
+   * before these fields are read back unparsed, so every reader resolves them through
+   * `gridLineStyle` instead.
+   */
+  lineColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  /** Board pixels, so the lines scale with each viewer's zoom (invariant 8). */
+  lineWidth: z.number().min(0.5).max(8).optional(),
+  /** 0.05 floor: an applied grid cannot become invisible by accident. */
+  lineOpacity: z.number().min(0.05).max(1).optional(),
 });
 export type GridSpec = z.infer<typeof GridSpec>;
+
+/** Thickness presets offered to the GM, in board pixels (Hairline, Thin, Medium, Thick, Bold). */
+export const GRID_LINE_WIDTHS = [1, 2, 3, 4, 6] as const;
+
+/** The grid's line style, with the historical look for anything unset (ADR 0005). */
+export function gridLineStyle(grid: GridSpec): { color: string; width: number; opacity: number } {
+  return { color: grid.lineColor ?? "#000000", width: grid.lineWidth ?? 1, opacity: grid.lineOpacity ?? 0.35 };
+}
 
 export const DEFAULT_GRID: GridSpec = {
   cellSize: 70,

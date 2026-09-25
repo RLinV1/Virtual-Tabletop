@@ -1,9 +1,11 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import type { GridSpec, LibraryAsset, MapImage, RoomState } from "@vtt/shared";
+import { CaretDown } from "@phosphor-icons/react";
+import { useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { GRID_LINE_WIDTHS, gridLineStyle, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
 import { api } from "../net/api";
 import { loadGmToken } from "../net/identity";
 import { imageSize } from "../net/imageFile";
 import type { CommandResult, RoomConnection } from "../net/roomConnection";
+import { ColorWheel } from "../ui/ColorWheel";
 import { Modal } from "../ui/Modal";
 import { PanelSection } from "../ui/PanelSection";
 import { libraryAssetId } from "../net/builtinAssets";
@@ -37,6 +39,7 @@ export function GmPanel({ connection, state, token }: Props) {
         grid={(close) => (
           <GridForm
             grid={state.scene.grid}
+            map={state.scene.map}
             onApply={async (grid, report) => {
               if (await runWith(report)(connection.command({ type: "scene.setGrid", grid }))) close();
             }}
@@ -166,10 +169,13 @@ function SaveGridToLibrary({ gmToken, assetId, grid }: { gmToken: string; assetI
 /** Manual grid correction (FR-GM-04). Automatic detection (FR-GM-03) will prefill these. */
 function GridForm({
   grid,
+  map,
   onApply,
   children,
 }: {
   grid: GridSpec;
+  /** Backdrop for the line-style preview. */
+  map: MapImage | null;
   onApply: (grid: GridSpec, report: (message: string | null) => void) => Promise<void>;
   /** "Save grid to library", when the map came from the library. */
   children?: ReactNode;
@@ -205,10 +211,116 @@ function GridForm({
         {field("unitsPerCell", `Per cell (${draft.unitLabel})`)}
         {field("offsetX", "Offset X")}
         {field("offsetY", "Offset Y")}
+        <GridLineFields draft={draft} map={map} onChange={setDraft} />
         <button type="submit">Apply grid</button>
       </form>
       {error && <p role="alert" className="error">{error}</p>}
       {children}
     </div>
+  );
+}
+
+const WIDTH_NAMES = ["Hairline", "Thin", "Medium", "Thick", "Bold"];
+
+/**
+ * Line colour, thickness and opacity (grid-line-style, ADR 0005), behind an "Advanced"
+ * disclosure that starts closed: most GMs only ever need cell size and offset. Everything
+ * here is a draft until "Apply grid", so players see nothing change while the GM tries
+ * things; the preview shows the result on the current map instead, since the modal
+ * covers the board.
+ */
+function GridLineFields({ draft, map, onChange }: { draft: GridSpec; map: MapImage | null; onChange: (grid: GridSpec) => void }) {
+  const [open, setOpen] = useState(false);
+  const style = gridLineStyle(draft);
+  const widthIndex = Math.max(0, GRID_LINE_WIDTHS.findIndex((w) => w >= style.width));
+  const opacityPct = Math.round(style.opacity * 100);
+  return (
+    <div className="grid-advanced">
+      <button
+        type="button"
+        className="grid-advanced-toggle"
+        aria-expanded={open}
+        aria-controls="grid-advanced-body"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span className="grid-advanced-title">Advanced</span>
+        <CaretDown size={14} weight="bold" className="grid-advanced-caret" aria-hidden="true" />
+      </button>
+      <div id="grid-advanced-body" className="grid-advanced-body" hidden={!open}>
+        <GridLinePreview grid={draft} map={map} />
+        <ColorWheel label="Line colour" value={style.color} onChange={(lineColor) => onChange({ ...draft, lineColor })} />
+        <label className="range-field">
+          <span className="range-label">
+            Thickness <span className="range-value">{GRID_LINE_WIDTHS[widthIndex]} px</span>
+          </span>
+          <input
+            type="range"
+            className="range"
+            min={0}
+            max={GRID_LINE_WIDTHS.length - 1}
+            step={1}
+            value={widthIndex}
+            aria-valuetext={`${WIDTH_NAMES[widthIndex]}, ${GRID_LINE_WIDTHS[widthIndex]} pixels`}
+            onChange={(e) => onChange({ ...draft, lineWidth: GRID_LINE_WIDTHS[Number(e.target.value)] })}
+          />
+          <span className="range-stops" aria-hidden="true">
+            {WIDTH_NAMES.map((name, i) => (
+              <span key={name} className={i === widthIndex ? "is-current" : undefined}>
+                {name}
+              </span>
+            ))}
+          </span>
+        </label>
+        <label className="range-field">
+          <span className="range-label">
+            Opacity <span className="range-value">{opacityPct}%</span>
+          </span>
+          <input
+            type="range"
+            className="range range-opacity"
+            min={5}
+            max={100}
+            step={5}
+            value={opacityPct}
+            style={{ "--range-to": style.color } as CSSProperties}
+            aria-valuetext={`${opacityPct} percent`}
+            onChange={(e) => onChange({ ...draft, lineOpacity: Number(e.target.value) / 100 })}
+          />
+        </label>
+      </div>
+    </div>
+  );
+}
+
+/** Cells shown across the preview; enough to read line weight against the map. */
+const PREVIEW_CELLS = 5;
+
+/**
+ * The draft lines over the middle of the current map, drawn in board pixels (invariant 8)
+ * so thickness reads at true proportion to the cells and the art, as on the board.
+ */
+function GridLinePreview({ grid, map }: { grid: GridSpec; map: MapImage | null }) {
+  const style = gridLineStyle(grid);
+  const width = grid.cellSize * PREVIEW_CELLS;
+  const height = width * 0.4;
+  const board = map ?? { url: null, width: 2100, height: 1400 };
+  const x0 = Math.max(0, board.width / 2 - width / 2);
+  const y0 = Math.max(0, board.height / 2 - height / 2);
+  const lines: string[] = [];
+  const first = (start: number, offset: number) => offset + Math.ceil((start - offset) / grid.cellSize) * grid.cellSize;
+  for (let x = first(x0, grid.offsetX); x <= x0 + width; x += grid.cellSize) lines.push(`M${x} ${y0}V${y0 + height}`);
+  for (let y = first(y0, grid.offsetY); y <= y0 + height; y += grid.cellSize) lines.push(`M${x0} ${y}H${x0 + width}`);
+  return (
+    <svg
+      className="grid-line-preview"
+      viewBox={`${x0} ${y0} ${width} ${height}`}
+      preserveAspectRatio="xMidYMid slice"
+      role="img"
+      aria-label={`Preview: ${style.color} lines, ${style.width} px, ${Math.round(style.opacity * 100)}% opacity`}
+    >
+      <rect x={x0} y={y0} width={width} height={height} fill="#2b2e35" />
+      {board.url && <image href={board.url} x={0} y={0} width={board.width} height={board.height} />}
+      <path d={lines.join("")} fill="none" stroke={style.color} strokeOpacity={style.opacity} strokeWidth={style.width} />
+    </svg>
   );
 }
