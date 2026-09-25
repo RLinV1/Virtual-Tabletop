@@ -113,7 +113,18 @@ function AddToken(props: {
       >
         <label>
           Name
-          <input value={name} onChange={(e) => setName(e.target.value)} required maxLength={60} autoFocus />
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+            maxLength={60}
+            autoFocus
+            aria-describedby="add-token-name-hint"
+          />
+          {/* The server does the numbering (KAN-62); this only tells the GM to expect it. */}
+          <span id="add-token-name-hint" className="muted">
+            Duplicate names are numbered automatically, e.g. Goblin 2.
+          </span>
         </label>
         <label>
           Owner
