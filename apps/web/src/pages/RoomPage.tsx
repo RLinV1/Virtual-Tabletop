@@ -76,6 +76,8 @@ function Room({ connection, inviteCode, token }: { connection: RoomConnection; i
   const [gridPreview, setGridPreview] = useState<GridSpec | null>(null);
   const [gridApplying, setGridApplying] = useState(false);
   const [gridError, setGridError] = useState<string | null>(null);
+  const gridApplyGeneration = useRef(0);
+  const gridApplyInFlight = useRef(false);
   const committedGrid = state?.scene.grid;
   const sceneKey = state && JSON.stringify([
     state.scene.map?.url, state.scene.map?.assetId, state.scene.map?.width, state.scene.map?.height,
@@ -100,22 +102,30 @@ function Room({ connection, inviteCode, token }: { connection: RoomConnection; i
   }, [committedGrid]);
 
   const cancelGridDraft = useCallback(() => {
+    // A sent command may still finish, but its response no longer belongs to this editor.
+    gridApplyGeneration.current += 1;
     setGridDraft(null);
     setGridPreview(null);
     setGridError(null);
   }, []);
 
   const applyGrid = useCallback(async (grid: GridSpec): Promise<boolean> => {
+    if (gridApplyInFlight.current) return false;
+    gridApplyInFlight.current = true;
+    const generation = gridApplyGeneration.current;
     setGridApplying(true);
     setGridError(null);
     try {
       const result = await connection.command({ type: "scene.setGrid", grid });
+      if (generation !== gridApplyGeneration.current) return false;
       if (!result.ok) setGridError(result.message);
       return result.ok;
     } catch (error) {
+      if (generation !== gridApplyGeneration.current) return false;
       setGridError(error instanceof Error ? error.message : "Could not apply grid");
       return false;
     } finally {
+      gridApplyInFlight.current = false;
       setGridApplying(false);
     }
   }, [connection]);

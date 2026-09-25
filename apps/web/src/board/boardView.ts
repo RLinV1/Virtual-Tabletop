@@ -389,7 +389,10 @@ export class BoardView {
     this.grid.clear();
     if (!this.state!.scene.map || this.mapMissing) this.grid.rect(0, 0, width, height).fill({ color: EMPTY_MAP_FILL });
     // A schema-valid tiny cell size could otherwise create millions of line segments.
-    if (!Number.isFinite(g.cellSize) || g.cellSize <= 0 || (width + height) / g.cellSize > 50_000) return;
+    if (!Number.isFinite(g.cellSize) || g.cellSize <= 0 || (width + height) / g.cellSize > 50_000) {
+      this.invalidate();
+      return;
+    }
     for (let x = g.offsetX; x <= width; x += g.cellSize) this.grid.moveTo(x, 0).lineTo(x, height);
     for (let y = g.offsetY; y <= height; y += g.cellSize) this.grid.moveTo(0, y).lineTo(width, y);
     // The GM's preview stays identifiable while the modal shows the precise line style.

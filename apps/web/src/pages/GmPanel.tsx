@@ -1,5 +1,5 @@
 import { CaretDown } from "@phosphor-icons/react";
-import { useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { GRID_LINE_WIDTHS, gridLineStyle, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
 import { api } from "../net/api";
 import { libraryAssetId } from "../net/builtinAssets";
@@ -48,6 +48,7 @@ export function GmPanel({
         onError={setError}
         onSetMap={(map, grid, report) => runWith(report)(connection.command({ type: "scene.setMap", map, grid }))}
         onGridClose={onGridDraftCancel}
+        gridApplying={gridApplying}
         grid={(close) => (
           <GridForm
             grid={state.scene.grid}
@@ -77,6 +78,7 @@ function MapSection(props: {
   onSetMap: (map: MapImage, grid: GridSpec | undefined, report: (message: string | null) => void) => Promise<boolean>;
   onError: (message: string | null) => void;
   onGridClose: () => void;
+  gridApplying: boolean;
   /** The grid form, shown in its own modal; `close` dismisses it after a successful apply. */
   grid: (close: () => void) => ReactNode;
 }) {
@@ -84,7 +86,14 @@ function MapSection(props: {
   const [picking, setPicking] = useState(false);
   const [pickError, setPickError] = useState<string | null>(null);
   const [gridOpen, setGridOpen] = useState(false);
+  const gridOpenRef = useRef(false);
+  useEffect(() => { gridOpenRef.current = gridOpen; }, [gridOpen]);
+  // A compact-layout switch can unmount the editor without a dialog close event.
+  useEffect(() => () => {
+    if (gridOpenRef.current) props.onGridClose();
+  }, [props.onGridClose]);
   const closeGrid = () => {
+    gridOpenRef.current = false;
     setGridOpen(false);
     props.onGridClose();
   };
@@ -129,8 +138,8 @@ function MapSection(props: {
             From library
           </button>
         )}
-        <button type="button" className="secondary" data-tour="gm-grid" onClick={() => setGridOpen(true)}>
-          Adjust grid
+        <button type="button" className="secondary" data-tour="gm-grid" disabled={props.gridApplying} onClick={() => setGridOpen(true)}>
+          {props.gridApplying ? "Applying grid…" : "Adjust grid"}
         </button>
       </div>
       {props.gmToken && (
@@ -288,6 +297,7 @@ function GridForm({
         <GridLineFields
           draft={styleDraft}
           map={map}
+          disabled={applying}
           onChange={(next) => onChange({
             ...draft,
             lineColor: next.lineColor,
@@ -324,7 +334,12 @@ const WIDTH_NAMES = ["Hairline", "Thin", "Medium", "Thick", "Bold"];
  * things. The preview shows the precise line style over the map inside the modal;
  * the board shows the GM's calibration overlay.
  */
-function GridLineFields({ draft, map, onChange }: { draft: GridSpec; map: MapImage | null; onChange: (grid: GridSpec) => void }) {
+function GridLineFields({ draft, map, disabled, onChange }: {
+  draft: GridSpec;
+  map: MapImage | null;
+  disabled: boolean;
+  onChange: (grid: GridSpec) => void;
+}) {
   const [open, setOpen] = useState(false);
   const style = gridLineStyle(draft);
   const widthIndex = Math.max(0, GRID_LINE_WIDTHS.findIndex((w) => w >= style.width));
@@ -343,7 +358,7 @@ function GridLineFields({ draft, map, onChange }: { draft: GridSpec; map: MapIma
       </button>
       <div id="grid-advanced-body" className="grid-advanced-body" hidden={!open}>
         <GridLinePreview grid={draft} map={map} />
-        <ColorWheel label="Line colour" value={style.color} onChange={(lineColor) => onChange({ ...draft, lineColor })} />
+        <ColorWheel label="Line colour" value={style.color} disabled={disabled} onChange={(lineColor) => onChange({ ...draft, lineColor })} />
         <label className="range-field">
           <span className="range-label">
             Thickness <span className="range-value">{GRID_LINE_WIDTHS[widthIndex]} px</span>
@@ -355,6 +370,7 @@ function GridLineFields({ draft, map, onChange }: { draft: GridSpec; map: MapIma
             max={GRID_LINE_WIDTHS.length - 1}
             step={1}
             value={widthIndex}
+            disabled={disabled}
             aria-valuetext={`${WIDTH_NAMES[widthIndex]}, ${GRID_LINE_WIDTHS[widthIndex]} pixels`}
             onChange={(e) => onChange({ ...draft, lineWidth: GRID_LINE_WIDTHS[Number(e.target.value)] })}
           />
@@ -377,6 +393,7 @@ function GridLineFields({ draft, map, onChange }: { draft: GridSpec; map: MapIma
             max={100}
             step={5}
             value={opacityPct}
+            disabled={disabled}
             style={{ "--range-to": style.color } as CSSProperties}
             aria-valuetext={`${opacityPct} percent`}
             onChange={(e) => onChange({ ...draft, lineOpacity: Number(e.target.value) / 100 })}
