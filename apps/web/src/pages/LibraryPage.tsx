@@ -4,8 +4,9 @@ import { Link } from "../Link";
 import { api } from "../net/api";
 import { builtinsMatching } from "../net/builtinAssets";
 import { getGmToken } from "../net/gm";
-import { loadGmToken } from "../net/identity";
+import { isRecognised, loadGmToken } from "../net/identity";
 import { imageSize, nameFromFile } from "../net/imageFile";
+import { navigate } from "../router";
 import { AccountMenu } from "./AccountPages";
 
 const TABS: { kind: AssetKind; label: string }[] = [
@@ -13,8 +14,23 @@ const TABS: { kind: AssetKind; label: string }[] = [
   { kind: "token", label: "Tokens" },
 ];
 
-/** The GM's maps and token art, managed before a session (asset-library). */
+/**
+ * The library is a GM surface, so it follows the dashboard's entry rule (gm-dashboard): a
+ * browser that is not recognised goes to sign-in first. Replace, not push, so Back from
+ * sign-in does not land on this redirect again.
+ */
 export function LibraryPage() {
+  const [recognised] = useState(isRecognised);
+
+  useEffect(() => {
+    if (!recognised) navigate("/signin", { replace: true });
+  }, [recognised]);
+
+  return recognised ? <Library /> : null;
+}
+
+/** The GM's maps and token art, managed before a session (asset-library). */
+function Library() {
   const [gmToken, setGmToken] = useState<string | null>(loadGmToken);
   // No GM identity yet means nothing uploaded yet: an empty library, with nothing to fetch.
   const [assets, setAssets] = useState<LibraryAsset[] | null>(gmToken ? null : []);

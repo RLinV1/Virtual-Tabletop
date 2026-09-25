@@ -374,9 +374,9 @@ function GridChapter() {
 }
 
 /**
- * The asset library, and the home page's only way into it. No login:
- * the library is keyed to this browser's GM identity until FR-GM-01 lands, and the note
- * below says so rather than implying an account exists.
+ * The asset library, described rather than linked: the GM dashboard is its way in
+ * (gm-dashboard). No login: the library is keyed to this browser's GM identity until
+ * FR-GM-01 lands, and the note below says so rather than implying an account exists.
  */
 function LibraryChapter() {
   return (
@@ -414,13 +414,11 @@ function LibraryChapter() {
           );
         })}
       </ul>
+      {/* The library itself is reached from the GM dashboard only (gm-dashboard). */}
       <div className="shelf-foot">
-        <Link href="/library" className="ui-button">
-          Open the asset library
-        </Link>
         <p className="muted small-print">
-          No sign-in needed. Your library is saved in this browser until accounts arrive, so it won't follow
-          you to another computer or phone yet.
+          You'll find it on your GM dashboard. No sign-in needed: it's saved in this browser until accounts
+          arrive, so it won't follow you to another computer or phone yet.
         </p>
       </div>
     </section>
