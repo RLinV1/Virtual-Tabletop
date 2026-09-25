@@ -1,18 +1,14 @@
 import {
-  useEffect,
-  useRef,
   useState,
   type CSSProperties,
   type FormEvent,
   type ReactNode,
-  type RefObject,
 } from "react";
 import {
   formatExpression,
   parseDiceExpression,
   rollDice,
   type DiceExpression,
-  type GmRoomSummary,
 } from "@vtt/shared";
 import {
   ArrowRight,
@@ -28,10 +24,7 @@ import {
   Sun,
 } from "@phosphor-icons/react";
 import { Link } from "../Link";
-import { api } from "../net/api";
 import { revealOnEnter } from "../ui/reveal";
-import { getGmToken } from "../net/gm";
-import { loadGmToken, newGuestToken, saveCredentials } from "../net/identity";
 import { navigate } from "../router";
 import { useGroundTheme, type ThemeChoice } from "../theme";
 import { DiceTray } from "../ui/DiceTray";
@@ -172,13 +165,6 @@ function TokenChip(props: {
 }
 
 function Landing({ theme, onTheme }: ThemeProps) {
-  const roomNameRef = useRef<HTMLInputElement>(null);
-
-  function focusCreate() {
-    roomNameRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
-    roomNameRef.current?.focus({ preventScroll: true });
-  }
-
   return (
     <>
       <div className="landing-shell landing-bar">
@@ -204,7 +190,7 @@ function Landing({ theme, onTheme }: ThemeProps) {
                 one field, so it comes first; the GM's path keeps the only filled button. */}
             <div className="hero-paths enter enter-3">
               <JoinBlock />
-              <CreateRoomForm firstFieldRef={roomNameRef} />
+              <RunBlock />
             </div>
           </div>
           <div className="hero-art enter enter-art" style={{ "--map": `url(${MAPS.hero.src})` } as CSSProperties}>
@@ -244,8 +230,6 @@ function Landing({ theme, onTheme }: ThemeProps) {
           </div>
         </section>
 
-        <YourRooms />
-
         {/* Everything under this heading is about running a game, so "you" below is the GM
             and players are "your players". */}
         <section aria-labelledby="running-your-game">
@@ -261,10 +245,10 @@ function Landing({ theme, onTheme }: ThemeProps) {
 
         <section className="closing">
           <h2>Ready to run a game? Start a room and send your players the link.</h2>
-          <button type="button" className="cta" onClick={focusCreate}>
-            Create room
+          <Link href="/gm-dashboard" className="cta">
+            Set up a room
             <ArrowRight weight="bold" aria-hidden="true" />
-          </button>
+          </Link>
         </section>
       </main>
 
@@ -272,47 +256,6 @@ function Landing({ theme, onTheme }: ThemeProps) {
         <p>Built for CSE 416 at Stony Brook.</p>
       </footer>
     </>
-  );
-}
-
-/**
- * Rooms this browser owns. Renders nothing at all until there is something to show, so a
- * first-time visitor sees the same page a returning GM does, only shorter.
- */
-function YourRooms() {
-  const [rooms, setRooms] = useState<GmRoomSummary[] | null>(null);
-
-  useEffect(() => {
-    const gmToken = loadGmToken();
-    if (!gmToken) return;
-    let live = true;
-    // A failure here is not worth a message on the home page: the section just stays away.
-    api.gm.rooms(gmToken).then((r) => live && setRooms(r), () => {});
-    return () => {
-      live = false;
-    };
-  }, []);
-
-  if (!rooms?.length) return null;
-
-  return (
-    <section className="your-rooms" ref={revealOnEnter}>
-      <h2>Your rooms</h2>
-      <ul className="plain room-list">
-        {rooms.map((room) => (
-          <li key={room.id}>
-            <div>
-              <strong>{room.name || "Untitled room"}</strong>
-              <span className="muted"> · active {formatRelative(room.lastActiveAt)}</span>
-            </div>
-            <button type="button" className="ui-button" onClick={() => navigate(`/r/${room.id}`)}>
-              Open
-            </button>
-          </li>
-        ))}
-      </ul>
-      <p className="muted small-print">Saved in this browser until accounts arrive.</p>
-    </section>
   );
 }
 
@@ -552,71 +495,23 @@ function DiceChapter() {
   );
 }
 
-/** The room the GM is about to run: name it, name yourself, go. */
-function useCreateRoom() {
-  const [roomName, setRoomName] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      const gmToken = await getGmToken();
-      const guestToken = newGuestToken();
-      const created = await api.createRoom({ roomName, displayName, guestToken, gmToken });
-      saveCredentials({ ...created, guestToken });
-      navigate(`/r/${created.roomId}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create room");
-      setBusy(false);
-    }
-  }
-
-  return { roomName, setRoomName, displayName, setDisplayName, error, busy, onSubmit };
-}
-
-function CreateRoomForm({ firstFieldRef }: { firstFieldRef?: RefObject<HTMLInputElement | null> }) {
-  const f = useCreateRoom();
+/**
+ * The GM's way in, second in the hero. The dashboard applies the entry rule (gm-dashboard),
+ * so this is a plain link: sign-in first for a new browser, straight in once recognised.
+ */
+function RunBlock() {
   return (
-    <form className="hero-form" aria-labelledby="create-path-label" onSubmit={f.onSubmit}>
-      <p id="create-path-label" className="path-label">
+    <div className="run-path" role="group" aria-labelledby="run-path-label">
+      <p id="run-path-label" className="path-label">
         <MapTrifold weight="bold" aria-hidden="true" />
         Running a game?
       </p>
-      <label>
-        Room name
-        <input
-          ref={firstFieldRef}
-          value={f.roomName}
-          onChange={(e) => f.setRoomName(e.target.value)}
-          required
-          maxLength={80}
-          placeholder="The Broken Span"
-        />
-      </label>
-      <label>
-        Your name
-        <input
-          value={f.displayName}
-          onChange={(e) => f.setDisplayName(e.target.value)}
-          required
-          maxLength={40}
-          placeholder="Your name"
-        />
-      </label>
-      {f.error && (
-        <p role="alert" className="error">
-          {f.error}
-        </p>
-      )}
-      <button type="submit" className="cta" disabled={f.busy}>
-        {f.busy ? "Creating…" : "Create room"}
-        {!f.busy && <ArrowRight weight="bold" aria-hidden="true" />}
-      </button>
-    </form>
+      <p className="path-hint">Create a room or reopen one you've run.</p>
+      <Link href="/gm-dashboard" className="cta">
+        Set up a room
+        <ArrowRight weight="bold" aria-hidden="true" />
+      </Link>
+    </div>
   );
 }
 
@@ -673,14 +568,4 @@ function JoinBlock() {
       )}
     </form>
   );
-}
-
-function formatRelative(iso: string) {
-  const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} h ago`;
-  const days = Math.round(hours / 24);
-  return days < 30 ? `${days} d ago` : new Date(iso).toLocaleDateString();
 }

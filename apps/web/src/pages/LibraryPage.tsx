@@ -4,6 +4,7 @@ import { Link } from "../Link";
 import { api } from "../net/api";
 import { builtinsMatching } from "../net/builtinAssets";
 import { getGmToken } from "../net/gm";
+import { loadGmToken } from "../net/identity";
 import { imageSize, nameFromFile } from "../net/imageFile";
 import { AccountMenu } from "./AccountPages";
 
@@ -14,20 +15,25 @@ const TABS: { kind: AssetKind; label: string }[] = [
 
 /** The GM's maps and token art, managed before a session (asset-library). */
 export function LibraryPage() {
-  const [gmToken, setGmToken] = useState<string | null>(null);
-  const [assets, setAssets] = useState<LibraryAsset[] | null>(null);
+  const [gmToken, setGmToken] = useState<string | null>(loadGmToken);
+  // No GM identity yet means nothing uploaded yet: an empty library, with nothing to fetch.
+  const [assets, setAssets] = useState<LibraryAsset[] | null>(gmToken ? null : []);
   const [kind, setKind] = useState<AssetKind>("map");
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Opening the library is a GM action, so it creates the device identity if needed.
-    getGmToken()
-      .then(async (token) => {
-        setGmToken(token);
-        setAssets(await api.library.list(token));
-      })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : "Could not load the library"));
+    // Reading the library never creates a GM identity (asset-library); the first upload does.
+    if (!gmToken) return;
+    let live = true;
+    api.library.list(gmToken).then(
+      (list) => live && setAssets(list),
+      (err: unknown) => live && setError(err instanceof Error ? err.message : "Could not load the library"),
+    );
+    return () => {
+      live = false;
+    };
+    // Only the token present on arrival is listed; one created by an upload starts empty.
   }, []);
 
   const shown = useMemo(() => {
@@ -46,7 +52,7 @@ export function LibraryPage() {
           Virtual Tabletop
         </Link>
         <nav className="home-nav">
-          <Link href="/">My rooms</Link>
+          <Link href="/gm-dashboard">My rooms</Link>
           <AccountMenu />
         </nav>
       </header>
@@ -75,14 +81,14 @@ export function LibraryPage() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        {gmToken && (
-          <UploadButton
-            gmToken={gmToken}
-            kind={kind}
-            onUploaded={(a) => setAssets((all) => [a, ...(all ?? [])])}
-            onError={setError}
-          />
-        )}
+        <UploadButton
+          kind={kind}
+          onUploaded={(token, a) => {
+            setGmToken(token);
+            setAssets((all) => [a, ...(all ?? [])]);
+          }}
+          onError={setError}
+        />
       </div>
 
       {!assets && !error && <p className="muted" aria-busy="true">Loading…</p>}
@@ -140,9 +146,8 @@ function BuiltinCard({ asset }: { asset: LibraryAsset }) {
 }
 
 function UploadButton(props: {
-  gmToken: string;
   kind: AssetKind;
-  onUploaded: (asset: LibraryAsset) => void;
+  onUploaded: (gmToken: string, asset: LibraryAsset) => void;
   onError: (message: string | null) => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -152,7 +157,9 @@ function UploadButton(props: {
     props.onError(null);
     try {
       const { width, height } = await imageSize(file);
-      props.onUploaded(await api.library.upload(props.gmToken, file, { kind: props.kind, name: nameFromFile(file), width, height }));
+      // An upload is a GM write, so this is where the identity is created if there is none.
+      const gmToken = await getGmToken();
+      props.onUploaded(gmToken, await api.library.upload(gmToken, file, { kind: props.kind, name: nameFromFile(file), width, height }));
     } catch (err) {
       props.onError(err instanceof Error ? err.message : "Upload failed");
     } finally {

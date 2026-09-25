@@ -1,4 +1,5 @@
 import type { RoomCredentials } from "@vtt/shared";
+import type { KeyValueStorage } from "../ui/usePersistentState";
 
 /**
  * Durable guest identity (FR-PL-02): credentials live in localStorage so a reload,
@@ -115,4 +116,51 @@ export async function ensureGmToken(identify: (gmToken: string) => Promise<void>
     // Storage unavailable: the identity lasts for this page load only.
   }
   return gmToken;
+}
+
+/**
+ * "Continue as guest" (gm-dashboard). Until accounts exist, a GM who has chosen to go on
+ * without signing in is not asked again. Remembering the choice creates no identity: that
+ * still waits for the first write (a room or a library upload).
+ */
+const GUEST_KEY = "vtt.gmGuest";
+/** Holds the choice for this page load when storage refuses it, so sign-in does not loop. */
+let guestThisPage = false;
+
+function browserStorage(): KeyValueStorage | null {
+  try {
+    return globalThis.localStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function markGuest(storage: KeyValueStorage | null = browserStorage()) {
+  guestThisPage = true;
+  try {
+    storage?.setItem(GUEST_KEY, "1");
+  } catch {
+    // Storage unavailable: the choice lasts for this page load only.
+  }
+}
+
+export function isGuest(storage: KeyValueStorage | null = browserStorage()): boolean {
+  if (guestThisPage) return true;
+  try {
+    return storage?.getItem(GUEST_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The one entry rule for the GM dashboard: a browser that holds a GM identity or chose to
+ * continue as a guest goes straight in; any other goes to sign-in first.
+ */
+export function entryTarget(browser: { hasToken: boolean; guest: boolean }): "/gm-dashboard" | "/signin" {
+  return browser.hasToken || browser.guest ? "/gm-dashboard" : "/signin";
+}
+
+export function isRecognised(): boolean {
+  return entryTarget({ hasToken: loadGmToken() !== null, guest: isGuest() }) === "/gm-dashboard";
 }
