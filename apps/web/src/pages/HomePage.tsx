@@ -28,20 +28,28 @@ import { revealOnEnter } from "../ui/reveal";
 import { navigate } from "../router";
 import { useGroundTheme, type ThemeChoice } from "../theme";
 import { DiceTray } from "../ui/DiceTray";
+import { BUILTIN_ASSETS } from "../net/builtinAssets";
+
+/**
+ * Every home crop is 20 squares wide and starts on a grid line of its map, cut by
+ * scripts/home-maps.mjs to 1400 x 788, so each has exact 70 px squares from its top-left
+ * corner (top-down-default-maps).
+ */
+const CROP = { width: 1400, height: 788, cell: 70 } as const;
 
 /** One map per section, so the page shows three encounters rather than one three times. */
 const MAPS = {
   hero: {
-    src: "/img/hero-map.webp",
-    alt: "A ruined mountain keep of stone bridges and waterfalls, with a red dragon coiled over its treasure.",
+    src: "/img/home/broken-span.webp",
+    alt: "A top-down battle map of a ruined stone courtyard with a lit brazier, fallen blocks and moss between the flagstones, beside a broken wall and the edge of a chasm.",
   },
   grid: {
-    src: "/img/map-ice.webp",
-    alt: "A snowbound fortress of stone bridges and frozen waterfalls around a glowing blue crystal.",
+    src: "/img/home/hollowfrost-keep.webp",
+    alt: "A top-down battle map of a snowy paved courtyard with a blue crystal on a round stone dais, ringed by four braziers.",
   },
   visibility: {
-    src: "/img/map-jungle.webp",
-    alt: "An overgrown temple city of golden sun discs, serpent statues and turquoise pools.",
+    src: "/img/home/temple-green-sun.webp",
+    alt: "A top-down battle map of a jungle temple plaza with a golden sun mosaic, a lily pond, and a shadowed side chamber overgrown with ferns.",
   },
 } as const;
 
@@ -58,12 +66,64 @@ const PORTRAITS = {
   },
 } as const;
 
-/** The shelf in the library chapter. Real files, real dimensions, real default grid. */
-const SHELF = [
-  { ...MAPS.hero, name: "The Broken Span" },
-  { ...MAPS.grid, name: "Hollowfrost Keep" },
-  { ...MAPS.visibility, name: "Temple of the Green Sun" },
-] as const;
+/** Whole-map thumbnails for the library shelf, keyed by built-in id. */
+const THUMBS: Record<string, { src: string; alt: string }> = {
+  "builtin:broken-span": {
+    src: "/img/home/broken-span-thumb.webp",
+    alt: "A top-down battle map of a ruined keep split by a rushing chasm, joined by two stone bridges.",
+  },
+  "builtin:hollowfrost-keep": {
+    src: "/img/home/hollowfrost-keep-thumb.webp",
+    alt: "A top-down battle map of a snowbound fortress on both sides of a frozen ravine, with an ice bridge and a crystal dais.",
+  },
+  "builtin:temple-green-sun": {
+    src: "/img/home/temple-green-sun-thumb.webp",
+    alt: "A top-down battle map of an overgrown temple plaza with a sun mosaic, lily ponds and a side chamber, framed by jungle.",
+  },
+};
+
+/** The shelf in the library chapter: the real built-ins, whole, with their real size and grid. */
+const SHELF = BUILTIN_ASSETS.filter((a) => a.kind === "map" && a.id in THUMBS);
+
+/**
+ * A map's grid, drawn in the map's own pixels so it lands on the same squares at any
+ * display size. Lines keep a hairline width however far the map is scaled down.
+ */
+function MapGrid(props: {
+  width: number;
+  height: number;
+  cell: number;
+  offsetX?: number;
+  offsetY?: number;
+  variant: "faint" | "light" | "app";
+}) {
+  const { width, height, cell, offsetX = 0, offsetY = 0 } = props;
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (let x = offsetX; x <= width; x += cell) xs.push(x);
+  for (let y = offsetY; y <= height; y += cell) ys.push(y);
+  return (
+    <svg
+      className={`map-grid map-grid-${props.variant}`}
+      viewBox={`0 0 ${width} ${height}`}
+      preserveAspectRatio="none"
+      aria-hidden="true"
+    >
+      {xs.map((x) => (
+        <line key={`x${x}`} x1={x} y1={0} x2={x} y2={height} vectorEffect="non-scaling-stroke" />
+      ))}
+      {ys.map((y) => (
+        <line key={`y${y}`} x1={0} y1={y} x2={width} y2={y} vectorEffect="non-scaling-stroke" />
+      ))}
+    </svg>
+  );
+}
+
+/** Where a token in square (col, row) of a home crop is centred. */
+const inSquare = (col: number, row: number): CSSProperties => ({
+  left: `${(((col + 0.5) * CROP.cell) / CROP.width) * 100}%`,
+  top: `${(((row + 0.5) * CROP.cell) / CROP.height) * 100}%`,
+});
 
 /**
  * The home page. One page for everyone (KAN-56): it used to branch on whether this browser
@@ -138,13 +198,17 @@ function TokenChip(props: {
   color: string;
   hp: number;
   image?: string;
-  style: CSSProperties;
+  /** The grid square the token stands in, on its home crop. */
+  at: { col: number; row: number };
   delay?: number;
 }) {
   const [artFailed, setArtFailed] = useState(false);
   const art = props.image && !artFailed ? props.image : null;
   return (
-    <span className="token-chip" style={{ ...props.style, animationDelay: `${props.delay ?? 0}ms` }}>
+    <span
+      className="token-chip"
+      style={{ ...inSquare(props.at.col, props.at.row), animationDelay: `${props.delay ?? 0}ms` }}
+    >
       <span className={art ? "token-disc has-art" : "token-disc"} style={{ backgroundColor: props.color }}>
         {art ? (
           // The label beneath names the token, so the art itself is decorative.
@@ -197,17 +261,18 @@ function Landing({ theme, onTheme }: ThemeProps) {
             <div className="hero-frame">
               <img
                 src={MAPS.hero.src}
-                width={1672}
-                height={941}
+                width={CROP.width}
+                height={CROP.height}
                 alt={MAPS.hero.alt}
                 fetchPriority="high"
               />
+              <MapGrid width={CROP.width} height={CROP.height} cell={CROP.cell} variant="faint" />
               <TokenChip
                 name="Brenna"
                 color="#5b8def"
                 hp={84}
                 image={PORTRAITS.hero.brenna}
-                style={{ left: "27%", top: "46%" }}
+                at={{ col: 5, row: 4 }}
                 delay={560}
               />
               <TokenChip
@@ -215,7 +280,7 @@ function Landing({ theme, onTheme }: ThemeProps) {
                 color="#3fb950"
                 hp={61}
                 image={PORTRAITS.hero.toma}
-                style={{ left: "40%", top: "63%" }}
+                at={{ col: 10, row: 5 }}
                 delay={680}
               />
               <TokenChip
@@ -223,7 +288,7 @@ function Landing({ theme, onTheme }: ThemeProps) {
                 color="#d29922"
                 hp={38}
                 image={PORTRAITS.hero.ash}
-                style={{ left: "17%", top: "68%" }}
+                at={{ col: 4, row: 8 }}
                 delay={800}
               />
             </div>
@@ -260,11 +325,13 @@ function Landing({ theme, onTheme }: ThemeProps) {
 }
 
 /**
- * Grid alignment, live. Dragging the slider moves a real overlay across a real map, which
- * is the shape of the setup step the product is built around.
+ * Grid alignment, live. The faint grid is the map's own squares; the slider sizes the app's
+ * grid in map pixels until the two line up at 70, which is the setup step the product is
+ * built around.
  */
 function GridChapter() {
-  const [cell, setCell] = useState(70); // DEFAULT_GRID.cellSize
+  const [cell, setCell] = useState(60);
+  const lined = cell === CROP.cell;
 
   return (
     <section className="chapter" ref={revealOnEnter}>
@@ -278,8 +345,9 @@ function GridChapter() {
       </p>
       <figure className="map-figure" style={{ "--map": `url(${MAPS.grid.src})` } as CSSProperties}>
         <div className="map-frame">
-          <img src={MAPS.grid.src} width={1672} height={941} alt={MAPS.grid.alt} loading="lazy" decoding="async" />
-          <div className="grid-overlay live" style={{ backgroundSize: `${cell}px ${cell}px` }} aria-hidden="true" />
+          <img src={MAPS.grid.src} width={CROP.width} height={CROP.height} alt={MAPS.grid.alt} loading="lazy" decoding="async" />
+          <MapGrid width={CROP.width} height={CROP.height} cell={CROP.cell} variant="faint" />
+          <MapGrid width={CROP.width} height={CROP.height} cell={cell} variant="app" />
         </div>
       </figure>
       <div className="demo-bar">
@@ -287,8 +355,8 @@ function GridChapter() {
           Square size
           <input
             type="range"
-            min={36}
-            max={140}
+            min={40}
+            max={110}
             step={1}
             value={cell}
             onChange={(e) => setCell(Number(e.target.value))}
@@ -298,6 +366,9 @@ function GridChapter() {
           <b>{cell}</b> px squares · 1 square = <b>5</b> ft
         </output>
       </div>
+      <p className="figure-note" role="status">
+        {lined ? "Lined up with the map's squares." : "Drag until the grids line up."}
+      </p>
     </section>
   );
 }
@@ -319,13 +390,29 @@ function LibraryChapter() {
         your token art.
       </p>
       <ul className="plain shelf">
-        {SHELF.map((asset) => (
-          <li key={asset.src}>
-            <img src={asset.src} width={1672} height={941} alt={asset.alt} loading="lazy" decoding="async" />
-            <strong>{asset.name}</strong>
-            <span className="readout">1672 × 941 · 70px grid</span>
-          </li>
-        ))}
+        {SHELF.map((asset) => {
+          const thumb = THUMBS[asset.id]!;
+          const grid = asset.grid!;
+          return (
+            <li key={asset.id}>
+              <div className="shelf-map">
+                <img src={thumb.src} width={asset.width} height={asset.height} alt={thumb.alt} loading="lazy" decoding="async" />
+                <MapGrid
+                  width={asset.width}
+                  height={asset.height}
+                  cell={grid.cellSize}
+                  offsetX={grid.offsetX}
+                  offsetY={grid.offsetY}
+                  variant="light"
+                />
+              </div>
+              <strong>{asset.name}</strong>
+              <span className="readout">
+                {asset.width} × {asset.height} · {grid.cellSize}px grid
+              </span>
+            </li>
+          );
+        })}
       </ul>
       <div className="shelf-foot">
         <Link href="/library" className="ui-button">
@@ -366,23 +453,25 @@ function VisibilityChapter() {
 
       <figure className="map-figure" style={{ "--map": `url(${MAPS.visibility.src})` } as CSSProperties}>
         <div className="map-frame">
-          <img src={MAPS.visibility.src} width={1672} height={941} alt={MAPS.visibility.alt} loading="lazy" decoding="async" />
+          <img src={MAPS.visibility.src} width={CROP.width} height={CROP.height} alt={MAPS.visibility.alt} loading="lazy" decoding="async" />
+          <MapGrid width={CROP.width} height={CROP.height} cell={CROP.cell} variant="faint" />
           <TokenChip
             name="Brenna"
             color="#5b8def"
             hp={84}
             image={PORTRAITS.visibility.brenna}
-            style={{ left: "27%", top: "46%" }}
+            at={{ col: 7, row: 3 }}
           />
           <TokenChip
             name="Toma"
             color="#3fb950"
             hp={61}
             image={PORTRAITS.visibility.toma}
-            style={{ left: "40%", top: "63%" }}
+            at={{ col: 11, row: 6 }}
           />
           {asGm && (
-            <span className="token-chip is-hidden" style={{ left: "61%", top: "23%" }}>
+            // In the shadowed side chamber, which is where something would hide.
+            <span className="token-chip is-hidden" style={inSquare(15, 5)}>
               <span className="token-disc">
                 <EyeSlash weight="bold" aria-hidden="true" />
               </span>

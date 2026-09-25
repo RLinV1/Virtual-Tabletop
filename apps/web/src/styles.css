@@ -1149,16 +1149,20 @@ dialog.modal::backdrop { background: rgba(6, 8, 11, 0.62); }
 
 .map-figure:hover .map-frame { transform: translateY(-3px) scale(1.004); }
 
-/* The grid the GM lines up, drawn over the real map rather than mocked in divs. */
-.grid-overlay {
+/* A map's grid, drawn in map pixels over the real map (top-down-default-maps). The faint
+   grid is the map's own squares; a dark halo under a light line reads on snow and jungle
+   alike. The app's grid is the rust one the GM lines up. */
+.map-grid {
   position: absolute;
   inset: 0;
-  background-image:
-    linear-gradient(rgba(224, 138, 98, 0.6) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(224, 138, 98, 0.6) 1px, transparent 1px);
-  background-size: 5.55% 9.85%;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
 }
+.map-grid line { stroke-width: 1px; }
+.map-grid-faint { stroke: rgba(255, 255, 255, 0.34); filter: drop-shadow(0 0 0.5px rgba(10, 12, 16, 0.55)); }
+.map-grid-light { stroke: rgba(255, 255, 255, 0.2); }
+.map-grid-app line { stroke: rgba(224, 138, 98, 0.9); stroke-width: 1.5px; }
 
 .view-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
 .view-pair figure { margin: 0; }
@@ -1326,9 +1330,12 @@ dialog.modal::backdrop { background: rgba(6, 8, 11, 0.62); }
 
 /* ---- Tokens on a map, drawn the way the board draws them ---- */
 
+/* Anchored on the disc's centre, not the whole chip's, so the token itself sits in the
+   middle of its square and the name hangs below it. */
 .token-chip {
+  --disc: 2.3rem;
   position: absolute;
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, calc(var(--disc) / -2));
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1339,8 +1346,8 @@ dialog.modal::backdrop { background: rgba(6, 8, 11, 0.62); }
 .token-disc {
   display: grid;
   place-items: center;
-  width: 2.3rem;
-  height: 2.3rem;
+  width: var(--disc);
+  height: var(--disc);
   border-radius: 50%;
   border: 2px solid rgba(255, 255, 255, 0.9);
   box-shadow: 0 3px 12px rgba(6, 8, 12, 0.6);
@@ -1353,13 +1360,19 @@ dialog.modal::backdrop { background: rgba(6, 8, 11, 0.62); }
 .token-disc.has-art { overflow: hidden; }
 .token-disc.has-art img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .token-hp {
-  width: 2.5rem;
+  width: calc(var(--disc) + 0.2rem);
   height: 4px;
   border-radius: 2px;
   background: rgba(8, 10, 14, 0.75);
   overflow: hidden;
 }
 .token-hp-fill { display: block; height: 100%; background: var(--ok); }
+/* A phone shows a crop's squares at about 19 px, so tokens shrink to about one square. */
+@media (max-width: 560px) {
+  .token-chip { --disc: 1.35rem; width: 3.4rem; }
+  .token-disc { font-size: 0.7rem; border-width: 1.5px; }
+  .token-label { font-size: 0.6rem; }
+}
 .token-label {
   font-size: 0.68rem;
   font-weight: 600;
@@ -1514,8 +1527,8 @@ dialog.modal::backdrop { background: rgba(6, 8, 11, 0.62); }
   /* Storytelling: tokens land on the map after it, the way a GM places them. */
   .hero-frame .token-chip { animation: token-land 0.5s cubic-bezier(0.34, 1.4, 0.5, 1) both; }
   @keyframes token-land {
-    from { opacity: 0; transform: translate(-50%, -50%) scale(0.55); }
-    to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    from { opacity: 0; transform: translate(-50%, calc(var(--disc) / -2)) scale(0.55); }
+    to { opacity: 1; transform: translate(-50%, calc(var(--disc) / -2)) scale(1); }
   }
 
   .dice-total { animation: total-in 0.42s cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: 0.12s; }
@@ -1546,24 +1559,21 @@ dialog.modal::backdrop { background: rgba(6, 8, 11, 0.62); }
    of three equal feature cards. */
 .shelf {
   display: grid;
-  grid-template-columns: 1.25fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 1rem;
   margin-bottom: 1.25rem;
 }
 .shelf li { display: flex; flex-direction: column; gap: 0.4rem; min-width: 0; }
-.shelf img {
-  display: block;
-  width: 100%;
-  /* height:auto so the intrinsic 1672x941 from the width/height attributes does not win
-     over the crop ratio below (the attributes stay, they are what reserve the space). */
-  /* One height across the shelf so the captions sit on a line; the widths stay uneven. */
-  height: clamp(8rem, 13vw, 11rem);
-  object-fit: cover;
+/* Each map shown whole, as the library holds it, with its own grid over it. */
+.shelf-map {
+  position: relative;
+  overflow: clip;
   border: 1px solid var(--border);
   border-radius: 12px;
   transition: border-color 0.2s, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.shelf li:hover img { border-color: var(--accent); transform: translateY(-2px); }
+.shelf-map img { display: block; width: 100%; height: auto; }
+.shelf li:hover .shelf-map { border-color: var(--accent); transform: translateY(-2px); }
 .shelf strong { font-size: 0.95rem; font-weight: 600; }
 .shelf .readout { font-size: 0.76rem; }
 
@@ -1575,5 +1585,5 @@ dialog.modal::backdrop { background: rgba(6, 8, 11, 0.62); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .shelf img { transition: none; }
+  .shelf-map { transition: none; }
 }

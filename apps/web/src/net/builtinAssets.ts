@@ -10,11 +10,20 @@ import { DEFAULT_GRID, type LibraryAsset } from "@vtt/shared";
  */
 
 const SHIPPED = "2026-09-24T00:00:00.000Z";
-const MAP_SIZE = { width: 1672, height: 941 };
 const TOKEN_SIZE = { width: 192, height: 192 };
 
-function map(slug: string, name: string, url: string): LibraryAsset {
-  return { id: `builtin:${slug}`, kind: "map", name, url, ...MAP_SIZE, grid: DEFAULT_GRID, createdAt: SHIPPED };
+/**
+ * Each map carries its own grid, measured from its drawn floor tiles so the lines follow
+ * the paving and walls (top-down-default-maps). A regenerated map needs measuring again.
+ */
+function map(
+  slug: string,
+  name: string,
+  url: string,
+  size: { width: number; height: number },
+  grid: { cellSize: number; offsetX: number; offsetY: number },
+): LibraryAsset {
+  return { id: `builtin:${slug}`, kind: "map", name, url, ...size, grid: { ...DEFAULT_GRID, ...grid }, createdAt: SHIPPED };
 }
 
 function token(slug: string, name: string, url: string): LibraryAsset {
@@ -22,9 +31,9 @@ function token(slug: string, name: string, url: string): LibraryAsset {
 }
 
 export const BUILTIN_ASSETS: readonly LibraryAsset[] = [
-  map("broken-span", "The Broken Span", "/img/hero-map.webp"),
-  map("hollowfrost-keep", "Hollowfrost Keep", "/img/map-ice.webp"),
-  map("temple-green-sun", "Temple of the Green Sun", "/img/map-jungle.webp"),
+  map("broken-span", "The Broken Span", "/img/hero-map.webp", { width: 3344, height: 1882 }, { cellSize: 69.4, offsetX: 10, offsetY: 31 }),
+  map("hollowfrost-keep", "Hollowfrost Keep", "/img/map-ice.webp", { width: 3269, height: 1882 }, { cellSize: 70, offsetX: 47, offsetY: 46 }),
+  map("temple-green-sun", "Temple of the Green Sun", "/img/map-jungle.webp", { width: 2740, height: 1604 }, { cellSize: 70, offsetX: 21, offsetY: 36 }),
   token("brenna", "Brenna", "/img/tokens/hero-brenna.webp"),
   token("toma", "Toma", "/img/tokens/hero-toma.webp"),
   token("ash", "Ash", "/img/tokens/hero-ash.webp"),
