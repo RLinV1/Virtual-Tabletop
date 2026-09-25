@@ -226,7 +226,8 @@ function Room({
             <span className={`status status-${status}`} role="status">
               {STATUS_LABEL[status]} · seq {seq}
             </span>
-            <p className="whoami">
+            {/* A div, not a p: Leave table renders its confirmation <dialog> in here. */}
+            <div className="whoami">
               You are <strong>{you.displayName}</strong> ({you.role === "gm" ? "GM" : "player"})
               {/* Players only: the GM can't leave their own room; Home is their way out. */}
               {you.role === "player" && (
@@ -235,7 +236,7 @@ function Room({
                   <LeaveTable connection={connection} state={state} you={you} />
                 </>
               )}
-            </p>
+            </div>
           </header>
           {/*
             One panel for both roles. A player needs the turn order, their own token's
