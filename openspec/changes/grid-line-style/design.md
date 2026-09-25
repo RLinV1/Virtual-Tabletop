@@ -24,7 +24,7 @@ Why optional rather than `.default()`: stored events and library rows written be
 - Pure helpers (`hsvToHex`, `hexToHsv`, `pointToHueSat`) live in `ui/color.ts` and are unit-tested.
 
 ### Advanced disclosure and visual treatment
-The line controls sit behind a closed-by-default "Advanced" row, a button with `aria-expanded`/`aria-controls`, a Phosphor `CaretDown` that rotates, and the live summary. The body fades in (opacity and 4 px translate, `cubic-bezier(0.16, 1, 0.3, 1)`), which is disabled under reduced motion. The treatment follows the redesign, taste and high-end frontend skills, within the app's existing tokens:
+The line controls sit behind a closed-by-default "Advanced" row: a button with `aria-expanded`/`aria-controls` and a Phosphor `CaretDown` that rotates. An earlier version also showed a style summary on the row (a colour chip plus "Hairline, 35%"). It was removed in review, because the chip read as an unchecked checkbox and the summary added nothing. The body fades in (opacity and 4 px translate, `cubic-bezier(0.16, 1, 0.3, 1)`), which is disabled under reduced motion. The treatment follows the redesign, taste and high-end frontend skills, within the app's existing tokens:
 - The range inputs are themed, with no browser blue: a thin neutral track and a ringed accent thumb. Brightness runs from black to the hue, and opacity fades the colour in over a checkerboard.
 - The wheel is always drawn at full brightness, so it never shows as a black disc; picking on it lifts brightness off black.
 - The preview comes first and is full-width: an SVG of the current map in board coordinates, with the lines at true board width.

@@ -1,11 +1,11 @@
 ## ADDED Requirements
 
 ### Requirement: Line style lives under Advanced, closed by default
-The line-style controls SHALL sit behind an "Advanced" disclosure in the Grid modal, closed each time the modal opens. When closed, it SHALL show a one-line summary of the current style (a colour chip, the thickness name and the opacity), so the GM can see it without opening it.
+The line-style controls SHALL sit behind an "Advanced" disclosure in the Grid modal, closed each time the modal opens. The closed row SHALL show only its label and an expand indicator, with no controls or chips that look interactive but aren't.
 
 #### Scenario: Default view
 - **WHEN** the GM opens the Grid modal
-- **THEN** only the cell size, units and offsets are shown, plus a closed "Advanced" row summarising the line style
+- **THEN** only the cell size, units and offsets are shown, plus a closed "Advanced" row
 
 #### Scenario: Expanding
 - **WHEN** the GM opens "Advanced"

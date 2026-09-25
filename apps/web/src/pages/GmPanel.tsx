@@ -234,7 +234,6 @@ function GridLineFields({ draft, map, onChange }: { draft: GridSpec; map: MapIma
   const style = gridLineStyle(draft);
   const widthIndex = Math.max(0, GRID_LINE_WIDTHS.findIndex((w) => w >= style.width));
   const opacityPct = Math.round(style.opacity * 100);
-  const summary = `${WIDTH_NAMES[widthIndex]}, ${opacityPct}%`;
   return (
     <div className="grid-advanced">
       <button
@@ -245,11 +244,6 @@ function GridLineFields({ draft, map, onChange }: { draft: GridSpec; map: MapIma
         onClick={() => setOpen((o) => !o)}
       >
         <span className="grid-advanced-title">Advanced</span>
-        <span className="grid-advanced-summary">
-          <span className="grid-advanced-chip" style={{ background: style.color, opacity: Math.max(0.35, style.opacity) }} aria-hidden="true" />
-          <span className="sr-only">Line style: </span>
-          {summary}
-        </span>
         <CaretDown size={14} weight="bold" className="grid-advanced-caret" aria-hidden="true" />
       </button>
       <div id="grid-advanced-body" className="grid-advanced-body" hidden={!open}>

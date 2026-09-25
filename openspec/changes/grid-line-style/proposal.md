@@ -5,7 +5,7 @@ The grid is always drawn as 1-board-pixel black lines at 35% opacity (`boardView
 ## What Changes
 
 - **Three new grid fields.** `GridSpec` gains optional `lineColor` (`#rrggbb`), `lineWidth` (board pixels) and `lineOpacity` (0.05–1). Missing values mean today's look (`#000000`, 1, 0.35), so every existing room, event and saved library grid renders exactly as before.
-- **Grid modal.** The GM's Grid modal gains an **Advanced** disclosure, closed by default, with a summary of the current style (colour chip, thickness name, opacity) on its row. Inside:
+- **Grid modal.** The GM's Grid modal gains an **Advanced** disclosure, closed by default. Inside:
   - **Colour:** a colour wheel (hue by angle, saturation by radius) plus a brightness slider, a hex field, and a few quick swatches (black, white, and the app's accent).
   - **Thickness:** a slider that snaps to five presets (Hairline 1, Thin 2, Medium 3, Thick 4, Bold 6 board pixels), labelled with the preset name.
   - **Opacity:** a slider from 5% to 100% in 5% steps, showing the percentage. It starts at today's 35%.

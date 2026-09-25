@@ -275,11 +275,6 @@ button.grid-advanced-toggle {
 }
 button.grid-advanced-toggle:hover:not(:disabled) { filter: none; background: var(--raised); }
 .grid-advanced-title { flex: 1; }
-.grid-advanced-summary {
-  display: inline-flex; align-items: center; gap: 0.4rem;
-  color: var(--muted); font-size: var(--fs-sm); font-weight: 400; font-variant-numeric: tabular-nums;
-}
-.grid-advanced-chip { width: 0.75rem; height: 0.75rem; border-radius: 2px; box-shadow: 0 0 0 1px var(--border-strong); }
 .grid-advanced-caret { color: var(--muted); transition: transform 0.24s cubic-bezier(0.32, 0.72, 0, 1); }
 .grid-advanced-toggle[aria-expanded="true"] .grid-advanced-caret { transform: rotate(180deg); }
 .grid-advanced-body { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-2) var(--space-1) var(--space-1); }

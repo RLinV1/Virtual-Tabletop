@@ -14,7 +14,7 @@
 ## 3. Grid modal
 
 - [x] 3.1 `ui/color.ts` helpers with unit tests; `ui/ColorWheel.tsx` (canvas wheel, brightness, hex field, swatches, keyboard).
-- [x] 3.2 `GridForm` Advanced disclosure (closed by default, with a style summary): preview, colour wheel, preset thickness slider, opacity slider (5–100%); Apply sends the style with the grid. Restyled with the redesign, taste and high-end frontend skills.
+- [x] 3.2 `GridForm` Advanced disclosure (closed by default; the row shows just its label and arrow): preview, colour wheel, preset thickness slider, opacity slider (5–100%); Apply sends the style with the grid. Restyled with the redesign, taste and high-end frontend skills.
 
 ## 4. Verification
 
