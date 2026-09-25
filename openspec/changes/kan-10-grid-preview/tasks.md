@@ -13,6 +13,14 @@
 
 ## 3. Browser acceptance
 
-- [ ] 3.1 In separate GM and player browser sessions, edit a grid and verify that only the GM sees the draft while both clients retain the accepted grid and token positions until Apply; confirm one accepted change reaches both after Apply.
-- [ ] 3.2 In a GM browser session, verify blank and out-of-range fields disable Apply, a last valid preview remains visible, and Cancel, Escape, close button and backdrop discard the preview with no command; verify a rejected Apply keeps the modal open with an error.
-- [ ] 3.3 At 320px and 390px widths, verify the Adjust grid modal remains usable and the preview can be inspected; record any mobile visibility limitation for the team review.
+- [x] 3.1 In separate GM and player browser sessions, edit a grid and verify that only the GM sees the draft while both clients retain the accepted grid and token positions until Apply; confirm one accepted change reaches both after Apply.
+- [x] 3.2 In a GM browser session, verify blank and out-of-range fields disable Apply, a last valid preview remains visible, and Cancel, Escape, close button and backdrop discard the preview with no command; verify a rejected Apply keeps the modal open with an error.
+- [x] 3.3 At 320px and 390px widths, verify the Adjust grid modal remains usable and the preview can be inspected; record any mobile visibility limitation for the team review.
+
+### Browser QA record — 2026-09-25
+
+Automated in headless Chromium with separate GM and player browser contexts. The desktop GM viewport was 1440 × 900; the player viewport was 1160 × 800. The player board screenshot was identical before and during the GM draft, then changed after one accepted Apply. The GM's uncovered board region was identical before and after clearing a field, confirming the last valid preview remained. A valid style edit updated the modal preview without changing the player view.
+
+Blank and out-of-range fields disabled Apply. Cancel, Escape, Close, and backdrop dismissal cleared the draft without a grid command. A WebSocket-intercepted `rejected` response, sent without forwarding the attempted command to the server, kept the dialog open with its error and left the accepted grid unchanged. No browser page errors occurred.
+
+At 320 × 700 and 390 × 700, the dialog and its controls stayed within the viewport width and remained reachable by scrolling. The modal obscures most of the board at these widths, so the board overlay cannot be inspected alongside the form; the map-and-grid preview inside Advanced remained visible.
