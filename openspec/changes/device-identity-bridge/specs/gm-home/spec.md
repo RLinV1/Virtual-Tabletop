@@ -1,23 +1,19 @@
 # Spec Delta
 
-## Purpose
-
-Bounds the GM device identity: what creates it, how long it lives, and what ends it. It is a bridge to FR-GM-01 accounts, not a permanent anonymous tier.
-
 ## MODIFIED Requirements
 
 ### Requirement: GM device identity
-Until accounts exist (FR-GM-01), a GM SHALL be identified by a GM token that the browser generates and keeps in local storage. The server MUST store only a one-way hash of the token. The token SHALL be created the first time the browser performs a GM **write**, which is creating a room or uploading a library asset. Reading a GM surface MUST NOT create an identity. It SHALL own every room created and every library asset uploaded from that browser.
+Until accounts exist (FR-GM-01), a GM SHALL be identified by a GM token that the browser generates and keeps in local storage. The server MUST store only a one-way hash of the token. The token SHALL be created the first time the browser performs a GM **write**, which is creating a room or uploading a library asset. Opening a GM surface (the dashboard or the asset library) or continuing as a guest MUST NOT create an identity. It SHALL own every room created and every library asset uploaded from that browser.
 
 The identity is a time-boxed bridge. It SHALL NOT be presented to the user as an account, and the product SHALL NOT add ownership transfer, claiming or merging of device-owned rows while it exists (DESIGN.md §13.1).
 
-#### Scenario: First GM write creates the identity
+#### Scenario: First GM action creates the identity
 - **WHEN** a browser with no GM token creates a room
 - **THEN** a GM token is generated and stored in the browser, and the new room is owned by that GM identity
 
 #### Scenario: Reading does not create an identity
-- **WHEN** a browser with no GM token opens the asset library
-- **THEN** an empty library is shown, no GM token is stored, and no GM identity row is created on the server
+- **WHEN** a browser with no GM token opens the asset library or the GM dashboard
+- **THEN** no GM token is stored and no GM identity is created on the server
 
 #### Scenario: Server never holds the raw token
 - **WHEN** the server records a GM identity
@@ -49,7 +45,7 @@ When FR-GM-01 accounts land, creating a room SHALL require an authenticated acco
 
 #### Scenario: Signed-out host after cutover
 - **WHEN** a signed-out visitor starts room creation after accounts exist
-- **THEN** they are taken to sign-in or sign-up carrying a return intent, and authenticating continues into creating the room rather than landing on a dashboard
+- **THEN** they are taken to sign-in or sign-up, and authenticating takes them to the GM dashboard, where the create-room form is the first thing offered; "Continue as guest" is no longer shown
 
 #### Scenario: Players are never gated
 - **WHEN** a visitor follows an invite link after accounts exist

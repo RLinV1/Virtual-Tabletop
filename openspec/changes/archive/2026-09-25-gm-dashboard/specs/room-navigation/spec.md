@@ -1,9 +1,6 @@
-# room-navigation Specification
+# Spec Delta
 
-## Purpose
-Defines how a participant leaves the room page from inside it: the GM can go back to the home page, and players, who arrive by invite, simply close the tab.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: GM can return home from a room
 The room page SHALL show the GM a "Home" link in the board toolbar that opens the GM dashboard. It SHALL NOT be shown to players.
