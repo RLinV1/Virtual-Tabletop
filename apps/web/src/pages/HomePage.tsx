@@ -1,18 +1,14 @@
 import {
-  useEffect,
-  useRef,
   useState,
   type CSSProperties,
   type FormEvent,
   type ReactNode,
-  type RefObject,
 } from "react";
 import {
   formatExpression,
   parseDiceExpression,
   rollDice,
   type DiceExpression,
-  type GmRoomSummary,
 } from "@vtt/shared";
 import {
   ArrowRight,
@@ -22,32 +18,38 @@ import {
   EyeSlash,
   GridFour,
   LinkSimple,
+  MapTrifold,
   Moon,
   Stack,
   Sun,
 } from "@phosphor-icons/react";
 import { Link } from "../Link";
-import { api } from "../net/api";
 import { revealOnEnter } from "../ui/reveal";
-import { getGmToken } from "../net/gm";
-import { loadGmToken, newGuestToken, saveCredentials } from "../net/identity";
 import { navigate } from "../router";
 import { useGroundTheme, type ThemeChoice } from "../theme";
 import { DiceTray } from "../ui/DiceTray";
+import { BUILTIN_ASSETS } from "../net/builtinAssets";
+
+/**
+ * Every home crop is 20 squares wide and starts on a grid line of its map, cut by
+ * scripts/home-maps.mjs to 1400 x 788, so each has exact 70 px squares from its top-left
+ * corner (top-down-default-maps).
+ */
+const CROP = { width: 1400, height: 788, cell: 70 } as const;
 
 /** One map per section, so the page shows three encounters rather than one three times. */
 const MAPS = {
   hero: {
-    src: "/img/hero-map.webp",
-    alt: "A ruined mountain keep of stone bridges and waterfalls, with a red dragon coiled over its treasure.",
+    src: "/img/home/broken-span.webp",
+    alt: "A top-down battle map of a ruined stone courtyard with a lit brazier, fallen blocks and moss between the flagstones, beside a broken wall and the edge of a chasm.",
   },
   grid: {
-    src: "/img/map-ice.webp",
-    alt: "A snowbound fortress of stone bridges and frozen waterfalls around a glowing blue crystal.",
+    src: "/img/home/hollowfrost-keep.webp",
+    alt: "A top-down battle map of a snowy paved courtyard with a blue crystal on a round stone dais, ringed by four braziers.",
   },
   visibility: {
-    src: "/img/map-jungle.webp",
-    alt: "An overgrown temple city of golden sun discs, serpent statues and turquoise pools.",
+    src: "/img/home/temple-green-sun.webp",
+    alt: "A top-down battle map of a jungle temple plaza with a golden sun mosaic, a lily pond, and a shadowed side chamber overgrown with ferns.",
   },
 } as const;
 
@@ -64,12 +66,64 @@ const PORTRAITS = {
   },
 } as const;
 
-/** The shelf in the library chapter. Real files, real dimensions, real default grid. */
-const SHELF = [
-  { ...MAPS.hero, name: "The Broken Span" },
-  { ...MAPS.grid, name: "Hollowfrost Keep" },
-  { ...MAPS.visibility, name: "Temple of the Green Sun" },
-] as const;
+/** Whole-map thumbnails for the library shelf, keyed by built-in id. */
+const THUMBS: Record<string, { src: string; alt: string }> = {
+  "builtin:broken-span": {
+    src: "/img/home/broken-span-thumb.webp",
+    alt: "A top-down battle map of a ruined keep split by a rushing chasm, joined by two stone bridges.",
+  },
+  "builtin:hollowfrost-keep": {
+    src: "/img/home/hollowfrost-keep-thumb.webp",
+    alt: "A top-down battle map of a snowbound fortress on both sides of a frozen ravine, with an ice bridge and a crystal dais.",
+  },
+  "builtin:temple-green-sun": {
+    src: "/img/home/temple-green-sun-thumb.webp",
+    alt: "A top-down battle map of an overgrown temple plaza with a sun mosaic, lily ponds and a side chamber, framed by jungle.",
+  },
+};
+
+/** The shelf in the library chapter: the real built-ins, whole, with their real size and grid. */
+const SHELF = BUILTIN_ASSETS.filter((a) => a.kind === "map" && a.id in THUMBS);
+
+/**
+ * A map's grid, drawn in the map's own pixels so it lands on the same squares at any
+ * display size. Lines keep a hairline width however far the map is scaled down.
+ */
+function MapGrid(props: {
+  width: number;
+  height: number;
+  cell: number;
+  offsetX?: number;
+  offsetY?: number;
+  variant: "faint" | "light" | "app";
+}) {
+  const { width, height, cell, offsetX = 0, offsetY = 0 } = props;
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (let x = offsetX; x <= width; x += cell) xs.push(x);
+  for (let y = offsetY; y <= height; y += cell) ys.push(y);
+  return (
+    <svg
+      className={`map-grid map-grid-${props.variant}`}
+      viewBox={`0 0 ${width} ${height}`}
+      preserveAspectRatio="none"
+      aria-hidden="true"
+    >
+      {xs.map((x) => (
+        <line key={`x${x}`} x1={x} y1={0} x2={x} y2={height} vectorEffect="non-scaling-stroke" />
+      ))}
+      {ys.map((y) => (
+        <line key={`y${y}`} x1={0} y1={y} x2={width} y2={y} vectorEffect="non-scaling-stroke" />
+      ))}
+    </svg>
+  );
+}
+
+/** Where a token in square (col, row) of a home crop is centred. */
+const inSquare = (col: number, row: number): CSSProperties => ({
+  left: `${(((col + 0.5) * CROP.cell) / CROP.width) * 100}%`,
+  top: `${(((row + 0.5) * CROP.cell) / CROP.height) * 100}%`,
+});
 
 /**
  * The home page. One page for everyone (KAN-56): it used to branch on whether this browser
@@ -144,13 +198,17 @@ function TokenChip(props: {
   color: string;
   hp: number;
   image?: string;
-  style: CSSProperties;
+  /** The grid square the token stands in, on its home crop. */
+  at: { col: number; row: number };
   delay?: number;
 }) {
   const [artFailed, setArtFailed] = useState(false);
   const art = props.image && !artFailed ? props.image : null;
   return (
-    <span className="token-chip" style={{ ...props.style, animationDelay: `${props.delay ?? 0}ms` }}>
+    <span
+      className="token-chip"
+      style={{ ...inSquare(props.at.col, props.at.row), animationDelay: `${props.delay ?? 0}ms` }}
+    >
       <span className={art ? "token-disc has-art" : "token-disc"} style={{ backgroundColor: props.color }}>
         {art ? (
           // The label beneath names the token, so the art itself is decorative.
@@ -171,13 +229,6 @@ function TokenChip(props: {
 }
 
 function Landing({ theme, onTheme }: ThemeProps) {
-  const roomNameRef = useRef<HTMLInputElement>(null);
-
-  function focusCreate() {
-    roomNameRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
-    roomNameRef.current?.focus({ preventScroll: true });
-  }
-
   return (
     <>
       <div className="landing-shell landing-bar">
@@ -196,26 +247,32 @@ function Landing({ theme, onTheme }: ThemeProps) {
           <div>
             <h1 className="enter">From battle map to table in minutes.</h1>
             <p className="landing-sub enter enter-2">
-              Upload a map, line up the grid, place your tokens. Players join from any browser, no account
-              needed.
+              Set up a map, drop in tokens, and send your players a link. They join from any browser, no
+              account needed.
             </p>
-            <CreateRoomForm firstFieldRef={roomNameRef} />
+            {/* Two readers arrive here. Players outnumber GMs at every table and their path is
+                one field, so it comes first; the GM's path keeps the only filled button. */}
+            <div className="hero-paths enter enter-3">
+              <JoinBlock />
+              <RunBlock />
+            </div>
           </div>
           <div className="hero-art enter enter-art" style={{ "--map": `url(${MAPS.hero.src})` } as CSSProperties}>
             <div className="hero-frame">
               <img
                 src={MAPS.hero.src}
-                width={1672}
-                height={941}
+                width={CROP.width}
+                height={CROP.height}
                 alt={MAPS.hero.alt}
                 fetchPriority="high"
               />
+              <MapGrid width={CROP.width} height={CROP.height} cell={CROP.cell} variant="faint" />
               <TokenChip
                 name="Brenna"
                 color="#5b8def"
                 hp={84}
                 image={PORTRAITS.hero.brenna}
-                style={{ left: "27%", top: "46%" }}
+                at={{ col: 5, row: 4 }}
                 delay={560}
               />
               <TokenChip
@@ -223,7 +280,7 @@ function Landing({ theme, onTheme }: ThemeProps) {
                 color="#3fb950"
                 hp={61}
                 image={PORTRAITS.hero.toma}
-                style={{ left: "40%", top: "63%" }}
+                at={{ col: 10, row: 5 }}
                 delay={680}
               />
               <TokenChip
@@ -231,27 +288,32 @@ function Landing({ theme, onTheme }: ThemeProps) {
                 color="#d29922"
                 hp={38}
                 image={PORTRAITS.hero.ash}
-                style={{ left: "17%", top: "68%" }}
+                at={{ col: 4, row: 8 }}
                 delay={800}
               />
             </div>
           </div>
         </section>
 
-        <YourRooms />
-        <JoinByInviteBand />
-
-        <GridChapter />
-        <LibraryChapter />
-        <VisibilityChapter />
-        <DiceChapter />
+        {/* Everything under this heading is about running a game, so "you" below is the GM
+            and players are "your players". */}
+        <section aria-labelledby="running-your-game">
+          <header className="part-head" ref={revealOnEnter}>
+            <h2 id="running-your-game">Running your game</h2>
+            <p>What you get as the GM. Your players only need the link.</p>
+          </header>
+          <GridChapter />
+          <LibraryChapter />
+          <VisibilityChapter />
+          <DiceChapter />
+        </section>
 
         <section className="closing">
-          <h2>Start a room and send the link.</h2>
-          <button type="button" className="cta" onClick={focusCreate}>
-            Create room
+          <h2>Ready to run a game? Start a room and send your players the link.</h2>
+          <Link href="/gm-dashboard" className="cta">
+            Set up a room
             <ArrowRight weight="bold" aria-hidden="true" />
-          </button>
+          </Link>
         </section>
       </main>
 
@@ -263,121 +325,100 @@ function Landing({ theme, onTheme }: ThemeProps) {
 }
 
 /**
- * Rooms this browser owns. Renders nothing at all until there is something to show, so a
- * first-time visitor sees the same page a returning GM does, only shorter.
- */
-function YourRooms() {
-  const [rooms, setRooms] = useState<GmRoomSummary[] | null>(null);
-
-  useEffect(() => {
-    const gmToken = loadGmToken();
-    if (!gmToken) return;
-    let live = true;
-    // A failure here is not worth a message on the home page: the section just stays away.
-    api.gm.rooms(gmToken).then((r) => live && setRooms(r), () => {});
-    return () => {
-      live = false;
-    };
-  }, []);
-
-  if (!rooms?.length) return null;
-
-  return (
-    <section className="your-rooms" ref={revealOnEnter}>
-      <h2>Your rooms</h2>
-      <ul className="plain room-list">
-        {rooms.map((room) => (
-          <li key={room.id}>
-            <div>
-              <strong>{room.name || "Untitled room"}</strong>
-              <span className="muted"> · active {formatRelative(room.lastActiveAt)}</span>
-            </div>
-            <button type="button" className="ui-button" onClick={() => navigate(`/r/${room.id}`)}>
-              Open
-            </button>
-          </li>
-        ))}
-      </ul>
-      <p className="muted small-print">Saved in this browser until accounts arrive.</p>
-    </section>
-  );
-}
-
-/**
- * Grid alignment, live. Dragging the slider moves a real overlay across a real map, which
- * is the shape of the setup step the product is built around.
+ * Grid alignment, live. The faint grid is the map's own squares; the slider sizes the app's
+ * grid in map pixels until the two line up at 70, which is the setup step the product is
+ * built around.
  */
 function GridChapter() {
-  const [cell, setCell] = useState(70); // DEFAULT_GRID.cellSize
+  const [cell, setCell] = useState(60);
+  const lined = cell === CROP.cell;
 
   return (
     <section className="chapter" ref={revealOnEnter}>
-      <h2>
+      <h3>
         <GridFour weight="duotone" aria-hidden="true" />
         Use the map you already have.
-      </h2>
+      </h3>
       <p>
-        Size the cells until the squares land on the ones the cartographer drew. Drag the slider: this is the
-        overlay, not a picture of one.
+        Got a map with a grid already drawn on it? Match ours to it in seconds, so movement and distances
+        line up with the squares your players see. Try it: drag the slider.
       </p>
       <figure className="map-figure" style={{ "--map": `url(${MAPS.grid.src})` } as CSSProperties}>
         <div className="map-frame">
-          <img src={MAPS.grid.src} width={1672} height={941} alt={MAPS.grid.alt} loading="lazy" decoding="async" />
-          <div className="grid-overlay live" style={{ backgroundSize: `${cell}px ${cell}px` }} aria-hidden="true" />
+          <img src={MAPS.grid.src} width={CROP.width} height={CROP.height} alt={MAPS.grid.alt} loading="lazy" decoding="async" />
+          <MapGrid width={CROP.width} height={CROP.height} cell={CROP.cell} variant="faint" />
+          <MapGrid width={CROP.width} height={CROP.height} cell={cell} variant="app" />
         </div>
       </figure>
       <div className="demo-bar">
         <label className="demo-slider">
-          Cell size
+          Square size
           <input
             type="range"
-            min={36}
-            max={140}
+            min={40}
+            max={110}
             step={1}
             value={cell}
             onChange={(e) => setCell(Number(e.target.value))}
           />
         </label>
         <output className="readout">
-          cellSize <b>{cell}</b> px · one square = <b>5</b> ft
+          <b>{cell}</b> px squares · 1 square = <b>5</b> ft
         </output>
       </div>
+      <p className="figure-note" role="status">
+        {lined ? "Lined up with the map's squares." : "Drag until the grids line up."}
+      </p>
     </section>
   );
 }
 
 /**
- * The asset library, and the home page's only way into it. No login:
- * the library is keyed to this browser's GM identity until FR-GM-01 lands, and the note
- * below says so rather than implying an account exists.
+ * The asset library, described rather than linked: the GM dashboard is its way in
+ * (gm-dashboard). No login: the library is keyed to this browser's GM identity until
+ * FR-GM-01 lands, and the note below says so rather than implying an account exists.
  */
 function LibraryChapter() {
   return (
     <section className="chapter" ref={revealOnEnter}>
-      <h2>
+      <h3>
         <Stack weight="duotone" aria-hidden="true" />
         Keep your maps for next time.
-      </h2>
+      </h3>
       <p>
         Upload a map once and set its grid once. It is then one click away in every room you run, along with
         your token art.
       </p>
       <ul className="plain shelf">
-        {SHELF.map((asset) => (
-          <li key={asset.src}>
-            <img src={asset.src} width={1672} height={941} alt={asset.alt} loading="lazy" decoding="async" />
-            <strong>{asset.name}</strong>
-            <span className="readout">1672 × 941 · 70px grid</span>
-          </li>
-        ))}
+        {SHELF.map((asset) => {
+          const thumb = THUMBS[asset.id]!;
+          const grid = asset.grid!;
+          return (
+            <li key={asset.id}>
+              <div className="shelf-map">
+                <img src={thumb.src} width={asset.width} height={asset.height} alt={thumb.alt} loading="lazy" decoding="async" />
+                <MapGrid
+                  width={asset.width}
+                  height={asset.height}
+                  cell={grid.cellSize}
+                  offsetX={grid.offsetX}
+                  offsetY={grid.offsetY}
+                  variant="light"
+                />
+              </div>
+              <strong>{asset.name}</strong>
+              <span className="readout">
+                {asset.width} × {asset.height} · {grid.cellSize}px grid
+              </span>
+            </li>
+          );
+        })}
       </ul>
+      {/* The library itself is reached from the GM dashboard only (gm-dashboard). */}
       <div className="shelf-foot">
-        <Link href="/library" className="ui-button">
-          Open the asset library
-        </Link>
         <p className="muted small-print">
-          No sign-in needed. The library is tied to this browser until accounts arrive, so it does not follow
-          you to another device yet.
+          You'll find it on your GM dashboard. No sign-in needed: it's saved in this browser until accounts
+          arrive, so it won't follow you to another computer or phone yet.
         </p>
       </div>
     </section>
@@ -390,13 +431,13 @@ function VisibilityChapter() {
 
   return (
     <section className="chapter" ref={revealOnEnter}>
-      <h2>
+      <h3>
         {asGm ? <Eye weight="duotone" aria-hidden="true" /> : <EyeSlash weight="duotone" aria-hidden="true" />}
         Your players see what you decide they see.
-      </h2>
+      </h3>
       <p>
-        Hide a token and it never reaches the player's browser. The server filters every snapshot, every
-        update, and the turn order itself.
+        Keep the ambush a surprise. Hide a monster and your players can't see it, can't find it in the turn
+        order, and can't dig it out of their browser either.
       </p>
 
       <div className="seg" role="group" aria-label="Whose view to show">
@@ -410,23 +451,25 @@ function VisibilityChapter() {
 
       <figure className="map-figure" style={{ "--map": `url(${MAPS.visibility.src})` } as CSSProperties}>
         <div className="map-frame">
-          <img src={MAPS.visibility.src} width={1672} height={941} alt={MAPS.visibility.alt} loading="lazy" decoding="async" />
+          <img src={MAPS.visibility.src} width={CROP.width} height={CROP.height} alt={MAPS.visibility.alt} loading="lazy" decoding="async" />
+          <MapGrid width={CROP.width} height={CROP.height} cell={CROP.cell} variant="faint" />
           <TokenChip
             name="Brenna"
             color="#5b8def"
             hp={84}
             image={PORTRAITS.visibility.brenna}
-            style={{ left: "27%", top: "46%" }}
+            at={{ col: 7, row: 3 }}
           />
           <TokenChip
             name="Toma"
             color="#3fb950"
             hp={61}
             image={PORTRAITS.visibility.toma}
-            style={{ left: "40%", top: "63%" }}
+            at={{ col: 11, row: 6 }}
           />
           {asGm && (
-            <span className="token-chip is-hidden" style={{ left: "61%", top: "23%" }}>
+            // In the shadowed side chamber, which is where something would hide.
+            <span className="token-chip is-hidden" style={inSquare(15, 5)}>
               <span className="token-disc">
                 <EyeSlash weight="bold" aria-hidden="true" />
               </span>
@@ -437,8 +480,8 @@ function VisibilityChapter() {
       </figure>
       <p className="figure-note" role="status">
         {asGm
-          ? "The dashed token is hidden. Only the GM's browser ever receives it."
-          : "The hidden token is gone, and so is its place in the turn order."}
+          ? "The dashed token is hidden. Only you can see it."
+          : "Your players see no token and no gap in the turn order. Nothing gives it away."}
       </p>
     </section>
   );
@@ -484,17 +527,16 @@ function DiceChapter() {
   return (
     <section className="chapter dice-chapter" ref={revealOnEnter}>
       <div>
-        <h2>
+        <h3>
           <DiceFive weight="duotone" aria-hidden="true" />
           Every die shown, not just the total.
-        </h2>
+        </h3>
         <p>
-          Type an expression and roll. This box runs the same parser and roller the table does, and throws the
-          same dice.
+          Type a roll like 2d6+3. Everyone at the table sees every die land, not just the total.
         </p>
         <form className="dice-demo-form" onSubmit={roll}>
           <label>
-            Dice expression
+            What to roll
             <input value={input} onChange={(e) => setInput(e.target.value)} maxLength={32} spellCheck={false} />
           </label>
           <button type="submit" className="ui-button">
@@ -540,67 +582,23 @@ function DiceChapter() {
   );
 }
 
-/** The room the GM is about to run: name it, name yourself, go. */
-function useCreateRoom() {
-  const [roomName, setRoomName] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      const gmToken = await getGmToken();
-      const guestToken = newGuestToken();
-      const created = await api.createRoom({ roomName, displayName, guestToken, gmToken });
-      saveCredentials({ ...created, guestToken });
-      navigate(`/r/${created.roomId}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create room");
-      setBusy(false);
-    }
-  }
-
-  return { roomName, setRoomName, displayName, setDisplayName, error, busy, onSubmit };
-}
-
-function CreateRoomForm({ firstFieldRef }: { firstFieldRef?: RefObject<HTMLInputElement | null> }) {
-  const f = useCreateRoom();
+/**
+ * The GM's way in, second in the hero. The dashboard applies the entry rule (gm-dashboard),
+ * so this is a plain link: sign-in first for a new browser, straight in once recognised.
+ */
+function RunBlock() {
   return (
-    <form className="hero-form enter enter-3" onSubmit={f.onSubmit}>
-      <label>
-        Room name
-        <input
-          ref={firstFieldRef}
-          value={f.roomName}
-          onChange={(e) => f.setRoomName(e.target.value)}
-          required
-          maxLength={80}
-          placeholder="The Broken Span"
-        />
-      </label>
-      <label>
-        Your name (GM)
-        <input
-          value={f.displayName}
-          onChange={(e) => f.setDisplayName(e.target.value)}
-          required
-          maxLength={40}
-          placeholder="Your name"
-        />
-      </label>
-      {f.error && (
-        <p role="alert" className="error">
-          {f.error}
-        </p>
-      )}
-      <button type="submit" className="cta" disabled={f.busy}>
-        {f.busy ? "Creating…" : "Create room"}
-        {!f.busy && <ArrowRight weight="bold" aria-hidden="true" />}
-      </button>
-    </form>
+    <div className="run-path" role="group" aria-labelledby="run-path-label">
+      <p id="run-path-label" className="path-label">
+        <MapTrifold weight="bold" aria-hidden="true" />
+        Running a game?
+      </p>
+      <p className="path-hint">Create a room or reopen one you've run.</p>
+      <Link href="/gm-dashboard" className="cta">
+        Set up a room
+        <ArrowRight weight="bold" aria-hidden="true" />
+      </Link>
+    </div>
   );
 }
 
@@ -626,41 +624,35 @@ function useJoinByInvite() {
   return { value, setValue, error, onSubmit };
 }
 
-function JoinByInviteBand() {
+/** The player's way in, first in the hero. "You" here is someone their GM invited. */
+function JoinBlock() {
   const j = useJoinByInvite();
   return (
-    <form className="invite-band" onSubmit={j.onSubmit}>
-      <p>
+    <form className="join-form" aria-labelledby="join-path-label" onSubmit={j.onSubmit}>
+      <p id="join-path-label" className="path-label">
         <LinkSimple weight="bold" aria-hidden="true" />
-        Someone sent you a link? You do not need an account.
+        Joining a game?
       </p>
-      <label>
-        Invite link or code
+      <p className="path-hint">Paste the link your GM sent you. No account needed.</p>
+      <label htmlFor="join-invite">Invite link or code</label>
+      {/* The label sits outside the row so the field and Join share one height. */}
+      <div className="join-row">
         <input
+          id="join-invite"
           value={j.value}
           onChange={(e) => j.setValue(e.target.value)}
           required
           placeholder="https://…/join/abc123"
         />
-      </label>
+        <button type="submit" className="ui-button">
+          Join
+        </button>
+      </div>
       {j.error && (
         <p role="alert" className="error">
           {j.error}
         </p>
       )}
-      <button type="submit" className="ui-button">
-        Join
-      </button>
     </form>
   );
-}
-
-function formatRelative(iso: string) {
-  const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} h ago`;
-  const days = Math.round(hours / 24);
-  return days < 30 ? `${days} d ago` : new Date(iso).toLocaleDateString();
 }

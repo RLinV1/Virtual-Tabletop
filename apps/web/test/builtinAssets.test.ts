@@ -13,8 +13,24 @@ describe("built-in library assets (builtin-library-assets)", () => {
     for (const a of BUILTIN_ASSETS) expect(isBuiltin(a)).toBe(true);
   });
 
-  it("gives maps the default grid and tokens none", () => {
-    for (const a of BUILTIN_ASSETS) expect(a.grid).toEqual(a.kind === "map" ? DEFAULT_GRID : null);
+  it("gives each map its own measured size and grid, and tokens none (top-down-default-maps)", () => {
+    const maps = Object.fromEntries(BUILTIN_ASSETS.filter((a) => a.kind === "map").map((a) => [a.name, a]));
+    const expected = {
+      "The Broken Span": { width: 3344, height: 1882, cellSize: 69.4, offsetX: 10, offsetY: 31 },
+      "Hollowfrost Keep": { width: 3269, height: 1882, cellSize: 70, offsetX: 47, offsetY: 46 },
+      "Temple of the Green Sun": { width: 2740, height: 1604, cellSize: 70, offsetX: 21, offsetY: 36 },
+    };
+    for (const [name, e] of Object.entries(expected)) {
+      const m = maps[name]!;
+      expect({ width: m.width, height: m.height }).toEqual({ width: e.width, height: e.height });
+      expect(m.grid).toEqual({ ...DEFAULT_GRID, cellSize: e.cellSize, offsetX: e.offsetX, offsetY: e.offsetY });
+      // Usable as a table map at about 70 px per square.
+      expect(m.width).toBeGreaterThanOrEqual(2600);
+      // The grid schema requires 0 <= offset < cellSize.
+      expect(m.grid!.offsetX).toBeLessThan(m.grid!.cellSize);
+      expect(m.grid!.offsetY).toBeLessThan(m.grid!.cellSize);
+    }
+    for (const t of BUILTIN_ASSETS.filter((a) => a.kind === "token")) expect(t.grid).toBeNull();
   });
 
   it("points at files that exist in the web app's public folder", () => {

@@ -1,6 +1,7 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import { Link } from "../Link";
-import { loadGmToken } from "../net/identity";
+import { loadGmToken, markGuest } from "../net/identity";
+import { navigate } from "../router";
 
 /**
  * Account UI ahead of accounts (gm-home: Account UI placeholder). The forms are laid out
@@ -20,7 +21,16 @@ function AccountsComingNotice() {
   );
 }
 
-function AccountForm(props: { title: string; submitLabel: string; children: ReactNode; footer: ReactNode }) {
+function AccountForm(props: {
+  title: string;
+  submitLabel: string;
+  children: ReactNode;
+  footer: ReactNode;
+  /** Rendered above the fields: the way on while accounts don't exist yet. */
+  before?: ReactNode;
+}) {
+  // With a way on above, submitting this preview is the secondary action, not the primary.
+  const submitClass = props.before ? "secondary" : undefined;
   const [submitted, setSubmitted] = useState(false);
   return (
     <main className="centered">
@@ -32,13 +42,43 @@ function AccountForm(props: { title: string; submitLabel: string; children: Reac
         }}
       >
         <h1>{props.title}</h1>
+        {props.before}
         {props.children}
         {submitted && <AccountsComingNotice />}
-        <button type="submit">{props.submitLabel}</button>
+        <button type="submit" className={submitClass}>
+          {props.submitLabel}
+        </button>
         <p className="muted small-print">{props.footer}</p>
         <Link href="/">Back to home</Link>
       </form>
     </main>
+  );
+}
+
+/**
+ * The way past sign-in until accounts exist (gm-dashboard). It remembers the choice and
+ * opens the dashboard; it creates no GM identity, which waits for the first room or upload.
+ */
+function ContinueAsGuest() {
+  return (
+    <div className="guest-option">
+      <p>
+        <strong>Accounts are coming soon.</strong> For now, continue as a guest. Your rooms and asset library
+        are saved in this browser.
+      </p>
+      <button
+        type="button"
+        onClick={() => {
+          markGuest();
+          navigate("/gm-dashboard");
+        }}
+      >
+        Continue as guest
+      </button>
+      <p className="guest-divider" aria-hidden="true">
+        <span>or sign in</span>
+      </p>
+    </div>
   );
 }
 
@@ -47,6 +87,7 @@ export function SignInPage() {
     <AccountForm
       title="Sign in"
       submitLabel="Sign in"
+      before={<ContinueAsGuest />}
       footer={
         <>
           New here? <Link href="/signup">Create an account</Link>

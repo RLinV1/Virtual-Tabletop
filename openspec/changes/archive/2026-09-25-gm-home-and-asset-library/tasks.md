@@ -12,8 +12,8 @@
 
 ## 2. Persistence (apps/server/store)
 
-- [ ] 2.1 Add Prisma models `GmIdentity`, `LibraryAsset` and `AssetRef`, plus nullable `Room.ownerGmId` / `Room.name`, and generate an additive migration. Verify that `npx prisma migrate dev` applies cleanly on a fresh database.
-- [ ] 2.2 Add a `GmStore`/`LibraryStore` interface (identities, owned-room summaries with `max(events.created_at)`, asset CRUD, `setAssetRefs`, `usage(assetId, ownerGmId)`) with memory and Postgres implementations. Verify with tests in `apps/server/test/postgresStore.test.ts` and a memory-store equivalent.
+- [x] 2.1 Add Prisma models `GmIdentity`, `LibraryAsset` and `AssetRef`, plus nullable `Room.ownerGmId` / `Room.name`, and generate an additive migration. Verify that `npx prisma migrate dev` applies cleanly on a fresh database.
+- [x] 2.2 Add a `GmStore`/`LibraryStore` interface (identities, owned-room summaries with `max(events.created_at)`, asset CRUD, `setAssetRefs`, `usage(assetId, ownerGmId)`) with memory and Postgres implementations. Verify with tests in `apps/server/test/postgresStore.test.ts` and a memory-store equivalent.
 - [x] 2.3 Add `AssetStore.delete(key)` for local disk and MinIO, and make `GET /uploads/:key` return 404 for a missing key on both. Verify with an integration test that deletes an object and gets 404 (spec: Missing images return not-found).
 
 ## 3. Server routes and pipeline (apps/server)
@@ -26,25 +26,25 @@
 
 ## 4. Web: identity, routing, home (apps/web)
 
-- [ ] 4.1 Add `loadGmToken`/`ensureGmToken` to `net/identity.ts` (generate, store at `vtt.gm`, call `/api/gm/identify`), and add `api.gm.*` / `api.library.*` helpers that attach `X-GM-Token` to `net/api.ts`. Verify with `npm run typecheck` and by checking in the browser that the header is sent.
-- [ ] 4.2 Add the `library`, `signin` and `signup` routes to `router.ts` and `App.tsx`. Verify by checking that each path renders its page and unknown paths still reach not-found.
-- [ ] 4.3 Rewrite `HomePage.tsx` into a landing page (no GM token: pitch, create room, library, join by pasted link or code, sign in, create account) and a dashboard (GM token: My rooms with last-active and Open, create room, library link, account menu). Room creation sends `gmToken`. Verify manually against the gm-home scenarios in `npm run dev`.
-- [ ] 4.4 Build inert `SignInPage`/`SignUpPage` and the `AccountMenu`. Submitting shows the "accounts are coming, work is saved on this device" notice. Verify in the browser's network panel that submitting sends no request with the email or password (spec: Account UI placeholder).
+- [x] 4.1 Add `loadGmToken`/`ensureGmToken` to `net/identity.ts` (generate, store at `vtt.gm`, call `/api/gm/identify`), and add `api.gm.*` / `api.library.*` helpers that attach `X-GM-Token` to `net/api.ts`. Verify with `npm run typecheck` and by checking in the browser that the header is sent.
+- [x] 4.2 Add the `library`, `signin` and `signup` routes to `router.ts` and `App.tsx`. Verify by checking that each path renders its page and unknown paths still reach not-found.
+- [x] 4.3 Rewrite `HomePage.tsx` into a landing page (no GM token: pitch, create room, library, join by pasted link or code, sign in, create account) and a dashboard (GM token: My rooms with last-active and Open, create room, library link, account menu). Room creation sends `gmToken`. Verify manually against the gm-home scenarios in `npm run dev`. **Superseded by `home-page-redesign`:** the landing/dashboard split was replaced by one home page with a "Your rooms" band, verified manually on 2026-09-25.
+- [x] 4.4 Build inert `SignInPage`/`SignUpPage` and the `AccountMenu`. Submitting shows the "accounts are coming, work is saved on this device" notice. Verify in the browser's network panel that submitting sends no request with the email or password (spec: Account UI placeholder).
 
 ## 5. Web: library page and room integration
 
-- [ ] 5.1 Build `pages/LibraryPage.tsx` with Maps/Tokens tabs, a thumbnail grid (name, size), case-insensitive search, upload (measures width/height in the browser), and rename. Verify manually against the Browse and Upload scenarios.
-- [ ] 5.2 Add a delete flow that calls usage first, names the rooms using the asset in the confirmation, and shows a plain confirmation when the asset is unused. Verify manually that nothing is deleted on cancel and the asset disappears on confirm.
-- [ ] 5.3 Add a `LibraryPicker` to `GmPanel.tsx`. "Set map" offers Upload new or From library, and a library map sends `scene.setMap {map+assetId, grid}`. "Add token" offers the same, and a library token sends `token.create {imageUrl, assetId}`. Verify by placing a map with cell size 64 and checking that the room grid is 64.
-- [ ] 5.4 Add "Save grid to library", shown only when `scene.map.assetId` is set, which PATCHes the grid. Verify that a corrected grid appears on the next placement and that the button is absent for a directly uploaded map.
+- [x] 5.1 Build `pages/LibraryPage.tsx` with Maps/Tokens tabs, a thumbnail grid (name, size), case-insensitive search, upload (measures width/height in the browser), and rename. Verify manually against the Browse and Upload scenarios.
+- [x] 5.2 Add a delete flow that calls usage first, names the rooms using the asset in the confirmation, and shows a plain confirmation when the asset is unused. Verify manually that nothing is deleted on cancel and the asset disappears on confirm.
+- [x] 5.3 Add a `LibraryPicker` to `GmPanel.tsx`. "Set map" offers Upload new or From library, and a library map sends `scene.setMap {map+assetId, grid}`. "Add token" offers the same, and a library token sends `token.create {imageUrl, assetId}`. Verify by placing a map with cell size 64 and checking that the room grid is 64.
+- [x] 5.4 Add "Save grid to library", shown only when `scene.map.assetId` is set, which PATCHes the grid. Verify that a corrected grid appears on the next placement and that the button is absent for a directly uploaded map.
 
 ## 6. Board fallback (apps/web/board)
 
-- [ ] 6.1 Render token images in `boardView.ts` as a sprite masked to the token circle. On load failure keep the colour disc, and remember failed URLs. Verify manually with a valid image and a 404 URL; ownership ring and condition markers must be unchanged (spec: Token images with fallback).
-- [ ] 6.2 Draw a neutral surface at the stored map size when the map image fails to load, with the grid on top. Verify by deleting a placed library map and checking that tokens keep their positions (spec: Map fallback).
+- [x] 6.1 Render token images in `boardView.ts` as a sprite masked to the token circle. On load failure keep the colour disc, and remember failed URLs. Verify manually with a valid image and a 404 URL; ownership ring and condition markers must be unchanged (spec: Token images with fallback).
+- [x] 6.2 Draw a neutral surface at the stored map size when the map image fails to load, with the grid on top. Verify by deleting a placed library map and checking that tokens keep their positions (spec: Map fallback).
 
 ## 7. Wrap-up
 
 - [x] 7.1 Run the visibility-auditor and sync-reviewer agents on the diff and resolve their findings. Verify that no outstanding leak or invariant finding remains.
-- [ ] 7.2 End-to-end check: create a GM identity, upload a map and a token, create a room, place both, delete the token asset (the warning names the room), confirm, and see the colour disc in both the GM and player browsers. Verify by completing the flow in `npm run dev`.
+- [x] 7.2 End-to-end check: create a GM identity, upload a map and a token, create a room, place both, delete the token asset (the warning names the room), confirm, and see the colour disc in both the GM and player browsers. Verify by completing the flow in `npm run dev`.
 - [x] 7.3 Run `npm run lint && npm run typecheck && npm test` and confirm all pass.

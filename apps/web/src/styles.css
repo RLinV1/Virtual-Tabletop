@@ -642,6 +642,13 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 .notice p { margin: 0; color: var(--muted); }
 .small-print { font-size: 0.85rem; margin: 0; }
 
+/* Continue as guest sits above the sign-in fields while accounts don't exist (gm-dashboard). */
+.guest-option { display: flex; flex-direction: column; gap: var(--space-2); }
+.guest-option p { margin: 0; }
+.guest-divider { display: flex; align-items: center; gap: 0.6rem; color: var(--muted); font-size: 0.85rem; }
+.guest-divider::before,
+.guest-divider::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
+
 .account-menu { position: relative; }
 .account-menu-panel {
   position: absolute; right: 0; top: calc(100% + 0.4rem); z-index: 10; width: min(18rem, 80vw);
@@ -981,9 +988,6 @@ dialog.modal::backdrop { background: rgba(6, 8, 11, 0.62); }
   color: var(--muted);
 }
 
-.hero-form { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem 0.9rem; max-width: 31rem; }
-.hero-form .cta { grid-column: 1 / -1; margin-top: 0.15rem; }
-.hero-form .error { grid-column: 1 / -1; margin: 0; }
 
 .cta {
   min-height: 2.85rem;
@@ -1023,25 +1027,50 @@ dialog.modal::backdrop { background: rgba(6, 8, 11, 0.62); }
   z-index: 2;
 }
 
-/* ---- Invite: the other way in, one quiet band ---- */
+/* ---- Hero paths: joining a game, then running one. Each names its reader. ---- */
 
-.invite-band {
+.hero-paths { display: grid; gap: 1.1rem; max-width: 31rem; }
+.run-path { padding-top: 1.1rem; border-top: 1px solid var(--rule); }
+/* The run path is a link into the GM flow that keeps the primary button's look. */
+.home-page a.cta { color: var(--on-accent); text-decoration: none; }
+.run-path .cta { width: 100%; margin-top: 0.15rem; }
+
+.path-label {
+  grid-column: 1 / -1;
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 0.9rem 1.25rem;
-  padding: 1.5rem 0;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text);
 }
-.invite-band p { margin: 0 auto 0 0; font-size: 0.95rem; color: var(--muted); max-width: 26ch; }
-.invite-band label { flex: 1 1 18rem; }
-.invite-band .error { flex-basis: 100%; margin: 0; }
+.path-label svg { color: var(--accent); }
+.path-hint { margin: 0.2rem 0 0.6rem; font-size: 0.95rem; color: var(--muted); }
+
+.join-form > label { margin-bottom: 0.3rem; }
+.join-row { display: flex; align-items: stretch; gap: 0.6rem; }
+.join-row input { flex: 1 1 auto; min-width: 0; }
+.join-form .error { margin: 0.5rem 0 0; }
 
 /* ---- Chapters ---- */
 
+/* "Running your game": the one heading that makes every "you" below it the GM. */
+.part-head { padding: clamp(2.5rem, 6vw, 4rem) 0 0; border-top: 1px solid var(--border); }
+.part-head h2 {
+  margin: 0 0 0.4rem;
+  font-size: clamp(1.7rem, 3.6vw, 2.5rem);
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--text);
+}
+.part-head p { margin: 0; max-width: 52ch; color: var(--muted); font-size: 1.05rem; }
+.part-head + .chapter { padding-top: clamp(2rem, 5vw, 3rem); }
+
 .chapter { padding: clamp(3rem, 8vw, 5.5rem) 0; }
-.chapter h2 {
+.chapter h3 {
   margin: 0 0 0.7rem;
   font-size: clamp(1.45rem, 2.9vw, 2rem);
   font-weight: 650;
@@ -1120,16 +1149,20 @@ dialog.modal::backdrop { background: rgba(6, 8, 11, 0.62); }
 
 .map-figure:hover .map-frame { transform: translateY(-3px) scale(1.004); }
 
-/* The grid the GM lines up, drawn over the real map rather than mocked in divs. */
-.grid-overlay {
+/* A map's grid, drawn in map pixels over the real map (top-down-default-maps). The faint
+   grid is the map's own squares; a dark halo under a light line reads on snow and jungle
+   alike. The app's grid is the rust one the GM lines up. */
+.map-grid {
   position: absolute;
   inset: 0;
-  background-image:
-    linear-gradient(rgba(224, 138, 98, 0.6) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(224, 138, 98, 0.6) 1px, transparent 1px);
-  background-size: 5.55% 9.85%;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
 }
+.map-grid line { stroke-width: 1px; }
+.map-grid-faint { stroke: rgba(255, 255, 255, 0.34); filter: drop-shadow(0 0 0.5px rgba(10, 12, 16, 0.55)); }
+.map-grid-light { stroke: rgba(255, 255, 255, 0.2); }
+.map-grid-app line { stroke: rgba(224, 138, 98, 0.9); stroke-width: 1.5px; }
 
 .view-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
 .view-pair figure { margin: 0; }
@@ -1177,7 +1210,7 @@ dialog.modal::backdrop { background: rgba(6, 8, 11, 0.62); }
 }
 .closing h2 {
   margin: 0 auto 0 0;
-  max-width: 20ch;
+  max-width: 32ch;
   font-size: clamp(1.4rem, 2.6vw, 1.85rem);
   font-weight: 650;
   line-height: 1.15;
@@ -1289,7 +1322,7 @@ dialog.modal::backdrop { background: rgba(6, 8, 11, 0.62); }
 }
 
 /* Hairlines that fade at both ends, rather than a flat rule edge to edge. */
-.invite-band,
+.part-head,
 .closing,
 .home-footer {
   border-image: linear-gradient(90deg, transparent, var(--rule) 12%, var(--rule) 88%, transparent) 1;
@@ -1297,9 +1330,12 @@ dialog.modal::backdrop { background: rgba(6, 8, 11, 0.62); }
 
 /* ---- Tokens on a map, drawn the way the board draws them ---- */
 
+/* Anchored on the disc's centre, not the whole chip's, so the token itself sits in the
+   middle of its square and the name hangs below it. */
 .token-chip {
+  --disc: 2.3rem;
   position: absolute;
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, calc(var(--disc) / -2));
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1310,8 +1346,8 @@ dialog.modal::backdrop { background: rgba(6, 8, 11, 0.62); }
 .token-disc {
   display: grid;
   place-items: center;
-  width: 2.3rem;
-  height: 2.3rem;
+  width: var(--disc);
+  height: var(--disc);
   border-radius: 50%;
   border: 2px solid rgba(255, 255, 255, 0.9);
   box-shadow: 0 3px 12px rgba(6, 8, 12, 0.6);
@@ -1324,13 +1360,19 @@ dialog.modal::backdrop { background: rgba(6, 8, 11, 0.62); }
 .token-disc.has-art { overflow: hidden; }
 .token-disc.has-art img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .token-hp {
-  width: 2.5rem;
+  width: calc(var(--disc) + 0.2rem);
   height: 4px;
   border-radius: 2px;
   background: rgba(8, 10, 14, 0.75);
   overflow: hidden;
 }
 .token-hp-fill { display: block; height: 100%; background: var(--ok); }
+/* A phone shows a crop's squares at about 19 px, so tokens shrink to about one square. */
+@media (max-width: 560px) {
+  .token-chip { --disc: 1.35rem; width: 3.4rem; }
+  .token-disc { font-size: 0.7rem; border-width: 1.5px; }
+  .token-label { font-size: 0.6rem; }
+}
 .token-label {
   font-size: 0.68rem;
   font-weight: 600;
@@ -1432,9 +1474,8 @@ dialog.modal::backdrop { background: rgba(6, 8, 11, 0.62); }
 .cta svg { transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1); }
 .cta:hover:not(:disabled) svg { transform: translateX(3px); }
 
-.chapter h2 { display: flex; align-items: flex-start; gap: 0.6rem; }
-.chapter h2 svg { color: var(--accent); flex: none; font-size: 1.5rem; margin-top: 0.12em; }
-.invite-band p svg { color: var(--accent); vertical-align: -0.15em; margin-right: 0.4rem; }
+.chapter h3 { display: flex; align-items: flex-start; gap: 0.6rem; }
+.chapter h3 svg { color: var(--accent); flex: none; font-size: 1.5rem; margin-top: 0.12em; }
 
 .home-page input:focus-visible,
 .home-page select:focus-visible { border-color: var(--accent); }
@@ -1460,9 +1501,12 @@ dialog.modal::backdrop { background: rgba(6, 8, 11, 0.62); }
   .chapter { padding: 2.25rem 0; }
 }
 
-@media (max-width: 560px) {
-  .hero-form { grid-template-columns: 1fr; }
-  .invite-band p { max-width: none; }
+/* A 768px-tall laptop has to show the join path without scrolling: take the room out of
+   the hero's padding and headline, never out of the map. */
+@media (min-width: 861px) and (max-height: 820px) {
+  .landing-hero { padding-top: 1.25rem; padding-bottom: 2rem; }
+  .landing-hero h1 { font-size: clamp(2.05rem, 4.2vw, 2.8rem); margin-bottom: 0.6rem; }
+  .landing-sub { margin-bottom: 1.1rem; }
 }
 
 /* ---- Motion. Each animation below earns its place: hierarchy, storytelling, or
@@ -1483,8 +1527,8 @@ dialog.modal::backdrop { background: rgba(6, 8, 11, 0.62); }
   /* Storytelling: tokens land on the map after it, the way a GM places them. */
   .hero-frame .token-chip { animation: token-land 0.5s cubic-bezier(0.34, 1.4, 0.5, 1) both; }
   @keyframes token-land {
-    from { opacity: 0; transform: translate(-50%, -50%) scale(0.55); }
-    to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    from { opacity: 0; transform: translate(-50%, calc(var(--disc) / -2)) scale(0.55); }
+    to { opacity: 1; transform: translate(-50%, calc(var(--disc) / -2)) scale(1); }
   }
 
   .dice-total { animation: total-in 0.42s cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: 0.12s; }
@@ -1511,43 +1555,25 @@ dialog.modal::backdrop { background: rgba(6, 8, 11, 0.62); }
   .home-page .nav-cta { transition: none; }
 }
 
-/* Rooms you own, on the one home page rather than on a second one that replaced it. */
-.your-rooms {
-  padding: clamp(1.5rem, 4vw, 2.25rem) 0 0;
-}
-.your-rooms h2 {
-  margin: 0 0 0.5rem;
-  font-size: 1.15rem;
-  font-weight: 650;
-  letter-spacing: -0.015em;
-  color: var(--text);
-  text-transform: none;
-}
-.your-rooms .room-list li { border-bottom-color: var(--border); }
-.your-rooms .small-print { margin-top: 0.6rem; }
-
 /* The library shelf. Uneven widths so it reads as a shelf of real files rather than a row
    of three equal feature cards. */
 .shelf {
   display: grid;
-  grid-template-columns: 1.25fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 1rem;
   margin-bottom: 1.25rem;
 }
 .shelf li { display: flex; flex-direction: column; gap: 0.4rem; min-width: 0; }
-.shelf img {
-  display: block;
-  width: 100%;
-  /* height:auto so the intrinsic 1672x941 from the width/height attributes does not win
-     over the crop ratio below (the attributes stay, they are what reserve the space). */
-  /* One height across the shelf so the captions sit on a line; the widths stay uneven. */
-  height: clamp(8rem, 13vw, 11rem);
-  object-fit: cover;
+/* Each map shown whole, as the library holds it, with its own grid over it. */
+.shelf-map {
+  position: relative;
+  overflow: clip;
   border: 1px solid var(--border);
   border-radius: 12px;
   transition: border-color 0.2s, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.shelf li:hover img { border-color: var(--accent); transform: translateY(-2px); }
+.shelf-map img { display: block; width: 100%; height: auto; }
+.shelf li:hover .shelf-map { border-color: var(--accent); transform: translateY(-2px); }
 .shelf strong { font-size: 0.95rem; font-weight: 600; }
 .shelf .readout { font-size: 0.76rem; }
 
@@ -1559,5 +1585,5 @@ dialog.modal::backdrop { background: rgba(6, 8, 11, 0.62); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .shelf img { transition: none; }
+  .shelf-map { transition: none; }
 }

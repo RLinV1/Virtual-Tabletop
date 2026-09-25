@@ -13,7 +13,7 @@ export default tseslint.config(
     languageOptions: { globals: globals.browser },
   },
   {
-    files: ['apps/server/**/*.ts', 'apps/web/vite.config.ts', 'eslint.config.js'],
+    files: ['apps/server/**/*.ts', 'apps/web/vite.config.ts', 'apps/web/scripts/**/*.mjs', 'eslint.config.js'],
     languageOptions: { globals: globals.node },
   },
   {

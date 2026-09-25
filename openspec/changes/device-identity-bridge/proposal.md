@@ -34,13 +34,15 @@ This change does not build accounts. It decides **what the device identity is fo
 
 ## Impact
 
-- **apps/web:** `pages/LibraryPage.tsx` (stop minting on mount; render an empty state without an identity), `net/gm.ts` / `net/identity.ts` (unchanged API, called from write paths only), `pages/HomePage.tsx` (copy already states the limitation).
+- **apps/web:** the write-only identity rule (`pages/LibraryPage.tsx` no longer mints on mount; only room creation and library uploads call `getGmToken()`) **shipped in the `gm-dashboard` change**, which needed it for its entry flow. What remains here is the `/library` browser-bound disclosure (task 2.4).
 - **apps/server:** a retention job or scheduled delete over `gm_identities`; no route changes, because `resolveGm` already isolates the seam.
 - **docs:** ADR 0004 gains a "Relationship to DESIGN.md §13.1" section and moves out of "Proposed"; DESIGN.md §11.2 is corrected for what shipped.
 - **Depends on:** nothing. **Unblocks:** KAN-7 (accounts), which currently has no agreed target state to build toward.
 - **Not in scope:** building accounts, sessions or password hashing (KAN-7); guest-to-account linking, which §13.1 defers with its own conditions; any change to guest/player identity, which is FR-PL-02 and settled.
 
 ## Ordering
+
+**Archive after `gm-dashboard`.** This change's `gm-home` "GM device identity" delta is a superset of `gm-dashboard`'s (it adds the lifetime paragraph and the stated-bound scenario), so it must be applied last. Its `asset-library` delta refers to "Browsing the library does not create an owner", which `gm-dashboard` adds, and its cutover scenario now sends a signed-in host to the GM dashboard that change introduces.
 
 These deltas MODIFY requirements introduced by the `gm-home-and-asset-library` change, which is still open even though it shipped in PR #13. `openspec/specs/` is therefore empty and `openspec validate` reports that an archive would refuse the MODIFIED operations. **Archive `gm-home-and-asset-library` first**, so `openspec/specs/gm-home` and `openspec/specs/asset-library` exist, then archive this one.
 
