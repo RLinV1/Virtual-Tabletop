@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { House } from "@phosphor-icons/react";
 import { Board, type BoardHandle } from "../board/Board";
+import { Link } from "../Link";
 import { loadCredentials } from "../net/identity";
 import { RoomConnection, useRoomSnapshot, type ConnectionStatus } from "../net/roomConnection";
 import { RoomPanel } from "../panels/RoomPanel";
@@ -121,6 +123,14 @@ function Room({ connection, inviteCode, token }: { connection: RoomConnection; i
         you={you}
         toolbar={
           <>
+            {/* The GM has rooms, a library and "Create room" to get back to; a player came
+                from an invite and just closes the tab (room-navigation). */}
+            {you.role === "gm" && (
+              <Link href="/" className="tool-button" title="Back to the home page">
+                <House size={16} aria-hidden="true" />
+                Home
+              </Link>
+            )}
             <ParticipantsButton participants={participants} />
             {you.role === "gm" && <ActivityLog roomId={state.roomId} token={token} seq={seq} />}
             <button

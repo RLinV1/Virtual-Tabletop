@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { ArrowClockwise } from "@phosphor-icons/react";
 import type { HistoryResponse } from "@vtt/shared";
 import { api } from "../net/api";
 import { Modal } from "../ui/Modal";
@@ -67,14 +68,19 @@ function History({ roomId, token, seq }: { roomId: string; token: string; seq: n
 
   return <div className="activity-log">
     <label htmlFor="activity-player">Search by player</label>
-    <input id="activity-player" type="search" maxLength={40} value={search}
-      placeholder="Player or GM name" onChange={(e) => {
-        request.current?.abort();
-        setBusy(true);
-        setSearch(e.target.value);
-      }} />
+    <div className="activity-search">
+      <input id="activity-player" type="search" maxLength={40} value={search}
+        placeholder="Player or GM name" onChange={(e) => {
+          request.current?.abort();
+          setBusy(true);
+          setSearch(e.target.value);
+        }} />
+      <button type="button" className="activity-refresh" aria-label="Refresh" title="Refresh"
+        onClick={() => setRefresh((n) => n + 1)} disabled={busy}>
+        <ArrowClockwise size={16} weight="bold" aria-hidden="true" />
+      </button>
+    </div>
     <p className="muted">Committed actions, newest first. Search uses names at the time of each action.</p>
-    <button type="button" onClick={() => setRefresh((n) => n + 1)} disabled={busy}>Refresh</button>
     {seq > loadedSeq && <p role="status">New activity is available. Refresh to see it.</p>}
     {error && <p role="alert" className="error">{error} Try refreshing or loading older entries again.</p>}
     {busy && <p role="status">Loading activity…</p>}

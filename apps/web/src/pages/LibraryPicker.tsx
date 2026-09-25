@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import type { AssetKind, LibraryAsset } from "@vtt/shared";
 import { api } from "../net/api";
+import { builtinsMatching } from "../net/builtinAssets";
 
-/** Pick a map or token from the GM's library inside a room (asset-library: Place a library asset). */
+/**
+ * Pick a map or token from the GM's library inside a room (asset-library: Place a library
+ * asset). The GM's own uploads come first, then the art that ships with the app
+ * (builtin-library-assets), so the picker is useful before anything has been uploaded.
+ */
 export function LibraryPicker(props: {
   gmToken: string;
   kind: AssetKind;
@@ -22,7 +27,8 @@ export function LibraryPicker(props: {
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return (assets ?? []).filter((a) => a.kind === props.kind && (!q || a.name.toLowerCase().includes(q)));
+    const own = (assets ?? []).filter((a) => a.kind === props.kind && (!q || a.name.toLowerCase().includes(q)));
+    return [...own, ...builtinsMatching(props.kind, query)];
   }, [assets, props.kind, query]);
 
   return (
@@ -37,15 +43,7 @@ export function LibraryPicker(props: {
       </div>
       {error && <p role="alert" className="error">{error}</p>}
       {!assets && !error && <p className="muted">Loading…</p>}
-      {assets && shown.length === 0 && (
-        <p className="muted">
-          Nothing here yet. Add {props.kind === "map" ? "maps" : "tokens"} in the{" "}
-          <a href="/library" target="_blank" rel="noreferrer">
-            asset library
-          </a>
-          .
-        </p>
-      )}
+      {shown.length === 0 && <p className="muted">Nothing matches that search.</p>}
       <ul className="plain picker-grid">
         {shown.map((a) => (
           <li key={a.id}>

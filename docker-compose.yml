@@ -7,8 +7,9 @@
 #   REDIS_URL=redis://localhost:6379 \
 #   MINIO_ENDPOINT=http://localhost:9000 npm run dev
 #
-# With none of those set the server falls back to the in-memory store and local disk,
-# so `npm run dev` and CI still work with no containers running.
+# With none of those set the server falls back to the in-memory store, so `npm run dev`
+# and CI still work with no containers running. Uploads go to this MinIO whenever it is
+# up, even without MINIO_ENDPOINT; local disk is the dev fallback when it is not.
 services:
   postgres:
     image: postgres:17

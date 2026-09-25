@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { AssetKind, LibraryAsset } from "@vtt/shared";
 import { Link } from "../Link";
 import { api } from "../net/api";
+import { builtinsMatching } from "../net/builtinAssets";
 import { getGmToken } from "../net/gm";
 import { imageSize, nameFromFile } from "../net/imageFile";
 import { AccountMenu } from "./AccountPages";
@@ -33,6 +34,8 @@ export function LibraryPage() {
     const q = query.trim().toLowerCase();
     return (assets ?? []).filter((a) => a.kind === kind && (!q || a.name.toLowerCase().includes(q)));
   }, [assets, kind, query]);
+
+  const builtins = useMemo(() => builtinsMatching(kind, query), [kind, query]);
 
   const replace = (next: LibraryAsset) => setAssets((all) => (all ?? []).map((a) => (a.id === next.id ? next : a)));
 
@@ -85,7 +88,9 @@ export function LibraryPage() {
       {!assets && !error && <p className="muted" aria-busy="true">Loading…</p>}
       {assets && shown.length === 0 && (
         <p className="muted">
-          {query ? "Nothing matches that search." : kind === "map" ? "No maps yet. Upload one to get started." : "No tokens yet."}
+          {query
+            ? "None of your uploads match that search."
+            : `You haven't uploaded any ${kind === "map" ? "maps" : "tokens"} yet. The ones below are ready to use.`}
         </p>
       )}
       <ul className="plain asset-grid" role="tabpanel">
@@ -100,7 +105,37 @@ export function LibraryPage() {
             />
           ))}
       </ul>
+
+      {builtins.length > 0 && (
+        <section className="builtin-assets" aria-labelledby="builtin-heading">
+          <h2 id="builtin-heading">Included with the app</h2>
+          <p className="muted">Every GM has these. Place them from “From library” in any room.</p>
+          <ul className="plain asset-grid">
+            {builtins.map((asset) => (
+              <BuiltinCard key={asset.id} asset={asset} />
+            ))}
+          </ul>
+        </section>
+      )}
     </main>
+  );
+}
+
+/** A built-in asset: the same card, without Rename or Delete (builtin-library-assets). */
+function BuiltinCard({ asset }: { asset: LibraryAsset }) {
+  return (
+    <li className="asset-card">
+      <div className={asset.kind === "token" ? "asset-thumb token" : "asset-thumb"}>
+        <img src={asset.url} alt="" loading="lazy" decoding="async" />
+      </div>
+      <strong className="asset-name" title={asset.name}>
+        {asset.name}
+      </strong>
+      <span className="muted asset-meta">
+        {asset.width}×{asset.height}
+        {asset.grid && ` · ${asset.grid.cellSize}px grid`}
+      </span>
+    </li>
   );
 }
 

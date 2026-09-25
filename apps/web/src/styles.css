@@ -46,6 +46,16 @@
 * { box-sizing: border-box; }
 .activity-log { display: flex; flex-direction: column; gap: var(--space-2); }
 .activity-log > p { margin: 0; }
+/* Refresh is a small icon beside the search field, not a full-width bar above the log. */
+.activity-search { display: flex; gap: var(--space-2); align-items: stretch; }
+.activity-search input { flex: 1; min-width: 0; }
+.activity-refresh {
+  flex: none; display: grid; place-items: center;
+  width: 2.25rem; min-height: 0; padding: 0;
+  background: transparent; color: var(--muted);
+  border: 1px solid var(--border-strong); border-radius: var(--radius);
+}
+.activity-refresh:hover:not(:disabled) { filter: none; color: var(--text); border-color: var(--muted); }
 .activity-entries li { padding: var(--space-3) 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
 .activity-entries p { margin: 0 0 var(--space-1); }
 /* `hidden` must beat any display set by a class (.panel-body is flex); otherwise a
@@ -115,6 +125,9 @@ label.inline { flex-direction: row; align-items: center; gap: 0.35rem; color: va
   grid-template-columns: minmax(0, 1fr) var(--panel-width);
   height: 100vh;
   height: 100dvh;
+  /* The panel body keeps its full width while its column animates (see .panel-body), so
+     it overhangs the right edge mid-slide. Clip it without making a scroll container. */
+  overflow-x: clip;
 }
 /* Collapsed: nothing of the panel is left; the board takes the full width. */
 .room.sidebar-collapsed { grid-template-columns: minmax(0, 1fr) 0; }
@@ -122,7 +135,12 @@ label.inline { flex-direction: row; align-items: center; gap: 0.35rem; color: va
   .room { transition: grid-template-columns 0.18s ease-out; }
 }
 
-.board { position: relative; overflow: hidden; touch-action: none; min-width: 0; }
+.board {
+  position: relative; overflow: hidden; touch-action: none; min-width: 0;
+  /* The canvas's own clear colour: while the sidebar slides, the canvas waits for the
+     final size before resizing, and any strip it has not reached yet must not show. */
+  background: #14171b;
+}
 .board-canvas { position: absolute; inset: 0; }
 .board-toolbar {
   position: absolute; top: var(--space-3); left: var(--space-3); z-index: 5;
@@ -134,9 +152,9 @@ label.inline { flex-direction: row; align-items: center; gap: 0.35rem; color: va
   background: rgba(18, 20, 23, 0.85); color: var(--text);
   border: 1px solid var(--border-strong); border-radius: var(--radius);
   font-weight: 500; font-size: var(--fs-sm);
-  backdrop-filter: blur(4px);
 }
 .tool-button:hover:not(:disabled) { filter: none; border-color: var(--muted); }
+a.tool-button { text-decoration: none; }
 .tool-button[aria-expanded="true"] { border-color: var(--accent); }
 .icon-count { font-variant-numeric: tabular-nums; }
 .board-hint {
@@ -170,10 +188,13 @@ label.inline { flex-direction: row; align-items: center; gap: 0.35rem; color: va
   border-left: 1px solid var(--border);
 }
 .sidebar-collapsed .panel { border-left: none; }
-/* The collapse tab, centred on the panel's inner edge (or the screen's right edge). */
+/* The collapse tab, centred on the panel's inner edge (or the screen's right edge).
+   Offset with `translate`, not `transform`: the global `button:active` rule sets
+   `transform`, which would drop the offset mid-press and slide the tab out from under
+   the pointer, so the release missed it and the click was lost. */
 .sidebar-handle {
   position: absolute; top: 50%; left: 0; z-index: 6;
-  transform: translate(-100%, -50%);
+  translate: -100% -50%;
   width: 1.1rem; min-height: 0; height: 3.5rem; padding: 0;
   display: grid; place-items: center;
   background: var(--panel); color: var(--muted);
@@ -186,6 +207,9 @@ label.inline { flex-direction: row; align-items: center; gap: 0.35rem; color: va
   /* Also the containing block for .sr-only children, so they scroll with the panel and
      never stretch the page below the 100vh room. */
   position: relative;
+  /* Full width even while the column animates open: re-wrapping every section on each
+     frame of the slide stuttered and flashed a scrollbar. Less the panel's 1px border. */
+  width: calc(var(--panel-width) - 1px);
   height: 100%;
   overflow-y: auto;
   padding: var(--space-4);
@@ -472,7 +496,7 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 
   .panel { border-left: none; border-top: 1px solid var(--border); }
   /* The page scrolls on a phone, not a nested panel. */
-  .panel-body { height: auto; overflow: visible; padding: 0.6rem 0.75rem; gap: var(--space-2); }
+  .panel-body { width: auto; height: auto; overflow: visible; padding: 0.6rem 0.75rem; gap: var(--space-2); }
 
   /* The header was eating the panel before the tabs came into view. One line each. */
   .panel-header { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.5rem; padding-bottom: 0; }
@@ -549,6 +573,8 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 .upload-button.secondary { background: transparent; border: 1px solid var(--border-strong); color: var(--text); font-weight: 500; font-size: var(--fs-md); }
 .upload-button:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+.builtin-assets { margin-top: var(--space-4); }
+.builtin-assets > p { margin: 0 0 var(--space-3); }
 .asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: 0.9rem; }
 .asset-card {
   background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 0.6rem;
@@ -580,10 +606,11 @@ img.round { border-radius: 50%; }
 
 /* ---------- Guided tour (room-sidebar-layout: Guided tour on demand) ---------- */
 
-.guide-layer { position: fixed; inset: 0; z-index: 100; }
+.guide-layer { position: fixed; inset: 0; z-index: 100; pointer-events: none; }
 /* Catches clicks so the page behind cannot be used mid-tour. The dimming comes from the
-   spotlight's shadow, which leaves the highlighted area at full brightness. */
-.guide-blocker { position: absolute; inset: 0; }
+   spotlight's shadow, which leaves the highlighted area at full brightness. The layer
+   itself lets clicks through, so a step that leaves a hole in the blockers really does. */
+.guide-blocker { position: absolute; inset: 0; pointer-events: auto; }
 .guide-spotlight {
   position: fixed; pointer-events: none;
   border-radius: var(--radius);
@@ -591,7 +618,7 @@ img.round { border-radius: 50%; }
   box-shadow: 0 0 0 100vmax rgba(6, 8, 11, 0.66);
 }
 .guide-card {
-  position: fixed; z-index: 1;
+  position: fixed; z-index: 1; pointer-events: auto;
   width: min(20rem, calc(100vw - 1.5rem));
   display: flex; flex-direction: column; gap: var(--space-2);
   padding: var(--space-3) var(--space-4) var(--space-4);
@@ -1211,7 +1238,6 @@ button.token-delete { align-self: flex-start; padding-inline: 0; }
   background: rgba(10, 12, 16, 0.55);
   border-style: dashed;
   color: #e8e9ec;
-  backdrop-filter: blur(2px);
 }
 
 /* ---- Demo controls ---- */
@@ -1361,25 +1387,11 @@ button.token-delete { align-self: flex-start; padding-inline: 0; }
     to { opacity: 1; transform: none; }
   }
 
-  /* Scroll-driven, so there is no scroll listener and no JavaScript (§5.D). */
-  @supports (animation-timeline: view()) {
-    .reveal {
-      animation: enter linear both;
-      animation-timeline: view();
-      animation-range: entry 4% entry 58%;
-    }
-    /* Depth: the map drifts against the page as it passes, so the hero has a foreground
-       and a background rather than one flat plane. */
-    .hero-frame img {
-      animation: drift linear both;
-      animation-timeline: view();
-      animation-range: cover;
-    }
-    @keyframes drift {
-      from { transform: scale(1.06) translateY(-1.6%); }
-      to { transform: scale(1.06) translateY(1.6%); }
-    }
-  }
+  /* Storytelling: each section rises in once, the first time it scrolls into view
+     (ui/reveal.ts). Not tied to the scroll position: a scroll-linked timeline re-ran on
+     every frame over the blurred map blooms and made scrolling stutter. */
+  .reveal-pending:not(.revealed) { opacity: 0; }
+  .revealed { animation: enter 0.62s cubic-bezier(0.16, 1, 0.3, 1) both; }
 }
 
 @media (prefers-reduced-motion: reduce) {
