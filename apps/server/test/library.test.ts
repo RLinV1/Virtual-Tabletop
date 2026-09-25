@@ -303,4 +303,28 @@ describe("in-use tracking (asset-library: Warn before deleting an asset in use)"
     expect(alice.state.scene.map?.assetId).toBe(map.id);
     expect(alice.state.tokens).toEqual(client.state.tokens);
   });
+
+  it("saves a styled grid to the library and brings the style back on placement (grid-line-style)", async () => {
+    const gm = await newGm();
+    const map = await uploadOk(gm, { kind: "map", name: "Glacier" });
+    const grid = { cellSize: 64, offsetX: 3, offsetY: 4, unitsPerCell: 5, unitLabel: "ft", lineColor: "#ffffff", lineWidth: 4, lineOpacity: 0.8 };
+    const saved = await gmFetch(gm, `/api/library/${map.id}`, {
+      method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ grid }),
+    });
+    expect(await saved.json()).toMatchObject({ grid });
+    const listed = (await (await gmFetch(gm, "/api/library")).json()) as LibraryAsset[];
+    const stored = listed.find((a) => a.id === map.id)!;
+    expect(stored.grid).toEqual(grid);
+
+    const { client, creds } = await gmInRoom("Glacier", gm);
+    const alice = await server.connect(await server.join(creds.inviteCode, "Alice"));
+    clients.push(alice);
+    const placed = await client.command({
+      type: "scene.setMap",
+      map: { url: stored.url, width: stored.width, height: stored.height, assetId: stored.id },
+      grid: stored.grid!,
+    });
+    await alice.waitForSeq((placed as { seq: number }).seq);
+    expect(alice.state.scene.grid).toEqual(grid);
+  });
 });

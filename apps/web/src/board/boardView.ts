@@ -12,6 +12,7 @@ import {
 import {
   can,
   conditionSpec,
+  gridLineStyle,
   hpFraction,
   snapTokenCenter,
   type ConditionId,
@@ -379,7 +380,10 @@ export class BoardView {
     if (!this.state!.scene.map || this.mapMissing) this.grid.rect(0, 0, width, height).fill({ color: EMPTY_MAP_FILL });
     for (let x = g.offsetX; x <= width; x += g.cellSize) this.grid.moveTo(x, 0).lineTo(x, height);
     for (let y = g.offsetY; y <= height; y += g.cellSize) this.grid.moveTo(0, y).lineTo(width, y);
-    this.grid.stroke({ width: 1, color: 0x000000, alpha: 0.35 });
+    // The GM's line style (ADR 0005), or the historical black hairline for an unstyled grid.
+    const style = gridLineStyle(g);
+    this.grid.stroke({ width: style.width, color: Number(`0x${style.color.slice(1)}`), alpha: style.opacity });
+    this.invalidate();
   }
 
   private syncTokens() {
