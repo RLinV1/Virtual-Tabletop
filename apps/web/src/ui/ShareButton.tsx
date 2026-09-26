@@ -133,7 +133,7 @@ export function ShareButton({ roomId, token }: { roomId: string; token: string }
       >
         {label}
       </button>
-      <button type="button" className="link share-reset" onClick={() => setConfirming(true)}>
+      <button type="button" className="share-button share-reset" title="Make a new invite link; the old one stops working" onClick={() => setConfirming(true)}>
         Reset link
       </button>
       <span className="sr-only" role="status">

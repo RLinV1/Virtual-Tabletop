@@ -167,31 +167,48 @@ function RollRow({
 }) {
   const who = state.participants[r.byParticipantId]?.displayName ?? "Someone";
   const className = ["roll", r.visibility === "gm" && "private", fresh && "fresh"].filter(Boolean).join(" ");
+  // A card like a dice tray receipt: the total big in a box with the dice under it, then
+  // what was rolled and by whom.
   if (rolling) {
     return (
       <li className={`${className} rolling`} aria-hidden="true">
-        <span className="roll-total">…</span>
+        <span className="roll-box">
+          <span className="roll-total">…</span>
+        </span>
         <span className="roll-detail">
-          <strong>{who}</strong> is rolling {r.expression}
-          {r.visibility === "gm" && <em className="badge"> GM only</em>}
+          <span className="roll-title">{r.expression}</span>
+          <span className="roll-meta">
+            {who} is rolling{r.visibility === "gm" && <em className="badge">GM only</em>}
+          </span>
         </span>
       </li>
     );
   }
   return (
     <li className={className}>
-      <span className="roll-total">{r.total}</span>
+      <span className="roll-box">
+        <span className="roll-total">{r.total}</span>
+        <span className="roll-breakdown">({breakdown(r)})</span>
+      </span>
       <span className="roll-detail">
-        <strong>{who}</strong> rolled {r.expression}
-        {r.visibility === "gm" && <em className="badge"> GM only</em>}
-        <span className="muted">
-          {" "}
-          [{r.dice.join(", ")}]
-          {r.modifier !== 0 && (r.modifier > 0 ? ` +${r.modifier}` : ` ${r.modifier}`)}
+        <span className="roll-title">
+          <span className="sr-only">{who} rolled </span>
+          {r.expression}
         </span>
+        <span className="roll-meta" aria-hidden="true">
+          {who}{r.visibility === "gm" && <em className="badge">GM only</em>}
+        </span>
+        {r.visibility === "gm" && <span className="sr-only">, GM only</span>}
       </span>
     </li>
   );
+}
+
+/** "12 + 5", "3 + 4 + 1 - 2": each die, then the modifier. */
+function breakdown(r: RoomState["rolls"][number]) {
+  const dice = r.dice.join(" + ");
+  if (r.modifier === 0) return dice;
+  return `${dice} ${r.modifier > 0 ? "+" : "-"} ${Math.abs(r.modifier)}`;
 }
 
 /** Every roll, newest first, filterable by who rolled it. */

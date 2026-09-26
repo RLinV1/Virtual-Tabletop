@@ -68,6 +68,34 @@ export const Token = z.object({
 });
 export type Token = z.infer<typeof Token>;
 
+/** Shapes an area template can take (FR-TAC-06). */
+export const AreaShape = z.enum(["circle", "cone", "box"]);
+export type AreaShape = z.infer<typeof AreaShape>;
+
+/** Most area templates a room holds at once, so one client can't grow state without bound. */
+export const MAX_AREA_TEMPLATES = 200;
+
+/**
+ * A placed area-of-effect template (FR-TAC-06, ADR 0007). Positions are board coordinates
+ * (invariant 8); `size` is in grid units so a grid change rescales it the same way for
+ * everyone. The outline is derived from these fields, never stored.
+ */
+export const AreaTemplate = z.object({
+  id: Id,
+  shape: AreaShape,
+  /** Where it was placed: a circle's centre, a cone's apex, the middle of a box's near side. */
+  origin: Point,
+  /** The point it was aimed at; equal to `origin` for an unaimed placement (points right). */
+  toward: Point,
+  /** Circle radius, cone length or box side, in grid units (e.g. 20 for 20 ft). */
+  size: z.number().positive().max(1000),
+  /** Who placed it. They and the GM may remove it. */
+  ownerId: Id,
+  /** GM-only templates are never sent to players (FR-GM-23), like hidden tokens. */
+  gmOnly: z.boolean(),
+});
+export type AreaTemplate = z.infer<typeof AreaTemplate>;
+
 /**
  * The authoritative state of one room. Produced only by folding committed events
  * through `reduce` — never mutated directly.
@@ -102,6 +130,8 @@ export interface RoomState {
   initiative: Initiative | null;
   /** Most recent rolls, newest last (FR-GM-22, FR-TAC-09). Capped at ROLL_LOG_LIMIT. */
   rolls: DiceRoll[];
+  /** Placed area templates everyone at the table can see, bar GM-only ones (FR-TAC-06, ADR 0007). */
+  templates: Record<Id, AreaTemplate>;
 }
 
 export function emptyRoomState(roomId: Id): RoomState {
@@ -113,5 +143,6 @@ export function emptyRoomState(roomId: Id): RoomState {
     participants: {},
     initiative: null,
     rolls: [],
+    templates: {},
   };
 }
