@@ -55,6 +55,11 @@ export function reduce(state: RoomState, event: DomainEvent): RoomState {
       return { ...state, tokens: { ...state.tokens, [t.id]: { ...t, position: event.to } } };
     }
 
+    case "TokenAppearanceSet": {
+      const t = required(state.tokens[event.tokenId], event);
+      return { ...state, tokens: { ...state.tokens, [t.id]: { ...t, name: event.name, size: event.size, rotation: event.rotation } } };
+    }
+
     case "TokenDeleted": {
       required(state.tokens[event.token.id], event);
       const { [event.token.id]: _removed, ...rest } = state.tokens;

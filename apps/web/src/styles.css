@@ -857,6 +857,9 @@ dialog.modal::backdrop { background: rgba(6, 8, 11, 0.62); }
 [data-tour="gm-add-token"] { margin-top: var(--space-1); }
 
 .token-editor { display: flex; flex-direction: column; gap: var(--space-3); }
+.token-setup-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
+.token-setup-grid label { min-width: 0; }
+.token-setup-grid input { width: 100%; }
 .token-editor .stats-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.35rem; align-items: end; }
 .token-editor-gm {
   display: flex; flex-direction: column; gap: var(--space-2);

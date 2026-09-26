@@ -27,6 +27,30 @@ async function setup() {
 const tokens = (c: TestClient) => Object.values(c.state.tokens) as Token[];
 
 describe("committed channel", () => {
+  it("synchronizes full GM token setup and later appearance edits to every client (KAN-12)", async () => {
+    const { gm, alice, bob } = await setup();
+    const created = await gm.command({
+      type: "token.create", name: "Ogre", position: { x: 120, y: 240 },
+      size: 2, rotation: 45, imageUrl: "/uploads/ogre.webp",
+      stats: { hp: 30, maxHp: 40, ac: 14 },
+    });
+    expect(created.type).toBe("ack");
+    await Promise.all([alice, bob].map((c) => c.waitForSeq(gm.seq)));
+    const tokenId = tokens(gm)[0]!.id;
+    expect(tokens(alice)[0]).toEqual(tokens(gm)[0]);
+    expect(tokens(bob)[0]).toEqual(tokens(gm)[0]);
+
+    const edited = await gm.command({ type: "token.setAppearance", tokenId, name: "Elder Ogre", size: 3, rotation: 90 });
+    expect(edited.type).toBe("ack");
+    await Promise.all([alice, bob].map((c) => c.waitForSeq(gm.seq)));
+    for (const client of [gm, alice, bob]) {
+      expect(client.state.tokens[tokenId]).toMatchObject({ name: "Elder Ogre", size: 3, rotation: 90 });
+      expect(client.state).toEqual(gm.state);
+    }
+    expect(await alice.command({ type: "token.setAppearance", tokenId, name: "Changed", size: 1, rotation: 0 }))
+      .toMatchObject({ type: "rejected", code: "forbidden" });
+  });
+
   it("converges all clients on the same state after an owner moves a token (FR-SYNC-01/02)", async () => {
     const { gm, alice, bob } = await setup();
 

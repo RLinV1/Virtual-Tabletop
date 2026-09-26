@@ -1,5 +1,4 @@
 import type { Command, DepartureAction } from "./commands";
-import { EMPTY_STATS } from "./conditions";
 import { formatExpression, parseDiceExpression, rollDice } from "./dice";
 import type { DomainEvent } from "./events";
 import type { SessionEndReason } from "./protocol";
@@ -69,6 +68,9 @@ export function decide(
       const ownerError = checkOwners(state, command.ownerIds);
       if (ownerError) return ownerError;
       if (!command.name.trim()) return reject("invalid", "Token name can't be blank.");
+      if (command.stats.hp !== null && command.stats.maxHp !== null && command.stats.hp > command.stats.maxHp) {
+        return reject("invalid", "Current HP cannot exceed maximum HP");
+      }
       return accept({
         type: "TokenCreated",
         token: {
@@ -77,13 +79,13 @@ export function decide(
           name: uniqueTokenName(state, command.name),
           position: command.position,
           size: command.size,
-          rotation: 0,
+          rotation: normalizeRotation(command.rotation),
           color: command.color,
           imageUrl: command.imageUrl,
           assetId: command.assetId,
           ownerIds: command.ownerIds,
           hidden: command.hidden,
-          stats: EMPTY_STATS,
+          stats: command.stats,
           conditions: [],
         },
       });
@@ -100,6 +102,24 @@ export function decide(
         tokenId: token.id,
         from: token.position,
         to: command.to,
+      });
+    }
+
+    case "token.setAppearance": {
+      if (!can.administer(actor)) return forbidden();
+      const token = state.tokens[command.tokenId];
+      if (!token) return notFound("token");
+      if (!command.name.trim()) return reject("invalid", "Token name can't be blank.");
+      const name = uniqueTokenName(state, command.name, token.id);
+      const rotation = normalizeRotation(command.rotation);
+      if (name === token.name && command.size === token.size && rotation === token.rotation) return { ok: true, events: [] };
+      return accept({
+        type: "TokenAppearanceSet",
+        tokenId: token.id,
+        name,
+        size: command.size,
+        rotation,
+        previous: { name: token.name, size: token.size, rotation: token.rotation },
       });
     }
 
@@ -379,9 +399,9 @@ const MAX_TOKEN_NAME = 60;
  * the suffix, so a taken "Goblin 2" becomes "Goblin 3", not "Goblin 2 2". Depends on `state` only,
  * so it's deterministic; the result goes into `TokenCreated`, so replay never re-runs it.
  */
-export function uniqueTokenName(state: RoomState, name: string): string {
+export function uniqueTokenName(state: RoomState, name: string, exceptId?: string): string {
   const trimmed = name.trim();
-  const taken = new Set(Object.values(state.tokens).map((t) => normalizeName(t.name)));
+  const taken = new Set(Object.values(state.tokens).filter((t) => t.id !== exceptId).map((t) => normalizeName(t.name)));
   if (!taken.has(normalizeName(trimmed))) return trimmed;
   const base = trimmed.replace(/\s+\d+$/, "") || trimmed;
   for (let n = 2; ; n++) {
@@ -390,6 +410,9 @@ export function uniqueTokenName(state: RoomState, name: string): string {
     if (!taken.has(normalizeName(candidate))) return candidate;
   }
 }
+
+/** Keep persisted angles compact while accepting any finite angle from clients. */
+const normalizeRotation = (degrees: number) => ((degrees % 360) + 360) % 360;
 
 /**
  * Whether a participant is still in the room: holds their name, may act, may connect, may own

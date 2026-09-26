@@ -65,6 +65,14 @@ export const DomainEvent = z.discriminatedUnion("type", [
     to: Point,
   }),
   z.object({
+    type: z.literal("TokenAppearanceSet"),
+    tokenId: Id,
+    name: z.string().min(1).max(60),
+    size: z.number().positive().max(10),
+    rotation: z.number().finite(),
+    previous: z.object({ name: z.string(), size: z.number(), rotation: z.number() }),
+  }),
+  z.object({
     type: z.literal("TokenDeleted"),
     token: Token,
   }),

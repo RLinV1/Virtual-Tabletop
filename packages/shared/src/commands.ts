@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ConditionId, TokenStats } from "./conditions";
+import { ConditionId, EMPTY_STATS, TokenStats } from "./conditions";
 import { DiceVisibility } from "./dice";
 import { GridSpec, Point } from "./geometry";
 import { AreaShape, Id, MapImage } from "./state";
@@ -41,6 +41,8 @@ export const Command = z.discriminatedUnion("type", [
     name: z.string().min(1).max(60),
     position: Point,
     size: z.number().positive().max(10).default(1),
+    rotation: z.number().finite().default(0),
+    stats: TokenStats.default(EMPTY_STATS),
     color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default(DEFAULT_TOKEN_COLOR),
     imageUrl: z.string().max(2048).nullable().default(null),
     assetId: Id.nullable().default(null),
@@ -51,6 +53,14 @@ export const Command = z.discriminatedUnion("type", [
     type: z.literal("token.move"),
     tokenId: Id,
     to: Point,
+  }),
+  /** GM edits the identity and footprint of a placed token in one event. */
+  z.object({
+    type: z.literal("token.setAppearance"),
+    tokenId: Id,
+    name: z.string().min(1).max(60),
+    size: z.number().positive().max(10),
+    rotation: z.number().finite(),
   }),
   z.object({
     type: z.literal("token.delete"),

@@ -12,6 +12,11 @@ import {
   type Token,
 } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
+import { api } from "../net/api";
+import { loadGmToken } from "../net/identity";
+import { libraryAssetId } from "../net/builtinAssets";
+import { LibraryPicker } from "../pages/LibraryPicker";
+import { TokenPreview } from "../ui/TokenPreview";
 import { ConditionMarker, ConditionPicker } from "./ConditionMarker";
 import { AddTokenButton } from "./AddToken";
 import { Modal } from "../ui/Modal";
@@ -100,6 +105,7 @@ export function TokenRoster({
           <TokenEditor
             key={editing.id}
             token={editing}
+            roomToken={guestToken}
             isGm={isGm}
             players={Object.values(state.participants).filter((p) => p.role === "player" && isActive(p))}
             departedOwner={departedOwner(state, editing.ownerIds)}
@@ -198,6 +204,7 @@ function departedOwner(state: RoomState, ownerIds: string[]): Participant | null
  */
 function TokenEditor({
   token,
+  roomToken,
   isGm,
   players,
   departedOwner,
@@ -206,6 +213,7 @@ function TokenEditor({
   onDelete,
 }: {
   token: Token;
+  roomToken: string;
   isGm: boolean;
   players: Participant[];
   /** Set when the current owner left the room and the GM hasn't resolved the token yet. */
@@ -215,6 +223,16 @@ function TokenEditor({
   onDelete: () => void;
 }) {
   const [hp, setHp] = useState(token.stats.hp?.toString() ?? "");
+  const [name, setName] = useState(token.name);
+  const [x, setX] = useState(String(token.position.x));
+  const [y, setY] = useState(String(token.position.y));
+  const [size, setSize] = useState(String(token.size));
+  const [rotation, setRotation] = useState(String(token.rotation));
+  const [image, setImage] = useState({ url: token.imageUrl, assetId: token.assetId ?? null });
+  const [gmToken] = useState(loadGmToken);
+  const [picking, setPicking] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [maxHp, setMaxHp] = useState(token.stats.maxHp?.toString() ?? "");
   const [ac, setAc] = useState(token.stats.ac?.toString() ?? "");
   const [conditions, setConditions] = useState<ConditionId[]>(token.conditions);
@@ -229,6 +247,12 @@ function TokenEditor({
     conditions.length === token.conditions.length && conditions.every((c) => token.conditions.includes(c));
 
   const changes: Command[] = [];
+  if (isGm && (name.trim() !== token.name || Number(size) !== token.size || Number(rotation) !== token.rotation))
+    changes.push({ type: "token.setAppearance", tokenId: token.id, name, size: Number(size), rotation: Number(rotation) });
+  if (isGm && (Number(x) !== token.position.x || Number(y) !== token.position.y))
+    changes.push({ type: "token.move", tokenId: token.id, to: { x: Number(x), y: Number(y) } });
+  if (isGm && (image.url !== token.imageUrl || image.assetId !== (token.assetId ?? null)))
+    changes.push({ type: "token.setImage", tokenId: token.id, imageUrl: image.url, assetId: image.assetId });
   if (stats.hp !== token.stats.hp || stats.maxHp !== token.stats.maxHp || stats.ac !== token.stats.ac)
     changes.push({ type: "token.setStats", tokenId: token.id, stats });
   if (!sameConditions) changes.push({ type: "token.setConditions", tokenId: token.id, conditions });
@@ -243,7 +267,22 @@ function TokenEditor({
     setConfirming(null);
   };
 
+  async function onUpload(file: File | undefined) {
+    if (!file) return;
+    setUploadError(null);
+    setUploading(true);
+    try {
+      const { url } = await api.upload(file, roomToken);
+      setImage({ url, assetId: null });
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
   return (
+    <>
     <form
       className="token-editor"
       onSubmit={(e) => {
@@ -251,18 +290,46 @@ function TokenEditor({
         if (changes.length) setConfirming("save");
       }}
     >
+      {isGm && (
+        <div className="token-editor-gm">
+          <label>Name<input value={name} onChange={(e) => setName(e.target.value)} required maxLength={60} autoFocus /></label>
+          <div className="token-setup-grid">
+            <label>Board X<input type="number" value={x} onChange={(e) => setX(e.target.value)} required step="any" /></label>
+            <label>Board Y<input type="number" value={y} onChange={(e) => setY(e.target.value)} required step="any" /></label>
+            <label>Size (cells)<input type="number" value={size} onChange={(e) => setSize(e.target.value)} required min="0.25" max="10" step="0.25" /></label>
+            <label>Rotation (°)<input type="number" value={rotation} onChange={(e) => setRotation(e.target.value)} required step="any" /></label>
+          </div>
+          <div className="stack token-image-field">
+            <span className="field-label">Image</span>
+            {image.url && (
+              <div className="row token-image-chosen">
+                <TokenPreview url={image.url} color={token.color} hidden={hidden} />
+                <button type="button" className="link" onClick={() => setImage({ url: null, assetId: null })}>Remove image</button>
+              </div>
+            )}
+            <div className="row">
+              <label className="upload-button secondary">
+                <span>{uploading ? "Uploading…" : image.url ? "Replace image" : "Upload image"}</span>
+                <input type="file" className="sr-only" accept="image/png,image/jpeg,image/webp" disabled={uploading}
+                  onChange={(e) => void onUpload(e.target.files?.[0])} />
+              </label>
+              {gmToken && <button type="button" className="secondary" onClick={() => setPicking(true)}>From library</button>}
+            </div>
+          </div>
+        </div>
+      )}
       <div className="stats-row">
         <label>
           HP
-          <input type="number" inputMode="numeric" value={hp} onChange={(e) => setHp(e.target.value)} autoFocus />
+          <input type="number" inputMode="numeric" value={hp} onChange={(e) => setHp(e.target.value)} min="-999" max="9999" step="1" autoFocus={!isGm} />
         </label>
         <label>
           Max
-          <input type="number" inputMode="numeric" value={maxHp} onChange={(e) => setMaxHp(e.target.value)} />
+          <input type="number" inputMode="numeric" value={maxHp} onChange={(e) => setMaxHp(e.target.value)} min="1" max="9999" step="1" />
         </label>
         <label>
           AC
-          <input type="number" inputMode="numeric" value={ac} onChange={(e) => setAc(e.target.value)} />
+          <input type="number" inputMode="numeric" value={ac} onChange={(e) => setAc(e.target.value)} min="0" max="99" step="1" />
         </label>
       </div>
 
@@ -293,7 +360,7 @@ function TokenEditor({
         </div>
       )}
 
-      {error && <p role="alert" className="error">{error}</p>}
+      {(error || uploadError) && <p role="alert" className="error">{error || uploadError}</p>}
 
       {confirming === "save" ? (
         <div className="confirm" role="group" aria-label="Confirm changes">
@@ -335,12 +402,21 @@ function TokenEditor({
               <Trash size={18} aria-hidden />
             </button>
           )}
-          <button type="submit" className="token-save" disabled={!changes.length}>
+          <button type="submit" className="token-save" disabled={!changes.length || uploading}>
             Save
           </button>
         </div>
       )}
     </form>
+    {isGm && gmToken && (
+      <Modal open={picking} title="Choose a token image" onClose={() => setPicking(false)}>
+        <LibraryPicker gmToken={gmToken} kind="token" onPick={(asset) => {
+          setImage({ url: asset.url, assetId: libraryAssetId(asset) });
+          setPicking(false);
+        }} />
+      </Modal>
+    )}
+    </>
   );
 }
 
