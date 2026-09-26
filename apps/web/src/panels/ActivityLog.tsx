@@ -8,7 +8,7 @@ import { Modal } from "../ui/Modal";
 export function ActivityLog({ roomId, token, seq }: { roomId: string; token: string; seq: number }) {
   const [open, setOpen] = useState(false);
   return <>
-    <button type="button" className="tool-button" onClick={() => setOpen(true)}>
+    <button type="button" className="tool-button" data-tour="activity-log" onClick={() => setOpen(true)}>
       <ClockCounterClockwise size={16} aria-hidden="true" />
       Activity log
     </button>

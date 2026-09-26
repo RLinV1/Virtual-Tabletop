@@ -1,3 +1,4 @@
+import type { SessionEndReason } from "@vtt/shared";
 import type { RoomStore } from "../store/roomStore";
 import { LiveRoom } from "./liveRoom";
 
@@ -26,5 +27,19 @@ export class RoomRegistry {
       });
     }
     return loading;
+  }
+
+  /**
+   * Ends a loaded room for everyone ahead of deleting it (ADR 0009). The closed room stays
+   * registered until `evict`, so a handshake in between finds it closed instead of reloading it.
+   */
+  async close(roomId: string, reason: SessionEndReason) {
+    const room = await this.rooms.get(roomId)?.catch(() => null);
+    await room?.close(reason);
+  }
+
+  /** Forgets a room, so the next `get` reads the store again. */
+  evict(roomId: string) {
+    this.rooms.delete(roomId);
   }
 }

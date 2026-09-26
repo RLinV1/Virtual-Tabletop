@@ -1,13 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { guideSteps, placeCard } from "../src/ui/guide";
 
-const GM_ONLY = ["share", "gm-map", "gm-grid", "gm-add-token"];
+const GM_ONLY = ["share", "gm-map", "gm-grid", "gm-add-token", "tab-gm", "activity-log"];
 
 describe("guided tour on demand (room-sidebar-layout)", () => {
   it("gives the GM the setup steps", () => {
     const targets = guideSteps("gm").map((s) => s.target);
     for (const t of GM_ONLY) expect(targets).toContain(t);
     expect(targets.at(-1)).toBe("guide");
+  });
+
+  it("walks through every panel tab for the role, and the GM's activity log", () => {
+    expect(guideSteps("gm").map((s) => s.target).filter((t) => t.startsWith("tab-") || t === "activity-log")).toEqual([
+      "tab-play", "tab-tokens", "tab-dice", "tab-gm", "activity-log",
+    ]);
+    expect(guideSteps("player").map((s) => s.target).filter((t) => t.startsWith("tab-") || t === "activity-log")).toEqual([
+      "tab-play", "tab-tokens", "tab-dice",
+    ]);
   });
 
   it("gives players no GM-only step, but their tokens and dice", () => {

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { Express, Request, Response } from "express";
+import { z } from "zod";
 import {
   CreateRoomRequest,
   JoinRoomRequest,
@@ -16,6 +17,7 @@ import { hashToken, newInviteCode } from "../domain/credentials";
 import type { AssetStore } from "../store/assetStore";
 import type { RoomRegistry } from "../domain/roomRegistry";
 import type { RoomStore } from "../store/roomStore";
+import { resolveGm } from "./gmAuth";
 import { imageUploader } from "./imageUpload";
 import { registerLibraryRoutes } from "./library";
 
@@ -75,11 +77,13 @@ export function registerRoutes(
 
       const roomId = await store.findRoomByInvite(req.params.inviteCode);
       const room = roomId ? await registry.get(roomId) : null;
-      if (!roomId || !room) return res.status(404).json({ error: "Invite not found" });
+      if (!roomId || !room || room.closed) return res.status(404).json({ error: "Invite not found" });
 
       const participantId = randomUUID();
       // Join first, credential second: a rejected join must leave no credential behind (KAN-61).
       const joined = await room.join({ id: participantId, role: "player", displayName: body.data.displayName });
+      // not_found: the room was deleted while this join waited in its queue (ADR 0009).
+      if (!joined.ok && joined.code === "not_found") return res.status(404).json({ error: "Invite not found" });
       if (!joined.ok) return res.status(joined.reason === "name_taken" ? 409 : 400).json({ error: joined.message });
       await store.saveCredential(hashToken(body.data.guestToken), { roomId, participantId });
       const response: JoinRoomResponse = { roomId, participantId };
@@ -91,10 +95,21 @@ export function registerRoutes(
   app.post("/api/uploads", (req, res) => {
     void (async () => {
       const actor = await authenticate(req);
-      if (!actor || actor.role !== "gm") return res.status(403).json({ error: "GM only" });
+      if (!actor || actor.participant.role !== "gm") return res.status(403).json({ error: "GM only" });
       const upload = await receiveImage(req, res);
       if (!upload.ok) return res.status(upload.status).json({ error: upload.error });
-      const url = await assets.put(upload.file.path, path.basename(upload.file.path), upload.file.mimetype);
+      const key = path.basename(upload.file.path);
+      const url = await assets.put(upload.file.path, key, upload.file.mimetype);
+      // So deleting the room removes the image too (ADR 0009). If the room was deleted
+      // since the check above, recording fails: remove the object rather than orphan it.
+      try {
+        await store.recordRoomUpload(actor.roomId, key);
+      } catch (err) {
+        await assets.delete(key).catch((cleanupErr: unknown) => {
+          console.error(`[vtt] could not delete upload ${key} after its room upload record failed`, cleanupErr);
+        });
+        throw err;
+      }
       const response: UploadResponse = { url };
       return res.json(response);
     })().catch(internalError(req, res));
@@ -122,6 +137,40 @@ export function registerRoutes(
       if (!(await isRoomGm(req, req.params.roomId))) return res.status(403).json({ error: "GM only" });
       const response: InviteResponse = { inviteCode: await store.setInviteCode(req.params.roomId, newInviteCode) };
       return res.json(response);
+    })().catch(internalError(req, res));
+  });
+
+  /**
+   * Deletes a room and everything scoped to it, for the GM identity that owns it (KAN-72,
+   * ADR 0009). A room that is missing or someone else's is the same 404, so this can't be used
+   * to probe room ids. Library assets are not the room's and are left alone.
+   */
+  app.delete("/api/rooms/:roomId", (req, res) => {
+    void (async () => {
+      const gm = await resolveGm(req, store);
+      if (!gm) return res.status(401).json({ error: "GM identity required" });
+      const roomId = req.params.roomId;
+      const owned = z.uuid().safeParse(roomId).success && (await store.findRoomOwner(roomId)) === gm.gmId;
+      if (!owned) return res.status(404).json({ error: "Room not found" });
+
+      // Close first, so nothing commits into a room that is going away and nobody is left in it.
+      await registry.close(roomId, "deleted");
+      let deleted;
+      try {
+        deleted = await store.deleteRoom(roomId);
+      } finally {
+        // On failure too: the next access reloads the room from the store instead of finding it closed.
+        registry.evict(roomId);
+      }
+      if (!deleted) return res.status(404).json({ error: "Room not found" });
+
+      // After the commit, and best-effort: the room is gone, and a stray object has a random name.
+      for (const key of deleted.uploadKeys) {
+        await assets.delete(key).catch((err: unknown) => {
+          console.error(`[vtt] could not delete upload ${key} of deleted room ${roomId}`, err);
+        });
+      }
+      return res.status(204).end();
     })().catch(internalError(req, res));
   });
 
@@ -155,14 +204,15 @@ export function registerRoutes(
     return room?.activeParticipant(cred.participantId)?.role === "gm";
   }
 
-  /** The participant behind a bearer guest credential, only while they are still in the room. */
+  /** The participant behind a bearer guest credential and their room, only while they are still in it. */
   async function authenticate(req: Request) {
     const header = req.headers.authorization;
     if (!header?.startsWith("Bearer ")) return null;
     const cred = await store.findCredential(hashToken(header.slice(7)));
     if (!cred) return null;
     const room = await registry.get(cred.roomId);
-    return room?.activeParticipant(cred.participantId) ?? null;
+    const participant = room && !room.closed ? room.activeParticipant(cred.participantId) : undefined;
+    return participant ? { roomId: cred.roomId, participant } : null;
   }
 }
 

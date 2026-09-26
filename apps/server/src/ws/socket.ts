@@ -44,7 +44,8 @@ export function registerSocket(
       if (cred.roomId !== auth.data.roomId) return next(new Error("unauthorized"));
 
       const room = await deps.registry.get(cred.roomId);
-      if (!room) return next(new Error("not_found"));
+      // Closed: the room is being deleted (ADR 0009). Same answer as a room that never existed.
+      if (!room || room.closed) return next(new Error("not_found"));
       // A seat that has ended stays ended: the credential is refused, not rebound (ADR 0006).
       // The message says why ("left" or "revoked"), so the client can word its screen.
       const ended = room.endReason(cred.participantId);

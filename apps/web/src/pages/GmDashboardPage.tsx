@@ -1,10 +1,11 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { GmRoomSummary } from "@vtt/shared";
 import { Link } from "../Link";
 import { api } from "../net/api";
 import { getGmToken } from "../net/gm";
 import { isRecognised, loadGmToken, newGuestToken, saveCredentials } from "../net/identity";
 import { navigate } from "../router";
+import { Modal } from "../ui/Modal";
 import { AccountMenu } from "./AccountPages";
 
 /**
@@ -110,6 +111,27 @@ type RoomsState =
 function YourRoomsCard() {
   const [gmToken] = useState(loadGmToken);
   const [state, setState] = useState<RoomsState>(gmToken ? { status: "loading" } : { status: "none" });
+  /** The room awaiting delete confirmation. */
+  const [confirming, setConfirming] = useState<GmRoomSummary | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+
+  async function deleteRoom(room: GmRoomSummary) {
+    if (!gmToken) return;
+    setDeleting(true);
+    try {
+      await api.gm.deleteRoom(gmToken, room.id);
+      // Only after the server confirms: a failed delete must leave the row where it was.
+      setState((s) => (s.status === "loaded" ? { ...s, rooms: s.rooms.filter((r) => r.id !== room.id) } : s));
+      setDeleteError(null);
+    } catch {
+      setDeleteError(`${room.name || "Untitled room"} could not be deleted. Try again.`);
+    } finally {
+      setDeleting(false);
+      setConfirming(null);
+    }
+  }
 
   useEffect(() => {
     if (!gmToken) return;
@@ -136,6 +158,11 @@ function YourRoomsCard() {
           Your rooms could not be loaded. You can still create a room.
         </p>
       )}
+      {deleteError && (
+        <p role="alert" className="error">
+          {deleteError}
+        </p>
+      )}
       {(state.status === "none" || (state.status === "loaded" && state.rooms.length === 0)) && (
         <p className="muted">No rooms yet. Create your first one and send your players the link.</p>
       )}
@@ -147,13 +174,50 @@ function YourRoomsCard() {
                 <strong>{room.name || "Untitled room"}</strong>
                 <span className="muted"> · active {formatRelative(room.lastActiveAt)}</span>
               </div>
-              <button type="button" className="secondary small" onClick={() => navigate(`/r/${room.id}`)}>
-                Open
-              </button>
+              <div className="row">
+                <button type="button" className="secondary small" onClick={() => navigate(`/r/${room.id}`)}>
+                  Open
+                </button>
+                <button
+                  type="button"
+                  className="secondary small danger"
+                  onClick={() => setConfirming(room)}
+                  aria-label={`Delete ${room.name || "Untitled room"}`}
+                >
+                  Delete
+                </button>
+              </div>
             </li>
           ))}
         </ul>
       )}
+      <Modal
+        open={confirming !== null}
+        title={`Delete ${confirming?.name || "Untitled room"}?`}
+        onClose={() => !deleting && setConfirming(null)}
+        initialFocus={cancelRef}
+      >
+        <p>
+          <strong>{confirming?.name || "Untitled room"}</strong> and everything in it will be permanently deleted: the
+          map, tokens, fog, dice rolls, history, and every player&apos;s seat. Anyone in the room right now is removed.
+        </p>
+        <p className="muted">
+          This cannot be undone. Images in your asset library are kept; the invite link stops working.
+        </p>
+        <div className="row modal-actions">
+          <button ref={cancelRef} type="button" className="secondary" onClick={() => setConfirming(null)} disabled={deleting}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="danger-fill"
+            onClick={() => confirming && void deleteRoom(confirming)}
+            disabled={deleting}
+          >
+            {deleting ? "Deleting…" : "Delete room"}
+          </button>
+        </div>
+      </Modal>
       <p className="muted small-print">Saved in this browser until accounts arrive.</p>
     </section>
   );

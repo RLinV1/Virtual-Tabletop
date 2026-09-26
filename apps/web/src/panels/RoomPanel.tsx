@@ -79,6 +79,7 @@ export function PanelTabs({
           type="button"
           role="tab"
           id={tabButtonId(t.id)}
+          data-tour={`tab-${t.id}`}
           aria-selected={tab === t.id}
           aria-controls={tab === t.id ? TAB_PANEL_ID : undefined}
           // Roving tabindex: the tablist is one tab stop, arrows move within it.

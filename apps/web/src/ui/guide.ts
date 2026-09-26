@@ -50,6 +50,29 @@ const STEPS: StepSpec[] = [
       gm: "Share, up here in the corner, copies the invite link for your players. If a link leaks, open the arrow beside it and choose Reset link to make a new one; nobody already here is affected.",
     },
   },
+  {
+    target: "tab-play",
+    title: "Play tab",
+    body: {
+      gm: "Your table at a glance: tokens you control and the initiative tracker, where you start and run encounters.",
+      player: "Your characters and the turn order. Most of a session happens here.",
+    },
+  },
+  {
+    target: "tab-tokens",
+    title: "Tokens tab",
+    body: {
+      gm: "Every token in the room. Search, find one on the map, edit its stats and owners, or add new ones.",
+      player: "Every token you can see. Search, find one on the map, and edit your own.",
+    },
+  },
+  { target: "tab-dice", title: "Dice tab", body: "Roll dice and see what everyone has rolled." },
+  { target: "tab-gm", title: "Manage tab", body: { gm: "Room setup: the battle map, the grid, and players who have left." } },
+  {
+    target: "activity-log",
+    title: "Activity log",
+    body: { gm: "Everything that has happened in the room, move by move and roll by roll." },
+  },
   { target: "gm-map", title: "Battle map", body: { gm: "Upload a map image, or place one from your library." } },
   { target: "gm-grid", title: "Grid", body: { gm: "Line the grid up with the squares drawn on your map, so tokens snap to the right cells." } },
   {
