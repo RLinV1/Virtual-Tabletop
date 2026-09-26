@@ -13,6 +13,8 @@ export class MemoryRoomStore implements RoomStore {
   private assets = new Map<string, LibraryAssetRecord>();
   /** roomId -> asset ids its current state references. */
   private refs = new Map<string, Set<string>>();
+  /** roomId -> object keys uploaded from inside it (ADR 0009). */
+  private uploads = new Map<string, Set<string>>();
 
   async createRoom(roomId: string, inviteCode: string, options: NewRoomOptions = {}) {
     if (this.events.has(roomId)) throw new Error(`Room ${roomId} already exists`);
@@ -97,6 +99,30 @@ export class MemoryRoomStore implements RoomStore {
 
   async loadEvents(roomId: string) {
     return [...(this.events.get(roomId) ?? [])];
+  }
+
+  async findRoomOwner(roomId: string) {
+    return this.rooms.get(roomId)?.ownerGmId;
+  }
+
+  async recordRoomUpload(roomId: string, objectKey: string) {
+    if (!this.events.has(roomId)) throw new Error(`No room ${roomId}`);
+    const keys = this.uploads.get(roomId) ?? new Set<string>();
+    keys.add(objectKey);
+    this.uploads.set(roomId, keys);
+  }
+
+  /** Drops every map entry for the room. Nothing here can fail halfway, so it is atomic. */
+  async deleteRoom(roomId: string) {
+    if (!this.events.has(roomId)) return null;
+    const uploadKeys = [...(this.uploads.get(roomId) ?? [])];
+    this.events.delete(roomId);
+    this.rooms.delete(roomId);
+    this.refs.delete(roomId);
+    this.uploads.delete(roomId);
+    for (const [code, id] of this.invites) if (id === roomId) this.invites.delete(code);
+    for (const [hash, row] of this.credentials) if (row.roomId === roomId) this.credentials.delete(hash);
+    return { uploadKeys };
   }
 
   async registerGm(tokenHash: string) {

@@ -51,8 +51,11 @@ export type ClientMessage = z.infer<typeof ClientMessage>;
 export type ClientMessageInput = z.input<typeof ClientMessage>;
 
 // ---------- Server -> Client ----------
-/** Why a seat ended (ADR 0006): the player left, or the GM removed them. Also the handshake error text. */
-export type SessionEndReason = "left" | "revoked";
+/**
+ * Why a seat ended (ADR 0006): the player left, or the GM removed them. Also the handshake error
+ * text. `deleted` ends every seat at once, because the owner deleted the room (ADR 0009).
+ */
+export type SessionEndReason = "left" | "revoked" | "deleted";
 
 export type ServerMessage =
   /** Full, filtered snapshot. Client replaces its state and sets lastSeq = seq (FR-PL-06). */

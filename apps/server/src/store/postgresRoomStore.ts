@@ -17,7 +17,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * `@@id([roomId, seq])` makes a duplicate seq a constraint violation, and the whole
  * append runs inside one `$transaction` — so a batch of events either commits with
  * consecutive seqs or not at all (FR-SYNC-04). Rows are never updated or deleted;
- * undo is a new compensating event (FR-REC-03).
+ * undo is a new compensating event (FR-REC-03). The one exception is `deleteRoom`, which
+ * erases a whole room with its log (ADR 0009).
  */
 export class PostgresRoomStore implements RoomStore {
   private constructor(
@@ -158,6 +159,45 @@ export class PostgresRoomStore implements RoomStore {
       await this.seqSource.syncTo(roomId, events.at(-1)!.seq);
     }
     return events;
+  }
+
+  async findRoomOwner(roomId: string) {
+    const room = await this.prisma.room.findUnique({ where: { id: roomId }, select: { ownerGmId: true } });
+    return room ? room.ownerGmId : undefined;
+  }
+
+  async recordRoomUpload(roomId: string, objectKey: string) {
+    await this.prisma.roomUpload.upsert({
+      where: { roomId_objectKey: { roomId, objectKey } },
+      create: { roomId, objectKey },
+      update: {},
+    });
+  }
+
+  /**
+   * Children first, then the room, in one transaction (ADR 0009). No ON DELETE CASCADE on
+   * purpose: this list is the whole of what a room delete removes, and it stays reviewable.
+   */
+  async deleteRoom(roomId: string) {
+    const deleted = await this.prisma.$transaction(async (tx) => {
+      if ((await tx.room.count({ where: { id: roomId } })) === 0) return null;
+      const uploads = await tx.roomUpload.findMany({ where: { roomId }, select: { objectKey: true } });
+      await tx.assetRef.deleteMany({ where: { roomId } });
+      await tx.credential.deleteMany({ where: { roomId } });
+      await tx.checkpoint.deleteMany({ where: { roomId } });
+      await tx.snapshot.deleteMany({ where: { roomId } });
+      await tx.event.deleteMany({ where: { roomId } });
+      await tx.roomUpload.deleteMany({ where: { roomId } });
+      await tx.room.delete({ where: { id: roomId } });
+      return { uploadKeys: uploads.map((u) => u.objectKey) };
+    });
+    // After the commit, and best-effort: a stale counter for a room that no longer exists is harmless.
+    if (deleted && this.seqSource) {
+      await this.seqSource.forget(roomId).catch((err) => {
+        console.error(`[vtt] could not clear the seq counter for deleted room ${roomId}`, err);
+      });
+    }
+    return deleted;
   }
 
   async registerGm(tokenHash: string) {

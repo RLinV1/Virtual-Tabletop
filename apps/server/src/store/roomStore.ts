@@ -23,7 +23,8 @@ export class SeqConflictError extends Error {
  * implementation (see db/001_init.sql) must satisfy the same contract:
  *  - `append` is atomic: all events commit with consecutive seqs, or none do.
  *  - `append` fails with SeqConflictError if the room's last seq != expectedLastSeq.
- *  - events are never updated or deleted.
+ *  - events are never updated or deleted, except that `deleteRoom` erases a whole room's
+ *    log together with the room (ADR 0009).
  */
 export interface RoomStore extends LibraryStore {
   createRoom(roomId: string, inviteCode: string, options?: NewRoomOptions): Promise<void>;
@@ -50,4 +51,16 @@ export interface RoomStore extends LibraryStore {
 
   append(roomId: string, expectedLastSeq: number, events: NewEvent[]): Promise<CommittedEvent[]>;
   loadEvents(roomId: string): Promise<CommittedEvent[]>;
+
+  /** The GM identity that owns the room: null for an unowned room, undefined for no room. */
+  findRoomOwner(roomId: string): Promise<string | null | undefined>;
+  /** Records an image uploaded from inside the room, so deleting the room removes it (ADR 0009). */
+  recordRoomUpload(roomId: string, objectKey: string): Promise<void>;
+  /**
+   * Erases the room and everything scoped to it in one atomic step (ADR 0009): events,
+   * snapshots, checkpoints, credentials (revoked ones too), the invite code, asset refs and
+   * upload records. Returns the upload keys for the caller to remove from the AssetStore once
+   * this has committed, or null when there was no such room.
+   */
+  deleteRoom(roomId: string): Promise<{ uploadKeys: string[] } | null>;
 }

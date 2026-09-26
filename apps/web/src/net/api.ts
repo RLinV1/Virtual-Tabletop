@@ -125,6 +125,16 @@ export const api = {
       if (!res.ok) throw new Error(await errorMessage(res));
     },
     rooms: (gmToken: string) => gmRequest<GmRoomSummary[]>(gmToken, "/api/gm/rooms"),
+
+    /** Deletes an owned room and everything in it, for good (KAN-72, ADR 0009). */
+    async deleteRoom(gmToken: string, roomId: string): Promise<void> {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}`, {
+        method: "DELETE",
+        headers: { [GM_TOKEN_HEADER]: gmToken },
+      });
+      // 404: already deleted (another tab, a double click). Either way it is no longer this GM's room.
+      if (!res.ok && res.status !== 404) throw new Error(await errorMessage(res));
+    },
   },
 
   library: {
