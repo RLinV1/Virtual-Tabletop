@@ -186,6 +186,12 @@ label.inline { flex-direction: row; align-items: center; gap: 0.35rem; color: va
   position: absolute; top: var(--space-3); left: var(--space-3); z-index: 5;
   display: flex; gap: var(--space-2); align-items: flex-start;
 }
+.grid-preview-label {
+  position: absolute; top: var(--space-3); right: var(--space-3); margin: 0;
+  padding: 0.35rem 0.6rem; border: 1px solid var(--accent); border-radius: var(--radius);
+  background: var(--panel); color: var(--text); font-size: var(--fs-sm);
+  pointer-events: none;
+}
 .tool-button {
   display: inline-flex; align-items: center; gap: 0.35rem;
   min-height: 2rem; padding: 0.25rem 0.6rem;
@@ -401,7 +407,11 @@ button.color-swatch:hover:not(:disabled) { filter: none; transform: translateY(-
 button.color-swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--accent); }
 @media (max-width: 420px) { .color-wheel { flex-direction: column; align-items: stretch; } .color-wheel-disc { align-self: center; } }
 .grid-form input { width: 100%; }
-.grid-form button { grid-column: 1 / -1; }
+.grid-field { min-width: 0; }
+.grid-nudges { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.2rem; margin-top: 0.25rem; }
+.grid-nudges button { min-width: 0; padding: 0.25rem 0; }
+.grid-confidence, .grid-message, .grid-actions { grid-column: 1 / -1; }
+.grid-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
 
 /* Name and Delete on the first line, owner and visibility under it. */
 .token-list li {
@@ -832,6 +842,11 @@ dialog.modal {
   box-shadow: 0 24px 60px var(--shadow);
 }
 dialog.modal::backdrop { background: rgba(6, 8, 11, 0.62); }
+dialog.modal.grid-preview-modal { margin-right: 1rem; margin-left: auto; }
+dialog.modal.grid-preview-modal::backdrop { background: rgba(6, 8, 11, 0.35); }
+@media (max-width: 720px) {
+  dialog.modal.grid-preview-modal { margin-inline: auto; }
+}
 .modal-body {
   display: flex; flex-direction: column; gap: var(--space-3);
   max-height: calc(100dvh - 3rem); overflow-y: auto;

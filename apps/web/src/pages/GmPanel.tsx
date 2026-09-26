@@ -1,26 +1,38 @@
 import { CaretDown } from "@phosphor-icons/react";
-import { useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
-import { GRID_LINE_WIDTHS, gridLineStyle, inactiveLabel, pendingDepartures, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { GRID_LINE_WIDTHS, gridLineStyle, inactiveLabel, normalizeLegacyGridForBoard, pendingDepartures, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
 import { api } from "../net/api";
+import { libraryAssetId } from "../net/builtinAssets";
 import { loadGmToken } from "../net/identity";
 import { imageSize } from "../net/imageFile";
+import { minimumGridCellSize, minimumGridCellSizeForDisplay } from "../board/gridRenderLimit";
 import type { CommandResult, RoomConnection } from "../net/roomConnection";
 import { ColorWheel } from "../ui/ColorWheel";
 import { Modal } from "../ui/Modal";
 import { PanelSection } from "../ui/PanelSection";
-import { libraryAssetId } from "../net/builtinAssets";
+import { gridsEqual, parseGridDraft, type GridDraft } from "./gridDraft";
 import { LibraryPicker } from "./LibraryPicker";
 
 interface Props {
   connection: RoomConnection;
   state: RoomState;
   token: string;
+  gridDraft: GridDraft;
+  hasGridDraft: boolean;
+  onGridDraftChange: (draft: GridDraft) => void;
+  onGridDraftCancel: () => void;
+  onGridApply: (grid: GridSpec) => Promise<boolean>;
+  gridApplying: boolean;
+  gridError: string | null;
   /** Opens the per-token review for a player who left (KAN-58). */
   onReviewDeparture: (participantId: string) => void;
 }
 
 /** The GM's administration section: departed players to resolve, then map and grid setup. */
-export function GmPanel({ connection, state, token, onReviewDeparture }: Props) {
+export function GmPanel({
+  connection, state, token, onReviewDeparture,
+  gridDraft, hasGridDraft, onGridDraftChange, onGridDraftCancel, onGridApply, gridApplying, gridError,
+}: Props) {
   const [error, setError] = useState<string | null>(null);
   // The library belongs to this device's GM identity; rooms made before it existed have none.
   const [gmToken] = useState(loadGmToken);
@@ -40,13 +52,19 @@ export function GmPanel({ connection, state, token, onReviewDeparture }: Props) 
         gmToken={gmToken}
         onError={setError}
         onSetMap={(map, grid, report) => runWith(report)(connection.command({ type: "scene.setMap", map, grid }))}
+        onGridClose={onGridDraftCancel}
+        gridApplying={gridApplying}
         grid={(close) => (
           <GridForm
             grid={state.scene.grid}
             map={state.scene.map}
-            onApply={async (grid, report) => {
-              if (await runWith(report)(connection.command({ type: "scene.setGrid", grid }))) close();
-            }}
+            draft={gridDraft}
+            hasDraft={hasGridDraft}
+            onChange={onGridDraftChange}
+            onCancel={close}
+            onApply={async (grid) => { if (await onGridApply(grid)) close(); }}
+            applying={gridApplying}
+            error={gridError}
           >
             {gmToken && state.scene.map?.assetId && (
               <SaveGridToLibrary gmToken={gmToken} assetId={state.scene.map.assetId} grid={state.scene.grid} />
@@ -90,6 +108,8 @@ function MapSection(props: {
   gmToken: string | null;
   onSetMap: (map: MapImage, grid: GridSpec | undefined, report: (message: string | null) => void) => Promise<boolean>;
   onError: (message: string | null) => void;
+  onGridClose: () => void;
+  gridApplying: boolean;
   /** The grid form, shown in its own modal; `close` dismisses it after a successful apply. */
   grid: (close: () => void) => ReactNode;
 }) {
@@ -97,6 +117,17 @@ function MapSection(props: {
   const [picking, setPicking] = useState(false);
   const [pickError, setPickError] = useState<string | null>(null);
   const [gridOpen, setGridOpen] = useState(false);
+  const gridOpenRef = useRef(false);
+  useEffect(() => { gridOpenRef.current = gridOpen; }, [gridOpen]);
+  // A compact-layout switch can unmount the editor without a dialog close event.
+  useEffect(() => () => {
+    if (gridOpenRef.current) props.onGridClose();
+  }, [props.onGridClose]);
+  const closeGrid = () => {
+    gridOpenRef.current = false;
+    setGridOpen(false);
+    props.onGridClose();
+  };
 
   async function onChange(file: File | undefined) {
     if (!file) return;
@@ -116,7 +147,8 @@ function MapSection(props: {
   // library edits never reach back into this room.
   const place = async (asset: LibraryAsset) => {
     const map = { url: asset.url, width: asset.width, height: asset.height, assetId: libraryAssetId(asset) };
-    if (await props.onSetMap(map, asset.grid ?? undefined, setPickError)) setPicking(false);
+    const grid = asset.grid ? normalizeLegacyGridForBoard(asset.grid, map) : undefined;
+    if (await props.onSetMap(map, grid, setPickError)) setPicking(false);
   };
 
   return (
@@ -138,8 +170,8 @@ function MapSection(props: {
             From library
           </button>
         )}
-        <button type="button" className="secondary" data-tour="gm-grid" onClick={() => setGridOpen(true)}>
-          Adjust grid
+        <button type="button" className="secondary" data-tour="gm-grid" disabled={props.gridApplying} onClick={() => setGridOpen(true)}>
+          {props.gridApplying ? "Applying grid…" : "Adjust grid"}
         </button>
       </div>
       {props.gmToken && (
@@ -155,8 +187,8 @@ function MapSection(props: {
           {pickError && <p role="alert" className="error">{pickError}</p>}
         </Modal>
       )}
-      <Modal open={gridOpen} title="Grid" onClose={() => setGridOpen(false)}>
-        {props.grid(() => setGridOpen(false))}
+      <Modal open={gridOpen} title="Grid" className="grid-preview-modal" onClose={closeGrid}>
+        {props.grid(closeGrid)}
       </Modal>
     </PanelSection>
   );
@@ -200,31 +232,88 @@ function SaveGridToLibrary({ gmToken, assetId, grid }: { gmToken: string; assetI
 function GridForm({
   grid,
   map,
+  draft,
+  hasDraft,
+  onChange,
+  onCancel,
   onApply,
+  applying,
+  error,
   children,
 }: {
   grid: GridSpec;
   /** Backdrop for the line-style preview. */
   map: MapImage | null;
-  onApply: (grid: GridSpec, report: (message: string | null) => void) => Promise<void>;
+  draft: GridDraft;
+  hasDraft: boolean;
+  onChange: (draft: GridDraft) => void;
+  onCancel: () => void;
+  onApply: (grid: GridSpec) => Promise<void>;
+  applying: boolean;
+  error: string | null;
   /** "Save grid to library", when the map came from the library. */
   children?: ReactNode;
 }) {
-  const [draft, setDraft] = useState(grid);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => setDraft(grid), [grid]);
+  const validDraft = parseGridDraft(draft, map);
+  const cellSize = Number(draft.cellSize);
+  const tooManyLines = draft.cellSize.trim() !== "" && Number.isFinite(cellSize)
+    && cellSize > 0 && cellSize < minimumGridCellSize(map);
+  const minimumCellSize = minimumGridCellSizeForDisplay(map);
+  const styleDraft = validDraft ?? {
+    ...grid,
+    lineColor: draft.lineColor,
+    lineWidth: draft.lineWidth,
+    lineOpacity: draft.lineOpacity,
+  };
+
+  const nudgedValue = (key: "cellSize" | "offsetX" | "offsetY", delta: number): string | null => {
+    if (draft[key].trim() === "") return null;
+    const current = Number(draft[key]);
+    if (!Number.isFinite(current)) return null;
+    if (key === "cellSize") {
+      const next = current + delta;
+      return next > 0 && next <= 2000 ? String(next) : null;
+    }
+    const size = Number(draft.cellSize);
+    if (draft.cellSize.trim() === "" || !Number.isFinite(size) || size <= 0 || size > 2000) return null;
+    return String(((current + delta) % size + size) % size);
+  };
 
   const field = (key: "cellSize" | "offsetX" | "offsetY" | "unitsPerCell", label: string) => (
-    <label>
-      {label}
-      <input
-        type="number"
-        step="0.5"
-        min={0}
-        value={draft[key]}
-        onChange={(e) => setDraft({ ...draft, [key]: Number(e.target.value) })}
-      />
-    </label>
+    <div className="grid-field" key={key}>
+      <label>
+        {label}
+        <input
+          type="number"
+          step="any"
+          min={0}
+          max={key === "cellSize" ? 2000 : undefined}
+          required
+          disabled={applying}
+          value={draft[key]}
+          onChange={(e) => onChange({ ...draft, [key]: e.target.value })}
+        />
+      </label>
+      {key !== "unitsPerCell" && (
+        <div className="grid-nudges" role="group" aria-label={`${label} nudges`}>
+          {[-5, -1, 1, 5].map((delta) => {
+            const next = nudgedValue(key, delta);
+            return (
+              <button
+                key={delta}
+                type="button"
+                className="secondary small"
+                disabled={applying || next === null}
+                aria-label={`${label}: ${delta > 0 ? "increase" : "decrease"} by ${Math.abs(delta)} pixels`}
+                onClick={() => { if (next !== null) onChange({ ...draft, [key]: next }); }}
+              >
+                {delta > 0 ? `+${delta}` : `−${Math.abs(delta)}`}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 
   return (
@@ -234,17 +323,40 @@ function GridForm({
         className="grid-form"
         onSubmit={(e: FormEvent) => {
           e.preventDefault();
-          void onApply(draft, setError);
+          if (validDraft && !applying && !gridsEqual(validDraft, grid)) void onApply(validDraft);
         }}
       >
         {field("cellSize", "Cell size (px)")}
         {field("unitsPerCell", `Per cell (${draft.unitLabel})`)}
-        {field("offsetX", "Offset X")}
-        {field("offsetY", "Offset Y")}
-        <GridLineFields draft={draft} map={map} onChange={setDraft} />
-        <button type="submit">Apply grid</button>
+        {field("offsetX", "Offset X (px)")}
+        {field("offsetY", "Offset Y (px)")}
+        <GridLineFields
+          draft={styleDraft}
+          map={map}
+          disabled={applying}
+          onChange={(next) => onChange({
+            ...draft,
+            lineColor: next.lineColor,
+            lineWidth: next.lineWidth,
+            lineOpacity: next.lineOpacity,
+          })}
+        />
+        <p className="muted grid-confidence">Confidence: manual</p>
+        {hasDraft && !validDraft && (
+          <p className="error grid-message" role="alert">
+            {tooManyLines
+              ? `Preview is paused at the last valid values. Use a cell size of at least ${minimumCellSize} px for this map.`
+              : "Preview is paused at the last valid values. Use a cell size above 0 and at most 2000 px, positive units, and offsets from 0 up to less than the cell size."}
+          </p>
+        )}
+        {error && <p className="error grid-message" role="alert">{error}</p>}
+        <div className="grid-actions">
+          <button type="button" className="secondary" disabled={applying} onClick={onCancel}>Cancel</button>
+          <button type="submit" disabled={!validDraft || gridsEqual(validDraft, grid) || applying}>
+            {applying ? "Applying…" : "Apply grid"}
+          </button>
+        </div>
       </form>
-      {error && <p role="alert" className="error">{error}</p>}
       {children}
     </div>
   );
@@ -256,10 +368,15 @@ const WIDTH_NAMES = ["Hairline", "Thin", "Medium", "Thick", "Bold"];
  * Line colour, thickness and opacity (grid-line-style, ADR 0005), behind an "Advanced"
  * disclosure that starts closed: most GMs only ever need cell size and offset. Everything
  * here is a draft until "Apply grid", so players see nothing change while the GM tries
- * things; the preview shows the result on the current map instead, since the modal
- * covers the board.
+ * things. The preview shows the precise line style over the map inside the modal;
+ * the board shows the GM's calibration overlay.
  */
-function GridLineFields({ draft, map, onChange }: { draft: GridSpec; map: MapImage | null; onChange: (grid: GridSpec) => void }) {
+function GridLineFields({ draft, map, disabled, onChange }: {
+  draft: GridSpec;
+  map: MapImage | null;
+  disabled: boolean;
+  onChange: (grid: GridSpec) => void;
+}) {
   const [open, setOpen] = useState(false);
   const style = gridLineStyle(draft);
   const widthIndex = Math.max(0, GRID_LINE_WIDTHS.findIndex((w) => w >= style.width));
@@ -278,7 +395,7 @@ function GridLineFields({ draft, map, onChange }: { draft: GridSpec; map: MapIma
       </button>
       <div id="grid-advanced-body" className="grid-advanced-body" hidden={!open}>
         <GridLinePreview grid={draft} map={map} />
-        <ColorWheel label="Line colour" value={style.color} onChange={(lineColor) => onChange({ ...draft, lineColor })} />
+        <ColorWheel label="Line colour" value={style.color} disabled={disabled} onChange={(lineColor) => onChange({ ...draft, lineColor })} />
         <label className="range-field">
           <span className="range-label">
             Thickness <span className="range-value">{GRID_LINE_WIDTHS[widthIndex]} px</span>
@@ -290,6 +407,7 @@ function GridLineFields({ draft, map, onChange }: { draft: GridSpec; map: MapIma
             max={GRID_LINE_WIDTHS.length - 1}
             step={1}
             value={widthIndex}
+            disabled={disabled}
             aria-valuetext={`${WIDTH_NAMES[widthIndex]}, ${GRID_LINE_WIDTHS[widthIndex]} pixels`}
             onChange={(e) => onChange({ ...draft, lineWidth: GRID_LINE_WIDTHS[Number(e.target.value)] })}
           />
@@ -312,6 +430,7 @@ function GridLineFields({ draft, map, onChange }: { draft: GridSpec; map: MapIma
             max={100}
             step={5}
             value={opacityPct}
+            disabled={disabled}
             style={{ "--range-to": style.color } as CSSProperties}
             aria-valuetext={`${opacityPct} percent`}
             onChange={(e) => onChange({ ...draft, lineOpacity: Number(e.target.value) / 100 })}

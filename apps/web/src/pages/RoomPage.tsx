@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { House } from "@phosphor-icons/react";
+import type { GridSpec } from "@vtt/shared";
 import { Board, type BoardHandle } from "../board/Board";
 import { Link } from "../Link";
 import type { SessionEndReason } from "@vtt/shared";
@@ -7,6 +8,7 @@ import { forgetCredentials, loadCredentials } from "../net/identity";
 import { RoomConnection, useRoomSnapshot, type ConnectionStatus } from "../net/roomConnection";
 import { PanelTabs, RoomPanel, isTabId, type TabId } from "../panels/RoomPanel";
 import { ActivityLog } from "../panels/ActivityLog";
+import { gridsEqual, parseGridDraft, toGridDraft, type GridDraft } from "./gridDraft";
 import { LeaveTable } from "../panels/LeaveTable";
 import { ResolveDepartureModal } from "../panels/ResolveDeparture";
 import { DepartureNotices } from "../ui/DepartureNotice";
@@ -105,6 +107,63 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
   const boardRef = useRef<BoardHandle>(null);
   const compact = useCompactLayout();
   const focusToken = useCallback((tokenId: string) => boardRef.current?.focusToken(tokenId), []);
+  const [gridDraft, setGridDraft] = useState<GridDraft | null>(null);
+  const [gridPreview, setGridPreview] = useState<GridSpec | null>(null);
+  const [gridApplying, setGridApplying] = useState(false);
+  const [gridError, setGridError] = useState<string | null>(null);
+  const gridApplyGeneration = useRef(0);
+  const gridApplyInFlight = useRef(false);
+  const committedGrid = state?.scene.grid;
+  const sceneKey = state && JSON.stringify([
+    state.scene.map?.url, state.scene.map?.assetId, state.scene.map?.width, state.scene.map?.height,
+    state.scene.grid.cellSize, state.scene.grid.offsetX, state.scene.grid.offsetY,
+    state.scene.grid.unitsPerCell, state.scene.grid.unitLabel,
+    state.scene.grid.lineColor, state.scene.grid.lineWidth, state.scene.grid.lineOpacity,
+  ]);
+
+  // A new map, committed grid, or role invalidates a draft tied to the previous scene.
+  useEffect(() => {
+    setGridDraft(null);
+    setGridPreview(null);
+    setGridError(null);
+  }, [sceneKey, you?.role]);
+
+  const changeGridDraft = useCallback((draft: GridDraft) => {
+    setGridDraft(draft);
+    const parsed = parseGridDraft(draft, state?.scene.map);
+    // An incomplete field leaves the last valid preview visible while the GM edits it.
+    if (parsed && committedGrid) setGridPreview(gridsEqual(parsed, committedGrid) ? null : parsed);
+    setGridError(null);
+  }, [committedGrid, state?.scene.map]);
+
+  const cancelGridDraft = useCallback(() => {
+    // A sent command may still finish, but its response no longer belongs to this editor.
+    gridApplyGeneration.current += 1;
+    setGridDraft(null);
+    setGridPreview(null);
+    setGridError(null);
+  }, []);
+
+  const applyGrid = useCallback(async (grid: GridSpec): Promise<boolean> => {
+    if (gridApplyInFlight.current) return false;
+    gridApplyInFlight.current = true;
+    const generation = gridApplyGeneration.current;
+    setGridApplying(true);
+    setGridError(null);
+    try {
+      const result = await connection.command({ type: "scene.setGrid", grid });
+      if (generation !== gridApplyGeneration.current) return false;
+      if (!result.ok) setGridError(result.message);
+      return result.ok;
+    } catch (error) {
+      if (generation !== gridApplyGeneration.current) return false;
+      setGridError(error instanceof Error ? error.message : "Could not apply grid");
+      return false;
+    } finally {
+      gridApplyInFlight.current = false;
+      setGridApplying(false);
+    }
+  }, [connection]);
   const [sidebarCollapsed, setSidebarCollapsed] = usePersistentState("vtt.ui.sidebar", false, isBoolean);
   const [tab, setTab] = usePersistentState<TabId>("vtt.ui.tab", "play", isTabId);
   const [guideOpen, setGuideOpen] = useState(false);
@@ -210,6 +269,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
         connection={connection}
         state={state}
         you={you}
+        gridPreview={you.role === "gm" ? gridPreview : null}
         notices={you.role === "gm" ? <DepartureNotices state={state} onReview={setReviewing} /> : undefined}
       />
       <aside className="panel" id="room-panel" tabIndex={-1} aria-label="Room controls">
@@ -268,6 +328,13 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
               you={you}
               token={token}
               onFocusToken={focusToken}
+              gridDraft={gridDraft ?? toGridDraft(state.scene.grid)}
+              hasGridDraft={gridDraft !== null}
+              onGridDraftChange={changeGridDraft}
+              onGridDraftCancel={cancelGridDraft}
+              onGridApply={applyGrid}
+              gridApplying={gridApplying}
+              gridError={gridError}
               compact={compact}
               tab={tab}
               onTab={setTab}

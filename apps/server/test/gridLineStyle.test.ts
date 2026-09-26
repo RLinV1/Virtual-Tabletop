@@ -42,10 +42,41 @@ describe("grid line style over the wire (grid-line-style, ADR 0005)", () => {
     const seqBefore = gm.seq;
 
     expect(await alice.command({ type: "scene.setGrid", grid: styled })).toMatchObject({ type: "rejected", code: "forbidden" });
-    // Fails zod at the trust boundary, so it never reaches decide: a bad_request, not a rejection.
+    // Fails zod at the trust boundary, but still settles the client's command request.
     gm.send({ type: "command", clientCommandId: "bad-colour", command: { type: "scene.setGrid", grid: { ...DEFAULT_GRID, lineColor: "red" } } });
-    expect(await gm.waitFor((m) => m.type === "error")).toMatchObject({ code: "bad_request" });
+    expect(await gm.waitFor((m) => m.type === "rejected" && m.clientCommandId === "bad-colour"))
+      .toMatchObject({ code: "bad_request" });
+    gm.send({ type: "command", clientCommandId: "bad-offset", command: {
+      type: "scene.setGrid", grid: { ...DEFAULT_GRID, offsetX: DEFAULT_GRID.cellSize },
+    } });
+    expect(await gm.waitFor((m) => m.type === "rejected" && m.clientCommandId === "bad-offset"))
+      .toMatchObject({ code: "bad_request", message: "Grid offset must be less than the cell size" });
     expect(gm.seq).toBe(seqBefore);
     expect(gm.state.scene.grid).toEqual(DEFAULT_GRID);
+  });
+
+  it("rejects grids that exceed the board line cap at the command boundary (FR-GM-04)", async () => {
+    const gmCreds = await server.createRoom();
+    const gm = await server.connect(gmCreds);
+    clients.push(gm);
+    const seqBefore = gm.seq;
+
+    expect(await gm.command({ type: "scene.setGrid", grid: { ...DEFAULT_GRID, cellSize: 0.07 } }))
+      .toMatchObject({ type: "rejected", code: "invalid" });
+    expect(gm.seq).toBe(seqBefore);
+
+    const map = { url: "/uploads/map.png", width: 500, height: 500 };
+    expect(await gm.command({ type: "scene.setMap", map, grid: { ...DEFAULT_GRID, cellSize: 0.01 } }))
+      .toMatchObject({ type: "rejected", code: "invalid" });
+    expect(gm.seq).toBe(seqBefore);
+
+    expect(await gm.command({
+      type: "scene.setMap", map: { ...map, width: 2_000_000, height: 2_000_000 },
+    })).toMatchObject({ type: "rejected", code: "invalid" });
+    expect(gm.seq).toBe(seqBefore);
+
+    expect(await gm.command({ type: "scene.setMap", map, grid: { ...DEFAULT_GRID, cellSize: 0.07 } }))
+      .toMatchObject({ type: "ack" });
+    expect(gm.state.scene.grid.cellSize).toBe(0.07);
   });
 });

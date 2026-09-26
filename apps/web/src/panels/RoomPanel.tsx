@@ -1,8 +1,9 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { DiceFive, MapTrifold, Sword, UserList } from "@phosphor-icons/react";
-import type { Participant, RoomState } from "@vtt/shared";
+import type { GridSpec, Participant, RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { GmPanel } from "../pages/GmPanel";
+import type { GridDraft } from "../pages/gridDraft";
 import { DicePanel } from "./DicePanel";
 import { InitiativeTracker } from "./InitiativeTracker";
 import { MyTokens } from "./MyTokens";
@@ -113,6 +114,13 @@ interface Props {
   you: Participant;
   token: string;
   onFocusToken: (tokenId: string) => void;
+  gridDraft: GridDraft;
+  hasGridDraft: boolean;
+  onGridDraftChange: (draft: GridDraft) => void;
+  onGridDraftCancel: () => void;
+  onGridApply: (grid: GridSpec) => Promise<boolean>;
+  gridApplying: boolean;
+  gridError: string | null;
   /** True on narrow screens, where the tab buttons sit above the panel instead of in the top bar. */
   compact: boolean;
   tab: TabId;
@@ -125,7 +133,11 @@ interface Props {
  * Renders the selected tab's sections. The tabs separate what a viewer does at the table
  * (Play, Tokens, Dice) from the GM's setup (Manage), instead of one long column.
  */
-export function RoomPanel({ connection, state, you, token, onFocusToken, compact, tab, onTab, onReviewDeparture }: Props) {
+export function RoomPanel({
+  connection, state, you, token, onFocusToken,
+  gridDraft, hasGridDraft, onGridDraftChange, onGridDraftCancel, onGridApply, gridApplying, gridError,
+  compact, tab, onTab, onReviewDeparture,
+}: Props) {
   const isGm = you.role === "gm";
 
   // Role is server-owned, so it can change under us. Don't strand the panel on a tab that
@@ -144,7 +156,19 @@ export function RoomPanel({ connection, state, you, token, onFocusToken, compact
     tokens: <TokenRoster connection={connection} state={state} you={you} token={token} onFocusToken={onFocusToken} />,
     dice: <DicePanel connection={connection} state={state} isGm={isGm} />,
     gm: isGm ? (
-      <GmPanel connection={connection} state={state} token={token} onReviewDeparture={onReviewDeparture} />
+      <GmPanel
+        connection={connection}
+        state={state}
+        token={token}
+        onReviewDeparture={onReviewDeparture}
+        gridDraft={gridDraft}
+        hasGridDraft={hasGridDraft}
+        onGridDraftChange={onGridDraftChange}
+        onGridDraftCancel={onGridDraftCancel}
+        onGridApply={onGridApply}
+        gridApplying={gridApplying}
+        gridError={gridError}
+      />
     ) : null,
   };
 

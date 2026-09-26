@@ -82,6 +82,18 @@ export function registerSocket(
     const handle = async (raw: unknown) => {
       const parsed = ClientMessage.safeParse(raw);
       if (!parsed.success) {
+        // A malformed command still needs a matching response so the browser can
+        // settle its pending Apply request and show the validation error.
+        if (raw && typeof raw === "object" && "type" in raw && raw.type === "command"
+          && "clientCommandId" in raw && typeof raw.clientCommandId === "string"
+          && raw.clientCommandId.length > 0 && raw.clientCommandId.length <= 64) {
+          return send({
+            type: "rejected",
+            clientCommandId: raw.clientCommandId,
+            code: "bad_request",
+            message: parsed.error.issues[0]?.message ?? "Invalid command",
+          });
+        }
         return send({ type: "error", code: "bad_request", message: parsed.error.message });
       }
       const msg = parsed.data;

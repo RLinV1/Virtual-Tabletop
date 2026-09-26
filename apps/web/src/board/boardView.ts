@@ -25,6 +25,7 @@ import {
   type AreaTemplate,
 } from "@vtt/shared";
 import { recenterOnResize } from "./recenter";
+import { canRenderGrid, DEFAULT_BOARD_SIZE } from "./gridRenderLimit";
 import { areaOrigin, areaShape, areaSizeFromDrag, formatDistance, hitMark, measure, sweepPoints, templateMark, type BoardTool, type Mark } from "./tools";
 
 export interface BoardCallbacks {
@@ -38,7 +39,6 @@ export interface BoardCallbacks {
   removeTemplate(templateId: string): Promise<boolean>;
 }
 
-const DEFAULT_BOARD = { width: 2100, height: 1400 };
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 8;
 const PREVIEW_INTERVAL_MS = 50;
@@ -153,6 +153,7 @@ export class BoardView {
   private state: RoomState | null = null;
   private you: Participant | null = null;
   private mapUrl: string | null = null;
+  private gridPreview: GridSpec | null = null;
   /** The current map's image could not be loaded; draw the generic surface instead. */
   private mapMissing = false;
   private gridKey = "";
@@ -341,6 +342,12 @@ export class BoardView {
     }
     if (this.autoFit) this.fitToScreen();
     this.invalidate();
+  }
+
+  /** Only this viewer sees the calibration overlay. Token movement keeps the committed grid. */
+  setGridPreview(grid: GridSpec | null) {
+    this.gridPreview = grid;
+    if (this.initialized && this.state) this.syncGrid();
   }
 
   showPing(at: Point, color = 0xf1c40f) {
@@ -670,7 +677,7 @@ export class BoardView {
 
   private boardSize() {
     const map = this.state?.scene.map;
-    return map ? { width: map.width, height: map.height } : DEFAULT_BOARD;
+    return map ? { width: map.width, height: map.height } : DEFAULT_BOARD_SIZE;
   }
 
   private syncMap() {
@@ -705,9 +712,12 @@ export class BoardView {
   }
 
   private syncGrid() {
-    const g = this.state!.scene.grid;
+    const g = this.gridPreview ?? this.state!.scene.grid;
     const { width, height } = this.boardSize();
-    const key = JSON.stringify([g, width, height, this.mapMissing]);
+    const key = JSON.stringify([
+      g.cellSize, g.offsetX, g.offsetY, g.lineColor, g.lineWidth, g.lineOpacity,
+      width, height, this.mapMissing, !!this.gridPreview,
+    ]);
     if (key === this.gridKey) return;
     this.gridKey = key;
     // Measurements and areas are sized and snapped by the grid.
@@ -715,11 +725,18 @@ export class BoardView {
 
     this.grid.clear();
     if (!this.state!.scene.map || this.mapMissing) this.grid.rect(0, 0, width, height).fill({ color: EMPTY_MAP_FILL });
+    // Legacy or external grids still need a safety guard even though the editor rejects them.
+    if (!canRenderGrid(g.cellSize, { width, height })) {
+      this.invalidate();
+      return;
+    }
     for (let x = g.offsetX; x <= width; x += g.cellSize) this.grid.moveTo(x, 0).lineTo(x, height);
     for (let y = g.offsetY; y <= height; y += g.cellSize) this.grid.moveTo(0, y).lineTo(width, y);
-    // The GM's line style (ADR 0005), or the historical black hairline for an unstyled grid.
+    // The GM's preview stays identifiable while the modal shows the precise line style.
     const style = gridLineStyle(g);
-    this.grid.stroke({ width: style.width, color: Number(`0x${style.color.slice(1)}`), alpha: style.opacity });
+    this.grid.stroke(this.gridPreview
+      ? { width: Math.max(style.width, 1.5), color: 0x5b8def, alpha: 0.8 }
+      : { width: style.width, color: Number(`0x${style.color.slice(1)}`), alpha: style.opacity });
     this.invalidate();
   }
 
