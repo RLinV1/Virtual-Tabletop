@@ -39,7 +39,7 @@ const STEPS: StepSpec[] = [
     target: "participants",
     title: "Who's here",
     body: {
-      gm: "See everyone in the room. Remove takes a player out for good; their tokens stay for you to hand on.",
+      gm: "See everyone in the room. Remove ends a player's seat and their tokens stay for you to hand on. They can rejoin as a new player through the current invite link until you reset it.",
       player: "See everyone in the room. The GM is marked.",
     },
   },

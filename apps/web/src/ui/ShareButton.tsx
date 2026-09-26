@@ -33,15 +33,48 @@ export function ShareButton({ roomId, token }: { roomId: string; token: string }
     if (creds && creds.inviteCode !== inviteCode) saveCredentials({ ...creds, inviteCode });
   };
 
-  /** Fetches the current invite code from the server and copies its link. */
-  const copy = async () => {
+  /**
+   * Bumped when a reset starts and again when it ends. A copy whose fetch began under an older
+   * generation may hold the code the reset just killed, so it is dropped rather than copied or
+   * cached over the new one.
+   */
+  const generation = useRef(0);
+
+  /**
+   * Copies the current invite link. The clipboard write starts inside the click itself, with the
+   * text still being fetched: browsers that only allow clipboard writes during the user's gesture
+   * (Safari) would refuse one made after awaiting the server. Where `ClipboardItem` can't take a
+   * pending value, it falls back to fetching first and then writing.
+   */
+  const copy = () => {
+    if (busy) return;
+    const started = generation.current;
+    const link = api.getInvite(roomId, token).then(({ inviteCode }) => {
+      // A reset started after this fetch: this code may be dead, so neither copy nor cache it.
+      if (generation.current !== started) throw new StaleInvite();
+      remember(inviteCode);
+      return `${location.origin}/join/${inviteCode}`;
+    });
+    void finishCopy(link);
+  };
+
+  /** Writes the link once it resolves, reporting the outcome; a stale link is dropped quietly. */
+  async function finishCopy(link: Promise<string>) {
+    if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
+      try {
+        const blob = link.then((url) => new Blob([url], { type: "text/plain" }));
+        await navigator.clipboard.write([new ClipboardItem({ "text/plain": blob })]);
+        return flash("copied");
+      } catch {
+        // Fall through: the fetch failed, the link went stale, or the browser refused a pending
+        // ClipboardItem. The branches below tell those apart.
+      }
+    }
     let url: string;
     try {
-      const { inviteCode } = await api.getInvite(roomId, token);
-      remember(inviteCode);
-      url = `${location.origin}/join/${inviteCode}`;
-    } catch {
-      return flash("failed");
+      url = await link;
+    } catch (err) {
+      return err instanceof StaleInvite ? undefined : flash("failed");
     }
     let ok = true;
     try {
@@ -50,10 +83,11 @@ export function ShareButton({ roomId, token }: { roomId: string; token: string }
       ok = legacyCopy(url);
     }
     flash(ok ? "copied" : "failed");
-  };
+  }
 
   /** Replaces the invite code after confirmation; the old link stops working. */
   async function reset() {
+    generation.current++;
     setBusy(true);
     setError(null);
     try {
@@ -64,6 +98,7 @@ export function ShareButton({ roomId, token }: { roomId: string; token: string }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't reset the link");
     } finally {
+      generation.current++;
       setBusy(false);
     }
   }
@@ -78,6 +113,7 @@ export function ShareButton({ roomId, token }: { roomId: string; token: string }
         className="share-button"
         title="Copy the invite link"
         aria-label="Copy invite link. Anyone with it can join as a player."
+        disabled={busy}
         onClick={() => void copy()}
       >
         {label}
@@ -124,6 +160,9 @@ export function ShareButton({ roomId, token }: { roomId: string; token: string }
     </div>
   );
 }
+
+/** A fetched invite code that a reset has since replaced. */
+class StaleInvite extends Error {}
 
 /** Fallback for when the async clipboard API is unavailable (e.g. plain http on a LAN address). */
 function legacyCopy(text: string): boolean {
