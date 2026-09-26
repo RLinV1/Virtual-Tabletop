@@ -1,7 +1,9 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, type ReactNode } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from "react";
 import type { Participant, RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
+import { DEFAULT_TOOL_OPTIONS, ToolRail, toolFor, type ToolOptions } from "../ui/ToolRail";
 import { BoardView } from "./boardView";
+import type { BoardTool } from "./tools";
 
 interface Props {
   connection: RoomConnection;
@@ -18,12 +20,29 @@ export interface BoardHandle {
   focusToken(tokenId: string): void;
 }
 
+const HINTS: Record<BoardTool["kind"], string> = {
+  select: "Drag to pan · scroll to zoom · double-click to ping · hold Alt to place freely",
+  measure: "Drag to measure · hold Alt to measure freely · Esc to stop",
+  draw: "Drag to draw · only you can see these marks · Esc to stop",
+  area: "Drag to size and aim · click to place the chosen size · hold Alt to place freely · only you can see these marks",
+  erase: "Click or drag over your marks to erase them · Esc to stop",
+};
+
+/** Keys typed into a field belong to that field, not to the board. */
+function isTyping(target: EventTarget | null) {
+  return target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+}
+
 /** The PixiJS board plus its React toolbar and notices; Pixi objects stay inside `BoardView`. */
 export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, toolbar, notices }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<BoardView | null>(null);
   const latest = useRef({ state, you });
   latest.current = { state, you };
+  const [tool, setTool] = useState<BoardTool>({ kind: "select" });
+  const [toolOptions, setToolOptions] = useState<ToolOptions>(DEFAULT_TOOL_OPTIONS);
+  const toolRef = useRef(tool);
+  toolRef.current = tool;
 
   useEffect(() => {
     const view = new BoardView(hostRef.current!, {
@@ -41,6 +60,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       if (disposed) return view.destroy();
       viewRef.current = view;
       view.update(latest.current.state, latest.current.you);
+      view.setTool(toolRef.current);
     });
     const stopEphemeral = connection.onEphemeral((_from, payload) => {
       if (payload.type === "ping") view.showPing(payload.at, 0x3498db);
@@ -61,6 +81,21 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     viewRef.current?.update(state, you);
   }, [state, you]);
 
+  useEffect(() => {
+    viewRef.current?.setTool(tool);
+  }, [tool]);
+
+  // Escape puts the board back to Select, unless it is meant for a field or an open dialog.
+  useEffect(() => {
+    if (tool.kind === "select") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented || isTyping(e.target) || document.querySelector("dialog[open]")) return;
+      setTool({ kind: "select" });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [tool.kind]);
+
   useImperativeHandle(ref, () => ({
     focusToken: (tokenId: string) => viewRef.current?.focusToken(tokenId),
   }), []);
@@ -74,8 +109,19 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
           Fit
         </button>
       </div>
+      <ToolRail
+        active={tool.kind}
+        options={toolOptions}
+        unitLabel={state.scene.grid.unitLabel}
+        onSelect={(kind) => setTool(toolFor(kind, toolOptions))}
+        onOptions={(options) => {
+          setToolOptions(options);
+          setTool((current) => toolFor(current.kind, options));
+        }}
+        onClear={() => viewRef.current?.clearMarks()}
+      />
       {notices}
-      <p className="board-hint">Drag to pan · scroll to zoom · double-click to ping · hold Alt to place freely</p>
+      <p className="board-hint">{HINTS[tool.kind]}</p>
     </div>
   );
 });

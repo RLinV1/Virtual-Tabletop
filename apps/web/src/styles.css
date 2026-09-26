@@ -629,6 +629,7 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 .home .card p { margin: 0; }
 @media (max-width: 760px) { .home-grid { grid-template-columns: 1fr; } }
 
+
 .room-list li {
   display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
   padding: 0.6rem 0; border-bottom: 1px solid var(--border);
@@ -1633,4 +1634,43 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 .resolve-coowners { font-size: var(--fs-xs); }
 @media (max-width: 420px) {
   .resolve-row { grid-template-columns: 1fr; }
+}
+
+/* ---------- Board tool rail (KAN-69) ---------- */
+/* Below the top-left toolbar, so the two never overlap. No backdrop filter (client-render-performance). */
+.tool-rail-wrap {
+  position: absolute; left: var(--space-3); top: calc(var(--space-3) + 2.75rem); z-index: 5;
+  display: flex; align-items: flex-start; gap: var(--space-2);
+  max-height: calc(100% - 5rem);
+  /* A drag that starts on the rail must not select the toolbar's text. */
+  user-select: none;
+  /* The wrapper's empty corner beside the rail is board, not rail: let it through. */
+  pointer-events: none;
+}
+.tool-rail-wrap > * { pointer-events: auto; }
+.tool-rail {
+  display: flex; flex-direction: column; gap: var(--space-1);
+  padding: var(--space-1);
+  background: rgba(18, 20, 23, 0.85); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.tool-button.rail-button { justify-content: center; width: 2.25rem; min-height: 2.25rem; padding: 0; }
+.tool-button.rail-button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.rail-divider { height: 1px; margin: var(--space-1) 0; background: var(--border-strong); }
+.tool-options {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  padding: var(--space-2);
+  background: rgba(18, 20, 23, 0.85); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.tool-segmented { display: flex; gap: var(--space-1); }
+.tool-swatches { display: flex; gap: var(--space-1); }
+.tool-swatch {
+  width: 1.5rem; height: 1.5rem; min-height: 0; padding: 0; border-radius: 50%;
+  border: 2px solid rgba(0, 0, 0, 0.5);
+}
+.tool-swatch[aria-pressed="true"] { outline: 2px solid var(--text); outline-offset: 2px; }
+.tool-size select { width: 100%; }
+
+@media (max-width: 640px) {
+  .tool-button.rail-button { width: 2.5rem; min-height: 2.5rem; }
+  .tool-swatch { width: 2rem; height: 2rem; }
 }
