@@ -1,16 +1,17 @@
 import type { ReactNode } from "react";
-import { Circle, Cursor, Eraser, LineSegment, PaintBrush, PencilSimple, Ruler, Square, Target, Trash, Triangle } from "@phosphor-icons/react";
+import { isBoolean, usePersistentState } from "./usePersistentState";
+import { CaretDoubleLeft, CaretDoubleRight, Circle, Cursor, Eraser, LineSegment, PaintBrush, PencilSimple, Ruler, Square, Target, Trash, Triangle } from "@phosphor-icons/react";
 import { AREA_SIZES, DRAW_COLORS, type AreaShape, type BoardTool, type DrawShape } from "../board/tools";
 
 /** The options each tool remembers while another tool is active. */
 export interface ToolOptions {
   draw: { shape: DrawShape; color: number };
-  area: { shape: AreaShape; size: number };
+  area: { shape: AreaShape; size: number; gmOnly: boolean };
 }
 
 export const DEFAULT_TOOL_OPTIONS: ToolOptions = {
   draw: { shape: "brush", color: DRAW_COLORS[0].value },
-  area: { shape: "circle", size: 20 },
+  area: { shape: "circle", size: 20, gmOnly: false },
 };
 
 type ToolKind = BoardTool["kind"];
@@ -19,7 +20,7 @@ const TOOLS: { kind: ToolKind; label: string; icon: ReactNode }[] = [
   { kind: "select", label: "Select", icon: <Cursor size={18} aria-hidden="true" /> },
   { kind: "measure", label: "Measure", icon: <Ruler size={18} aria-hidden="true" /> },
   { kind: "draw", label: "Draw", icon: <PencilSimple size={18} aria-hidden="true" /> },
-  { kind: "area", label: "Area", icon: <Target size={18} aria-hidden="true" /> },
+  { kind: "area", label: "AoE", icon: <Target size={18} aria-hidden="true" /> },
   { kind: "erase", label: "Eraser", icon: <Eraser size={18} aria-hidden="true" /> },
 ];
 
@@ -53,6 +54,7 @@ export function ToolRail({
   active,
   options,
   unitLabel,
+  isGm,
   onSelect,
   onOptions,
   onClear,
@@ -61,29 +63,48 @@ export function ToolRail({
   options: ToolOptions;
   /** The room grid's unit label, for the area sizes. */
   unitLabel: string;
+  /** The GM can place areas only they can see (ADR 0007). */
+  isGm: boolean;
   onSelect: (kind: ToolKind) => void;
   onOptions: (options: ToolOptions) => void;
   onClear: () => void;
 }) {
+  const [collapsed, setCollapsed] = usePersistentState("vtt.ui.toolRail", false, isBoolean);
+  const toggle = (
+    <button
+      type="button"
+      className="tool-button rail-button rail-toggle"
+      aria-expanded={!collapsed}
+      aria-label={collapsed ? "Show board tools" : "Hide board tools"}
+      title={collapsed ? "Show board tools" : "Hide board tools"}
+      onClick={() => setCollapsed((c) => !c)}
+    >
+      {collapsed ? <CaretDoubleRight size={14} aria-hidden="true" /> : <CaretDoubleLeft size={14} aria-hidden="true" />}
+    </button>
+  );
+  // Hidden, the rail is just its toggle; the active tool keeps working on the board.
+  if (collapsed) return <div className="tool-rail-wrap"><div className="tool-rail">{toggle}</div></div>;
   return (
     <div className="tool-rail-wrap">
       <div className="tool-rail" role="toolbar" aria-label="Board tools" aria-orientation="vertical">
+        {toggle}
         {TOOLS.map((t) => (
           <button
             key={t.kind}
             type="button"
-            className="tool-button rail-button"
+            className="tool-button rail-button labelled"
             aria-pressed={active === t.kind}
-            aria-label={t.label}
             title={t.label}
             onClick={() => onSelect(t.kind)}
           >
             {t.icon}
+            <span className="rail-label">{t.label}</span>
           </button>
         ))}
         <span className="rail-divider" aria-hidden="true" />
-        <button type="button" className="tool-button rail-button" aria-label="Clear all my marks" title="Clear all my marks" onClick={onClear}>
+        <button type="button" className="tool-button rail-button labelled" aria-label="Clear all my marks" title="Clear all my marks" onClick={onClear}>
           <Trash size={18} aria-hidden="true" />
+          <span className="rail-label">Clear</span>
         </button>
       </div>
 
@@ -133,6 +154,16 @@ export function ToolRail({
               ))}
             </select>
           </label>
+          {isGm && (
+            <label className="tool-check" title="Players won't see areas placed while this is on">
+              <input
+                type="checkbox"
+                checked={options.area.gmOnly}
+                onChange={(e) => onOptions({ ...options, area: { ...options.area, gmOnly: e.target.checked } })}
+              />
+              GM only
+            </label>
+          )}
         </div>
       )}
     </div>

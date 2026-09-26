@@ -37,6 +37,9 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
   const tokenName = (id: string) => before.tokens[id]?.name ?? "an unknown token";
   /** A participant's name as it was just before this event. */
   const participantName = (id: string) => before.participants[id]?.displayName ?? "an unknown participant";
+  /** "20 ft cone", in the room grid's units. */
+  const templateLabel = (t: { shape: string; size: number }) =>
+    `${Number(t.size.toFixed(2))} ${before.scene.grid.unitLabel} ${t.shape}`;
   switch (event.type) {
     case "RoomCreated": return `${actorName} created room ${event.name}`;
     case "ParticipantJoined": return `${actorName} joined the room as ${event.participant.role === "gm" ? "GM" : "a player"}`;
@@ -55,6 +58,8 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
     case "InitiativeAdvanced": return `${actorName} advanced to round ${event.initiative.round}, ${tokenName(event.initiative.order[event.initiative.activeIndex] ?? "")}'s turn`;
     case "InitiativeEnded": return `${actorName} ended initiative`;
     case "DiceRolled": return `${actorName} rolled ${event.roll.expression}: ${event.roll.total}${event.roll.visibility === "gm" ? " (GM only)" : ""}`;
+    case "TemplatePlaced": return `${actorName} placed a ${templateLabel(event.template)}${event.template.gmOnly ? " (GM only)" : ""}`;
+    case "TemplateRemoved": return `${actorName} removed a ${templateLabel(event.template)}${event.template.gmOnly ? " (GM only)" : ""}`;
     default: {
       const exhaustive: never = event;
       return exhaustive;

@@ -6,6 +6,7 @@ import { alice, baseRoom, gm, withToken } from "./fixtures";
 const { state, token } = withToken(baseRoom(), { name: "Goblin" });
 const initiative = { order: [token.id], activeIndex: 0, round: 1 };
 const roll = { id: "roll", expression: "1d20", byParticipantId: alice.id, dice: [15], modifier: 0, total: 15, visibility: "public" as const };
+const areaTemplate = { id: "t1", shape: "cone" as const, origin: { x: 70, y: 70 }, toward: { x: 210, y: 70 }, size: 20, ownerId: alice.id, gmOnly: false };
 const committed = (event: DomainEvent, seq = 1, actorId: string | null = gm.id): CommittedEvent =>
   ({ seq, actorId, at: "2026-09-24T12:00:00.000Z", event });
 
@@ -28,6 +29,8 @@ describe("Human-readable activity formatter (FR-REC-01)", () => {
     InitiativeAdvanced: [{ type: "InitiativeAdvanced", initiative: { ...initiative, round: 2 }, previous: initiative }, "Mara advanced to round 2, Goblin's turn"],
     InitiativeEnded: [{ type: "InitiativeEnded", previous: initiative }, "Mara ended initiative"],
     DiceRolled: [{ type: "DiceRolled", roll }, "Mara rolled 1d20: 15"],
+    TemplatePlaced: [{ type: "TemplatePlaced", template: areaTemplate }, "Mara placed a 20 ft cone"],
+    TemplateRemoved: [{ type: "TemplateRemoved", template: { ...areaTemplate, gmOnly: true } }, "Mara removed a 20 ft cone (GM only)"],
   };
   it.each(Object.entries(cases))("formats %s", (_type, [event, sentence]) => {
     expect(DomainEvent.safeParse(event).success).toBe(true);

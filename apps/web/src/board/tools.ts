@@ -1,4 +1,6 @@
-import { snapTokenCenter, type GridSpec, type Point } from "@vtt/shared";
+import { snapTokenCenter, type AreaShape, type AreaTemplate, type GridSpec, type Point } from "@vtt/shared";
+
+export type { AreaShape };
 
 /**
  * Board tools (KAN-69): the tool rail's Measure, Draw, Area and Eraser tools. Pure geometry in board
@@ -8,13 +10,19 @@ import { snapTokenCenter, type GridSpec, type Point } from "@vtt/shared";
 
 /** `brush` is freehand, which FR-TAC-04 leaves out of the shared overlays; it is local-only here. */
 export type DrawShape = "brush" | "line" | "rect" | "circle";
-export type AreaShape = "circle" | "cone" | "box";
 
 export type BoardTool =
   | { kind: "select" }
   | { kind: "measure" }
   | { kind: "draw"; shape: DrawShape; color: number }
-  | { kind: "area"; shape: AreaShape; /** Size for a click without a drag, in grid units, e.g. 20 (ft). */ size: number }
+  | {
+      kind: "area";
+      shape: AreaShape;
+      /** Size for a click without a drag, in grid units, e.g. 20 (ft). */
+      size: number;
+      /** GM only: place it where players can't see it (ADR 0007). */
+      gmOnly: boolean;
+    }
   | { kind: "erase" };
 
 /** Colours offered by the Draw tool. */
@@ -33,7 +41,12 @@ export type Mark =
   | { kind: "measure"; from: Point; to: Point; free: boolean }
   | { kind: "draw"; shape: Exclude<DrawShape, "brush">; color: number; from: Point; to: Point }
   | { kind: "stroke"; color: number; points: Point[] }
-  | { kind: "area"; shape: AreaShape; size: number; origin: Point; toward: Point; free: boolean };
+  | { kind: "area"; shape: AreaShape; size: number; origin: Point; toward: Point; free: boolean; gmOnly?: boolean };
+
+/** A placed, shared template as a mark, for drawing and hit testing. Its origin is already snapped. */
+export function templateMark(t: AreaTemplate): Extract<Mark, { kind: "area" }> {
+  return { kind: "area", shape: t.shape, size: t.size, origin: t.origin, toward: t.toward, free: true, gmOnly: t.gmOnly };
+}
 
 export function snapToCellCenter(p: Point, grid: GridSpec): Point {
   return snapTokenCenter(p, 1, grid);

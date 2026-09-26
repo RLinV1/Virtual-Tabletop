@@ -1662,6 +1662,12 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
   background: rgba(18, 20, 23, 0.85); border: 1px solid var(--border); border-radius: var(--radius);
 }
 .tool-button.rail-button { justify-content: center; width: 2.25rem; min-height: 2.25rem; padding: 0; }
+/* The main rail's buttons carry a short label under the icon; the option flyout's don't. */
+.tool-button.rail-button.labelled {
+  flex-direction: column; gap: 0.15rem;
+  width: 3.4rem; min-height: 3.1rem; padding: 0.3rem 0 0.25rem;
+}
+.rail-label { font-size: var(--fs-xs); font-weight: 500; line-height: 1; }
 .tool-button.rail-button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .rail-divider { height: 1px; margin: var(--space-1) 0; background: var(--border-strong); }
 .tool-options {
@@ -1680,5 +1686,10 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 
 @media (max-width: 640px) {
   .tool-button.rail-button { width: 2.5rem; min-height: 2.5rem; }
+  /* A phone's board is too short for a labelled rail: icons only, names stay in the tooltip and accessible name. */
+  .tool-button.rail-button.labelled { width: 2.5rem; min-height: 2.5rem; padding: 0; }
+  .rail-label { display: none; }
   .tool-swatch { width: 2rem; height: 2rem; }
 }
+.tool-options .tool-check { display: flex; flex-direction: row; align-items: center; gap: var(--space-2); font-size: var(--fs-sm); color: var(--text); }
+.tool-button.rail-button.rail-toggle { width: 100%; min-height: 1.5rem; }

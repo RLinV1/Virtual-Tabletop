@@ -27,3 +27,5 @@
 - [x] 5.3 Add an Eraser tool (click or drag over marks) with `hitMark`, and rename Clear to Clear all; verify with hit-test unit tests and in Playwright
 - [x] 5.4 Give Measure, Draw, Area, and Eraser their own SVG cursors; verify the canvas cursor is the tool's in Playwright
 - [x] 5.5 Let presses beside the rail reach the board (`pointer-events` on the rail wrapper); verify drags starting next to the rail draw
+- [x] 5.6 Label the rail buttons under their icons (icon-only on phones), matching the reference layout; verify in Playwright at desktop and 375px
+- [x] 5.7 Add a hide/show control to the rail, remembered per browser; verify in Playwright that the active tool still works while hidden and the choice survives a reload

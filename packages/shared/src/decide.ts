@@ -2,7 +2,7 @@ import type { Command, DepartureAction } from "./commands";
 import { EMPTY_STATS } from "./conditions";
 import { formatExpression, parseDiceExpression, rollDice } from "./dice";
 import type { DomainEvent } from "./events";
-import { type Initiative, type Participant, type RoomState, type Token } from "./state";
+import { MAX_AREA_TEMPLATES, type AreaTemplate, type Initiative, type Participant, type RoomState, type Token } from "./state";
 
 export type RejectionCode = "forbidden" | "not_found" | "invalid";
 
@@ -29,6 +29,9 @@ export const can = {
     actor.role === "gm" || token.ownerIds.includes(actor.id),
   /** Only the GM may roll where players cannot see the result (FR-GM-22). */
   rollHidden: (actor: Participant) => actor.role === "gm",
+  /** Whoever placed a template may remove it; the GM may remove any (ADR 0007). */
+  removeTemplate: (actor: Participant, template: AreaTemplate) =>
+    actor.role === "gm" || template.ownerId === actor.id,
 };
 
 /**
@@ -214,6 +217,34 @@ export function decide(
           visibility: command.visibility,
         },
       });
+    }
+
+    case "template.place": {
+      // Only the GM hides things from players, as with hidden tokens and GM-only rolls.
+      if (command.gmOnly && !can.administer(actor)) return forbidden();
+      if (Object.keys(state.templates).length >= MAX_AREA_TEMPLATES) {
+        return reject("invalid", `A room can hold at most ${MAX_AREA_TEMPLATES} area templates. Remove some first.`);
+      }
+      return accept({
+        type: "TemplatePlaced",
+        template: {
+          id: ctx.newId(),
+          shape: command.shape,
+          origin: command.origin,
+          toward: command.toward,
+          size: command.size,
+          ownerId: actor.id,
+          gmOnly: command.gmOnly,
+        },
+      });
+    }
+
+    case "template.remove": {
+      const template = state.templates[command.templateId];
+      // A GM-only template answers a player exactly like a missing one (FR-GM-23).
+      if (!template || (template.gmOnly && !can.administer(actor))) return notFound("template");
+      if (!can.removeTemplate(actor, template)) return forbidden();
+      return accept({ type: "TemplateRemoved", template });
     }
 
     case "participant.rename": {

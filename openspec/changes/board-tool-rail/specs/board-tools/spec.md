@@ -5,7 +5,7 @@ Gives every participant a set of board tools on the side of the map — select, 
 ## ADDED Requirements
 
 ### Requirement: The board shows a tool rail with one active tool
-The room page SHALL show a tool rail on the side of the board to players and the GM. The rail SHALL offer Select, Measure, Draw, Area, and Eraser tools and a Clear all action. Empty space beside the rail SHALL NOT block the board: a press there reaches the board. Exactly one tool SHALL be active at a time, and Select SHALL be active when the board opens. The active tool SHALL be indicated visually and to assistive technology (a pressed state). Every rail control SHALL be reachable and operable by keyboard. Pressing Escape while the board has focus or while a non-Select tool is active SHALL return to Select. The rail SHALL fit on phone widths without covering the board's existing top-left controls.
+The room page SHALL show a tool rail on the side of the board to players and the GM. The rail SHALL offer Select, Measure, Draw, AoE, and Eraser tools and a Clear all action, each with a visible text label under its icon on wider screens and icon-only on phone widths. The rail SHALL have a control to hide and show it; hidden, it shrinks to that control, the active tool keeps working, and the choice is remembered in this browser. Empty space beside the rail SHALL NOT block the board: a press there reaches the board. Exactly one tool SHALL be active at a time, and Select SHALL be active when the board opens. The active tool SHALL be indicated visually and to assistive technology (a pressed state). Every rail control SHALL be reachable and operable by keyboard. Pressing Escape while the board has focus or while a non-Select tool is active SHALL return to Select. The rail SHALL fit on phone widths without covering the board's existing top-left controls.
 
 #### Scenario: Board opens in Select
 - **WHEN** a participant opens a room
@@ -108,7 +108,7 @@ While Measure, Draw, Area, or Eraser is active, the pointer over the board SHALL
 - **THEN** the cursor is an eraser
 
 ### Requirement: Marks stay on the viewer's client and on the map
-Measurements, drawings, and areas SHALL be visible only to the participant who made them. They SHALL NOT be sent to the server or to other participants, SHALL NOT be recorded in the room's history, and SHALL be gone after the page reloads. They SHALL be positioned in board coordinates, so they stay over the same place on the map when the viewer pans or zooms and when room state updates. Their line widths SHALL stay readable at any zoom level.
+Measurements and drawings SHALL be visible only to the participant who made them. (Areas are shared with the table; see the `area-templates` capability from `shared-aoe-templates`.) They SHALL NOT be sent to the server or to other participants, SHALL NOT be recorded in the room's history, and SHALL be gone after the page reloads. They SHALL be positioned in board coordinates, so they stay over the same place on the map when the viewer pans or zooms and when room state updates. Their line widths SHALL stay readable at any zoom level.
 
 #### Scenario: Other players do not see marks
 - **WHEN** one player draws a circle on the map

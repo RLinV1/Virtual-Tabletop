@@ -23,9 +23,9 @@ export interface BoardHandle {
 const HINTS: Record<BoardTool["kind"], string> = {
   select: "Drag to pan · scroll to zoom · double-click to ping · hold Alt to place freely",
   measure: "Drag to measure · hold Alt to measure freely · Esc to stop",
-  draw: "Drag to draw · only you can see these marks · Esc to stop",
-  area: "Drag to size and aim · click to place the chosen size · hold Alt to place freely · only you can see these marks",
-  erase: "Click or drag over your marks to erase them · Esc to stop",
+  draw: "Drag to draw · only you can see drawings · Esc to stop",
+  area: "Drag to size and aim · click to place the chosen size · hold Alt to place freely · everyone at the table sees areas",
+  erase: "Click or drag over your marks and areas to erase them · Esc to stop",
 };
 
 /** Keys typed into a field belong to that field, not to the board. */
@@ -53,6 +53,16 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       },
       dragPreview: (tokenId, at) => connection.ephemeral({ type: "tokenDragPreview", tokenId, at }),
       ping: (at) => connection.ephemeral({ type: "ping", at }),
+      placeTemplate: async (template) => {
+        const result = await connection.command({ type: "template.place", ...template });
+        if (!result.ok) console.warn("Area rejected:", result.message);
+        return result.ok;
+      },
+      removeTemplate: (templateId) => {
+        void connection.command({ type: "template.remove", templateId }).then((result) => {
+          if (!result.ok) console.warn("Area removal rejected:", result.message);
+        });
+      },
     });
 
     let disposed = false;
@@ -113,6 +123,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
         active={tool.kind}
         options={toolOptions}
         unitLabel={state.scene.grid.unitLabel}
+        isGm={you.role === "gm"}
         onSelect={(kind) => setTool(toolFor(kind, toolOptions))}
         onOptions={(options) => {
           setToolOptions(options);

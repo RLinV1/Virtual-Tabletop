@@ -87,6 +87,15 @@ export function reduce(state: RoomState, event: DomainEvent): RoomState {
       // state keeps only what the roll panel shows.
       return { ...state, rolls: [...state.rolls, event.roll].slice(-ROLL_LOG_LIMIT) };
 
+    case "TemplatePlaced":
+      return { ...state, templates: { ...state.templates, [event.template.id]: event.template } };
+
+    case "TemplateRemoved": {
+      required(state.templates[event.template.id], event);
+      const { [event.template.id]: _removed, ...rest } = state.templates;
+      return { ...state, templates: rest };
+    }
+
     default:
       return assertNever(event);
   }

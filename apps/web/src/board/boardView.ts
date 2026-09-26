@@ -22,15 +22,19 @@ import {
   type Point,
   type RoomState,
   type Token,
+  type AreaTemplate,
 } from "@vtt/shared";
 import { recenterOnResize } from "./recenter";
-import { areaOrigin, areaShape, areaSizeFromDrag, formatDistance, hitMark, measure, type BoardTool, type Mark } from "./tools";
+import { areaOrigin, areaShape, areaSizeFromDrag, formatDistance, hitMark, measure, templateMark, type BoardTool, type Mark } from "./tools";
 
 export interface BoardCallbacks {
   /** Commit a move. Resolves false if the server rejected it. */
   moveToken(tokenId: string, to: Point): Promise<boolean>;
   dragPreview(tokenId: string, at: Point): void;
   ping(at: Point): void;
+  /** Place a shared area template (ADR 0007). Resolves false if the server rejected it. */
+  placeTemplate(template: { shape: AreaTemplate["shape"]; origin: Point; toward: Point; size: number; gmOnly: boolean }): Promise<boolean>;
+  removeTemplate(templateId: string): void;
 }
 
 const DEFAULT_BOARD = { width: 2100, height: 1400 };
@@ -92,6 +96,8 @@ const TOOL_CURSORS = {
 } as const;
 const MEASURE_COLOR = 0xf1c40f;
 const AREA_COLOR = 0xe67e22;
+/** GM-only templates, which players never see, are drawn in a colour of their own. */
+const GM_AREA_COLOR = 0x9b59b6;
 /** Neutral stand-in for a map image that no longer exists (board-asset-fallback). */
 const EMPTY_MAP_FILL = 0x2b2e35;
 
@@ -154,6 +160,11 @@ export class BoardView {
   private pan: { start: Point; origin: Point } | null = null;
   private tool: BoardTool = { kind: "select" };
   private marks: Mark[] = [];
+  /** Templates sent to the server but not yet back in state, so a release doesn't blink. */
+  private pendingAreas: Extract<Mark, { kind: "area" }>[] = [];
+  /** Templates the eraser has asked to remove, so one sweep sends each only once. */
+  private removing = new Set<string>();
+  private drawnTemplates: RoomState["templates"] | null = null;
   /** The last measurement; stays until the next one starts, the tool changes, or Clear. */
   private measurement: Mark | null = null;
   /** A Measure/Draw/Area/Eraser drag in progress, in board coordinates. */
@@ -317,6 +328,10 @@ export class BoardView {
     this.syncMap();
     this.syncGrid();
     this.syncTokens();
+    if (state.templates !== this.drawnTemplates) {
+      for (const id of this.removing) if (!state.templates[id]) this.removing.delete(id);
+      this.redrawMarks();
+    }
     if (this.autoFit) this.fitToScreen();
     this.invalidate();
   }
@@ -410,12 +425,22 @@ export class BoardView {
     return this.tool.kind === "select" ? "default" : TOOL_CURSORS[this.tool.kind];
   }
 
-  /** Remove every mark this viewer has made. The tool stays as it is. */
+  /** Remove every mark this viewer has made, including their shared templates. The tool stays as it is. */
   clearMarks() {
     this.marks = [];
     this.measurement = null;
     this.gesture = null;
+    const you = this.you;
+    for (const t of Object.values(this.state?.templates ?? {})) {
+      if (you && t.ownerId === you.id) this.requestRemove(t);
+    }
     this.redrawMarks();
+  }
+
+  private requestRemove(t: AreaTemplate) {
+    if (this.removing.has(t.id)) return;
+    this.removing.add(t.id);
+    this.callbacks.removeTemplate(t.id);
   }
 
   private finishGesture() {
@@ -431,9 +456,22 @@ export class BoardView {
       this.addMark({ kind: "draw", shape: tool.shape, color: tool.color, from, to });
     } else if (tool.kind === "area") {
       const area = this.areaFromGesture(gesture, tool);
-      if (area) this.addMark(area);
+      if (area?.kind === "area" && this.state) this.placeArea(area, tool.gmOnly);
     }
     this.redrawMarks();
+  }
+
+  /** Send an area to the table; show it until the server's answer arrives. */
+  private placeArea(area: Extract<Mark, { kind: "area" }>, gmOnly: boolean) {
+    const origin = areaOrigin(area.origin, this.state!.scene.grid, area.free);
+    const pending = { ...area, origin, free: true, gmOnly };
+    this.pendingAreas.push(pending);
+    this.callbacks
+      .placeTemplate({ shape: area.shape, origin, toward: area.toward, size: area.size, gmOnly })
+      .finally(() => {
+        this.pendingAreas = this.pendingAreas.filter((a) => a !== pending);
+        this.redrawMarks();
+      });
   }
 
   /**
@@ -445,7 +483,7 @@ export class BoardView {
     if (!grid) return null;
     const { from, to, free, dragged } = gesture;
     const size = dragged ? areaSizeFromDrag(areaOrigin(from, grid, free), to, grid, free) : tool.size;
-    return { kind: "area", shape: tool.shape, size, origin: from, toward: dragged ? to : from, free };
+    return { kind: "area", shape: tool.shape, size, origin: from, toward: dragged ? to : from, free, gmOnly: tool.gmOnly };
   }
 
   /** Remove every mark the eraser at `at` touches. */
@@ -455,6 +493,11 @@ export class BoardView {
     const reach = ERASER_REACH_PX / this.world.scale.x;
     const kept = this.marks.filter((mark) => !hitMark(mark, at, reach, grid));
     const measurementHit = this.measurement !== null && hitMark(this.measurement, at, reach, grid);
+    // Shared templates: only ones this viewer may remove (their own; any, for the GM).
+    const you = this.you;
+    for (const t of Object.values(this.state?.templates ?? {})) {
+      if (you && can.removeTemplate(you, t) && hitMark(templateMark(t), at, reach, grid)) this.requestRemove(t);
+    }
     if (kept.length === this.marks.length && !measurementHit) return;
     this.marks = kept;
     if (measurementHit) this.measurement = null;
@@ -470,7 +513,12 @@ export class BoardView {
   private redrawMarks() {
     if (!this.initialized) return;
     this.marksScale = this.world.scale.x;
+    this.drawnTemplates = this.state?.templates ?? null;
     const g = this.marksGraphics.clear();
+    for (const t of Object.values(this.state?.templates ?? {})) {
+      if (!this.removing.has(t.id)) this.drawMark(g, templateMark(t));
+    }
+    for (const area of this.pendingAreas) this.drawMark(g, area);
     for (const mark of this.marks) this.drawMark(g, mark);
     this.redrawOverlay();
   }
@@ -544,8 +592,9 @@ export class BoardView {
         if (shape.kind === "circle") g.circle(shape.center.x, shape.center.y, shape.radius);
         else g.poly(shape.points.flatMap((p) => [p.x, p.y]));
         // Translucent, so tokens under the area stay visible.
-        g.fill({ color: AREA_COLOR, alpha: 0.2 }).stroke({ width: 2 * px, color: AREA_COLOR, alpha: 0.9 });
-        g.circle(origin.x, origin.y, 3 * px).fill({ color: AREA_COLOR });
+        const color = mark.gmOnly ? GM_AREA_COLOR : AREA_COLOR;
+        g.fill({ color, alpha: 0.2 }).stroke({ width: 2 * px, color, alpha: 0.9 });
+        g.circle(origin.x, origin.y, 3 * px).fill({ color });
         return;
       }
     }

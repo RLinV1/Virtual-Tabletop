@@ -20,7 +20,11 @@ export function filterStateForViewer(state: RoomState, viewer: Participant): Roo
   const initiative = state.initiative
     ? { ...state.initiative, order: state.initiative.order.filter((id) => tokens[id]) }
     : null;
-  return { ...state, tokens, rolls, initiative };
+  // GM-only area templates are withheld entirely, like hidden tokens (ADR 0007).
+  const templates = Object.fromEntries(
+    Object.entries(state.templates).filter(([, t]) => !t.gmOnly),
+  );
+  return { ...state, tokens, rolls, initiative, templates };
 }
 
 export type FilteredEvent =
@@ -65,6 +69,10 @@ export function filterEventForViewer(
       return { kind: "resync" };
     case "InitiativeEnded":
       return pass;
+    case "TemplatePlaced":
+    case "TemplateRemoved":
+      // gmOnly never changes after placement, so the event itself says whether a player may see it.
+      return e.template.gmOnly ? redacted : pass;
     case "TokenHiddenSet":
       // A reveal must deliver the whole token; a hide must remove it. A snapshot does both.
       return { kind: "resync" };
