@@ -1,3 +1,6 @@
+import { mkdtemp, readdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   GM_TOKEN_HEADER,
@@ -6,6 +9,8 @@ import {
   type LibraryUsageResponse,
   type UploadResponse,
 } from "@vtt/shared";
+import { buildApp } from "../src/app";
+import { MemoryRoomStore } from "../src/store/memoryRoomStore";
 import { newGuestToken, startServer, type TestClient } from "./helpers";
 
 let server: Awaited<ReturnType<typeof startServer>>;
@@ -193,8 +198,45 @@ describe("room deletion: people in the room (KAN-72)", () => {
     const late = room.client.command({ type: "token.create", name: "Late", position: { x: 0, y: 0 } });
 
     expect((await deleting).status).toBe(204);
-    // Either the command was refused, or the socket closed first and no reply came at all.
-    await late.then((reply) => expect(reply.type).toBe("rejected"), () => undefined);
+    // Queued before the close: it commits, then the delete erases it. Queued after: refused.
+    // Or the socket closed first and no reply came. In every case nothing survives.
+    await late.then((reply) => expect(["ack", "rejected"]).toContain(reply.type), () => undefined);
     expect(await server.store.loadEvents(room.roomId)).toEqual([]);
+  });
+});
+
+describe("room deletion: uploads racing the delete (KAN-72)", () => {
+  it("removes a stored upload whose room record could not be written", async () => {
+    /** As when the room is deleted between the upload's auth check and its record. */
+    class RoomGoneStore extends MemoryRoomStore {
+      override async recordRoomUpload(): Promise<void> {
+        throw new Error("room deleted");
+      }
+    }
+    const uploadDir = await mkdtemp(path.join(tmpdir(), "vtt-uploads-"));
+    const app = await buildApp({ store: new RoomGoneStore(), uploadDir, clientOrigin: "*" });
+    await app.listen({ port: 0, host: "127.0.0.1" });
+    const addr = app.server.address();
+    if (!addr || typeof addr === "string") throw new Error("no address");
+    const base = `http://127.0.0.1:${addr.port}`;
+    try {
+      const guestToken = newGuestToken();
+      const created = await fetch(`${base}/api/rooms`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ roomName: "Crypt", displayName: "GM", guestToken }),
+      });
+      expect(created.status).toBe(200);
+
+      const res = await fetch(`${base}/api/uploads`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${guestToken}` },
+        body: imageForm(),
+      });
+      expect(res.status).toBe(500);
+      expect(await readdir(uploadDir)).toEqual([]);
+    } finally {
+      await app.close();
+    }
   });
 });

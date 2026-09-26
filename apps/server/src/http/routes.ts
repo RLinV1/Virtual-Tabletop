@@ -100,8 +100,16 @@ export function registerRoutes(
       if (!upload.ok) return res.status(upload.status).json({ error: upload.error });
       const key = path.basename(upload.file.path);
       const url = await assets.put(upload.file.path, key, upload.file.mimetype);
-      // So deleting the room removes the image too (ADR 0009).
-      await store.recordRoomUpload(actor.roomId, key);
+      // So deleting the room removes the image too (ADR 0009). If the room was deleted
+      // since the check above, recording fails: remove the object rather than orphan it.
+      try {
+        await store.recordRoomUpload(actor.roomId, key);
+      } catch (err) {
+        await assets.delete(key).catch((cleanupErr: unknown) => {
+          console.error(`[vtt] could not delete upload ${key} after its room upload record failed`, cleanupErr);
+        });
+        throw err;
+      }
       const response: UploadResponse = { url };
       return res.json(response);
     })().catch(() => res.status(500).json({ error: "Internal error" }));
