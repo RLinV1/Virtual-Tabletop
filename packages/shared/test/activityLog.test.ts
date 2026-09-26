@@ -38,6 +38,10 @@ describe("Human-readable activity formatter (FR-REC-01)", () => {
     expect(formatActivity({ type: "TokenConditionsSet", tokenId: "missing", conditions: [], previous: [] }, "System", state)).toBe("System set an unknown token's conditions to none");
     expect(formatActivity({ type: "TokenOwnersSet", tokenId: token.id, ownerIds: [], previous: [] }, "Mara", state)).toBe("Mara assigned Goblin to no players");
   });
+  it("rounds move coordinates to at most 2 decimal places", () => {
+    const moved: DomainEvent = { type: "TokenMoved", tokenId: token.id, from: { x: 1987.9, y: 829.1000000000001 }, to: { x: 2057.3456, y: 829.1000000000001 } };
+    expect(formatActivity(moved, "Mara", state)).toBe("Mara moved Goblin from (1987.9, 829.1) to (2057.35, 829.1)");
+  });
 });
 
 describe("History projection and visibility (FR-REC-01)", () => {

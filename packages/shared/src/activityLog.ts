@@ -28,6 +28,9 @@ export const HistoryResponse = z.object({
 });
 export type HistoryResponse = z.infer<typeof HistoryResponse>;
 
+/** A board point for a sentence: at most 2 decimals, so float noise like 829.1000000000001 reads 829.1. */
+const formatPoint = (p: { x: number; y: number }) => `(${Number(p.x.toFixed(2))}, ${Number(p.y.toFixed(2))})`;
+
 /** Pure, exhaustive sentence formatter. Context must already be viewer-filtered. */
 export function formatActivity(event: DomainEvent, actorName: string, before: RoomState): string {
   /** A token's name as it was just before this event. */
@@ -42,7 +45,7 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
     case "MapSet": return `${actorName} ${event.previous ? "replaced" : "set"} the map${event.gridChange ? " and grid" : ""}`;
     case "GridSet": return `${actorName} updated the grid`;
     case "TokenCreated": return `${actorName} created ${event.token.name}${event.token.hidden ? " (hidden)" : ""}`;
-    case "TokenMoved": return `${actorName} moved ${tokenName(event.tokenId)} from (${event.from.x}, ${event.from.y}) to (${event.to.x}, ${event.to.y})`;
+    case "TokenMoved": return `${actorName} moved ${tokenName(event.tokenId)} from ${formatPoint(event.from)} to ${formatPoint(event.to)}`;
     case "TokenDeleted": return `${actorName} deleted ${event.token.name}`;
     case "TokenOwnersSet": return `${actorName} assigned ${tokenName(event.tokenId)} to ${event.ownerIds.length ? event.ownerIds.map(participantName).join(", ") : "no players"}`;
     case "TokenHiddenSet": return `${actorName} ${event.hidden ? "hid" : "revealed"} ${tokenName(event.tokenId)}`;
