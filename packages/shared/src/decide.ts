@@ -1,5 +1,4 @@
 import type { Command, DepartureAction } from "./commands";
-import { EMPTY_STATS } from "./conditions";
 import { formatExpression, parseDiceExpression, rollDice } from "./dice";
 import type { DomainEvent } from "./events";
 import type { SessionEndReason } from "./protocol";
@@ -69,6 +68,9 @@ export function decide(
       const ownerError = checkOwners(state, command.ownerIds);
       if (ownerError) return ownerError;
       if (!command.name.trim()) return reject("invalid", "Token name can't be blank.");
+      if (command.stats.hp !== null && command.stats.maxHp !== null && command.stats.hp > command.stats.maxHp) {
+        return reject("invalid", "Current HP cannot exceed maximum HP");
+      }
       return accept({
         type: "TokenCreated",
         token: {
@@ -77,13 +79,13 @@ export function decide(
           name: uniqueTokenName(state, command.name),
           position: command.position,
           size: command.size,
-          rotation: 0,
+          rotation: normalizeRotation(command.rotation),
           color: command.color,
           imageUrl: command.imageUrl,
           assetId: command.assetId,
           ownerIds: command.ownerIds,
           hidden: command.hidden,
-          stats: EMPTY_STATS,
+          stats: command.stats,
           conditions: [],
         },
       });
@@ -100,6 +102,91 @@ export function decide(
         tokenId: token.id,
         from: token.position,
         to: command.to,
+      });
+    }
+
+    case "token.configure": {
+      const token = state.tokens[command.tokenId];
+      if (!token || (token.hidden && !can.administer(actor))) return notFound("token");
+      if (!can.editToken(actor, token)) return forbidden();
+      const changes = command.changes;
+      const gmFields = changes.name !== undefined || changes.position !== undefined || changes.size !== undefined ||
+        changes.rotation !== undefined || changes.imageUrl !== undefined || changes.assetId !== undefined ||
+        changes.ownerIds !== undefined || changes.hidden !== undefined;
+      if (gmFields && !can.administer(actor)) return forbidden();
+      if (changes.name !== undefined && !changes.name.trim()) return reject("invalid", "Token name can't be blank.");
+      if (changes.stats && changes.stats.hp !== null && changes.stats.maxHp !== null && changes.stats.hp > changes.stats.maxHp) {
+        return reject("invalid", "Current HP cannot exceed maximum HP");
+      }
+      if (changes.ownerIds) {
+        const ownerError = checkOwners(state, changes.ownerIds);
+        if (ownerError) return ownerError;
+      }
+      const imageUrl = changes.imageUrl;
+      const assetId = changes.assetId;
+      const imageChanged = imageUrl !== undefined || assetId !== undefined;
+      if (imageChanged && (imageUrl === undefined || assetId === undefined)) {
+        return reject("invalid", "Image URL and asset must be changed together.");
+      }
+      if (imageUrl === null && assetId !== null) {
+        return reject("invalid", "An image asset requires an image URL.");
+      }
+
+      const name = changes.name === undefined ? token.name : uniqueTokenName(state, changes.name, token.id);
+      const size = changes.size ?? token.size;
+      const rotation = changes.rotation === undefined ? token.rotation : normalizeRotation(changes.rotation);
+      const events: DomainEvent[] = [];
+      // Hide before any secret edit is broadcast; reveal only after every edit is applied.
+      const hiddenEvent: DomainEvent | null = changes.hidden !== undefined && changes.hidden !== token.hidden
+        ? { type: "TokenHiddenSet", tokenId: token.id, hidden: changes.hidden, previous: token.hidden }
+        : null;
+      if (hiddenEvent && changes.hidden) events.push(hiddenEvent);
+      if (name !== token.name || size !== token.size || rotation !== token.rotation) {
+        events.push({ type: "TokenAppearanceSet", tokenId: token.id, name, size, rotation,
+          previous: { name: token.name, size: token.size, rotation: token.rotation } });
+      }
+      if (changes.position && (changes.position.x !== token.position.x || changes.position.y !== token.position.y)) {
+        events.push({ type: "TokenMoved", tokenId: token.id, from: token.position, to: changes.position });
+      }
+      if (imageUrl !== undefined && assetId !== undefined &&
+        (imageUrl !== token.imageUrl || assetId !== (token.assetId ?? null))) {
+        events.push({ type: "TokenImageSet", tokenId: token.id, imageUrl, assetId,
+          previous: { imageUrl: token.imageUrl, assetId: token.assetId ?? null } });
+      }
+      if (changes.stats && (changes.stats.hp !== token.stats.hp || changes.stats.maxHp !== token.stats.maxHp || changes.stats.ac !== token.stats.ac)) {
+        events.push({ type: "TokenStatsSet", tokenId: token.id, stats: changes.stats, previous: token.stats });
+      }
+      if (changes.conditions) {
+        const conditions = [...new Set(changes.conditions)];
+        if (conditions.length !== token.conditions.length || conditions.some((c) => !token.conditions.includes(c))) {
+          events.push({ type: "TokenConditionsSet", tokenId: token.id, conditions, previous: token.conditions });
+        }
+      }
+      if (changes.ownerIds) {
+        const ownerIds = [...new Set(changes.ownerIds)];
+        if (ownerIds.length !== token.ownerIds.length || ownerIds.some((id) => !token.ownerIds.includes(id))) {
+          events.push({ type: "TokenOwnersSet", tokenId: token.id, ownerIds, previous: token.ownerIds });
+        }
+      }
+      if (hiddenEvent && !changes.hidden) events.push(hiddenEvent);
+      return accept(...events);
+    }
+
+    case "token.setAppearance": {
+      if (!can.administer(actor)) return forbidden();
+      const token = state.tokens[command.tokenId];
+      if (!token) return notFound("token");
+      if (!command.name.trim()) return reject("invalid", "Token name can't be blank.");
+      const name = uniqueTokenName(state, command.name, token.id);
+      const rotation = normalizeRotation(command.rotation);
+      if (name === token.name && command.size === token.size && rotation === token.rotation) return { ok: true, events: [] };
+      return accept({
+        type: "TokenAppearanceSet",
+        tokenId: token.id,
+        name,
+        size: command.size,
+        rotation,
+        previous: { name: token.name, size: token.size, rotation: token.rotation },
       });
     }
 
@@ -379,9 +466,9 @@ const MAX_TOKEN_NAME = 60;
  * the suffix, so a taken "Goblin 2" becomes "Goblin 3", not "Goblin 2 2". Depends on `state` only,
  * so it's deterministic; the result goes into `TokenCreated`, so replay never re-runs it.
  */
-export function uniqueTokenName(state: RoomState, name: string): string {
+export function uniqueTokenName(state: RoomState, name: string, exceptId?: string): string {
   const trimmed = name.trim();
-  const taken = new Set(Object.values(state.tokens).map((t) => normalizeName(t.name)));
+  const taken = new Set(Object.values(state.tokens).filter((t) => t.id !== exceptId).map((t) => normalizeName(t.name)));
   if (!taken.has(normalizeName(trimmed))) return trimmed;
   const base = trimmed.replace(/\s+\d+$/, "") || trimmed;
   for (let n = 2; ; n++) {
@@ -390,6 +477,9 @@ export function uniqueTokenName(state: RoomState, name: string): string {
     if (!taken.has(normalizeName(candidate))) return candidate;
   }
 }
+
+/** Keep persisted angles compact while accepting any finite angle from clients. */
+const normalizeRotation = (degrees: number) => ((degrees % 360) + 360) % 360;
 
 /**
  * Whether a participant is still in the room: holds their name, may act, may connect, may own

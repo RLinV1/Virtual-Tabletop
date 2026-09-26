@@ -782,7 +782,7 @@ export class BoardView {
     const focused = this.focusedId === token.id;
     const active = this.activeTokenId() === token.id;
     const key = JSON.stringify([
-      token.name, token.size, token.color, token.hidden, owned, movable, grid.cellSize,
+      token.name, token.size, token.rotation, token.color, token.hidden, owned, movable, grid.cellSize,
       token.stats, token.conditions, focused, active, token.imageUrl,
     ]);
     view.container.eventMode = movable ? "static" : "none";
@@ -795,6 +795,7 @@ export class BoardView {
     view.body.clear().circle(0, 0, r).fill({ color: token.color });
     view.imageMask.clear().circle(0, 0, r).fill({ color: 0xffffff });
     this.syncTokenImage(view, token.imageUrl);
+    view.image.rotation = token.rotation * Math.PI / 180;
     view.container.alpha = token.hidden ? 0.45 : 1;
     view.label.text = token.hidden ? `${token.name} (hidden)` : token.name;
     view.label.position.set(0, r + 2);
@@ -836,6 +837,15 @@ export class BoardView {
   /** Focus ring, active-turn ring, and the HP bar (FR-TAC-07, FR-GM-21, FR-GM-24). */
   private drawDecor(view: TokenView, token: Token, r: number, focused: boolean, active: boolean, owned: boolean) {
     const g = view.decor.clear();
+    // Direction remains visible even when the token has no art; labels and HP stay upright.
+    const angle = (token.rotation - 90) * Math.PI / 180;
+    const x = Math.cos(angle) * (r - 5);
+    const directionY = Math.sin(angle) * (r - 5);
+    const side = Math.max(3, Math.min(6, r * 0.15));
+    const dx = Math.cos(angle + Math.PI / 2) * side;
+    const dy = Math.sin(angle + Math.PI / 2) * side;
+    g.poly([x + Math.cos(angle) * side, directionY + Math.sin(angle) * side, x + dx, directionY + dy, x - dx, directionY - dy])
+      .fill(0xffffff).stroke({ width: 1, color: 0x000000 });
     // Drawn here, above the token art, so an image never hides whose token it is.
     if (owned) g.circle(0, 0, r).stroke({ width: 3, color: 0xffffff });
 
