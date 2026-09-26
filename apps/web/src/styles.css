@@ -159,6 +159,8 @@ label.inline { flex-direction: row; align-items: center; gap: 0.35rem; color: va
 .tabbar.topbar-tabs .tab:hover:not(:disabled) { border-color: var(--muted); }
 .tabbar.topbar-tabs .tab.selected { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .sidebar-collapsed .tabbar.topbar-tabs .tab.selected { background: transparent; border-color: var(--accent); color: var(--text); }
+/* One line each: a squeezed bar must not fold "Activity log" onto two lines. */
+.tabbar.topbar-tabs .tab, .topbar-end > .tool-button { white-space: nowrap; flex-shrink: 0; }
 /* Participants as a row of initials; the list and Remove open on click. */
 .avatar-stack { display: inline-flex; align-items: center; }
 .avatar {
