@@ -39,6 +39,12 @@ export function ShareButton({ roomId, token }: { roomId: string; token: string }
    * cached over the new one.
    */
   const generation = useRef(0);
+  /**
+   * A copy whose link has arrived but whose clipboard write hasn't finished. Reset waits for it,
+   * so a copy and a reset never interleave. A copy still fetching isn't tracked: the generation
+   * check drops it, and waiting on its request would stall the reset behind a slow network.
+   */
+  const pendingCopy = useRef<Promise<void> | null>(null);
 
   /**
    * Copies the current invite link. The clipboard write starts inside the click itself, with the
@@ -53,9 +59,15 @@ export function ShareButton({ roomId, token }: { roomId: string; token: string }
       // A reset started after this fetch: this code may be dead, so neither copy nor cache it.
       if (generation.current !== started) throw new StaleInvite();
       remember(inviteCode);
+      // From here the write is committed to this link; a reset must wait for it to land. This
+      // callback runs after the fetch, so `done` below is always assigned by then.
+      pendingCopy.current = done;
       return `${location.origin}/join/${inviteCode}`;
     });
-    void finishCopy(link);
+    const done = finishCopy(link);
+    void done.finally(() => {
+      if (pendingCopy.current === done) pendingCopy.current = null;
+    });
   };
 
   /** Writes the link once it resolves, reporting the outcome; a stale link is dropped quietly. */
@@ -87,9 +99,12 @@ export function ShareButton({ roomId, token }: { roomId: string; token: string }
 
   /** Replaces the invite code after confirmation; the old link stops working. */
   async function reset() {
+    // Invalidate fetches still in flight first, then let a copy whose link already arrived finish
+    // writing, so it lands on the clipboard before the reset rather than after it.
     generation.current++;
     setBusy(true);
     setError(null);
+    await pendingCopy.current;
     try {
       const { inviteCode } = await api.resetInvite(roomId, token);
       remember(inviteCode);
