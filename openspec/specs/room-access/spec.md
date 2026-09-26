@@ -81,9 +81,9 @@ In the room, the GM SHALL see a remove action for each active player in the part
 - **WHEN** a guest is revoked while in the room
 - **THEN** their page says they were removed from the room, and reloading the page does not reconnect them
 
-#### Scenario: Share shows the current link after a reset elsewhere
-- **WHEN** the GM resets the invite in one tab and then opens Share in another tab
-- **THEN** the second tab shows the new link
+#### Scenario: Share copies the current link after a reset elsewhere
+- **WHEN** the GM resets the invite in one tab and then clicks Share in another tab
+- **THEN** the link the second tab copies contains the new invite code
 
 #### Scenario: Share sits at the top right
 - **WHEN** the GM opens a room, with the sidebar shown or hidden

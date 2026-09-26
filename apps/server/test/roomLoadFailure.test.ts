@@ -61,6 +61,16 @@ describe("room load isolation (room-load-isolation)", () => {
     expect((await fetch(`${server.base}/health`)).status).toBe(200);
   });
 
+  it("names the room when the store fails before the load starts", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { server, store, gm } = await poisonedRoom();
+    vi.spyOn(store, "roomExists").mockRejectedValue(new Error("database unavailable"));
+
+    await expect(server.connect(gm)).rejects.toThrow("not_found");
+    expect(console.error).toHaveBeenCalledWith(`[vtt] room ${gm.roomId} failed to load:`, expect.any(Error));
+    expect((await fetch(`${server.base}/health`)).status).toBe(200);
+  });
+
   it("tries the load again on the next attempt instead of remembering the failure", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const { server, store, gm } = await poisonedRoom();
