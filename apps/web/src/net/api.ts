@@ -10,6 +10,7 @@ import {
 import type {
   CreateRoomRequest,
   CreateRoomResponse,
+  InviteResponse,
   JoinRoomRequest,
   JoinRoomResponse,
   UploadResponse,
@@ -60,6 +61,16 @@ function reidentify(gmToken: string): Promise<void> {
   return pending;
 }
 
+/** A room request authorized by this browser's guest credential for that room. */
+async function roomRequest<T>(roomId: string, token: string, method: "GET" | "POST"): Promise<T> {
+  const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/invite`, {
+    method,
+    headers: { authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(await errorMessage(res));
+  return (await res.json()) as T;
+}
+
 const jsonBody = (body: unknown): RequestInit => ({
   headers: { "content-type": "application/json" },
   body: JSON.stringify(body),
@@ -84,6 +95,12 @@ export const api = {
     if (!res.ok) throw new Error(await errorMessage(res));
     return HistoryResponse.parse(await res.json());
   },
+
+  /** The room's current invite code (FR-GM-20). GM only; the server answers 403 otherwise. */
+  getInvite: (roomId: string, token: string) => roomRequest<InviteResponse>(roomId, token, "GET"),
+
+  /** Replaces the invite code; the old link stops working at once (FR-GM-20). */
+  resetInvite: (roomId: string, token: string) => roomRequest<InviteResponse>(roomId, token, "POST"),
 
   createRoom: (req: CreateRoomRequest) => postJson<CreateRoomResponse>("/api/rooms", req),
 

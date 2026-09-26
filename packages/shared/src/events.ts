@@ -33,6 +33,11 @@ export const DomainEvent = z.discriminatedUnion("type", [
     type: z.literal("ParticipantLeft"),
     participant: Participant,
   }),
+  /** The GM removed this participant. Whole pre-revoke participant (invariant 6, ADR 0006). */
+  z.object({
+    type: z.literal("ParticipantRevoked"),
+    participant: Participant,
+  }),
   z.object({
     type: z.literal("MapSet"),
     map: MapImage,

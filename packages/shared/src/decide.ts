@@ -2,6 +2,7 @@ import type { Command, DepartureAction } from "./commands";
 import { EMPTY_STATS } from "./conditions";
 import { formatExpression, parseDiceExpression, rollDice } from "./dice";
 import type { DomainEvent } from "./events";
+import type { SessionEndReason } from "./protocol";
 import { MAX_AREA_TEMPLATES, type AreaTemplate, type Initiative, type Participant, type RoomState, type Token } from "./state";
 
 export type RejectionCode = "forbidden" | "not_found" | "invalid";
@@ -265,6 +266,16 @@ export function decide(
       if (can.administer(actor)) return reject("invalid", "The GM can't leave their own room.");
       return accept({ type: "ParticipantLeft", participant: actor });
 
+    case "participant.revoke": {
+      if (!can.administer(actor)) return forbidden();
+      const target = state.participants[command.participantId];
+      if (!target) return notFound("participant");
+      if (target.id === actor.id) return reject("invalid", "You can't remove yourself.");
+      if (target.role === "gm") return reject("invalid", "The GM can't be removed.");
+      if (!isActive(target)) return reject("invalid", `${target.displayName} is no longer in the room.`);
+      return accept({ type: "ParticipantRevoked", participant: target });
+    }
+
     case "participant.resolveDeparture":
       if (!can.administer(actor)) return forbidden();
       return resolveDeparture(state, command.participantId, command.actions);
@@ -366,9 +377,16 @@ export function uniqueTokenName(state: RoomState, name: string): string {
 
 /**
  * Whether a participant is still in the room: holds their name, may act, may connect, may own
- * tokens. Leaving (ADR 0006) is the only way to stop; revocation (FR-GM-20) will extend this.
+ * tokens. A participant stops by leaving or by being removed by the GM (ADR 0006, FR-GM-20).
  */
-export const isActive = (participant: Participant) => !participant.left;
+export const isActive = (participant: Participant) => !participant.left && !participant.revoked;
+
+/** How the UI names an inactive participant: removed by the GM, or left on their own (ADR 0006). */
+export const inactiveLabel = (participant: Participant) => (participant.revoked ? "removed" : "left");
+
+/** Why a participant's seat ended, or null while they are still in the room. */
+export const endReason = (participant: Participant): SessionEndReason | null =>
+  participant.revoked ? "revoked" : participant.left ? "left" : null;
 
 /** Departed participants still named as a token owner: what the GM has yet to resolve (ADR 0006). */
 export function pendingDepartures(state: RoomState): { participant: Participant; tokenIds: string[] }[] {

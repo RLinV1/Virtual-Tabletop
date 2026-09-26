@@ -35,6 +35,12 @@ export function reduce(state: RoomState, event: DomainEvent): RoomState {
       return { ...state, participants: { ...state.participants, [p.id]: { ...p, left: true } } };
     }
 
+    case "ParticipantRevoked": {
+      const p = required(state.participants[event.participant.id], event);
+      // Only the flag. Tokens keep naming them until the GM resolves each one (ADR 0006).
+      return { ...state, participants: { ...state.participants, [p.id]: { ...p, revoked: true } } };
+    }
+
     case "MapSet":
       return { ...state, scene: { ...state.scene, map: event.map, grid: event.gridChange?.grid ?? state.scene.grid } };
 

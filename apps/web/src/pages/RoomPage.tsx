@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { House } from "@phosphor-icons/react";
 import { Board, type BoardHandle } from "../board/Board";
 import { Link } from "../Link";
+import type { SessionEndReason } from "@vtt/shared";
 import { forgetCredentials, loadCredentials } from "../net/identity";
 import { RoomConnection, useRoomSnapshot, type ConnectionStatus } from "../net/roomConnection";
 import { RoomPanel } from "../panels/RoomPanel";
@@ -67,20 +68,23 @@ export function RoomPage({ roomId }: { roomId: string }) {
       </main>
     );
   }
-  return <Room roomId={roomId} connection={connection} inviteCode={creds.inviteCode} token={creds.guestToken} />;
+  return <Room roomId={roomId} connection={connection} token={creds.guestToken} />;
 }
 
 /**
  * After Leave table (KAN-58). Deliberately plain: no account prompt, per FRONTEND-CONTRACT
  * §13.1. `roomName` is null when the page loaded after the seat had already ended.
  */
-function SessionEnded({ roomName }: { roomName: string | null }) {
+function SessionEnded({ roomName, reason }: { roomName: string | null; reason: SessionEndReason | null }) {
+  const room = roomName ?? "this room";
   return (
     <main className="centered">
       <div className="card">
-        <h1>{roomName ? `You left ${roomName}` : "You left this room"}</h1>
+        <h1>{reason === "revoked" ? `You were removed from ${room}` : `You left ${room}`}</h1>
         <p className="muted">
-          Your seat at this table has ended. If the GM sends you the invite link again, you can join as a new player.
+          {reason === "revoked"
+            ? "The GM removed you from this table. If they send you an invite link, you can join again as a new player."
+            : "Your seat at this table has ended. If the GM sends you the invite link again, you can join as a new player."}
         </p>
         <Link href="/">Go to the home page</Link>
       </div>
@@ -89,18 +93,8 @@ function SessionEnded({ roomName }: { roomName: string | null }) {
 }
 
 /** The room once a credential exists: board, side panel, and the connection's terminal screens. */
-function Room({
-  roomId,
-  connection,
-  inviteCode,
-  token,
-}: {
-  roomId: string;
-  connection: RoomConnection;
-  inviteCode?: string;
-  token: string;
-}) {
-  const { status, state, you, seq } = useRoomSnapshot(connection);
+function Room({ roomId, connection, token }: { roomId: string; connection: RoomConnection; token: string }) {
+  const { status, state, you, seq, endReason } = useRoomSnapshot(connection);
   const [reviewing, setReviewing] = useState<string | null>(null);
 
   // The seat is gone for good, on every tab that shared it: forget it, so the invite link
@@ -119,7 +113,7 @@ function Room({
     guideButtonRef.current?.focus();
   }, []);
 
-  if (status === "ended") return <SessionEnded roomName={state?.name ?? null} />;
+  if (status === "ended") return <SessionEnded roomName={state?.name ?? null} reason={endReason} />;
 
   if (status === "unauthorized") {
     return (
@@ -136,7 +130,6 @@ function Room({
     return <main className="centered" aria-busy="true">{STATUS_LABEL[status]}</main>;
   }
 
-  const participants = Object.values(state.participants);
   // The rail is a desktop affordance. On a phone the panel is already below the board, so
   // the remembered preference is ignored there and applies again once the window widens.
   const collapsed = sidebarCollapsed && !compact;
@@ -175,7 +168,7 @@ function Room({
                 Home
               </Link>
             )}
-            <ParticipantsButton participants={participants} />
+            <ParticipantsButton state={state} you={you} connection={connection} onReviewDeparture={setReviewing} />
             {you.role === "gm" && <ActivityLog roomId={state.roomId} token={token} seq={seq} />}
             <button
               ref={guideButtonRef}
@@ -223,7 +216,7 @@ function Room({
           <header className="panel-header">
             <div className="panel-title-row">
               <h1>{state.name}</h1>
-              {you.role === "gm" && inviteCode && <ShareButton inviteCode={inviteCode} />}
+              {you.role === "gm" && <ShareButton roomId={roomId} token={token} />}
             </div>
             <span className={`status status-${status}`} role="status">
               {STATUS_LABEL[status]} · seq {seq}
