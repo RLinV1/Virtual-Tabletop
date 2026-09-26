@@ -34,6 +34,8 @@
 
   --font-body: "Alegreya Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-label: "Alegreya Sans SC", "Alegreya Sans", system-ui, sans-serif;
+  /* The home page's and GM pages' typeface; the room keeps Alegreya. */
+  --font-ui: "Geist Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
 
   color-scheme: dark;
   font-family: var(--font-body);
@@ -629,6 +631,13 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 .home .card p { margin: 0; }
 @media (max-width: 760px) { .home-grid { grid-template-columns: 1fr; } }
 
+/* The dashboard follows on from the home page's "Set up a room", so it shares its type
+   rather than the room's Alegreya (dashboard-typography). */
+.gm-dashboard { font-family: var(--font-ui); }
+.gm-dashboard h1,
+.gm-dashboard h2 { font-family: var(--font-ui); letter-spacing: -0.02em; text-transform: none; }
+.gm-dashboard h1 { font-size: 1.5rem; }
+.gm-dashboard .card h2 { font-size: 1.05rem; font-weight: 650; color: var(--text); }
 
 .room-list li {
   display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
@@ -848,7 +857,6 @@ dialog.modal::backdrop { background: rgba(6, 8, 11, 0.62); }
   --shadow-tint: rgba(4, 7, 12, 0.85);
   --grain-opacity: 0.055;
 
-  --font-ui: "Geist Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
   color-scheme: dark;
   color: var(--text);
