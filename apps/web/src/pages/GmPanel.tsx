@@ -1,6 +1,6 @@
 import { CaretDown } from "@phosphor-icons/react";
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
-import { GRID_LINE_WIDTHS, gridLineStyle, inactiveLabel, normalizeGridOffsets, pendingDepartures, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
+import { GRID_LINE_WIDTHS, gridLineStyle, inactiveLabel, normalizeLegacyGridForBoard, pendingDepartures, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
 import { api } from "../net/api";
 import { libraryAssetId } from "../net/builtinAssets";
 import { loadGmToken } from "../net/identity";
@@ -147,12 +147,8 @@ function MapSection(props: {
   // library edits never reach back into this room.
   const place = async (asset: LibraryAsset) => {
     const map = { url: asset.url, width: asset.width, height: asset.height, assetId: libraryAssetId(asset) };
-    // Older library grids can be smaller than the line cap now permits on this map.
-    const grid = asset.grid && normalizeGridOffsets({
-      ...asset.grid,
-      cellSize: Math.max(asset.grid.cellSize, minimumGridCellSizeForDisplay(map)),
-    });
-    if (await props.onSetMap(map, grid || undefined, setPickError)) setPicking(false);
+    const grid = asset.grid ? normalizeLegacyGridForBoard(asset.grid, map) : undefined;
+    if (await props.onSetMap(map, grid, setPickError)) setPicking(false);
   };
 
   return (

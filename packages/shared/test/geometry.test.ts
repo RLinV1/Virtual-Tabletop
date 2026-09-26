@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  cellAt, ClientMessage, DEFAULT_GRID, GridSpec, LibraryPatchRequest, normalizeGridOffsets, snapTokenCenter, type GridSpec as GridSpecType,
+  cellAt, ClientMessage, DEFAULT_GRID, GridSpec, LibraryPatchRequest, normalizeGridOffsets, normalizeLegacyGridForBoard, snapTokenCenter, type GridSpec as GridSpecType,
 } from "../src";
 
 const grid: GridSpecType = { cellSize: 50, offsetX: 10, offsetY: 20, unitsPerCell: 5, unitLabel: "ft" };
@@ -36,6 +36,17 @@ describe("grid geometry", () => {
       type: "command", clientCommandId: "c3", command: {
         type: "scene.setMap", map: { url: "/uploads/map.png", width: 500, height: 500 }, grid: normalized,
       },
+    }).success).toBe(true);
+  });
+
+  it("preserves legacy alignment when increasing cell size for a large map (FR-GM-04)", () => {
+    const map = { url: "/uploads/large.png", width: 40_000, height: 40_000 };
+    const legacy = { ...DEFAULT_GRID, cellSize: 1, offsetX: 2, offsetY: 1.5 };
+    const normalized = normalizeLegacyGridForBoard(legacy, map);
+
+    expect(normalized).toMatchObject({ cellSize: 1.61, offsetX: 0, offsetY: 0.5 });
+    expect(ClientMessage.safeParse({
+      type: "command", clientCommandId: "c4", command: { type: "scene.setMap", map, grid: normalized },
     }).success).toBe(true);
   });
 

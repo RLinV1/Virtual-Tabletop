@@ -1,3 +1,5 @@
+import { normalizeGridOffsets, type GridSpec } from "./geometry";
+
 /** The generic board used when a room has no map image. */
 export const DEFAULT_BOARD_SIZE = { width: 2100, height: 1400 };
 
@@ -22,4 +24,10 @@ export function minimumGridCellSizeForDisplay(board: BoardSize | null = null): n
 
 export function canRenderGrid(cellSize: number, board: BoardSize | null = null): boolean {
   return Number.isFinite(cellSize) && cellSize > 0 && cellSize >= minimumGridCellSize(board);
+}
+
+/** Preserve an older grid's alignment before increasing its cell size to fit a map. */
+export function normalizeLegacyGridForBoard(grid: GridSpec, board: BoardSize): GridSpec {
+  const normalized = normalizeGridOffsets(grid);
+  return { ...normalized, cellSize: Math.max(normalized.cellSize, minimumGridCellSizeForDisplay(board)) };
 }
