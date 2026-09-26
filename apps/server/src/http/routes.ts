@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import type { Express, Request } from "express";
+import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import {
   CreateRoomRequest,
@@ -66,7 +66,7 @@ export function registerRoutes(
       ]);
       const response: CreateRoomResponse = { roomId, inviteCode, participantId };
       return res.json(response);
-    })().catch(() => res.status(500).json({ error: "Internal error" }));
+    })().catch(internalError(req, res));
   });
 
   /** Guest join from a shareable link (FR-PL-01). No account. */
@@ -88,7 +88,7 @@ export function registerRoutes(
       await store.saveCredential(hashToken(body.data.guestToken), { roomId, participantId });
       const response: JoinRoomResponse = { roomId, participantId };
       return res.json(response);
-    })().catch(() => res.status(500).json({ error: "Internal error" }));
+    })().catch(internalError(req, res));
   });
 
   /** Image upload for maps/tokens. GM only (FR-GM-02). Stored in MinIO/S3 when configured. */
@@ -112,7 +112,7 @@ export function registerRoutes(
       }
       const response: UploadResponse = { url };
       return res.json(response);
-    })().catch(() => res.status(500).json({ error: "Internal error" }));
+    })().catch(internalError(req, res));
   });
 
   /**
@@ -128,7 +128,7 @@ export function registerRoutes(
       if (!inviteCode) return res.status(404).json({ error: "Room not found" });
       const response: InviteResponse = { inviteCode };
       return res.json(response);
-    })().catch(() => res.status(500).json({ error: "Internal error" }));
+    })().catch(internalError(req, res));
   });
 
   app.post("/api/rooms/:roomId/invite", (req, res) => {
@@ -137,7 +137,7 @@ export function registerRoutes(
       if (!(await isRoomGm(req, req.params.roomId))) return res.status(403).json({ error: "GM only" });
       const response: InviteResponse = { inviteCode: await store.setInviteCode(req.params.roomId, newInviteCode) };
       return res.json(response);
-    })().catch(() => res.status(500).json({ error: "Internal error" }));
+    })().catch(internalError(req, res));
   });
 
   /**
@@ -171,7 +171,7 @@ export function registerRoutes(
         });
       }
       return res.status(204).end();
-    })().catch(() => res.status(500).json({ error: "Internal error" }));
+    })().catch(internalError(req, res));
   });
 
   registerLibraryRoutes(app, { store, uploadDir, assets });
@@ -191,7 +191,7 @@ export function registerRoutes(
       if (!query.success) return res.status(400).json({ error: "Invalid history query" });
       const events = await store.loadEvents(cred.roomId);
       return res.json(HistoryResponse.parse(activityHistory(cred.roomId, events, viewer, query.data)));
-    })().catch(() => res.status(500).json({ error: "Internal error" }));
+    })().catch(internalError(req, res));
   });
 
   /** True when the bearer credential is this room's GM, still in the room. */
@@ -214,4 +214,17 @@ export function registerRoutes(
     const participant = room && !room.closed ? room.activeParticipant(cred.participantId) : undefined;
     return participant ? { roomId: cred.roomId, participant } : null;
   }
+}
+
+/**
+ * The shared failure path for a REST handler: log what failed, then answer 500. A room whose
+ * log won't replay lands here, so it costs one request, not the process (room-load-isolation).
+ */
+function internalError(req: Request, res: Response) {
+  return (err: unknown) => {
+    // The route pattern, not the URL: a join URL carries the invite code, which stays out of logs.
+    const route = (req.route as { path?: string } | undefined)?.path ?? "unknown route";
+    console.error(`[vtt] ${req.method} ${route} failed:`, err);
+    if (!res.headersSent) res.status(500).json({ error: "Internal error" });
+  };
 }

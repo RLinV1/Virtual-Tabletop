@@ -14,13 +14,25 @@ export class RoomRegistry {
   async get(roomId: string): Promise<LiveRoom | null> {
     const existing = this.rooms.get(roomId);
     if (existing) return existing;
-    if (!(await this.store.roomExists(roomId))) return null;
+    let exists: boolean;
+    try {
+      exists = await this.store.roomExists(roomId);
+    } catch (err) {
+      // Before the load starts, so the handler below never sees it: name the room here too.
+      console.error(`[vtt] room ${roomId} failed to load:`, err);
+      throw err;
+    }
+    if (!exists) return null;
     // Re-check after the await so concurrent callers share one load.
     let loading = this.rooms.get(roomId);
     if (!loading) {
       loading = LiveRoom.load(roomId, this.store);
       this.rooms.set(roomId, loading);
-      loading.catch(() => this.rooms.delete(roomId));
+      // A failed load is logged and forgotten, so the next caller tries again (room-load-isolation).
+      loading.catch((err: unknown) => {
+        console.error(`[vtt] room ${roomId} failed to load:`, err);
+        this.rooms.delete(roomId);
+      });
     }
     return loading;
   }

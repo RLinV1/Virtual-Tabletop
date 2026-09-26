@@ -262,18 +262,25 @@ a.tool-button { text-decoration: none; }
 .panel p { margin: 0; }
 .panel-header { display: flex; flex-direction: column; gap: 0.15rem; padding-bottom: var(--space-2); }
 .panel-header h1 { margin: 0; }
-.panel-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
-.panel-title-row h1 { min-width: 0; overflow-wrap: anywhere; }
 /* Quiet outline, not a rust fill: sharing is occasional, the fill is for play actions. */
-.share-button {
-  background: transparent; color: var(--text); border-color: var(--border-strong);
-  font-weight: 500; font-size: var(--fs-sm); min-height: 1.9rem; padding: 0.2rem 0.7rem;
+.share-button { background: transparent; }
+/* Share and its options chevron read as one split button, last in the top bar (FR-GM-20). */
+.share-group { display: flex; align-items: stretch; flex: none; }
+.share-group > .share-button { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.share-group .share-menu-button {
+  border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; height: 100%;
 }
-.share-button:hover:not(:disabled) { filter: none; border-color: var(--muted); }
-/* Share and Reset link sit side by side as a pair of the same button (FR-GM-20). */
-.share-group { display: flex; align-items: center; gap: var(--space-2); flex: none; margin-left: auto; }
+.share-group > .popover-anchor { display: flex; }
+/* A one-item menu: hug the item instead of the popover's roomy list padding and width. */
+.share-group .popover { min-width: 0; padding: var(--space-1); }
+.share-menu-item {
+  display: block; width: 100%; text-align: left; white-space: nowrap;
+  background: transparent; color: var(--text); border: 1px solid transparent;
+  font-weight: 500; font-size: var(--fs-sm); padding: 0.35rem 0.5rem;
+}
 /* Resetting kills the old link, so it warns on hover like other destructive actions. */
-.share-button.share-reset:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); }
+.share-menu-item.share-reset:hover:not(:disabled),
+.share-menu-item.share-reset:focus-visible { filter: none; border-color: var(--danger); color: var(--danger); }
 .whoami { font-size: var(--fs-sm); color: var(--muted); }
 .whoami strong { color: var(--text); font-weight: 500; }
 .status { font-size: var(--fs-xs); }
@@ -642,7 +649,13 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 
   .panel { border-left: none; border-top: 1px solid var(--border); }
   .room > .panel { grid-row: 3; }
-  .room-topbar { padding: var(--space-1) var(--space-2); }
+  /* Too narrow for three columns: title and people on the first row, the controls (Share
+     last, still at the right) on a second, rather than spilling over the people. */
+  .room-topbar {
+    grid-template-columns: minmax(0, 1fr) auto; row-gap: var(--space-1);
+    padding: var(--space-1) var(--space-2);
+  }
+  .topbar-end { grid-column: 1 / -1; flex-wrap: wrap; }
   /* The page scrolls on a phone, not a nested panel. */
   .panel-body { width: auto; height: auto; overflow: visible; padding: 0.6rem 0.75rem; gap: var(--space-2); }
 

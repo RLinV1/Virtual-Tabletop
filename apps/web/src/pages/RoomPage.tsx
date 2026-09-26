@@ -215,6 +215,8 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
             <GuideIcon />
             Guide
           </button>
+          {/* Last, in the top-right corner: visible with the sidebar shown or hidden. */}
+          {you.role === "gm" && <ShareButton roomId={roomId} token={token} />}
         </div>
       </header>
       {/* Same element, same position in both states: collapsing must never remount the
@@ -250,11 +252,6 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
             spare, so it collapses to one line: room name, who you are, and connection state.
           */}
           <header className="panel-header">
-            {you.role === "gm" && (
-              <div className="panel-title-row">
-                <ShareButton roomId={roomId} token={token} />
-              </div>
-            )}
             <span className={`status status-${status}`} role="status">
               {STATUS_LABEL[status]} · seq {seq}
             </span>

@@ -25,7 +25,8 @@ export function PopoverButton({
   className?: string;
   /** `data-tour` target for the guided tour. */
   tourId?: string;
-  children: ReactNode;
+  /** The panel's content. As a function it gets `close`, for an item that hands off to a modal. */
+  children: ReactNode | ((close: () => void) => ReactNode);
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -68,7 +69,7 @@ export function PopoverButton({
       </button>
       {open && (
         <div id={panelId} role="dialog" aria-label={title} className={`popover popover-${align}`}>
-          {children}
+          {typeof children === "function" ? children(() => setOpen(false)) : children}
         </div>
       )}
     </div>
