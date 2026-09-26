@@ -29,7 +29,10 @@ At 320 × 700 and 390 × 700, the dialog and its controls stayed within the view
 
 - [x] 4.1 Enforce canonical offsets in the shared grid schema and return a matched rejection for malformed commands; verify shared and server tests reject noncanonical grids without changing room state.
 - [x] 4.2 Share the board's line-count limit with draft validation, disable Apply with a map-specific minimum for excessive drafts, and retain the last valid preview; verify web tests and browser behavior.
+- [x] 4.3 Merge the room top bar, persistent panel tabs, and board tool rail from main; keep grid calibration in Manage and the preview on the board; verify desktop and compact browser flows.
 
 ### Review QA record — 2026-09-26
 
 The full suite passed with 250 tests and 8 environment-dependent skips. Typecheck, lint, build, and strict OpenSpec validation passed. A focused server WebSocket test confirmed that an invalid offset returns a matched rejection and leaves the room grid unchanged. Browser checks confirmed that a 0.05 px draft on the generic board disables Apply, shows a 0.07 px minimum, and keeps the last valid preview. The existing 13 KAN-10 browser acceptance checks also passed.
+
+After merging mainline, the full suite passed with 352 tests and 9 environment-dependent skips. Typecheck, lint, build, and strict OpenSpec validation passed again. The 13 GM/player browser checks passed in the new Manage tab, including one Apply reaching both boards, private preview, invalid drafts, four dismissal paths, and 320 px and 390 px modal layout. Six focused browser checks covered excessive line count, resizing with the dialog open, dismissal, locked style controls during Apply, and late command results.

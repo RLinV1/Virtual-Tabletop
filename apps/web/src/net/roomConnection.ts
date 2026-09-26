@@ -10,15 +10,19 @@ import {
   type Participant,
   type RoomState,
   type ServerMessage,
+  type SessionEndReason,
 } from "@vtt/shared";
 
-export type ConnectionStatus = "connecting" | "open" | "reconnecting" | "unauthorized";
+/** `ended`: this seat left the room (ADR 0006). Terminal, like `unauthorized`: never reconnects. */
+export type ConnectionStatus = "connecting" | "open" | "reconnecting" | "unauthorized" | "ended";
 
 export interface RoomSnapshot {
   status: ConnectionStatus;
   state: RoomState | null;
   you: Participant | null;
   seq: number;
+  /** Set with status `ended`: whether this seat left or was removed by the GM (ADR 0006). */
+  endReason: SessionEndReason | null;
 }
 
 export type CommandResult =
@@ -49,6 +53,7 @@ export class RoomConnection {
     state: null,
     you: null,
     seq: 0,
+    endReason: null,
   }));
 
   constructor(
@@ -60,6 +65,7 @@ export class RoomConnection {
     return this.store.getState();
   }
 
+  /** Opens the socket with this seat's credential and wires up message and connection handling. */
   start() {
     const socket = io({
       path: "/socket.io",
@@ -71,13 +77,16 @@ export class RoomConnection {
     socket.on(SOCKET_EVENTS.event, (msg: ServerMessage) => this.handle(msg));
     socket.on("disconnect", () => {
       this.failPending("Connection lost");
-      if (this.snapshot.status !== "unauthorized") this.update({ status: "reconnecting" });
+      if (!this.isTerminal()) this.update({ status: "reconnecting" });
     });
     // A handshake rejection is terminal: the credential is wrong, so retrying cannot help.
     socket.on("connect_error", (err: Error) => {
       if (err.message === "unauthorized" || err.message === "not_found") {
         socket.disconnect();
         this.update({ status: "unauthorized" });
+      } else if (err.message === "left" || err.message === "revoked") {
+        socket.disconnect();
+        this.update({ status: "ended", endReason: err.message });
       }
     });
   }
@@ -108,6 +117,7 @@ export class RoomConnection {
     if (this.snapshot.status === "open") this.send({ type: "ephemeral", payload });
   }
 
+  /** Applies one server message: snapshots, ordered events, acks, and terminal session ends. */
   private handle(msg: ServerMessage) {
     switch (msg.type) {
       case "welcome":
@@ -144,6 +154,15 @@ export class RoomConnection {
         this.ephemeralListeners.forEach((fn) => fn(msg.from, msg.payload));
         return;
 
+      case "sessionEnded":
+        // Every tab of this seat gets this, not only the one that clicked Leave. The server
+        // disconnects next; stop here so Socket.IO doesn't try to reconnect (ADR 0006).
+        this.update({ status: "ended", endReason: msg.reason });
+        // Before disconnecting: the disconnect listener would fail them as "Connection lost".
+        this.failPending(msg.reason === "revoked" ? "You were removed from this room" : "You left this room");
+        this.socket?.disconnect();
+        return;
+
       case "error":
         if (msg.code === "unauthorized" || msg.code === "not_found") {
           this.update({ status: "unauthorized" });
@@ -151,6 +170,12 @@ export class RoomConnection {
         console.warn("Server error:", msg.message);
         return;
     }
+  }
+
+  /** True once the connection can never recover: no access, or this seat has ended. */
+  private isTerminal() {
+    const { status } = this.snapshot;
+    return status === "unauthorized" || status === "ended";
   }
 
   private resync() {

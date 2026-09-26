@@ -37,7 +37,7 @@ The form enables Apply only for a valid changed grid. `RoomPage` sends one `scen
 
 ### Reuse the KAN-65 modal
 
-The form stays in the Battle map section's Adjust grid dialog. A grid-specific class places the dialog near the right edge and lightens its backdrop on desktop so the board preview remains legible. On narrow screens the dialog uses the shared centered layout. Native dialog behavior supplies focus trapping and dismissal; each close path clears the room-page draft.
+The form stays in the Battle map section's Adjust grid dialog, now reached through the GM's Manage tab. The draft lives in `RoomPage`, while `RoomPanel` passes it to the selected Manage content and `Board` renders it beside the new tool rail. A grid-specific class places the dialog near the right edge and lightens its backdrop on desktop so the board preview remains legible. On narrow screens the dialog uses the shared centered layout. Native dialog behavior supplies focus trapping and dismissal; each close path clears the room-page draft. Switching screen widths keeps the selected tab and open dialog mounted, so an active preview remains available through the resize.
 
 ## Risks / Trade-offs
 

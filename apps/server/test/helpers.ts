@@ -16,9 +16,10 @@ import {
 import { buildApp } from "../src/app";
 import { MemoryRoomStore } from "../src/store/memoryRoomStore";
 
-export async function startServer() {
+/** `store` lets a test start a second server on the same data, i.e. simulate a restart. */
+export async function startServer(store: MemoryRoomStore = new MemoryRoomStore()) {
   const uploadDir = await mkdtemp(path.join(tmpdir(), "vtt-uploads-"));
-  const app = await buildApp({ store: new MemoryRoomStore(), uploadDir, clientOrigin: "*" });
+  const app = await buildApp({ store, uploadDir, clientOrigin: "*" });
   await app.listen({ port: 0, host: "127.0.0.1" });
   const addr = app.server.address();
   if (!addr || typeof addr === "string") throw new Error("no address");
@@ -36,6 +37,7 @@ export async function startServer() {
 
   return {
     base,
+    store,
     close: () => app.close(),
     /** Mirrors the browser: the client generates its own credential (DESIGN.md §5). */
     newGuestToken,
@@ -92,7 +94,11 @@ export class TestClient {
   private waiters: Array<() => void> = [];
   private nextId = 0;
 
+  /** Resolves with Socket.IO's reason once this client is disconnected, by either side. */
+  readonly disconnected: Promise<string>;
+
   private constructor(private socket: Socket) {
+    this.disconnected = new Promise((resolve) => socket.once("disconnect", (reason) => resolve(reason)));
     socket.on(SOCKET_EVENTS.event, (msg: ServerMessage) => {
       this.rawLog.push(JSON.stringify(msg));
       this.apply(msg);

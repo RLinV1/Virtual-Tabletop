@@ -34,6 +34,8 @@
 
   --font-body: "Alegreya Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-label: "Alegreya Sans SC", "Alegreya Sans", system-ui, sans-serif;
+  /* The home page's and GM pages' typeface; the room keeps Alegreya. */
+  --font-ui: "Geist Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
 
   color-scheme: dark;
   font-family: var(--font-body);
@@ -123,17 +125,55 @@ label.inline { flex-direction: row; align-items: center; gap: 0.35rem; color: va
 .room {
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--panel-width);
+  grid-template-rows: auto minmax(0, 1fr);
   height: 100vh;
   height: 100dvh;
   /* The panel body keeps its full width while its column animates (see .panel-body), so
      it overhangs the right edge mid-slide. Clip it without making a scroll container. */
   overflow-x: clip;
 }
+/* The top bar spans both columns; the board and the panel share the row beneath it. */
+.room-topbar {
+  grid-column: 1 / -1;
+  /* Three columns so the people sit dead centre whatever the two sides hold. */
+  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: var(--space-3);
+  min-width: 0; padding: var(--space-2) var(--space-3);
+  background: var(--panel); border-bottom: 1px solid var(--border);
+}
+.room > .board, .room > .panel { grid-row: 2; }
+.topbar-start, .topbar-end { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.topbar-end { justify-content: flex-end; }
+.topbar-center { display: flex; justify-content: center; }
+.room-title {
+  margin: 0; font-size: var(--fs-md); font-weight: 700;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+/* The panel tabs as buttons in the bar: the open one is filled, like the tool rail's. */
+.tabbar.topbar-tabs { border-bottom: none; gap: var(--space-1); }
+.tabbar.topbar-tabs .tab {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  min-height: 2rem; padding: 0.25rem 0.75rem; border: 1px solid var(--border-strong);
+  border-radius: var(--radius); background: rgba(18, 20, 23, 0.85); color: var(--text);
+  font-family: var(--font-body); font-size: var(--fs-sm); font-weight: 500; letter-spacing: 0;
+}
+.tabbar.topbar-tabs .tab:hover:not(:disabled) { border-color: var(--muted); }
+.tabbar.topbar-tabs .tab.selected { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.sidebar-collapsed .tabbar.topbar-tabs .tab.selected { background: transparent; border-color: var(--accent); color: var(--text); }
+/* Participants as a row of initials; the list and Remove open on click. */
+.avatar-stack { display: inline-flex; align-items: center; }
+.avatar {
+  display: inline-grid; place-items: center; width: 1.75rem; height: 1.75rem; border-radius: 50%;
+  color: #fff; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.02em;
+  box-shadow: 0 0 0 2px var(--panel);
+}
+.avatar + .avatar { margin-left: -0.35rem; }
+.avatar-more { background: var(--raised); color: var(--text); }
+.room-topbar .popover-anchor > .tool-button { padding: 0.15rem 0.35rem; }
+
 /* Collapsed: nothing of the panel is left; the board takes the full width. */
 .room.sidebar-collapsed { grid-template-columns: minmax(0, 1fr) 0; }
-@media (prefers-reduced-motion: no-preference) {
-  .room { transition: grid-template-columns 0.18s ease-out; }
-}
+/* No slide: animating the column re-laid-out the page every frame and the board could only
+   redraw once it settled, so hiding felt laggy. The sidebar now snaps, with one board resize. */
 
 .board {
   position: relative; overflow: hidden; touch-action: none; min-width: 0;
@@ -234,6 +274,10 @@ a.tool-button { text-decoration: none; }
   font-weight: 500; font-size: var(--fs-sm); min-height: 1.9rem; padding: 0.2rem 0.7rem;
 }
 .share-button:hover:not(:disabled) { filter: none; border-color: var(--muted); }
+/* Share and Reset link sit side by side as a pair of the same button (FR-GM-20). */
+.share-group { display: flex; align-items: center; gap: var(--space-2); flex: none; margin-left: auto; }
+/* Resetting kills the old link, so it warns on hover like other destructive actions. */
+.share-button.share-reset:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); }
 .whoami { font-size: var(--fs-sm); color: var(--muted); }
 .whoami strong { color: var(--text); font-weight: 500; }
 .status { font-size: var(--fs-xs); }
@@ -433,15 +477,24 @@ button.small { min-height: 0; padding: 0.2rem 0.5rem; font-size: var(--fs-sm); }
 label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-size: var(--fs-sm); color: var(--text); }
 
 .roll-log { display: flex; flex-direction: column; max-height: 13rem; overflow-y: auto; }
-.roll { display: flex; align-items: baseline; gap: var(--space-2); font-size: var(--fs-sm); padding: 0.2rem 0; }
-.roll + .roll { border-top: 1px solid var(--border); }
-/* Private rolls are marked by a border and the "GM only" badge, never by colour alone. */
-.roll.private { border-left: 2px solid var(--warn); padding-left: 0.4rem; }
-.roll-total {
-  font-variant-numeric: tabular-nums; font-weight: 700; font-size: 1.1rem;
-  min-width: 2.5ch; text-align: right;
+/* A roll as a card: total in a box with its dice beneath, then the expression and roller. */
+.roll {
+  display: flex; align-items: center; gap: var(--space-3); font-size: var(--fs-sm);
+  padding: var(--space-2); margin-top: var(--space-2);
+  background: var(--raised); border: 1px solid var(--border); border-radius: var(--radius);
 }
-.roll-detail { min-width: 0; }
+/* Private rolls are marked by a border and the "GM only" badge, never by colour alone. */
+.roll.private { border-left: 3px solid var(--warn); }
+.roll-box {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; flex: none;
+  min-width: 3.4rem; padding: 0.3rem 0.5rem;
+  background: var(--field); border: 1px solid var(--border-strong); border-radius: var(--radius);
+}
+.roll-total { font-size: 1.6rem; font-weight: 700; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.roll-breakdown { font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.roll-detail { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+.roll-title { font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.roll-meta { color: var(--muted); display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .roll.rolling .roll-total { color: var(--muted); }
 
 /* The tray the latest roll lands in. Rust dice for the table; a GM-only roll is thrown in
@@ -587,15 +640,17 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
   .room,
   .room.sidebar-collapsed {
     grid-template-columns: 1fr;
-    grid-template-rows: 46dvh 1fr;
+    grid-template-rows: auto 46dvh 1fr;
     height: auto; min-height: 100dvh;
   }
   /* Landscape has almost no height; give the board less and let the panel take over. */
   @media (orientation: landscape) {
-    .room, .room.sidebar-collapsed { grid-template-rows: 62dvh 1fr; }
+    .room, .room.sidebar-collapsed { grid-template-rows: auto 62dvh 1fr; }
   }
 
   .panel { border-left: none; border-top: 1px solid var(--border); }
+  .room > .panel { grid-row: 3; }
+  .room-topbar { padding: var(--space-1) var(--space-2); }
   /* The page scrolls on a phone, not a nested panel. */
   .panel-body { width: auto; height: auto; overflow: visible; padding: 0.6rem 0.75rem; gap: var(--space-2); }
 
@@ -639,6 +694,14 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 .home .card p { margin: 0; }
 @media (max-width: 760px) { .home-grid { grid-template-columns: 1fr; } }
 
+/* The dashboard follows on from the home page's "Set up a room", so it shares its type
+   rather than the room's Alegreya (dashboard-typography). */
+.gm-dashboard { font-family: var(--font-ui); }
+.gm-dashboard h1,
+.gm-dashboard h2 { font-family: var(--font-ui); letter-spacing: -0.02em; text-transform: none; }
+.gm-dashboard h1 { font-size: 1.5rem; }
+.gm-dashboard .card h2 { font-size: 1.05rem; font-weight: 650; color: var(--text); }
+
 .room-list li {
   display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
   padding: 0.6rem 0; border-bottom: 1px solid var(--border);
@@ -651,6 +714,13 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 }
 .notice p { margin: 0; color: var(--muted); }
 .small-print { font-size: 0.85rem; margin: 0; }
+
+/* Continue as guest sits above the sign-in fields while accounts don't exist (gm-dashboard). */
+.guest-option { display: flex; flex-direction: column; gap: var(--space-2); }
+.guest-option p { margin: 0; }
+.guest-divider { display: flex; align-items: center; gap: 0.6rem; color: var(--muted); font-size: 0.85rem; }
+.guest-divider::before,
+.guest-divider::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
 
 .account-menu { position: relative; }
 .account-menu-panel {
@@ -818,7 +888,6 @@ dialog.modal.grid-preview-modal::backdrop { background: rgba(6, 8, 11, 0.35); }
 .field-label { font-size: var(--fs-sm); color: var(--muted); }
 
 .button-row > .upload-button { flex: 1; }
-.roll-history .roll { padding: 0.35rem 0; }
 
 
 /* ==========================================================================
@@ -855,7 +924,6 @@ dialog.modal.grid-preview-modal::backdrop { background: rgba(6, 8, 11, 0.35); }
   --shadow-tint: rgba(4, 7, 12, 0.85);
   --grain-opacity: 0.055;
 
-  --font-ui: "Geist Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
   color-scheme: dark;
   color: var(--text);
@@ -996,9 +1064,6 @@ dialog.modal.grid-preview-modal::backdrop { background: rgba(6, 8, 11, 0.35); }
   color: var(--muted);
 }
 
-.hero-form { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem 0.9rem; max-width: 31rem; }
-.hero-form .cta { grid-column: 1 / -1; margin-top: 0.15rem; }
-.hero-form .error { grid-column: 1 / -1; margin: 0; }
 
 .cta {
   min-height: 2.85rem;
@@ -1038,25 +1103,50 @@ dialog.modal.grid-preview-modal::backdrop { background: rgba(6, 8, 11, 0.35); }
   z-index: 2;
 }
 
-/* ---- Invite: the other way in, one quiet band ---- */
+/* ---- Hero paths: joining a game, then running one. Each names its reader. ---- */
 
-.invite-band {
+.hero-paths { display: grid; gap: 1.1rem; max-width: 31rem; }
+.run-path { padding-top: 1.1rem; border-top: 1px solid var(--rule); }
+/* The run path is a link into the GM flow that keeps the primary button's look. */
+.home-page a.cta { color: var(--on-accent); text-decoration: none; }
+.run-path .cta { width: 100%; margin-top: 0.15rem; }
+
+.path-label {
+  grid-column: 1 / -1;
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 0.9rem 1.25rem;
-  padding: 1.5rem 0;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text);
 }
-.invite-band p { margin: 0 auto 0 0; font-size: 0.95rem; color: var(--muted); max-width: 26ch; }
-.invite-band label { flex: 1 1 18rem; }
-.invite-band .error { flex-basis: 100%; margin: 0; }
+.path-label svg { color: var(--accent); }
+.path-hint { margin: 0.2rem 0 0.6rem; font-size: 0.95rem; color: var(--muted); }
+
+.join-form > label { margin-bottom: 0.3rem; }
+.join-row { display: flex; align-items: stretch; gap: 0.6rem; }
+.join-row input { flex: 1 1 auto; min-width: 0; }
+.join-form .error { margin: 0.5rem 0 0; }
 
 /* ---- Chapters ---- */
 
+/* "Running your game": the one heading that makes every "you" below it the GM. */
+.part-head { padding: clamp(2.5rem, 6vw, 4rem) 0 0; border-top: 1px solid var(--border); }
+.part-head h2 {
+  margin: 0 0 0.4rem;
+  font-size: clamp(1.7rem, 3.6vw, 2.5rem);
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--text);
+}
+.part-head p { margin: 0; max-width: 52ch; color: var(--muted); font-size: 1.05rem; }
+.part-head + .chapter { padding-top: clamp(2rem, 5vw, 3rem); }
+
 .chapter { padding: clamp(3rem, 8vw, 5.5rem) 0; }
-.chapter h2 {
+.chapter h3 {
   margin: 0 0 0.7rem;
   font-size: clamp(1.45rem, 2.9vw, 2rem);
   font-weight: 650;
@@ -1135,16 +1225,20 @@ dialog.modal.grid-preview-modal::backdrop { background: rgba(6, 8, 11, 0.35); }
 
 .map-figure:hover .map-frame { transform: translateY(-3px) scale(1.004); }
 
-/* The grid the GM lines up, drawn over the real map rather than mocked in divs. */
-.grid-overlay {
+/* A map's grid, drawn in map pixels over the real map (top-down-default-maps). The faint
+   grid is the map's own squares; a dark halo under a light line reads on snow and jungle
+   alike. The app's grid is the rust one the GM lines up. */
+.map-grid {
   position: absolute;
   inset: 0;
-  background-image:
-    linear-gradient(rgba(224, 138, 98, 0.6) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(224, 138, 98, 0.6) 1px, transparent 1px);
-  background-size: 5.55% 9.85%;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
 }
+.map-grid line { stroke-width: 1px; }
+.map-grid-faint { stroke: rgba(255, 255, 255, 0.34); filter: drop-shadow(0 0 0.5px rgba(10, 12, 16, 0.55)); }
+.map-grid-light { stroke: rgba(255, 255, 255, 0.2); }
+.map-grid-app line { stroke: rgba(224, 138, 98, 0.9); stroke-width: 1.5px; }
 
 .view-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
 .view-pair figure { margin: 0; }
@@ -1192,7 +1286,7 @@ dialog.modal.grid-preview-modal::backdrop { background: rgba(6, 8, 11, 0.35); }
 }
 .closing h2 {
   margin: 0 auto 0 0;
-  max-width: 20ch;
+  max-width: 32ch;
   font-size: clamp(1.4rem, 2.6vw, 1.85rem);
   font-weight: 650;
   line-height: 1.15;
@@ -1304,7 +1398,7 @@ dialog.modal.grid-preview-modal::backdrop { background: rgba(6, 8, 11, 0.35); }
 }
 
 /* Hairlines that fade at both ends, rather than a flat rule edge to edge. */
-.invite-band,
+.part-head,
 .closing,
 .home-footer {
   border-image: linear-gradient(90deg, transparent, var(--rule) 12%, var(--rule) 88%, transparent) 1;
@@ -1312,9 +1406,12 @@ dialog.modal.grid-preview-modal::backdrop { background: rgba(6, 8, 11, 0.35); }
 
 /* ---- Tokens on a map, drawn the way the board draws them ---- */
 
+/* Anchored on the disc's centre, not the whole chip's, so the token itself sits in the
+   middle of its square and the name hangs below it. */
 .token-chip {
+  --disc: 2.3rem;
   position: absolute;
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, calc(var(--disc) / -2));
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1325,8 +1422,8 @@ dialog.modal.grid-preview-modal::backdrop { background: rgba(6, 8, 11, 0.35); }
 .token-disc {
   display: grid;
   place-items: center;
-  width: 2.3rem;
-  height: 2.3rem;
+  width: var(--disc);
+  height: var(--disc);
   border-radius: 50%;
   border: 2px solid rgba(255, 255, 255, 0.9);
   box-shadow: 0 3px 12px rgba(6, 8, 12, 0.6);
@@ -1339,13 +1436,19 @@ dialog.modal.grid-preview-modal::backdrop { background: rgba(6, 8, 11, 0.35); }
 .token-disc.has-art { overflow: hidden; }
 .token-disc.has-art img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .token-hp {
-  width: 2.5rem;
+  width: calc(var(--disc) + 0.2rem);
   height: 4px;
   border-radius: 2px;
   background: rgba(8, 10, 14, 0.75);
   overflow: hidden;
 }
 .token-hp-fill { display: block; height: 100%; background: var(--ok); }
+/* A phone shows a crop's squares at about 19 px, so tokens shrink to about one square. */
+@media (max-width: 560px) {
+  .token-chip { --disc: 1.35rem; width: 3.4rem; }
+  .token-disc { font-size: 0.7rem; border-width: 1.5px; }
+  .token-label { font-size: 0.6rem; }
+}
 .token-label {
   font-size: 0.68rem;
   font-weight: 600;
@@ -1447,9 +1550,8 @@ dialog.modal.grid-preview-modal::backdrop { background: rgba(6, 8, 11, 0.35); }
 .cta svg { transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1); }
 .cta:hover:not(:disabled) svg { transform: translateX(3px); }
 
-.chapter h2 { display: flex; align-items: flex-start; gap: 0.6rem; }
-.chapter h2 svg { color: var(--accent); flex: none; font-size: 1.5rem; margin-top: 0.12em; }
-.invite-band p svg { color: var(--accent); vertical-align: -0.15em; margin-right: 0.4rem; }
+.chapter h3 { display: flex; align-items: flex-start; gap: 0.6rem; }
+.chapter h3 svg { color: var(--accent); flex: none; font-size: 1.5rem; margin-top: 0.12em; }
 
 .home-page input:focus-visible,
 .home-page select:focus-visible { border-color: var(--accent); }
@@ -1475,9 +1577,12 @@ dialog.modal.grid-preview-modal::backdrop { background: rgba(6, 8, 11, 0.35); }
   .chapter { padding: 2.25rem 0; }
 }
 
-@media (max-width: 560px) {
-  .hero-form { grid-template-columns: 1fr; }
-  .invite-band p { max-width: none; }
+/* A 768px-tall laptop has to show the join path without scrolling: take the room out of
+   the hero's padding and headline, never out of the map. */
+@media (min-width: 861px) and (max-height: 820px) {
+  .landing-hero { padding-top: 1.25rem; padding-bottom: 2rem; }
+  .landing-hero h1 { font-size: clamp(2.05rem, 4.2vw, 2.8rem); margin-bottom: 0.6rem; }
+  .landing-sub { margin-bottom: 1.1rem; }
 }
 
 /* ---- Motion. Each animation below earns its place: hierarchy, storytelling, or
@@ -1498,8 +1603,8 @@ dialog.modal.grid-preview-modal::backdrop { background: rgba(6, 8, 11, 0.35); }
   /* Storytelling: tokens land on the map after it, the way a GM places them. */
   .hero-frame .token-chip { animation: token-land 0.5s cubic-bezier(0.34, 1.4, 0.5, 1) both; }
   @keyframes token-land {
-    from { opacity: 0; transform: translate(-50%, -50%) scale(0.55); }
-    to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    from { opacity: 0; transform: translate(-50%, calc(var(--disc) / -2)) scale(0.55); }
+    to { opacity: 1; transform: translate(-50%, calc(var(--disc) / -2)) scale(1); }
   }
 
   .dice-total { animation: total-in 0.42s cubic-bezier(0.16, 1, 0.3, 1) both; animation-delay: 0.12s; }
@@ -1526,43 +1631,25 @@ dialog.modal.grid-preview-modal::backdrop { background: rgba(6, 8, 11, 0.35); }
   .home-page .nav-cta { transition: none; }
 }
 
-/* Rooms you own, on the one home page rather than on a second one that replaced it. */
-.your-rooms {
-  padding: clamp(1.5rem, 4vw, 2.25rem) 0 0;
-}
-.your-rooms h2 {
-  margin: 0 0 0.5rem;
-  font-size: 1.15rem;
-  font-weight: 650;
-  letter-spacing: -0.015em;
-  color: var(--text);
-  text-transform: none;
-}
-.your-rooms .room-list li { border-bottom-color: var(--border); }
-.your-rooms .small-print { margin-top: 0.6rem; }
-
 /* The library shelf. Uneven widths so it reads as a shelf of real files rather than a row
    of three equal feature cards. */
 .shelf {
   display: grid;
-  grid-template-columns: 1.25fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 1rem;
   margin-bottom: 1.25rem;
 }
 .shelf li { display: flex; flex-direction: column; gap: 0.4rem; min-width: 0; }
-.shelf img {
-  display: block;
-  width: 100%;
-  /* height:auto so the intrinsic 1672x941 from the width/height attributes does not win
-     over the crop ratio below (the attributes stay, they are what reserve the space). */
-  /* One height across the shelf so the captions sit on a line; the widths stay uneven. */
-  height: clamp(8rem, 13vw, 11rem);
-  object-fit: cover;
+/* Each map shown whole, as the library holds it, with its own grid over it. */
+.shelf-map {
+  position: relative;
+  overflow: clip;
   border: 1px solid var(--border);
   border-radius: 12px;
   transition: border-color 0.2s, transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.shelf li:hover img { border-color: var(--accent); transform: translateY(-2px); }
+.shelf-map img { display: block; width: 100%; height: auto; }
+.shelf li:hover .shelf-map { border-color: var(--accent); transform: translateY(-2px); }
 .shelf strong { font-size: 0.95rem; font-weight: 600; }
 .shelf .readout { font-size: 0.76rem; }
 
@@ -1574,5 +1661,102 @@ dialog.modal.grid-preview-modal::backdrop { background: rgba(6, 8, 11, 0.35); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .shelf img { transition: none; }
+  .shelf-map { transition: none; }
 }
+
+/* ---------- Leave table and departures (KAN-58, ADR 0006) ---------- */
+
+/* Quiet on purpose: never the panel's primary control. */
+button.link.leave-table { display: inline; padding: 0; font-size: inherit; color: var(--muted); text-decoration-color: var(--border-strong); }
+button.link.leave-table:hover { color: var(--danger); text-decoration-color: var(--danger); }
+.leave-confirm, .resolve-departure { display: flex; flex-direction: column; gap: var(--space-3); }
+.leave-confirm p, .resolve-departure p { margin: 0; }
+.leave-losses { margin: 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: var(--space-1); }
+.modal-actions { justify-content: flex-end; flex-wrap: wrap; }
+
+.board-notices {
+  position: absolute; top: var(--space-3); right: var(--space-3); z-index: 6;
+  display: flex; flex-direction: column; gap: var(--space-2);
+  width: min(20rem, calc(100% - 2 * var(--space-3)));
+  pointer-events: none;
+}
+.board-notice {
+  pointer-events: auto;
+  display: flex; flex-direction: column; gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--raised); border: 1px solid var(--border-strong); border-left: 3px solid var(--warn);
+  border-radius: var(--radius); box-shadow: 0 10px 28px var(--shadow);
+  font-size: var(--fs-sm);
+}
+.board-notice p { margin: 0; }
+@media (prefers-reduced-motion: no-preference) {
+  .board-notice { animation: modal-in 0.16s ease-out; }
+}
+
+.departed-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.departed-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: var(--fs-sm); }
+
+.resolve-all { flex-direction: row; align-items: center; justify-content: space-between; gap: var(--space-3); color: var(--text); font-weight: 500; }
+.resolve-rows { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+.resolve-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(9rem, 11rem); align-items: center; gap: var(--space-2);
+  padding: var(--space-2) 0; border-bottom: 1px solid var(--border);
+}
+.resolve-token { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.resolve-token img.swatch { object-fit: cover; }
+.resolve-token-text { display: flex; flex-direction: column; min-width: 0; }
+.resolve-token-name { display: flex; align-items: center; gap: var(--space-1); overflow-wrap: anywhere; }
+.resolve-coowners { font-size: var(--fs-xs); }
+@media (max-width: 420px) {
+  .resolve-row { grid-template-columns: 1fr; }
+}
+
+/* ---------- Board tool rail (KAN-69) ---------- */
+/* Below the top-left toolbar, so the two never overlap. No backdrop filter (client-render-performance). */
+.tool-rail-wrap {
+  position: absolute; left: var(--space-3); top: calc(var(--space-3) + 2.75rem); z-index: 5;
+  display: flex; align-items: flex-start; gap: var(--space-2);
+  max-height: calc(100% - 5rem);
+  /* A drag that starts on the rail must not select the toolbar's text. */
+  user-select: none;
+  /* The wrapper's empty corner beside the rail is board, not rail: let it through. */
+  pointer-events: none;
+}
+.tool-rail-wrap > * { pointer-events: auto; }
+.tool-rail {
+  display: flex; flex-direction: column; gap: var(--space-1);
+  padding: var(--space-1);
+  background: rgba(18, 20, 23, 0.85); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.tool-button.rail-button { justify-content: center; width: 2.25rem; min-height: 2.25rem; padding: 0; }
+/* The main rail's buttons carry a short label under the icon; the option flyout's don't. */
+.tool-button.rail-button.labelled {
+  flex-direction: column; gap: 0.15rem;
+  width: 3.4rem; min-height: 3.1rem; padding: 0.3rem 0 0.25rem;
+}
+.rail-label { font-size: var(--fs-xs); font-weight: 500; line-height: 1; }
+.tool-button.rail-button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.rail-divider { height: 1px; margin: var(--space-1) 0; background: var(--border-strong); }
+.tool-options {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  padding: var(--space-2);
+  background: rgba(18, 20, 23, 0.85); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.tool-segmented { display: flex; gap: var(--space-1); }
+.tool-swatches { display: flex; gap: var(--space-1); }
+.tool-swatch {
+  width: 1.5rem; height: 1.5rem; min-height: 0; padding: 0; border-radius: 50%;
+  border: 2px solid rgba(0, 0, 0, 0.5);
+}
+.tool-swatch[aria-pressed="true"] { outline: 2px solid var(--text); outline-offset: 2px; }
+.tool-size select { width: 100%; }
+
+@media (max-width: 640px) {
+  .tool-button.rail-button { width: 2.5rem; min-height: 2.5rem; }
+  /* A phone's board is too short for a labelled rail: icons only, names stay in the tooltip and accessible name. */
+  .tool-button.rail-button.labelled { width: 2.5rem; min-height: 2.5rem; padding: 0; }
+  .rail-label { display: none; }
+  .tool-swatch { width: 2rem; height: 2rem; }
+}
+.tool-options .tool-check { display: flex; flex-direction: row; align-items: center; gap: var(--space-2); font-size: var(--fs-sm); color: var(--text); }
+.tool-button.rail-button.rail-toggle { width: 100%; min-height: 1.5rem; }

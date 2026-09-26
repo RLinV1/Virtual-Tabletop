@@ -28,27 +28,40 @@ export const HistoryResponse = z.object({
 });
 export type HistoryResponse = z.infer<typeof HistoryResponse>;
 
+/** A board point for a sentence: at most 2 decimals, so float noise like 829.1000000000001 reads 829.1. */
+const formatPoint = (p: { x: number; y: number }) => `(${Number(p.x.toFixed(2))}, ${Number(p.y.toFixed(2))})`;
+
 /** Pure, exhaustive sentence formatter. Context must already be viewer-filtered. */
 export function formatActivity(event: DomainEvent, actorName: string, before: RoomState): string {
+  /** A token's name as it was just before this event. */
   const tokenName = (id: string) => before.tokens[id]?.name ?? "an unknown token";
+  /** A participant's name as it was just before this event. */
   const participantName = (id: string) => before.participants[id]?.displayName ?? "an unknown participant";
+  /** "20 ft cone", in the room grid's units. */
+  const templateLabel = (t: { shape: string; size: number }) =>
+    `${Number(t.size.toFixed(2))} ${before.scene.grid.unitLabel} ${t.shape}`;
   switch (event.type) {
     case "RoomCreated": return `${actorName} created room ${event.name}`;
     case "ParticipantJoined": return `${actorName} joined the room as ${event.participant.role === "gm" ? "GM" : "a player"}`;
+    case "ParticipantRevoked": return `${actorName} removed ${event.participant.displayName} from the room`;
+    case "ParticipantLeft": return `${event.participant.displayName} left the table`;
     case "ParticipantRenamed": return `${actorName} renamed ${event.previous} to ${event.displayName}`;
     case "MapSet": return `${actorName} ${event.previous ? "replaced" : "set"} the map${event.gridChange ? " and grid" : ""}`;
     case "GridSet": return `${actorName} updated the grid`;
     case "TokenCreated": return `${actorName} created ${event.token.name}${event.token.hidden ? " (hidden)" : ""}`;
-    case "TokenMoved": return `${actorName} moved ${tokenName(event.tokenId)} from (${event.from.x}, ${event.from.y}) to (${event.to.x}, ${event.to.y})`;
+    case "TokenMoved": return `${actorName} moved ${tokenName(event.tokenId)} from ${formatPoint(event.from)} to ${formatPoint(event.to)}`;
     case "TokenDeleted": return `${actorName} deleted ${event.token.name}`;
     case "TokenOwnersSet": return `${actorName} assigned ${tokenName(event.tokenId)} to ${event.ownerIds.length ? event.ownerIds.map(participantName).join(", ") : "no players"}`;
     case "TokenHiddenSet": return `${actorName} ${event.hidden ? "hid" : "revealed"} ${tokenName(event.tokenId)}`;
     case "TokenStatsSet": return `${actorName} updated ${tokenName(event.tokenId)}'s stats: HP ${event.stats.hp ?? "unset"}/${event.stats.maxHp ?? "unset"}, AC ${event.stats.ac ?? "unset"}`;
+    case "TokenImageSet": return `${actorName} ${event.imageUrl ? "changed" : "removed"} ${tokenName(event.tokenId)}'s image`;
     case "TokenConditionsSet": return `${actorName} set ${tokenName(event.tokenId)}'s conditions to ${event.conditions.length ? event.conditions.join(", ") : "none"}`;
     case "InitiativeStarted": return `${actorName} started initiative: ${event.initiative.order.map(tokenName).join(", ") || "no tokens"}`;
     case "InitiativeAdvanced": return `${actorName} advanced to round ${event.initiative.round}, ${tokenName(event.initiative.order[event.initiative.activeIndex] ?? "")}'s turn`;
     case "InitiativeEnded": return `${actorName} ended initiative`;
     case "DiceRolled": return `${actorName} rolled ${event.roll.expression}: ${event.roll.total}${event.roll.visibility === "gm" ? " (GM only)" : ""}`;
+    case "TemplatePlaced": return `${actorName} placed a ${templateLabel(event.template)}${event.template.gmOnly ? " (GM only)" : ""}`;
+    case "TemplateRemoved": return `${actorName} removed a ${templateLabel(event.template)}${event.template.gmOnly ? " (GM only)" : ""}`;
     default: {
       const exhaustive: never = event;
       return exhaustive;

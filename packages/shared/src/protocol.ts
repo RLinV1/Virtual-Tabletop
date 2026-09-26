@@ -51,6 +51,9 @@ export type ClientMessage = z.infer<typeof ClientMessage>;
 export type ClientMessageInput = z.input<typeof ClientMessage>;
 
 // ---------- Server -> Client ----------
+/** Why a seat ended (ADR 0006): the player left, or the GM removed them. Also the handshake error text. */
+export type SessionEndReason = "left" | "revoked";
+
 export type ServerMessage =
   /** Full, filtered snapshot. Client replaces its state and sets lastSeq = seq (FR-PL-06). */
   | { type: "welcome"; you: Participant; seq: number; state: RoomState }
@@ -61,6 +64,8 @@ export type ServerMessage =
   | { type: "ack"; clientCommandId: string; seq: number | null }
   | { type: "rejected"; clientCommandId: string; code: RejectionCode | "bad_request"; message: string }
   | { type: "ephemeral"; from: Id; payload: EphemeralPayload }
+  /** Terminal: this seat has ended (ADR 0006). The server disconnects right after; do not reconnect. */
+  | { type: "sessionEnded"; reason: SessionEndReason }
   | { type: "error"; code: "unauthorized" | "bad_request" | "not_found"; message: string };
 
 /**
@@ -103,6 +108,11 @@ export interface CreateRoomResponse extends RoomCredentials {
 }
 
 export type JoinRoomResponse = RoomCredentials;
+
+/** `GET`/`POST /api/rooms/:roomId/invite`: the room's current invite code, GM only (FR-GM-20). */
+export interface InviteResponse {
+  inviteCode: string;
+}
 
 export interface UploadResponse {
   url: string;

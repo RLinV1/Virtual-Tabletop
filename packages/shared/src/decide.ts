@@ -1,8 +1,9 @@
-import type { Command } from "./commands";
+import type { Command, DepartureAction } from "./commands";
 import { EMPTY_STATS } from "./conditions";
 import { formatExpression, parseDiceExpression, rollDice } from "./dice";
 import type { DomainEvent } from "./events";
-import { type Initiative, type Participant, type RoomState, type Token } from "./state";
+import type { SessionEndReason } from "./protocol";
+import { MAX_AREA_TEMPLATES, type AreaTemplate, type Initiative, type Participant, type RoomState, type Token } from "./state";
 
 export type RejectionCode = "forbidden" | "not_found" | "invalid";
 
@@ -29,6 +30,9 @@ export const can = {
     actor.role === "gm" || token.ownerIds.includes(actor.id),
   /** Only the GM may roll where players cannot see the result (FR-GM-22). */
   rollHidden: (actor: Participant) => actor.role === "gm",
+  /** Whoever placed a template may remove it; the GM may remove any (ADR 0007). */
+  removeTemplate: (actor: Participant, template: AreaTemplate) =>
+    actor.role === "gm" || template.ownerId === actor.id,
 };
 
 /**
@@ -62,8 +66,8 @@ export function decide(
 
     case "token.create": {
       if (!can.administer(actor)) return forbidden();
-      const unknownOwner = command.ownerIds.find((id) => !state.participants[id]);
-      if (unknownOwner) return reject("not_found", `Unknown participant ${unknownOwner}`);
+      const ownerError = checkOwners(state, command.ownerIds);
+      if (ownerError) return ownerError;
       if (!command.name.trim()) return reject("invalid", "Token name can't be blank.");
       return accept({
         type: "TokenCreated",
@@ -110,8 +114,8 @@ export function decide(
       if (!can.administer(actor)) return forbidden();
       const token = state.tokens[command.tokenId];
       if (!token) return notFound("token");
-      const unknownOwner = command.ownerIds.find((id) => !state.participants[id]);
-      if (unknownOwner) return reject("not_found", `Unknown participant ${unknownOwner}`);
+      const ownerError = checkOwners(state, command.ownerIds);
+      if (ownerError) return ownerError;
       return accept({
         type: "TokenOwnersSet",
         tokenId: token.id,
@@ -145,6 +149,22 @@ export function decide(
         tokenId: token.id,
         stats: command.stats,
         previous: token.stats,
+      });
+    }
+
+    case "token.setImage": {
+      if (!can.administer(actor)) return forbidden();
+      const token = state.tokens[command.tokenId];
+      if (!token) return notFound("token");
+      if (token.imageUrl === command.imageUrl && (token.assetId ?? null) === command.assetId) {
+        return reject("invalid", `${token.name} already has that image.`);
+      }
+      return accept({
+        type: "TokenImageSet",
+        tokenId: token.id,
+        imageUrl: command.imageUrl,
+        assetId: command.assetId,
+        previous: { imageUrl: token.imageUrl, assetId: token.assetId ?? null },
       });
     }
 
@@ -216,6 +236,34 @@ export function decide(
       });
     }
 
+    case "template.place": {
+      // Only the GM hides things from players, as with hidden tokens and GM-only rolls.
+      if (command.gmOnly && !can.administer(actor)) return forbidden();
+      if (Object.keys(state.templates).length >= MAX_AREA_TEMPLATES) {
+        return reject("invalid", `A room can hold at most ${MAX_AREA_TEMPLATES} area templates. Remove some first.`);
+      }
+      return accept({
+        type: "TemplatePlaced",
+        template: {
+          id: ctx.newId(),
+          shape: command.shape,
+          origin: command.origin,
+          toward: command.toward,
+          size: command.size,
+          ownerId: actor.id,
+          gmOnly: command.gmOnly,
+        },
+      });
+    }
+
+    case "template.remove": {
+      const template = state.templates[command.templateId];
+      // A GM-only template answers a player exactly like a missing one (FR-GM-23).
+      if (!template || (template.gmOnly && !can.administer(actor))) return notFound("template");
+      if (!can.removeTemplate(actor, template)) return forbidden();
+      return accept({ type: "TemplateRemoved", template });
+    }
+
     case "participant.rename": {
       const displayName = command.displayName.trim();
       if (!displayName) return reject("invalid", BLANK_NAME);
@@ -227,8 +275,90 @@ export function decide(
         previous: actor.displayName,
       });
     }
+
+    case "participant.leave":
+      // The room would be left without anyone who can administer it. The GM's way out is
+      // the Home link, which only closes their socket (ADR 0006).
+      if (can.administer(actor)) return reject("invalid", "The GM can't leave their own room.");
+      return accept({ type: "ParticipantLeft", participant: actor });
+
+    case "participant.revoke": {
+      if (!can.administer(actor)) return forbidden();
+      const target = state.participants[command.participantId];
+      if (!target) return notFound("participant");
+      if (target.id === actor.id) return reject("invalid", "You can't remove yourself.");
+      if (target.role === "gm") return reject("invalid", "The GM can't be removed.");
+      if (!isActive(target)) return reject("invalid", `${target.displayName} is no longer in the room.`);
+      return accept({ type: "ParticipantRevoked", participant: target });
+    }
+
+    case "participant.resolveDeparture":
+      if (!can.administer(actor)) return forbidden();
+      return resolveDeparture(state, command.participantId, command.actions);
   }
 }
+
+/**
+ * Turns the GM's per-token choices into existing token events (ADR 0006). Every action is
+ * validated before any event is produced, so the command is all-or-nothing.
+ */
+function resolveDeparture(state: RoomState, participantId: string, actions: DepartureAction[]): Decision {
+  const departed = state.participants[participantId];
+  if (!departed) return notFound("participant");
+  if (isActive(departed)) return reject("invalid", `${departed.displayName} hasn't left the room.`);
+
+  const seen = new Set<string>();
+  for (const a of actions) {
+    if (seen.has(a.tokenId)) return reject("invalid", "A token appears twice in the resolution");
+    seen.add(a.tokenId);
+    const token = state.tokens[a.tokenId];
+    if (!token) return notFound("token");
+    if (!token.ownerIds.includes(departed.id)) {
+      return reject("invalid", `${token.name} is no longer owned by ${departed.displayName}.`);
+    }
+    if (a.action === "reassign") {
+      const to = state.participants[a.to];
+      if (!to) return notFound("participant");
+      if (to.role !== "player" || !isActive(to)) {
+        return reject("invalid", `${to.displayName} can't be given tokens: choose a player who is still in the room.`);
+      }
+    }
+  }
+
+  const events = actions.map((a): DomainEvent => {
+    const token = state.tokens[a.tokenId]!;
+    switch (a.action) {
+      case "delete":
+        return { type: "TokenDeleted", token };
+      case "unassign":
+        return {
+          type: "TokenOwnersSet",
+          tokenId: token.id,
+          ownerIds: token.ownerIds.filter((id) => id !== departed.id),
+          previous: token.ownerIds,
+        };
+      case "reassign":
+        return {
+          type: "TokenOwnersSet",
+          tokenId: token.id,
+          ownerIds: [...new Set(token.ownerIds.map((id) => (id === departed.id ? a.to : id)))],
+          previous: token.ownerIds,
+        };
+    }
+  });
+  return { ok: true, events };
+}
+
+/** Owners must exist and still be in the room: a departed player can't be handed a token. */
+function checkOwners(state: RoomState, ownerIds: string[]): Decision | null {
+  for (const id of ownerIds) {
+    const owner = state.participants[id];
+    if (!owner) return reject("not_found", `Unknown participant ${id}`);
+    if (!isActive(owner)) return reject("invalid", `${owner.displayName} has left the room.`);
+  }
+  return null;
+}
+
 
 /** Comparison key for names: "raymond", "Raymond " and "RAYMOND" are one name (KAN-61, KAN-62). */
 export const normalizeName = (name: string) => name.normalize("NFC").trim().toLocaleLowerCase("en-US");
@@ -262,10 +392,30 @@ export function uniqueTokenName(state: RoomState, name: string): string {
 }
 
 /**
- * Whether a participant holds their display name. Always true until revocation/leaving is recorded
- * in RoomState (FR-GM-20, KAN-52); this is the single place that will change then.
+ * Whether a participant is still in the room: holds their name, may act, may connect, may own
+ * tokens. A participant stops by leaving or by being removed by the GM (ADR 0006, FR-GM-20).
  */
-export const isActive = (_participant: Participant) => true;
+export const isActive = (participant: Participant) => !participant.left && !participant.revoked;
+
+/** How the UI names an inactive participant: removed by the GM, or left on their own (ADR 0006). */
+export const inactiveLabel = (participant: Participant) => (participant.revoked ? "removed" : "left");
+
+/** Why a participant's seat ended, or null while they are still in the room. */
+export const endReason = (participant: Participant): SessionEndReason | null =>
+  participant.revoked ? "revoked" : participant.left ? "left" : null;
+
+/** Departed participants still named as a token owner: what the GM has yet to resolve (ADR 0006). */
+export function pendingDepartures(state: RoomState): { participant: Participant; tokenIds: string[] }[] {
+  return Object.values(state.participants)
+    .filter((p) => !isActive(p))
+    .map((participant) => ({
+      participant,
+      tokenIds: Object.values(state.tokens)
+        .filter((t) => t.ownerIds.includes(participant.id))
+        .map((t) => t.id),
+    }))
+    .filter((d) => d.tokenIds.length > 0);
+}
 
 /** True when an active participant other than `exceptId` already uses `name` in this room. */
 export function isDisplayNameTaken(state: RoomState, name: string, exceptId?: string) {

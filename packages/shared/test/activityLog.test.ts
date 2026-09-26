@@ -6,6 +6,7 @@ import { alice, baseRoom, gm, withToken } from "./fixtures";
 const { state, token } = withToken(baseRoom(), { name: "Goblin" });
 const initiative = { order: [token.id], activeIndex: 0, round: 1 };
 const roll = { id: "roll", expression: "1d20", byParticipantId: alice.id, dice: [15], modifier: 0, total: 15, visibility: "public" as const };
+const areaTemplate = { id: "t1", shape: "cone" as const, origin: { x: 70, y: 70 }, toward: { x: 210, y: 70 }, size: 20, ownerId: alice.id, gmOnly: false };
 const committed = (event: DomainEvent, seq = 1, actorId: string | null = gm.id): CommittedEvent =>
   ({ seq, actorId, at: "2026-09-24T12:00:00.000Z", event });
 
@@ -13,6 +14,8 @@ describe("Human-readable activity formatter (FR-REC-01)", () => {
   const cases: Record<DomainEventType, [DomainEvent, string]> = {
     RoomCreated: [{ type: "RoomCreated", name: "Dungeon" }, "Mara created room Dungeon"],
     ParticipantJoined: [{ type: "ParticipantJoined", participant: alice }, "Mara joined the room as a player"],
+    ParticipantLeft: [{ type: "ParticipantLeft", participant: alice }, "Alice left the table"],
+    ParticipantRevoked: [{ type: "ParticipantRevoked", participant: alice }, "Mara removed Alice from the room"],
     ParticipantRenamed: [{ type: "ParticipantRenamed", participantId: alice.id, previous: "Alice", displayName: "Tomas" }, "Mara renamed Alice to Tomas"],
     MapSet: [{ type: "MapSet", map: { url: "/map.png", width: 100, height: 100 }, previous: null }, "Mara set the map"],
     GridSet: [{ type: "GridSet", grid: state.scene.grid, previous: state.scene.grid }, "Mara updated the grid"],
@@ -27,6 +30,9 @@ describe("Human-readable activity formatter (FR-REC-01)", () => {
     InitiativeAdvanced: [{ type: "InitiativeAdvanced", initiative: { ...initiative, round: 2 }, previous: initiative }, "Mara advanced to round 2, Goblin's turn"],
     InitiativeEnded: [{ type: "InitiativeEnded", previous: initiative }, "Mara ended initiative"],
     DiceRolled: [{ type: "DiceRolled", roll }, "Mara rolled 1d20: 15"],
+    TokenImageSet: [{ type: "TokenImageSet", tokenId: token.id, imageUrl: "/uploads/new.png", assetId: null, previous: { imageUrl: null, assetId: null } }, "Mara changed Goblin's image"],
+    TemplatePlaced: [{ type: "TemplatePlaced", template: areaTemplate }, "Mara placed a 20 ft cone"],
+    TemplateRemoved: [{ type: "TemplateRemoved", template: { ...areaTemplate, gmOnly: true } }, "Mara removed a 20 ft cone (GM only)"],
   };
   it.each(Object.entries(cases))("formats %s", (_type, [event, sentence]) => {
     expect(DomainEvent.safeParse(event).success).toBe(true);
@@ -36,6 +42,10 @@ describe("Human-readable activity formatter (FR-REC-01)", () => {
     expect(formatActivity({ type: "DiceRolled", roll: { ...roll, visibility: "gm" } }, "Tomas", state)).toBe("Tomas rolled 1d20: 15 (GM only)");
     expect(formatActivity({ type: "TokenConditionsSet", tokenId: "missing", conditions: [], previous: [] }, "System", state)).toBe("System set an unknown token's conditions to none");
     expect(formatActivity({ type: "TokenOwnersSet", tokenId: token.id, ownerIds: [], previous: [] }, "Mara", state)).toBe("Mara assigned Goblin to no players");
+  });
+  it("rounds move coordinates to at most 2 decimal places", () => {
+    const moved: DomainEvent = { type: "TokenMoved", tokenId: token.id, from: { x: 1987.9, y: 829.1000000000001 }, to: { x: 2057.3456, y: 829.1000000000001 } };
+    expect(formatActivity(moved, "Mara", state)).toBe("Mara moved Goblin from (1987.9, 829.1) to (2057.35, 829.1)");
   });
 });
 

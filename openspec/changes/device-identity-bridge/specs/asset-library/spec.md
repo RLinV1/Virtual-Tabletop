@@ -1,27 +1,17 @@
 # Spec Delta
 
-## Purpose
-
-Applies the device-identity lifetime to library assets: what owns them, what happens when nobody can prove ownership, and that browsing never creates an owner.
-
 ## MODIFIED Requirements
 
-### Requirement: Library assets are owned by a GM identity
-Every library asset SHALL be owned by exactly one GM identity, and SHALL be readable, renameable and deletable only by that owner. Until accounts exist that owner is the browser's GM device identity, with the lifetime and retention defined in the `gm-home` capability.
+### Requirement: Library ownership and access
+Every library asset SHALL belong to exactly one GM identity. All library endpoints SHALL be GM-only, and every one MUST authorize on the server. A GM MUST NOT be able to list, read metadata of, rename, re-grid or delete another GM's assets. Until accounts exist, that owner is the browser's GM device identity, with the lifetime and retention defined in the `gm-home` capability. Browsing the library never creates an owner (see "Browsing the library does not create an owner").
 
-Browsing the library MUST NOT create an owner. A browser with no GM identity SHALL see an empty library and an invitation to upload, and the identity SHALL be created by that first upload.
+#### Scenario: Another GM's asset
+- **WHEN** GM B requests rename, delete or usage for an asset owned by GM A
+- **THEN** the server responds 404 and the asset is unchanged
 
-#### Scenario: Browsing without an identity
-- **WHEN** a browser with no GM token opens the asset library
-- **THEN** an empty state is shown, no server request for assets is made, and no identity is created
-
-#### Scenario: First upload creates the owner
-- **WHEN** a browser with no GM token uploads a map
-- **THEN** a GM identity is created and the asset is owned by it
-
-#### Scenario: Another identity cannot reach the asset
-- **WHEN** a request presents a different GM token than the asset's owner
-- **THEN** the server responds 404 and reveals nothing about the asset
+#### Scenario: Player credential rejected
+- **WHEN** a request to a library endpoint carries only a room guest credential
+- **THEN** the server responds 401
 
 ## ADDED Requirements
 

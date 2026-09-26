@@ -20,7 +20,11 @@ export function filterStateForViewer(state: RoomState, viewer: Participant): Roo
   const initiative = state.initiative
     ? { ...state.initiative, order: state.initiative.order.filter((id) => tokens[id]) }
     : null;
-  return { ...state, tokens, rolls, initiative };
+  // GM-only area templates are withheld entirely, like hidden tokens (ADR 0007).
+  const templates = Object.fromEntries(
+    Object.entries(state.templates).filter(([, t]) => !t.gmOnly),
+  );
+  return { ...state, tokens, rolls, initiative, templates };
 }
 
 export type FilteredEvent =
@@ -31,6 +35,7 @@ export type FilteredEvent =
   /** The viewer's visible world changed shape; send a fresh filtered snapshot instead. */
   | { kind: "resync" };
 
+/** Decides what one viewer receives for a committed event: as-is, a redacted seq, or a resync. */
 export function filterEventForViewer(
   committed: CommittedEvent,
   before: RoomState,
@@ -41,6 +46,7 @@ export function filterEventForViewer(
   const e = committed.event;
   const redacted: FilteredEvent = { kind: "redacted", seq: committed.seq };
   const pass: FilteredEvent = { kind: "event", committed };
+  /** Whether the viewer could not see this token before the event; unknown tokens count as hidden. */
   const hiddenBefore = (tokenId: string) => before.tokens[tokenId]?.hidden ?? true;
 
   switch (e.type) {
@@ -51,6 +57,7 @@ export function filterEventForViewer(
     case "TokenMoved":
     case "TokenOwnersSet":
     case "TokenStatsSet":
+    case "TokenImageSet":
     case "TokenConditionsSet":
       return hiddenBefore(e.tokenId) ? redacted : pass;
     case "DiceRolled":
@@ -63,14 +70,21 @@ export function filterEventForViewer(
       return { kind: "resync" };
     case "InitiativeEnded":
       return pass;
+    case "TemplatePlaced":
+    case "TemplateRemoved":
+      // gmOnly never changes after placement, so the event itself says whether a player may see it.
+      return e.template.gmOnly ? redacted : pass;
     case "TokenHiddenSet":
       // A reveal must deliver the whole token; a hide must remove it. A snapshot does both.
       return { kind: "resync" };
     case "RoomCreated":
     case "ParticipantJoined":
     case "ParticipantRenamed":
+    case "ParticipantLeft":
+    case "ParticipantRevoked":
     case "MapSet":
     case "GridSet":
+      // The participant list is public; leaving or removal reveals nothing hidden (ADR 0006).
       return pass;
   }
 }

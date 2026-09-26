@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
+import { DiceFive, MapTrifold, Sword, UserList } from "@phosphor-icons/react";
 import type { GridSpec, Participant, RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { GmPanel } from "../pages/GmPanel";
@@ -15,16 +16,97 @@ import { TokenRoster } from "./TokenRoster";
  * waiting for, then the roster, then dice. GM administration comes last because it is
  * setup, not play.
  *
- * On a narrow screen the same content becomes tabs. A single scrolling column would bury
- * the board under several screens of controls, and the board is the point — a player on a
- * phone should never have to scroll to see where their character is standing.
+ * The content is split into tabs on every screen size. On a phone a single scrolling column
+ * would bury the board under several screens of controls; on a desktop it mixed play and
+ * setup in one long column. The tab buttons live in the room's top bar on wide screens.
  *
  * Composition is by ownership and role, never by hiding: a player is not sent GM data and
  * then told not to look at it. The administration controls simply are not rendered, and
  * the server would refuse the commands anyway (FR-GM-15).
  */
 
-type TabId = "play" | "tokens" | "dice" | "gm";
+export type TabId = "play" | "tokens" | "dice" | "gm";
+
+export const isTabId = (v: unknown): v is TabId => v === "play" || v === "tokens" || v === "dice" || v === "gm";
+
+/** The panel's tabs for this role. Manage is the GM's only; a player is never offered it. */
+export function panelTabs(isGm: boolean): { id: TabId; label: string; icon: ReactNode }[] {
+  return [
+    { id: "play", label: "Play", icon: <Sword size={16} aria-hidden="true" /> },
+    { id: "tokens", label: "Tokens", icon: <UserList size={16} aria-hidden="true" /> },
+    { id: "dice", label: "Dice", icon: <DiceFive size={16} aria-hidden="true" /> },
+    ...(isGm ? [{ id: "gm" as const, label: "Manage", icon: <MapTrifold size={16} aria-hidden="true" /> }] : []),
+  ];
+}
+
+/** Ids shared by the tab buttons (in the top bar or the panel) and the one tab panel. */
+export const tabButtonId = (tab: TabId) => `room-tab-${tab}`;
+export const TAB_PANEL_ID = "room-tabpanel";
+
+/**
+ * The tab buttons, as an ARIA tablist with a roving tab stop. Rendered in the room's top bar
+ * on wide screens and above the panel on phones; either way they drive the same panel.
+ */
+export function PanelTabs({
+  isGm,
+  tab,
+  onTab,
+  className = "tabbar",
+}: {
+  isGm: boolean;
+  tab: TabId;
+  /** `reselected` is true when the already-selected tab was pressed again. */
+  onTab: (tab: TabId, reselected: boolean) => void;
+  className?: string;
+}) {
+  const tabs = panelTabs(isGm);
+  /** Set when the arrow keys moved the selection, so focus can follow it. */
+  const movedByKeyboard = useRef(false);
+
+  // In the ARIA tabs pattern focus must travel with the selection. Without this the user
+  // is left focused on a tab that now has tabIndex -1, the next arrow press comes from a
+  // detached element, and a screen reader never announces the tab they just moved to.
+  useEffect(() => {
+    if (!movedByKeyboard.current) return;
+    movedByKeyboard.current = false;
+    document.getElementById(tabButtonId(tab))?.focus();
+  }, [tab]);
+
+  return (
+    <div className={className} role="tablist" aria-label="Room panels" data-tour="panel-tabs">
+      {tabs.map((t) => (
+        <button
+          key={t.id}
+          type="button"
+          role="tab"
+          id={tabButtonId(t.id)}
+          aria-selected={tab === t.id}
+          aria-controls={tab === t.id ? TAB_PANEL_ID : undefined}
+          // Roving tabindex: the tablist is one tab stop, arrows move within it.
+          tabIndex={tab === t.id ? 0 : -1}
+          className={tab === t.id ? "tab selected" : "tab"}
+          onClick={() => onTab(t.id, tab === t.id)}
+          onKeyDown={(e) => {
+            const i = tabs.findIndex((x) => x.id === tab);
+            const next =
+              e.key === "ArrowRight" ? tabs[(i + 1) % tabs.length]
+              : e.key === "ArrowLeft" ? tabs[(i - 1 + tabs.length) % tabs.length]
+              : e.key === "Home" ? tabs[0]
+              : e.key === "End" ? tabs.at(-1)
+              : null;
+            if (!next) return;
+            e.preventDefault();
+            movedByKeyboard.current = true;
+            onTab(next.id, false);
+          }}
+        >
+          {t.icon}
+          {t.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 interface Props {
   connection: RoomConnection;
@@ -39,34 +121,30 @@ interface Props {
   onGridApply: (grid: GridSpec) => Promise<boolean>;
   gridApplying: boolean;
   gridError: string | null;
-  /** True on narrow screens, where the panel becomes tabbed. */
+  /** True on narrow screens, where the tab buttons sit above the panel instead of in the top bar. */
   compact: boolean;
+  tab: TabId;
+  onTab: (tab: TabId) => void;
+  /** GM only: open the review of a departed player's tokens (KAN-58). */
+  onReviewDeparture: (participantId: string) => void;
 }
 
+/**
+ * Renders the selected tab's sections. The tabs separate what a viewer does at the table
+ * (Play, Tokens, Dice) from the GM's setup (Manage), instead of one long column.
+ */
 export function RoomPanel({
   connection, state, you, token, onFocusToken,
-  gridDraft, hasGridDraft, onGridDraftChange, onGridDraftCancel, onGridApply, gridApplying, gridError, compact,
+  gridDraft, hasGridDraft, onGridDraftChange, onGridDraftCancel, onGridApply, gridApplying, gridError,
+  compact, tab, onTab, onReviewDeparture,
 }: Props) {
   const isGm = you.role === "gm";
-  const [tab, setTab] = useState<TabId>("play");
-  const baseId = useId();
-  /** Set when the arrow keys moved the selection, so focus can follow it. */
-  const movedByKeyboard = useRef(false);
-
-  // In the ARIA tabs pattern focus must travel with the selection. Without this the user
-  // is left focused on a tab that now has tabIndex -1, the next arrow press comes from a
-  // detached element, and a screen reader never announces the tab they just moved to.
-  useEffect(() => {
-    if (!movedByKeyboard.current) return;
-    movedByKeyboard.current = false;
-    document.getElementById(`${baseId}-tab-${tab}`)?.focus();
-  }, [tab, baseId]);
 
   // Role is server-owned, so it can change under us. Don't strand the panel on a tab that
   // no longer exists.
   useEffect(() => {
-    if (tab === "gm" && !isGm) setTab("play");
-  }, [tab, isGm]);
+    if (tab === "gm" && !isGm) onTab("play");
+  }, [tab, isGm, onTab]);
 
   const sections: Record<TabId, ReactNode> = {
     play: (
@@ -82,6 +160,7 @@ export function RoomPanel({
         connection={connection}
         state={state}
         token={token}
+        onReviewDeparture={onReviewDeparture}
         gridDraft={gridDraft}
         hasGridDraft={hasGridDraft}
         onGridDraftChange={onGridDraftChange}
@@ -93,67 +172,11 @@ export function RoomPanel({
     ) : null,
   };
 
-  if (!compact) {
-    return (
-      <>
-        {sections.play}
-        {sections.tokens}
-        {sections.dice}
-        {sections.gm}
-      </>
-    );
-  }
-
-  const tabs: { id: TabId; label: string }[] = [
-    { id: "play", label: "Play" },
-    { id: "tokens", label: "Tokens" },
-    { id: "dice", label: "Dice" },
-    ...(isGm ? [{ id: "gm" as const, label: "Manage" }] : []),
-  ];
-
   return (
     <div className="tabbed">
-      <div className="tabbar" role="tablist" aria-label="Room panels">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            role="tab"
-            id={`${baseId}-tab-${t.id}`}
-            aria-selected={tab === t.id}
-            // Only the active panel is rendered, so pointing at an absent id on the others
-            // would be a dangling reference.
-            aria-controls={tab === t.id ? `${baseId}-panel-${t.id}` : undefined}
-            // Roving tabindex: the tablist is one tab stop, arrows move within it.
-            tabIndex={tab === t.id ? 0 : -1}
-            className={tab === t.id ? "tab selected" : "tab"}
-            onClick={() => setTab(t.id)}
-            onKeyDown={(e) => {
-              const i = tabs.findIndex((x) => x.id === tab);
-              const next =
-                e.key === "ArrowRight" ? tabs[(i + 1) % tabs.length]
-                : e.key === "ArrowLeft" ? tabs[(i - 1 + tabs.length) % tabs.length]
-                : e.key === "Home" ? tabs[0]
-                : e.key === "End" ? tabs.at(-1)
-                : null;
-              if (!next) return;
-              e.preventDefault();
-              movedByKeyboard.current = true;
-              setTab(next.id);
-            }}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      <div
-        role="tabpanel"
-        id={`${baseId}-panel-${tab}`}
-        aria-labelledby={`${baseId}-tab-${tab}`}
-        tabIndex={0}
-        className="tabpanel"
-      >
-        {sections[tab]}
+      {compact && <PanelTabs isGm={isGm} tab={tab} onTab={(t) => onTab(t)} />}
+      <div role="tabpanel" id={TAB_PANEL_ID} aria-labelledby={tabButtonId(tab)} tabIndex={0} className="tabpanel">
+        {sections[tab === "gm" && !isGm ? "play" : tab]}
       </div>
     </div>
   );

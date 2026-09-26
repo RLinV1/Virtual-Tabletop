@@ -1,3 +1,4 @@
+import { GmDashboardPage } from "./pages/GmDashboardPage";
 import { HomePage } from "./pages/HomePage";
 import { SignInPage, SignUpPage } from "./pages/AccountPages";
 import { JoinPage } from "./pages/JoinPage";
@@ -10,6 +11,8 @@ export function App() {
   switch (route.page) {
     case "home":
       return <HomePage />;
+    case "gmDashboard":
+      return <GmDashboardPage />;
     case "library":
       return <LibraryPage />;
     case "signin":

@@ -22,8 +22,8 @@ the application is beyond one room screen.
 
 Two corrections to what this section used to claim. The boards it referenced —
 `room-setup.png`, `at-the-table.png`, `between-sessions.png` — **were never produced**;
-`assets/ui-reference/` contains only a README describing them. And the palette that README
-calls "already applied" (deep slate-teal ground, parchment text, gold accent) is **not**
+`assets/ui-reference/` held only a README describing them, and has since been removed. And the
+palette that README called "already applied" (deep slate-teal ground, parchment text, gold accent) is **not**
 what ships: `apps/web/src/styles.css` uses a neutral charcoal ground with a blue accent.
 The documented direction was abandoned silently. §11.9 picks one.
 
@@ -41,12 +41,11 @@ What exists today, and what a usable product still needs:
 | `/rooms` | Room hub — rooms you belong to | **Missing** | FR-GM-01 (`DESIGN.md` §5: an account exists so a user can return and find their rooms). Also where Leave table returns a signed-in user ([`FRONTEND-CONTRACT.md`](FRONTEND-CONTRACT.md) §13.1) |
 | `/r/:roomId/prepare` | Scene preparation | **Missing** — currently crammed into the table's side panel | FR-GM-02 … FR-GM-07, FR-GM-11 |
 | `/r/:roomId/log` | Activity log and undo | **Missing** | FR-REC-01, FR-REC-02 |
-| `/r/:roomId/settings` | Access, invites, revocation | **Missing** | FR-GM-20 |
+| — (no route) | Access, invites, revocation | Built as in-room controls: Remove in the Participants popover, Reset link beside Share | FR-GM-20 |
 | `/library` | Saved maps, token art, encounter templates | **Deferred — do not build** | [`FRONTEND-CONTRACT.md`](FRONTEND-CONTRACT.md) §13.1 defers saved assets and omits their navigation from the initial release; needs ownership, quota and reuse requirements first |
 
-The gap is not decoration. Three of those rows are requirements with no surface at all: a GM
-cannot currently find a room they made last week, revoke a guest, or read the log that
-FR-REC-01 requires. Map preparation lives in a scrolling side panel beside the live table,
+The gap is not decoration. Some of those rows are requirements with no surface at all: a GM
+cannot currently find a room they made last week, or read the log that FR-REC-01 requires. Map preparation lives in a scrolling side panel beside the live table,
 which means the GM does setup and play in the same cramped column.
 
 ## 11.3 Information architecture

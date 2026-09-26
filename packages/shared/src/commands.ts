@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ConditionId, TokenStats } from "./conditions";
 import { DiceVisibility } from "./dice";
 import { GridSpec, Point } from "./geometry";
-import { Id, MapImage } from "./state";
+import { AreaShape, Id, MapImage } from "./state";
 
 /**
  * Commands are REQUESTS from a client. The server validates and authorizes them,
@@ -11,6 +11,19 @@ import { Id, MapImage } from "./state";
  */
 /** Colour of a new token when none is given; the Add token preview draws the same disc. */
 export const DEFAULT_TOKEN_COLOR = "#c0392b";
+
+/** Upper bound on tokens resolved in one `participant.resolveDeparture`. */
+export const MAX_DEPARTURE_ACTIONS = 200;
+
+/** One token's fate after its owner left. "Decide later" is simply not sending an action. */
+export const DepartureAction = z.discriminatedUnion("action", [
+  /** Replace the departed player with `to` in the owners; other co-owners stay. */
+  z.object({ tokenId: Id, action: z.literal("reassign"), to: Id }),
+  /** Drop the departed player from the owners. */
+  z.object({ tokenId: Id, action: z.literal("unassign") }),
+  z.object({ tokenId: Id, action: z.literal("delete") }),
+]);
+export type DepartureAction = z.infer<typeof DepartureAction>;
 
 export const Command = z.discriminatedUnion("type", [
   z.object({
@@ -58,6 +71,14 @@ export const Command = z.discriminatedUnion("type", [
     tokenId: Id,
     stats: TokenStats,
   }),
+  /** Replace or remove a token's art (ADR 0008). GM only, like choosing it at creation. */
+  z.object({
+    type: z.literal("token.setImage"),
+    tokenId: Id,
+    imageUrl: z.string().min(1).max(2048).nullable(),
+    /** Library asset the image came from, if any (ADR 0004). */
+    assetId: Id.nullable().default(null),
+  }),
   z.object({
     type: z.literal("token.setConditions"),
     tokenId: Id,
@@ -86,6 +107,35 @@ export const Command = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("participant.rename"),
     displayName: z.string().min(1).max(40),
+  }),
+  /** Place an area template for the table to see (FR-TAC-06, ADR 0007). Only the GM may make it GM-only. */
+  z.object({
+    type: z.literal("template.place"),
+    shape: AreaShape,
+    origin: Point,
+    toward: Point,
+    size: z.number().positive().max(1000),
+    gmOnly: z.boolean().default(false),
+  }),
+  /** Remove a placed template. Its owner or the GM. */
+  z.object({
+    type: z.literal("template.remove"),
+    templateId: Id,
+  }),
+  /** A player permanently gives up their seat (KAN-58, ADR 0006). The GM cannot leave. */
+  z.object({
+    type: z.literal("participant.leave"),
+  }),
+  /** GM removes a player from the room for good (FR-GM-20, ADR 0006). Tokens are left for the review. */
+  z.object({
+    type: z.literal("participant.revoke"),
+    participantId: Id,
+  }),
+  /** GM decides, token by token, what happens to what a departed player owned (ADR 0006). */
+  z.object({
+    type: z.literal("participant.resolveDeparture"),
+    participantId: Id,
+    actions: z.array(DepartureAction).min(1).max(MAX_DEPARTURE_ACTIONS),
   }),
 ]);
 export type Command = z.infer<typeof Command>;

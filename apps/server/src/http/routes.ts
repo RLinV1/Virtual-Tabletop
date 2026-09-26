@@ -8,6 +8,7 @@ import {
   HistoryResponse,
   activityHistory,
   type CreateRoomResponse,
+  type InviteResponse,
   type JoinRoomResponse,
   type UploadResponse,
 } from "@vtt/shared";
@@ -18,6 +19,7 @@ import type { RoomStore } from "../store/roomStore";
 import { imageUploader } from "./imageUpload";
 import { registerLibraryRoutes } from "./library";
 
+/** Registers the REST API: rooms, invite joins, uploads, the library and GM history. */
 export function registerRoutes(
   app: Express,
   deps: { store: RoomStore; registry: RoomRegistry; uploadDir: string; assets: AssetStore },
@@ -98,6 +100,31 @@ export function registerRoutes(
     })().catch(() => res.status(500).json({ error: "Internal error" }));
   });
 
+  /**
+   * The room's invite link, for its GM only (FR-GM-20). GET reads the current code; POST replaces
+   * it, so a leaked link stops admitting anyone new. People already in the room are untouched.
+   * Not an event: a code in the append-only log could be dug back out of history (design D6).
+   */
+  app.get("/api/rooms/:roomId/invite", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void (async () => {
+      if (!(await isRoomGm(req, req.params.roomId))) return res.status(403).json({ error: "GM only" });
+      const inviteCode = await store.getInviteCode(req.params.roomId);
+      if (!inviteCode) return res.status(404).json({ error: "Room not found" });
+      const response: InviteResponse = { inviteCode };
+      return res.json(response);
+    })().catch(() => res.status(500).json({ error: "Internal error" }));
+  });
+
+  app.post("/api/rooms/:roomId/invite", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void (async () => {
+      if (!(await isRoomGm(req, req.params.roomId))) return res.status(403).json({ error: "GM only" });
+      const response: InviteResponse = { inviteCode: await store.setInviteCode(req.params.roomId, newInviteCode) };
+      return res.json(response);
+    })().catch(() => res.status(500).json({ error: "Internal error" }));
+  });
+
   registerLibraryRoutes(app, { store, uploadDir, assets });
 
   /** FR-REC-01: history belongs to this room's GM, never merely any valid GM token. */
@@ -109,7 +136,7 @@ export function registerRoutes(
         ? await store.findCredential(hashToken(header.slice(7))) : null;
       if (!cred || cred.roomId !== req.params.roomId) return res.status(403).json({ error: "GM only" });
       const room = await registry.get(cred.roomId);
-      const viewer = room?.participant(cred.participantId);
+      const viewer = room?.activeParticipant(cred.participantId);
       if (!viewer || viewer.role !== "gm") return res.status(403).json({ error: "GM only" });
       const query = HistoryQuery.safeParse(req.query);
       if (!query.success) return res.status(400).json({ error: "Invalid history query" });
@@ -118,12 +145,23 @@ export function registerRoutes(
     })().catch(() => res.status(500).json({ error: "Internal error" }));
   });
 
+  /** True when the bearer credential is this room's GM, still in the room. */
+  async function isRoomGm(req: Request, roomId: string) {
+    const header = req.headers.authorization;
+    if (!header?.startsWith("Bearer ")) return false;
+    const cred = await store.findCredential(hashToken(header.slice(7)));
+    if (!cred || cred.roomId !== roomId) return false;
+    const room = await registry.get(cred.roomId);
+    return room?.activeParticipant(cred.participantId)?.role === "gm";
+  }
+
+  /** The participant behind a bearer guest credential, only while they are still in the room. */
   async function authenticate(req: Request) {
     const header = req.headers.authorization;
     if (!header?.startsWith("Bearer ")) return null;
     const cred = await store.findCredential(hashToken(header.slice(7)));
     if (!cred) return null;
     const room = await registry.get(cred.roomId);
-    return room?.participant(cred.participantId) ?? null;
+    return room?.activeParticipant(cred.participantId) ?? null;
   }
 }

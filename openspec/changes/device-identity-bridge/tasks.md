@@ -8,9 +8,11 @@
 
 ## 2. Stop minting identity on a read (apps/web)
 
-- [ ] 2.1 In `apps/web/src/pages/LibraryPage.tsx`, replace the `getGmToken()` mount effect with `loadGmToken()`. When there is no token, skip the asset fetch and render the empty state. Verify by clearing `localStorage`, opening `/library`, and confirming no `vtt.gm` key is written and no `gm_identities` row is created.
-- [ ] 2.2 Ensure the upload path still calls `getGmToken()` so the first upload creates the identity. Verify an upload from a browser with no token succeeds and the asset is listed afterwards.
-- [ ] 2.3 Confirm no other read path mints an identity. Verify with `grep -rn "getGmToken" apps/web/src` that every caller is a write or an upload.
+Tasks 2.1 to 2.3 moved to the `gm-dashboard` change, which needed the write-only rule for its entry flow and shipped it.
+
+- [x] 2.1 In `apps/web/src/pages/LibraryPage.tsx`, replace the `getGmToken()` mount effect with `loadGmToken()`. When there is no token, skip the asset fetch and render the empty state. Verify by clearing `localStorage`, opening `/library`, and confirming no `vtt.gm` key is written and no `gm_identities` row is created. **Done in `gm-dashboard`** (2026-09-25), which took this task over.
+- [x] 2.2 Ensure the upload path still calls `getGmToken()` so the first upload creates the identity. Verify an upload from a browser with no token succeeds and the asset is listed afterwards. **Done in `gm-dashboard`** (2026-09-25), which took this task over.
+- [x] 2.3 Confirm no other read path mints an identity. Verify with `grep -rn "getGmToken" apps/web/src` that every caller is a write or an upload. **Done in `gm-dashboard`** (2026-09-25), which took this task over.
 - [ ] 2.4 Add the browser-bound disclosure to `/library` itself, matching the wording already on the home page. Verify it is present when the library is empty and when it has assets.
 
 ## 3. Retention (apps/server)
@@ -22,4 +24,4 @@
 ## 4. Verify the whole thing
 
 - [ ] 4.1 `npm run lint && npm run typecheck && npm test` all clean.
-- [ ] 4.2 Walk the flow by hand: fresh browser to `/`, open the library (no identity created), upload a map (identity created), reload `/` and confirm the home page is unchanged and "Your rooms" stays hidden until a room exists.
+- [ ] 4.2 Walk the flow by hand: fresh browser to `/`, open the library (no identity created), upload a map (identity created), then open `/gm-dashboard` and confirm "Your rooms" shows the empty state until a room exists. (The home page no longer lists rooms; see `gm-dashboard`.)

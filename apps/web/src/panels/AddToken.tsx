@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { DEFAULT_TOKEN_COLOR, snapTokenCenter, type RoomState } from "@vtt/shared";
+import { DEFAULT_TOKEN_COLOR, isActive, snapTokenCenter, type RoomState } from "@vtt/shared";
 import { api } from "../net/api";
 import { loadGmToken } from "../net/identity";
 import type { RoomConnection } from "../net/roomConnection";
@@ -18,7 +18,7 @@ export function AddTokenButton({ connection, state, token }: { connection: RoomC
   const [open, setOpen] = useState(false);
   // The library belongs to this device's GM identity; rooms made before it existed have none.
   const [gmToken] = useState(loadGmToken);
-  const players = Object.values(state.participants).filter((p) => p.role === "player");
+  const players = Object.values(state.participants).filter((p) => p.role === "player" && isActive(p));
 
   return (
     <>

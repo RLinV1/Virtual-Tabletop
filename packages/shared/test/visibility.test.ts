@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { filterEventForViewer, filterStateForViewer, type CommittedEvent } from "../src";
-import { alice, baseRoom, gm, run } from "./fixtures";
+import { alice, baseRoom, bob, gm, run } from "./fixtures";
 
 const commit = (seq: number, event: CommittedEvent["event"]): CommittedEvent => ({
   seq, at: new Date(0).toISOString(), actorId: gm.id, event,
@@ -111,5 +111,26 @@ describe("initiative visibility (FR-GM-21, FR-GM-23)", () => {
     });
     expect(filterEventForViewer(e, s, alice)).toEqual({ kind: "resync" });
     expect(filterEventForViewer(e, s, gm)).toMatchObject({ kind: "event" });
+  });
+});
+
+describe("leaving the table (KAN-58)", () => {
+  it("passes ParticipantLeft to players", () => {
+    const left = commit(5, { type: "ParticipantLeft", participant: bob });
+    expect(filterEventForViewer(left, baseRoom(), alice)).toEqual({ kind: "event", committed: left });
+  });
+
+  it("redacts a hidden token's reassignment for players", () => {
+    let s = run(baseRoom(), gm, {
+      type: "token.create", name: "Secret", position: { x: 0, y: 0 }, hidden: true, ownerIds: [bob.id],
+    }).state;
+    s = run(s, bob, { type: "participant.leave" }).state;
+    const secret = Object.values(s.tokens)[0]!;
+    const { events } = run(s, gm, {
+      type: "participant.resolveDeparture",
+      participantId: bob.id,
+      actions: [{ tokenId: secret.id, action: "reassign", to: alice.id }],
+    });
+    expect(filterEventForViewer(commit(9, events[0]!), s, alice)).toEqual({ kind: "redacted", seq: 9 });
   });
 });

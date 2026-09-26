@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ConditionId, TokenStats } from "./conditions";
 import { DiceRoll } from "./dice";
 import { GridSpec, Point } from "./geometry";
-import { Id, Initiative, MapImage, Participant, Token } from "./state";
+import { AreaTemplate, Id, Initiative, MapImage, Participant, Token } from "./state";
 
 /**
  * Events are FACTS the server has committed. They are append-only and never edited.
@@ -27,6 +27,16 @@ export const DomainEvent = z.discriminatedUnion("type", [
     participantId: Id,
     displayName: z.string(),
     previous: z.string(),
+  }),
+  /** Carries the whole participant as it was before leaving (invariant 6, ADR 0006). */
+  z.object({
+    type: z.literal("ParticipantLeft"),
+    participant: Participant,
+  }),
+  /** The GM removed this participant. Whole pre-revoke participant (invariant 6, ADR 0006). */
+  z.object({
+    type: z.literal("ParticipantRevoked"),
+    participant: Participant,
   }),
   z.object({
     type: z.literal("MapSet"),
@@ -76,6 +86,14 @@ export const DomainEvent = z.discriminatedUnion("type", [
     stats: TokenStats,
     previous: TokenStats,
   }),
+  /** A token's art changed. Carries the art it replaced, so undo can restore it (invariant 6). */
+  z.object({
+    type: z.literal("TokenImageSet"),
+    tokenId: Id,
+    imageUrl: z.string().nullable(),
+    assetId: Id.nullish(),
+    previous: z.object({ imageUrl: z.string().nullable(), assetId: Id.nullish() }),
+  }),
   z.object({
     type: z.literal("TokenConditionsSet"),
     tokenId: Id,
@@ -99,6 +117,15 @@ export const DomainEvent = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("DiceRolled"),
     roll: DiceRoll,
+  }),
+  z.object({
+    type: z.literal("TemplatePlaced"),
+    template: AreaTemplate,
+  }),
+  /** Carries the whole template as it was, so undo can restore it (invariant 6). */
+  z.object({
+    type: z.literal("TemplateRemoved"),
+    template: AreaTemplate,
   }),
 ]);
 export type DomainEvent = z.infer<typeof DomainEvent>;

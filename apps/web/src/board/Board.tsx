@@ -1,7 +1,10 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, type ReactNode } from "react";
+import { CornersOut } from "@phosphor-icons/react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from "react";
 import type { GridSpec, Participant, RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
+import { DEFAULT_TOOL_OPTIONS, ToolRail, toolFor, type ToolOptions } from "../ui/ToolRail";
 import { BoardView } from "./boardView";
+import type { BoardTool } from "./tools";
 
 interface Props {
   connection: RoomConnection;
@@ -10,6 +13,8 @@ interface Props {
   gridPreview: GridSpec | null;
   /** Plain React controls shown top left, before Fit (e.g. the participants button). */
   toolbar?: ReactNode;
+  /** Notices pinned to the top right of the board, e.g. the GM's "Sam left the table". */
+  notices?: ReactNode;
 }
 
 /** What the roster and initiative list can ask the canvas to do (FR-GM-24). */
@@ -17,11 +22,32 @@ export interface BoardHandle {
   focusToken(tokenId: string): void;
 }
 
-export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, toolbar }, ref) {
+const HINTS: Record<BoardTool["kind"], string> = {
+  select: "Drag to pan · scroll to zoom · double-click to ping · hold Alt to place freely",
+  measure: "Drag to measure · hold Alt to measure freely · Esc to stop",
+  draw: "Drag to draw · only you can see drawings · Esc to stop",
+  area: "Drag to size and aim · click to place the chosen size · hold Alt to place freely · everyone at the table sees areas",
+  erase: "Click or drag over your marks and areas to erase them · Esc to stop",
+};
+
+/** With GM only ticked, the areas are the GM's alone; saying "everyone sees them" would mislead. */
+const GM_ONLY_AREA_HINT = "Drag to size and aim · click to place the chosen size · GM only: players won't see these areas";
+
+/** Keys typed into a field belong to that field, not to the board. */
+function isTyping(target: EventTarget | null) {
+  return target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+}
+
+/** The PixiJS board plus its React toolbar and notices; Pixi objects stay inside `BoardView`. */
+export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, toolbar, notices }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<BoardView | null>(null);
   const latest = useRef({ state, you, gridPreview });
   latest.current = { state, you, gridPreview };
+  const [tool, setTool] = useState<BoardTool>({ kind: "select" });
+  const [toolOptions, setToolOptions] = useState<ToolOptions>(DEFAULT_TOOL_OPTIONS);
+  const toolRef = useRef(tool);
+  toolRef.current = tool;
 
   useEffect(() => {
     const view = new BoardView(hostRef.current!, {
@@ -32,6 +58,16 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       },
       dragPreview: (tokenId, at) => connection.ephemeral({ type: "tokenDragPreview", tokenId, at }),
       ping: (at) => connection.ephemeral({ type: "ping", at }),
+      placeTemplate: async (template) => {
+        const result = await connection.command({ type: "template.place", ...template });
+        if (!result.ok) console.warn("Area rejected:", result.message);
+        return result.ok;
+      },
+      removeTemplate: async (templateId) => {
+        const result = await connection.command({ type: "template.remove", templateId });
+        if (!result.ok) console.warn("Area removal rejected:", result.message);
+        return result.ok;
+      },
     });
 
     let disposed = false;
@@ -40,6 +76,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       viewRef.current = view;
       view.setGridPreview(latest.current.gridPreview);
       view.update(latest.current.state, latest.current.you);
+      view.setTool(toolRef.current);
     });
     const stopEphemeral = connection.onEphemeral((_from, payload) => {
       if (payload.type === "ping") view.showPing(payload.at, 0x3498db);
@@ -64,6 +101,21 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     viewRef.current?.setGridPreview(gridPreview);
   }, [gridPreview]);
 
+  useEffect(() => {
+    viewRef.current?.setTool(tool);
+  }, [tool]);
+
+  // Escape puts the board back to Select, unless it is meant for a field or an open dialog.
+  useEffect(() => {
+    if (tool.kind === "select") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented || isTyping(e.target) || document.querySelector("dialog[open]")) return;
+      setTool({ kind: "select" });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [tool.kind]);
+
   useImperativeHandle(ref, () => ({
     focusToken: (tokenId: string) => viewRef.current?.focusToken(tokenId),
   }), []);
@@ -74,11 +126,25 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       <div className="board-toolbar">
         {toolbar}
         <button type="button" className="tool-button" data-tour="fit" onClick={() => viewRef.current?.resetView()} title="Fit the map to the screen">
+          <CornersOut size={16} aria-hidden="true" />
           Fit
         </button>
       </div>
       {gridPreview && <p className="grid-preview-label" role="status">Preview · Not applied</p>}
-      <p className="board-hint">Drag to pan · scroll to zoom · double-click to ping · hold Alt to place freely</p>
+      <ToolRail
+        active={tool.kind}
+        options={toolOptions}
+        unitLabel={state.scene.grid.unitLabel}
+        isGm={you.role === "gm"}
+        onSelect={(kind) => setTool(toolFor(kind, toolOptions))}
+        onOptions={(options) => {
+          setToolOptions(options);
+          setTool((current) => toolFor(current.kind, options));
+        }}
+        onClear={() => viewRef.current?.clearMarks()}
+      />
+      {notices}
+      <p className="board-hint">{tool.kind === "area" && tool.gmOnly ? GM_ONLY_AREA_HINT : HINTS[tool.kind]}</p>
     </div>
   );
 });

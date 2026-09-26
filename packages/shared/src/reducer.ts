@@ -30,6 +30,17 @@ export function reduce(state: RoomState, event: DomainEvent): RoomState {
       };
     }
 
+    case "ParticipantLeft": {
+      const p = required(state.participants[event.participant.id], event);
+      return { ...state, participants: { ...state.participants, [p.id]: { ...p, left: true } } };
+    }
+
+    case "ParticipantRevoked": {
+      const p = required(state.participants[event.participant.id], event);
+      // Only the flag. Tokens keep naming them until the GM resolves each one (ADR 0006).
+      return { ...state, participants: { ...state.participants, [p.id]: { ...p, revoked: true } } };
+    }
+
     case "MapSet":
       return { ...state, scene: { ...state.scene, map: event.map, grid: event.gridChange?.grid ?? state.scene.grid } };
 
@@ -65,6 +76,11 @@ export function reduce(state: RoomState, event: DomainEvent): RoomState {
       return { ...state, tokens: { ...state.tokens, [t.id]: { ...t, stats: event.stats } } };
     }
 
+    case "TokenImageSet": {
+      const t = required(state.tokens[event.tokenId], event);
+      return { ...state, tokens: { ...state.tokens, [t.id]: { ...t, imageUrl: event.imageUrl, assetId: event.assetId ?? null } } };
+    }
+
     case "TokenConditionsSet": {
       const t = required(state.tokens[event.tokenId], event);
       return { ...state, tokens: { ...state.tokens, [t.id]: { ...t, conditions: event.conditions } } };
@@ -81,6 +97,15 @@ export function reduce(state: RoomState, event: DomainEvent): RoomState {
       // Newest last, oldest dropped. The full history stays in the event log (FR-REC-01);
       // state keeps only what the roll panel shows.
       return { ...state, rolls: [...state.rolls, event.roll].slice(-ROLL_LOG_LIMIT) };
+
+    case "TemplatePlaced":
+      return { ...state, templates: { ...state.templates, [event.template.id]: event.template } };
+
+    case "TemplateRemoved": {
+      required(state.templates[event.template.id], event);
+      const { [event.template.id]: _removed, ...rest } = state.templates;
+      return { ...state, templates: rest };
+    }
 
     default:
       return assertNever(event);
