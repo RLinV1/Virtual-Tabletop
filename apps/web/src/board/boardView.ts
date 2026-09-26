@@ -24,6 +24,7 @@ import {
   type Token,
   type AreaTemplate,
 } from "@vtt/shared";
+import { footprint, placementPoint, type PlacementGhost } from "./placement";
 import { recenterOnResize } from "./recenter";
 import { canRenderGrid, DEFAULT_BOARD_SIZE } from "./gridRenderLimit";
 import { areaOrigin, areaShape, areaSizeFromDrag, formatDistance, hitMark, measure, sweepPoints, templateMark, type BoardTool, type Mark } from "./tools";
@@ -37,6 +38,10 @@ export interface BoardCallbacks {
   placeTemplate(template: { shape: AreaTemplate["shape"]; origin: Point; toward: Point; size: number; gmOnly: boolean }): Promise<boolean>;
   /** Resolves false if the server rejected the removal. */
   removeTemplate(templateId: string): Promise<boolean>;
+  /** The GM clicked a square while placing a new token (place-token-on-board). */
+  placeToken(at: Point): void;
+  /** The GM right-clicked while placing: put the token back. */
+  cancelPlacement(): void;
 }
 
 const MIN_ZOOM = 0.1;
@@ -46,6 +51,8 @@ const PREVIEW_INTERVAL_MS = 50;
 const MAX_MARKS = 100;
 /** A tool drag shorter than this (screen pixels) is a click and makes no mark. */
 const MIN_MARK_DRAG_PX = 4;
+/** Stand-in id for the token being placed; never a real token's id. */
+const GHOST_ID = "placement-ghost";
 /** How close (screen pixels) the eraser has to come to a line to erase it. */
 const ERASER_REACH_PX = 12;
 /** A brush stroke adds a point once the pointer has moved this far (screen pixels). */
@@ -180,6 +187,15 @@ export class BoardView {
   private marksScale = Number.NaN;
   /** Moves sent but not yet reflected in state, so tokens don't snap back while waiting. */
   private pendingMoves = new Map<string, Point>();
+  /** The new token being placed (place-token-on-board); null when not placing. */
+  private placement: PlacementGhost | null = null;
+  /** Where the pointer is over the board while placing; null when it is off the canvas. */
+  private hover: { at: Point; free: boolean } | null = null;
+  /** Screen point of a press while placing: released in place, it drops the token; dragged, it pans. */
+  private placeDown: Point | null = null;
+  /** The token drawn under the pointer while placing, and the squares it would cover. */
+  private ghost: TokenView | null = null;
+  private ghostFootprint = new Graphics();
   private initialized = false;
   /** Keep auto-fitting (map changes, window resizes) until the viewer pans or zooms themselves. */
   private autoFit = true;
@@ -224,6 +240,7 @@ export class BoardView {
     this.measureLabel.visible = false;
     this.markLayer.addChild(this.marksGraphics, this.overlayGraphics, this.measureLabel);
     this.world.addChild(this.mapSprite, this.grid, this.tokenLayer, this.markLayer, this.fxLayer);
+    this.fxLayer.addChild(this.ghostFootprint);
     this.app.stage.addChild(this.world);
 
     const stage = this.app.stage;
@@ -241,6 +258,7 @@ export class BoardView {
     this.app.canvas.addEventListener("touchmove", this.onTouchMove, { passive: false });
     this.app.canvas.addEventListener("touchend", this.onTouchEnd);
     this.app.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+    this.app.canvas.addEventListener("pointerleave", this.onPointerLeave);
     // A layout change (sidebar collapse, window resize) must not move what the viewer is
     // looking at. Without this a panned board stays pinned to the top-left and drifts.
     let lastSize = { width: this.app.screen.width, height: this.app.screen.height };
@@ -325,6 +343,7 @@ export class BoardView {
     this.app.canvas.removeEventListener("touchmove", this.onTouchMove);
     this.app.canvas.removeEventListener("touchend", this.onTouchEnd);
     this.app.canvas.removeEventListener("dblclick", this.onDoubleClick);
+    this.app.canvas.removeEventListener("pointerleave", this.onPointerLeave);
     this.app.destroy(true, { children: true });
     this.initialized = false;
   }
@@ -341,6 +360,8 @@ export class BoardView {
       this.redrawMarks();
     }
     if (this.autoFit) this.fitToScreen();
+    // A grid change moves the squares under a still pointer.
+    if (this.placement) this.redrawGhost();
     this.invalidate();
   }
 
@@ -436,7 +457,75 @@ export class BoardView {
   }
 
   private toolCursor() {
+    if (this.placement) return "crosshair";
     return this.tool.kind === "select" ? "default" : TOOL_CURSORS[this.tool.kind];
+  }
+
+  // ---------- placing a new token (place-token-on-board) ----------
+
+  /**
+   * Start or stop placing a new token. While placing, a ghost of it follows the pointer,
+   * snapped to the square(s) it would cover; a click there calls `placeToken`, a drag still
+   * pans, and the rail's tools wait until it is done.
+   */
+  setPlacement(placement: PlacementGhost | null) {
+    this.placement = placement;
+    this.placeDown = null;
+    if (placement) {
+      this.gesture = null;
+      this.redrawOverlay();
+    } else {
+      this.ghost?.container.destroy({ children: true });
+      this.ghost = null;
+    }
+    if (this.initialized) this.app.stage.cursor = this.toolCursor();
+    if (this.state) this.syncTokens();
+    this.redrawGhost();
+  }
+
+  private redrawGhost() {
+    if (!this.initialized) return;
+    const { placement, hover, state, you } = this;
+    const g = this.ghostFootprint.clear();
+    if (!placement || !hover || !state || !you) {
+      if (this.ghost) this.ghost.container.visible = false;
+      return this.invalidate();
+    }
+    const grid = state.scene.grid;
+    const at = placementPoint(hover.at, placement.size, grid, hover.free);
+    // Alt places freely, so there is no square to highlight.
+    if (!hover.free) {
+      const r = footprint(at, placement.size, grid);
+      g.rect(r.x, r.y, r.width, r.height)
+        .fill({ color: 0xffffff, alpha: 0.18 })
+        .stroke({ width: 2 / this.world.scale.x, color: 0xffffff, alpha: 0.9 });
+    }
+    if (!this.ghost) {
+      this.ghost = this.createTokenView(GHOST_ID);
+      this.fxLayer.addChild(this.ghost.container);
+    }
+    const token: Token = {
+      id: GHOST_ID,
+      name: placement.name,
+      position: at,
+      size: placement.size,
+      rotation: placement.rotation,
+      color: placement.color,
+      imageUrl: placement.imageUrl,
+      assetId: null,
+      ownerIds: [],
+      hidden: placement.hidden,
+      stats: placement.stats,
+      conditions: [],
+    };
+    this.drawToken(this.ghost, token, grid, you);
+    const view = this.ghost.container;
+    // Never a target: a click goes through it to the stage, which places the token.
+    view.eventMode = "none";
+    view.alpha = placement.hidden ? 0.35 : 0.75;
+    view.position.set(at.x, at.y);
+    view.visible = true;
+    this.invalidate();
   }
 
   /** Remove every mark this viewer has made, including their shared templates. The tool stays as it is. */
@@ -756,7 +845,7 @@ export class BoardView {
     for (const token of Object.values(state.tokens)) {
       let view = this.tokens.get(token.id);
       if (!view) {
-        view = this.createTokenView(token);
+        view = this.createTokenView(token.id);
         this.tokens.set(token.id, view);
       }
       this.drawToken(view, token, grid, you);
@@ -771,7 +860,7 @@ export class BoardView {
     }
   }
 
-  private createTokenView(token: Token): TokenView {
+  private createTokenView(tokenId: string): TokenView {
     const container = new Container();
     const body = new Graphics();
     const decor = new Graphics();
@@ -788,7 +877,7 @@ export class BoardView {
     image.mask = imageMask;
     // Disc first so it shows through while the image loads, or instead of one that failed.
     container.addChild(body, image, imageMask, decor, markers, label);
-    container.on("pointerdown", (e: FederatedPointerEvent) => this.onTokenDown(e, token.id));
+    container.on("pointerdown", (e: FederatedPointerEvent) => this.onTokenDown(e, tokenId));
     this.tokenLayer.addChild(container);
     return { container, body, image, imageMask, imageUrl: null, radius: 0, decor, markers, label, drawnKey: "" };
   }
@@ -803,7 +892,7 @@ export class BoardView {
       token.stats, token.conditions, focused, active, token.imageUrl,
     ]);
     view.container.eventMode = movable ? "static" : "none";
-    view.container.cursor = this.tool.kind !== "select" ? this.toolCursor() : movable ? "grab" : "default";
+    view.container.cursor = this.placement || this.tool.kind !== "select" ? this.toolCursor() : movable ? "grab" : "default";
     if (key === view.drawnKey) return;
     view.drawnKey = key;
 
@@ -931,8 +1020,9 @@ export class BoardView {
   }
 
   private onTokenDown = (e: FederatedPointerEvent, tokenId: string) => {
-    // With a tool active, let the press reach the stage so e.g. a measurement starts here.
-    if (e.button !== 0 || this.tool.kind !== "select") return;
+    // With a tool active or a token being placed, let the press reach the stage so e.g. a
+    // measurement starts here, or the new token can go on an occupied square.
+    if (e.button !== 0 || this.tool.kind !== "select" || this.placement) return;
     e.stopPropagation();
     const view = this.tokens.get(tokenId);
     if (!view) return;
@@ -948,6 +1038,13 @@ export class BoardView {
   };
 
   private onBackgroundDown = (e: FederatedPointerEvent) => {
+    if (this.placement && e.button === 2) return this.callbacks.cancelPlacement();
+    if (this.placement && e.button === 0) {
+      this.placeDown = { x: e.global.x, y: e.global.y };
+      // Falls through to pan: a drag moves the view, and only a press that stays put places.
+      this.pan = { start: { x: e.global.x, y: e.global.y }, origin: { x: this.world.x, y: this.world.y } };
+      return;
+    }
     if (this.tool.kind !== "select" && e.button === 0) {
       const at = this.toBoard(e.global);
       this.gesture = { from: at, to: at, screenFrom: { x: e.global.x, y: e.global.y }, free: e.altKey, dragged: false, path: [at] };
@@ -960,6 +1057,10 @@ export class BoardView {
   };
 
   private onPointerMove = (e: FederatedPointerEvent) => {
+    if (this.placement) {
+      this.hover = { at: this.toBoard(e.global), free: e.altKey };
+      this.redrawGhost();
+    }
     if (this.gesture) {
       const gesture = this.gesture;
       const previous = gesture.to;
@@ -996,6 +1097,13 @@ export class BoardView {
 
   private onPointerUp = (e: FederatedPointerEvent) => {
     this.pan = null;
+    const down = this.placeDown;
+    this.placeDown = null;
+    if (down && this.placement && this.state) {
+      if (Math.hypot(e.global.x - down.x, e.global.y - down.y) >= MIN_MARK_DRAG_PX) return;
+      const at = placementPoint(this.toBoard(e.global), this.placement.size, this.state.scene.grid, e.altKey);
+      return this.callbacks.placeToken(at);
+    }
     if (this.gesture) return this.finishGesture();
     const drag = this.drag;
     this.drag = null;
@@ -1052,9 +1160,10 @@ export class BoardView {
   private onTouchStart = (e: TouchEvent) => {
     if (e.touches.length !== 2) return;
     e.preventDefault();
-    // Cancel whatever the first finger started, so a pinch never drags a token with it
-    // or leaves half a drawing behind.
+    // Cancel whatever the first finger started, so a pinch never drags a token with it,
+    // leaves half a drawing behind, or drops the token being placed.
     this.pan = null;
+    this.placeDown = null;
     if (this.gesture) {
       this.gesture = null;
       this.redrawOverlay();
@@ -1098,7 +1207,7 @@ export class BoardView {
     // Double-tap to ping. `dblclick` is synthesised inconsistently on touch, and a ping is
     // the one board gesture a player on a phone actually needs (FR-TAC-05).
     const touch = e.changedTouches[0];
-    if (!touch || e.touches.length > 0 || this.pinch) return;
+    if (!touch || e.touches.length > 0 || this.pinch || this.placement) return;
     const rect = this.app.canvas.getBoundingClientRect();
     const x = touch.clientX - rect.left;
     const y = touch.clientY - rect.top;
@@ -1128,7 +1237,16 @@ export class BoardView {
     this.invalidate();
   };
 
+  /** The pointer left the board: there is no square to show the new token on. */
+  private onPointerLeave = () => {
+    if (!this.hover) return;
+    this.hover = null;
+    this.redrawGhost();
+  };
+
   private onDoubleClick = (e: MouseEvent) => {
+    // A double click while placing is two tries at the same square, not a ping.
+    if (this.placement) return;
     const rect = this.app.canvas.getBoundingClientRect();
     const at = this.toBoard({ x: e.clientX - rect.left, y: e.clientY - rect.top });
     this.showPing(at);
