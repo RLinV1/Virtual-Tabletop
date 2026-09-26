@@ -42,6 +42,13 @@ type EphemeralListener = (from: string, payload: EphemeralPayload) => void;
  * Observable state lives in a Zustand store (DESIGN.md §2) so components subscribe to
  * exactly the slice they render.
  */
+/** Why pending commands failed when this seat ended. */
+const ENDED_MESSAGE: Record<SessionEndReason, string> = {
+  left: "You left this room",
+  revoked: "You were removed from this room",
+  deleted: "This room was deleted",
+};
+
 export class RoomConnection {
   private socket: Socket | null = null;
   private nextCommandId = 0;
@@ -159,7 +166,7 @@ export class RoomConnection {
         // disconnects next; stop here so Socket.IO doesn't try to reconnect (ADR 0006).
         this.update({ status: "ended", endReason: msg.reason });
         // Before disconnecting: the disconnect listener would fail them as "Connection lost".
-        this.failPending(msg.reason === "revoked" ? "You were removed from this room" : "You left this room");
+        this.failPending(ENDED_MESSAGE[msg.reason]);
         this.socket?.disconnect();
         return;
 

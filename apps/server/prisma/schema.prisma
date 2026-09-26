@@ -1,7 +1,8 @@
 // Event store schema (DESIGN.md §2 "PostgreSQL + Prisma", §5; docs/adr/0001-event-model.md).
 //
 // `events` is append-only: rows are never updated or deleted, and undo is a new
-// compensating event (FR-REC-03). The per-room ordering guarantee (FR-SYNC-04) lives in
+// compensating event (FR-REC-03). The one exception is deleting a whole room, which
+// erases its log together with the room (docs/adr/0009-room-deletion.md). The per-room ordering guarantee (FR-SYNC-04) lives in
 // the composite primary key below, not in application code — a duplicate seq is a
 // constraint violation no matter which instance tried to write it.
 //
@@ -32,6 +33,7 @@ model Room {
   snapshots   Snapshot[]
   checkpoints Checkpoint[]
   assetRefs   AssetRef[]
+  uploads     RoomUpload[]
 
   @@index([ownerGmId])
   @@map("rooms")
@@ -81,6 +83,19 @@ model AssetRef {
   @@id([assetId, roomId])
   @@index([roomId])
   @@map("asset_refs")
+}
+
+/// Images uploaded from inside a room via /api/uploads, so deleting the room can remove
+/// them (ADR 0009). Library uploads are `library_assets`, never listed here.
+model RoomUpload {
+  roomId    String @map("room_id") @db.Uuid
+  objectKey String @map("object_key")
+
+  room Room @relation(fields: [roomId], references: [id])
+
+  @@id([roomId, objectKey])
+  @@index([roomId])
+  @@map("room_uploads")
 }
 
 model Event {

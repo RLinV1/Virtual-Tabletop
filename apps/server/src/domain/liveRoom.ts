@@ -45,6 +45,9 @@ export interface RoomClient {
   close(): void;
 }
 
+/** A join decision, or the room was deleted while the join waited in the queue (ADR 0009). */
+export type JoinResult = JoinDecision | { ok: false; code: "not_found"; message: string; reason?: undefined };
+
 export type SubmitResult =
   | { ok: true; seq: number | null }
   | { ok: false; code: RejectionCode; message: string };
@@ -62,6 +65,8 @@ export class LiveRoom {
   private tail: Promise<unknown> = Promise.resolve();
   /** Sorted asset ids last written to the reference index, as a comparable key. */
   private assetRefsKey: string | null = null;
+  /** Set once the room is being deleted (ADR 0009). Nothing is committed or relayed after. */
+  private isClosed = false;
 
   private constructor(
     readonly roomId: string,
@@ -84,6 +89,25 @@ export class LiveRoom {
     return room;
   }
 
+  get closed() {
+    return this.isClosed;
+  }
+
+  /**
+   * Ends the room for everyone before it is deleted (ADR 0009). Runs in the queue, so a command
+   * already running commits first and anything queued behind it is refused.
+   */
+  close(reason: SessionEndReason) {
+    return this.runExclusive(async () => {
+      this.isClosed = true;
+      for (const client of [...this.clients]) {
+        this.clients.delete(client);
+        client.send({ type: "sessionEnded", reason });
+        client.close();
+      }
+    });
+  }
+
   participant(id: string): Participant | undefined {
     return this.state.participants[id];
   }
@@ -103,6 +127,7 @@ export class LiveRoom {
   /** Validate, authorize, persist, apply, broadcast. */
   submit(actorId: string, command: Command): Promise<SubmitResult> {
     return this.runExclusive(async () => {
+      if (this.isClosed) return { ok: false, code: "not_found", message: "This room has been deleted" };
       const actor = this.state.participants[actorId];
       if (!actor) return { ok: false, code: "forbidden", message: "Unknown participant" };
       // Checked inside the queue, so a command sent from another tab just before the leave
@@ -121,8 +146,9 @@ export class LiveRoom {
    * Guest join (FR-PL-01). Decided and committed in one queue step, so two joins racing for
    * the same display name can't both pass the uniqueness check (KAN-61).
    */
-  join(participant: Participant): Promise<JoinDecision> {
-    return this.runExclusive(async () => {
+  join(participant: Participant): Promise<JoinResult> {
+    return this.runExclusive(async (): Promise<JoinResult> => {
+      if (this.isClosed) return { ok: false, code: "not_found", message: "This room has been deleted" };
       const decision = decideJoin(this.state, participant);
       if (decision.ok) await this.commit(participant.id, decision.events);
       return decision;
@@ -138,7 +164,7 @@ export class LiveRoom {
   attach(client: RoomClient) {
     // The handshake checked this too, but Socket.IO runs the connection handler a tick
     // later; a leave committed in between must not let this socket in (ADR 0006).
-    const ended = this.endReason(client.participantId);
+    const ended = this.isClosed ? "deleted" : this.endReason(client.participantId);
     if (ended) {
       client.send({ type: "sessionEnded", reason: ended });
       client.close();
@@ -170,6 +196,7 @@ export class LiveRoom {
 
   /** Ephemeral channel (FR-SYNC-03): relayed to other clients, never persisted, no seq. */
   relayEphemeral(from: RoomClient, payload: EphemeralPayload) {
+    if (this.isClosed) return;
     const sender = this.state.participants[from.participantId];
     if (!sender || !isActive(sender)) return;
     let token = undefined;

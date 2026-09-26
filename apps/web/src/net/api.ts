@@ -35,18 +35,22 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
  * is sent twice, so it must be resendable (a string or FormData, not a stream).
  */
 async function gmRequest<T>(gmToken: string, url: string, init: RequestInit = {}): Promise<T> {
+  const res = await gmFetch(gmToken, url, init);
+  if (!res.ok) throw new Error(await errorMessage(res));
+  return (res.status === 204 ? undefined : await res.json()) as T;
+}
+
+/** The raw response behind `gmRequest`, for callers that treat some error statuses as success. */
+async function gmFetch(gmToken: string, url: string, init: RequestInit = {}): Promise<Response> {
   const send = () =>
     fetch(url, {
       ...init,
       headers: { ...(init.headers as Record<string, string> | undefined), [GM_TOKEN_HEADER]: gmToken },
     });
-  let res = await send();
-  if (res.status === 401) {
-    await reidentify(gmToken);
-    res = await send();
-  }
-  if (!res.ok) throw new Error(await errorMessage(res));
-  return (res.status === 204 ? undefined : await res.json()) as T;
+  const res = await send();
+  if (res.status !== 401) return res;
+  await reidentify(gmToken);
+  return send();
 }
 
 /** In-flight re-registrations, so concurrent 401s for one token share a single identify. */
@@ -125,6 +129,13 @@ export const api = {
       if (!res.ok) throw new Error(await errorMessage(res));
     },
     rooms: (gmToken: string) => gmRequest<GmRoomSummary[]>(gmToken, "/api/gm/rooms"),
+
+    /** Deletes an owned room and everything in it, for good (KAN-72, ADR 0009). */
+    async deleteRoom(gmToken: string, roomId: string): Promise<void> {
+      const res = await gmFetch(gmToken, `/api/rooms/${encodeURIComponent(roomId)}`, { method: "DELETE" });
+      // 404: already deleted (another tab, a double click). Either way it is no longer this GM's room.
+      if (!res.ok && res.status !== 404) throw new Error(await errorMessage(res));
+    },
   },
 
   library: {

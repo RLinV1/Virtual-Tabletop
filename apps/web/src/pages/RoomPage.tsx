@@ -71,21 +71,33 @@ export function RoomPage({ roomId }: { roomId: string }) {
   return <Room roomId={roomId} connection={connection} token={creds.guestToken} />;
 }
 
+const ENDED_COPY: Record<SessionEndReason, { title: (room: string | null) => string; body: string }> = {
+  left: {
+    title: (room) => `You left ${room ?? "this room"}`,
+    body: "Your seat at this table has ended. If the GM sends you the invite link again, you can join as a new player.",
+  },
+  revoked: {
+    title: (room) => `You were removed from ${room ?? "this room"}`,
+    body: "The GM removed you from this table. If they send you an invite link, you can join again as a new player.",
+  },
+  deleted: {
+    title: (room) => `${room ?? "This room"} was deleted`,
+    body: "The GM deleted this room and everything in it. It can't be reopened.",
+  },
+};
+
 /**
- * After Leave table (KAN-58). Deliberately plain: no account prompt, per FRONTEND-CONTRACT
- * §13.1. `roomName` is null when the page loaded after the seat had already ended.
+ * After Leave table (KAN-58), a removal, or the room being deleted (KAN-72). Deliberately
+ * plain: no account prompt, per FRONTEND-CONTRACT §13.1. `roomName` is null when the page
+ * loaded after the seat had already ended.
  */
 function SessionEnded({ roomName, reason }: { roomName: string | null; reason: SessionEndReason | null }) {
-  const room = roomName ?? "this room";
+  const copy = ENDED_COPY[reason ?? "left"];
   return (
     <main className="centered">
       <div className="card">
-        <h1>{reason === "revoked" ? `You were removed from ${room}` : `You left ${room}`}</h1>
-        <p className="muted">
-          {reason === "revoked"
-            ? "The GM removed you from this table. If they send you an invite link, you can join again as a new player."
-            : "Your seat at this table has ended. If the GM sends you the invite link again, you can join as a new player."}
-        </p>
+        <h1>{copy.title(roomName)}</h1>
+        <p className="muted">{copy.body}</p>
         <Link href="/">Go to the home page</Link>
       </div>
     </main>
@@ -121,7 +133,9 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
       <main className="centered">
         <div className="card">
           <h1>No access to this room</h1>
-          <p className="muted">Your invite may have been revoked. Ask the GM for a new link.</p>
+          <p className="muted">
+            Your invite may have been revoked, or the room may have been deleted. Ask the GM for a new link.
+          </p>
         </div>
       </main>
     );

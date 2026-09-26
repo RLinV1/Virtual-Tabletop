@@ -33,6 +33,11 @@ export class RedisSeqSource {
     if (current < lastSeq) await this.redis.set(key, lastSeq);
   }
 
+  /** Drops a deleted room's counter (ADR 0009). */
+  async forget(roomId: string): Promise<void> {
+    await this.redis.del(`room:${roomId}:seq`);
+  }
+
   async close(): Promise<void> {
     await this.redis.quit();
   }
