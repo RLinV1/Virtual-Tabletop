@@ -30,6 +30,16 @@ export const GridSpec = z.object({
   lineWidth: z.number().min(0.5).max(8).optional(),
   /** 0.05 floor: an applied grid cannot become invisible by accident. */
   lineOpacity: z.number().min(0.05).max(1).optional(),
+}).superRefine((grid, ctx) => {
+  for (const offset of ["offsetX", "offsetY"] as const) {
+    if (grid[offset] >= grid.cellSize) {
+      ctx.addIssue({
+        code: "custom",
+        path: [offset],
+        message: "Grid offset must be less than the cell size",
+      });
+    }
+  }
 });
 export type GridSpec = z.infer<typeof GridSpec>;
 

@@ -5,6 +5,7 @@ import { api } from "../net/api";
 import { libraryAssetId } from "../net/builtinAssets";
 import { loadGmToken } from "../net/identity";
 import { imageSize } from "../net/imageFile";
+import { minimumGridCellSize, minimumGridCellSizeForDisplay } from "../board/gridRenderLimit";
 import type { CommandResult, RoomConnection } from "../net/roomConnection";
 import { ColorWheel } from "../ui/ColorWheel";
 import { Modal } from "../ui/Modal";
@@ -222,7 +223,11 @@ function GridForm({
   /** "Save grid to library", when the map came from the library. */
   children?: ReactNode;
 }) {
-  const validDraft = parseGridDraft(draft);
+  const validDraft = parseGridDraft(draft, map);
+  const cellSize = Number(draft.cellSize);
+  const tooManyLines = draft.cellSize.trim() !== "" && Number.isFinite(cellSize)
+    && cellSize > 0 && cellSize < minimumGridCellSize(map);
+  const minimumCellSize = minimumGridCellSizeForDisplay(map);
   const styleDraft = validDraft ?? {
     ...grid,
     lineColor: draft.lineColor,
@@ -308,8 +313,9 @@ function GridForm({
         <p className="muted grid-confidence">Confidence: manual</p>
         {hasDraft && !validDraft && (
           <p className="error grid-message" role="alert">
-            Preview is paused at the last valid values. Use a cell size above 0 and at most 2000 px, positive units,
-            and offsets from 0 up to less than the cell size.
+            {tooManyLines
+              ? `Preview is paused at the last valid values. Use a cell size of at least ${minimumCellSize} px for this map.`
+              : "Preview is paused at the last valid values. Use a cell size above 0 and at most 2000 px, positive units, and offsets from 0 up to less than the cell size."}
           </p>
         )}
         {error && <p className="error grid-message" role="alert">{error}</p>}

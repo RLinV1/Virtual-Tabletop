@@ -24,6 +24,7 @@ import {
   type Token,
 } from "@vtt/shared";
 import { recenterOnResize } from "./recenter";
+import { canRenderGrid, DEFAULT_BOARD_SIZE } from "./gridRenderLimit";
 
 export interface BoardCallbacks {
   /** Commit a move. Resolves false if the server rejected it. */
@@ -32,7 +33,6 @@ export interface BoardCallbacks {
   ping(at: Point): void;
 }
 
-const DEFAULT_BOARD = { width: 2100, height: 1400 };
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 8;
 const PREVIEW_INTERVAL_MS = 50;
@@ -342,7 +342,7 @@ export class BoardView {
 
   private boardSize() {
     const map = this.state?.scene.map;
-    return map ? { width: map.width, height: map.height } : DEFAULT_BOARD;
+    return map ? { width: map.width, height: map.height } : DEFAULT_BOARD_SIZE;
   }
 
   private syncMap() {
@@ -388,8 +388,8 @@ export class BoardView {
 
     this.grid.clear();
     if (!this.state!.scene.map || this.mapMissing) this.grid.rect(0, 0, width, height).fill({ color: EMPTY_MAP_FILL });
-    // A schema-valid tiny cell size could otherwise create millions of line segments.
-    if (!Number.isFinite(g.cellSize) || g.cellSize <= 0 || (width + height) / g.cellSize > 50_000) {
+    // Legacy or external grids still need a safety guard even though the editor rejects them.
+    if (!canRenderGrid(g.cellSize, { width, height })) {
       this.invalidate();
       return;
     }

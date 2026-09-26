@@ -1,9 +1,31 @@
 import { describe, expect, it } from "vitest";
-import { cellAt, snapTokenCenter, type GridSpec } from "../src";
+import {
+  cellAt, ClientMessage, DEFAULT_GRID, GridSpec, LibraryPatchRequest, snapTokenCenter, type GridSpec as GridSpecType,
+} from "../src";
 
-const grid: GridSpec = { cellSize: 50, offsetX: 10, offsetY: 20, unitsPerCell: 5, unitLabel: "ft" };
+const grid: GridSpecType = { cellSize: 50, offsetX: 10, offsetY: 20, unitsPerCell: 5, unitLabel: "ft" };
 
 describe("grid geometry", () => {
+  it("rejects noncanonical offsets at shared command and library boundaries", () => {
+    const valid = { ...DEFAULT_GRID, offsetX: DEFAULT_GRID.cellSize - 0.01 };
+    expect(GridSpec.safeParse(valid).success).toBe(true);
+    for (const invalid of [
+      { ...DEFAULT_GRID, offsetX: DEFAULT_GRID.cellSize },
+      { ...DEFAULT_GRID, offsetY: DEFAULT_GRID.cellSize + 1 },
+    ]) {
+      expect(GridSpec.safeParse(invalid).success).toBe(false);
+      expect(ClientMessage.safeParse({
+        type: "command", clientCommandId: "c1", command: { type: "scene.setGrid", grid: invalid },
+      }).success).toBe(false);
+      expect(ClientMessage.safeParse({
+        type: "command", clientCommandId: "c2", command: {
+          type: "scene.setMap", map: { url: "/uploads/map.png", width: 500, height: 500 }, grid: invalid,
+        },
+      }).success).toBe(false);
+      expect(LibraryPatchRequest.safeParse({ grid: invalid }).success).toBe(false);
+    }
+  });
+
   it("finds the containing cell, respecting offset", () => {
     expect(cellAt({ x: 10, y: 20 }, grid)).toEqual({ col: 0, row: 0 });
     expect(cellAt({ x: 9, y: 19 }, grid)).toEqual({ col: -1, row: -1 });

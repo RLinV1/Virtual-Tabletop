@@ -43,7 +43,7 @@ The draft SHALL retain any accepted grid line colour, thickness, and opacity. Ed
 - **THEN** the modal preview updates locally, Apply becomes available, and the accepted style remains visible to players until Apply succeeds
 
 ### Requirement: Invalid drafts cannot be applied
-The form SHALL accept incomplete text while the GM edits it, but SHALL disable Apply for an empty or invalid value. Cell size SHALL be greater than zero and at most 2000 pixels; distance per cell SHALL be positive; each offset SHALL be at least zero and less than the cell size. An invalid edit SHALL leave the last valid preview visible and show a correction message.
+The form SHALL accept incomplete text while the GM edits it, but SHALL disable Apply for an empty or invalid value. Cell size SHALL be greater than zero and at most 2000 pixels and SHALL not exceed the board renderer's line-count limit for the current map; distance per cell SHALL be positive; each offset SHALL be at least zero and less than the cell size. An invalid edit SHALL leave the last valid preview visible and show a correction message. The shared grid schema SHALL reject noncanonical offsets in room commands and library updates.
 
 #### Scenario: Clear a numeric field
 - **WHEN** the GM clears the cell-size field while editing
@@ -52,6 +52,14 @@ The form SHALL accept incomplete text while the GM edits it, but SHALL disable A
 #### Scenario: Offset reaches a cell size
 - **WHEN** the GM enters an offset equal to the cell size
 - **THEN** Apply is disabled and the form explains the valid offset range
+
+#### Scenario: Cell size exceeds the line-count limit
+- **WHEN** the GM enters a positive cell size that would draw more lines than the board's limit
+- **THEN** Apply is disabled, the last valid preview remains visible, and the form states the minimum cell size for the current map
+
+#### Scenario: A client bypasses the form with a noncanonical offset
+- **WHEN** a client sends a grid command with an offset equal to or greater than its cell size
+- **THEN** the server rejects that command and does not change the accepted grid
 
 ### Requirement: Dismissal discards the uncommitted grid
 Before application, activating Cancel or dismissing the Adjust grid modal SHALL clear its draft and preview without changing the accepted room grid. A new map, a newly accepted grid, or loss of the GM role SHALL also invalidate an existing preview.

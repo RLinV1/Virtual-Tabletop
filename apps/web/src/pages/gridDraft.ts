@@ -1,4 +1,5 @@
 import { GridSpec, gridLineStyle } from "@vtt/shared";
+import { canRenderGrid, type BoardSize } from "../board/gridRenderLimit";
 
 /** Text values let the GM clear a field while editing without turning it into zero. */
 export interface GridDraft {
@@ -25,7 +26,7 @@ export function toGridDraft(grid: GridSpec): GridDraft {
   };
 }
 
-export function parseGridDraft(draft: GridDraft): GridSpec | null {
+export function parseGridDraft(draft: GridDraft, board: BoardSize | null = null): GridSpec | null {
   if ([draft.cellSize, draft.offsetX, draft.offsetY, draft.unitsPerCell, draft.unitLabel]
     .some((value) => value.trim() === "")) return null;
   const parsed = GridSpec.safeParse({
@@ -39,10 +40,7 @@ export function parseGridDraft(draft: GridDraft): GridSpec | null {
     lineOpacity: draft.lineOpacity,
   });
   if (!parsed.success) return null;
-  const grid = parsed.data;
-  // GridSpec documents this canonical range, but its shared schema only checks >= 0.
-  if (grid.offsetX >= grid.cellSize || grid.offsetY >= grid.cellSize) return null;
-  return grid;
+  return canRenderGrid(parsed.data.cellSize, board) ? parsed.data : null;
 }
 
 export function gridsEqual(a: GridSpec, b: GridSpec): boolean {

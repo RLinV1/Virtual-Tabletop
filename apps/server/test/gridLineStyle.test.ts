@@ -42,9 +42,15 @@ describe("grid line style over the wire (grid-line-style, ADR 0005)", () => {
     const seqBefore = gm.seq;
 
     expect(await alice.command({ type: "scene.setGrid", grid: styled })).toMatchObject({ type: "rejected", code: "forbidden" });
-    // Fails zod at the trust boundary, so it never reaches decide: a bad_request, not a rejection.
+    // Fails zod at the trust boundary, but still settles the client's command request.
     gm.send({ type: "command", clientCommandId: "bad-colour", command: { type: "scene.setGrid", grid: { ...DEFAULT_GRID, lineColor: "red" } } });
-    expect(await gm.waitFor((m) => m.type === "error")).toMatchObject({ code: "bad_request" });
+    expect(await gm.waitFor((m) => m.type === "rejected" && m.clientCommandId === "bad-colour"))
+      .toMatchObject({ code: "bad_request" });
+    gm.send({ type: "command", clientCommandId: "bad-offset", command: {
+      type: "scene.setGrid", grid: { ...DEFAULT_GRID, offsetX: DEFAULT_GRID.cellSize },
+    } });
+    expect(await gm.waitFor((m) => m.type === "rejected" && m.clientCommandId === "bad-offset"))
+      .toMatchObject({ code: "bad_request", message: "Grid offset must be less than the cell size" });
     expect(gm.seq).toBe(seqBefore);
     expect(gm.state.scene.grid).toEqual(DEFAULT_GRID);
   });

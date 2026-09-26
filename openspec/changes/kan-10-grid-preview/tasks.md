@@ -24,3 +24,12 @@ Automated in headless Chromium with separate GM and player browser contexts. The
 Blank and out-of-range fields disabled Apply. Cancel, Escape, Close, and backdrop dismissal cleared the draft without a grid command. A WebSocket-intercepted `rejected` response, sent without forwarding the attempted command to the server, kept the dialog open with its error and left the accepted grid unchanged. No browser page errors occurred.
 
 At 320 × 700 and 390 × 700, the dialog and its controls stayed within the viewport width and remained reachable by scrolling. The modal obscures most of the board at these widths, so the board overlay cannot be inspected alongside the form; the map-and-grid preview inside Advanced remained visible.
+
+## 4. PR review follow-up
+
+- [x] 4.1 Enforce canonical offsets in the shared grid schema and return a matched rejection for malformed commands; verify shared and server tests reject noncanonical grids without changing room state.
+- [x] 4.2 Share the board's line-count limit with draft validation, disable Apply with a map-specific minimum for excessive drafts, and retain the last valid preview; verify web tests and browser behavior.
+
+### Review QA record — 2026-09-26
+
+The full suite passed with 250 tests and 8 environment-dependent skips. Typecheck, lint, build, and strict OpenSpec validation passed. A focused server WebSocket test confirmed that an invalid offset returns a matched rejection and leaves the room grid unchanged. Browser checks confirmed that a 0.05 px draft on the generic board disables Apply, shows a 0.07 px minimum, and keeps the last valid preview. The existing 13 KAN-10 browser acceptance checks also passed.

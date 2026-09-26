@@ -95,11 +95,11 @@ function Room({ connection, inviteCode, token }: { connection: RoomConnection; i
 
   const changeGridDraft = useCallback((draft: GridDraft) => {
     setGridDraft(draft);
-    const parsed = parseGridDraft(draft);
+    const parsed = parseGridDraft(draft, state?.scene.map);
     // An incomplete field leaves the last valid preview visible while the GM edits it.
     if (parsed && committedGrid) setGridPreview(gridsEqual(parsed, committedGrid) ? null : parsed);
     setGridError(null);
-  }, [committedGrid]);
+  }, [committedGrid, state?.scene.map]);
 
   const cancelGridDraft = useCallback(() => {
     // A sent command may still finish, but its response no longer belongs to this editor.
