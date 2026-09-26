@@ -25,7 +25,7 @@ import {
   type AreaTemplate,
 } from "@vtt/shared";
 import { recenterOnResize } from "./recenter";
-import { areaOrigin, areaShape, areaSizeFromDrag, formatDistance, hitMark, measure, templateMark, type BoardTool, type Mark } from "./tools";
+import { areaOrigin, areaShape, areaSizeFromDrag, formatDistance, hitMark, measure, sweepPoints, templateMark, type BoardTool, type Mark } from "./tools";
 
 export interface BoardCallbacks {
   /** Commit a move. Resolves false if the server rejected it. */
@@ -34,7 +34,8 @@ export interface BoardCallbacks {
   ping(at: Point): void;
   /** Place a shared area template (ADR 0007). Resolves false if the server rejected it. */
   placeTemplate(template: { shape: AreaTemplate["shape"]; origin: Point; toward: Point; size: number; gmOnly: boolean }): Promise<boolean>;
-  removeTemplate(templateId: string): void;
+  /** Resolves false if the server rejected the removal. */
+  removeTemplate(templateId: string): Promise<boolean>;
 }
 
 const DEFAULT_BOARD = { width: 2100, height: 1400 };
@@ -162,6 +163,11 @@ export class BoardView {
   private marks: Mark[] = [];
   /** Templates sent to the server but not yet back in state, so a release doesn't blink. */
   private pendingAreas: Extract<Mark, { kind: "area" }>[] = [];
+  /**
+   * Placements Clear all caught before the server's answer. They have no id yet, so each is
+   * removed once its template shows up in state.
+   */
+  private cancelledAreas: Extract<Mark, { kind: "area" }>[] = [];
   /** Templates the eraser has asked to remove, so one sweep sends each only once. */
   private removing = new Set<string>();
   private drawnTemplates: RoomState["templates"] | null = null;
@@ -330,6 +336,7 @@ export class BoardView {
     this.syncTokens();
     if (state.templates !== this.drawnTemplates) {
       for (const id of this.removing) if (!state.templates[id]) this.removing.delete(id);
+      this.removeCancelledAreas();
       this.redrawMarks();
     }
     if (this.autoFit) this.fitToScreen();
@@ -434,13 +441,41 @@ export class BoardView {
     for (const t of Object.values(this.state?.templates ?? {})) {
       if (you && t.ownerId === you.id) this.requestRemove(t);
     }
+    // Areas still on their way to the server are cleared too, once they arrive.
+    this.cancelledAreas.push(...this.pendingAreas);
+    this.pendingAreas = [];
     this.redrawMarks();
   }
 
   private requestRemove(t: AreaTemplate) {
     if (this.removing.has(t.id)) return;
     this.removing.add(t.id);
-    this.callbacks.removeTemplate(t.id);
+    // Hidden from now on; shown again if the server refuses, so it never lingers invisibly.
+    const restore = () => {
+      this.removing.delete(t.id);
+      this.redrawMarks();
+    };
+    this.callbacks.removeTemplate(t.id).then((ok) => {
+      if (!ok) restore();
+    }, restore);
+  }
+
+  /** Remove the templates of placements Clear all cancelled, as they appear in state. */
+  private removeCancelledAreas() {
+    const you = this.you;
+    if (!you || this.cancelledAreas.length === 0) return;
+    for (const t of Object.values(this.state?.templates ?? {})) {
+      if (t.ownerId !== you.id || this.removing.has(t.id)) continue;
+      const i = this.cancelledAreas.findIndex(
+        (a) =>
+          a.shape === t.shape && a.size === t.size && a.gmOnly === t.gmOnly &&
+          a.origin.x === t.origin.x && a.origin.y === t.origin.y &&
+          a.toward.x === t.toward.x && a.toward.y === t.toward.y,
+      );
+      if (i === -1) continue;
+      this.cancelledAreas.splice(i, 1);
+      this.requestRemove(t);
+    }
   }
 
   private finishGesture() {
@@ -468,6 +503,16 @@ export class BoardView {
     this.pendingAreas.push(pending);
     this.callbacks
       .placeTemplate({ shape: area.shape, origin, toward: area.toward, size: area.size, gmOnly })
+      .then(
+        (ok) => {
+          // Refused: nothing will arrive to clear, so stop waiting for it.
+          if (!ok) this.cancelledAreas = this.cancelledAreas.filter((a) => a !== pending);
+          else this.removeCancelledAreas();
+        },
+        () => {
+          this.cancelledAreas = this.cancelledAreas.filter((a) => a !== pending);
+        },
+      )
       .finally(() => {
         this.pendingAreas = this.pendingAreas.filter((a) => a !== pending);
         this.redrawMarks();
@@ -482,21 +527,26 @@ export class BoardView {
     const grid = this.state?.scene.grid;
     if (!grid) return null;
     const { from, to, free, dragged } = gesture;
-    const size = dragged ? areaSizeFromDrag(areaOrigin(from, grid, free), to, grid, free) : tool.size;
-    return { kind: "area", shape: tool.shape, size, origin: from, toward: dragged ? to : from, free, gmOnly: tool.gmOnly };
+    const origin = areaOrigin(from, grid, free);
+    const size = dragged ? areaSizeFromDrag(origin, to, grid, free) : tool.size;
+    // A click aims right from the snapped origin, not at the raw press point beside it.
+    const toward = dragged ? to : { x: origin.x + 1, y: origin.y };
+    return { kind: "area", shape: tool.shape, size, origin: from, toward, free, gmOnly: tool.gmOnly };
   }
 
-  /** Remove every mark the eraser at `at` touches. */
-  private eraseAt(at: Point) {
+  /** Remove every mark the eraser touches on its way from `from` to `at`. */
+  private eraseAt(at: Point, from: Point = at) {
     const grid = this.state?.scene.grid;
     if (!grid) return;
     const reach = ERASER_REACH_PX / this.world.scale.x;
-    const kept = this.marks.filter((mark) => !hitMark(mark, at, reach, grid));
-    const measurementHit = this.measurement !== null && hitMark(this.measurement, at, reach, grid);
+    const path = sweepPoints(from, at, reach);
+    const touches = (mark: Mark) => path.some((p) => hitMark(mark, p, reach, grid));
+    const kept = this.marks.filter((mark) => !touches(mark));
+    const measurementHit = this.measurement !== null && touches(this.measurement);
     // Shared templates: only ones this viewer may remove (their own; any, for the GM).
     const you = this.you;
     for (const t of Object.values(this.state?.templates ?? {})) {
-      if (you && can.removeTemplate(you, t) && hitMark(templateMark(t), at, reach, grid)) this.requestRemove(t);
+      if (you && can.removeTemplate(you, t) && touches(templateMark(t))) this.requestRemove(t);
     }
     if (kept.length === this.marks.length && !measurementHit) return;
     this.marks = kept;
@@ -885,10 +935,11 @@ export class BoardView {
   private onPointerMove = (e: FederatedPointerEvent) => {
     if (this.gesture) {
       const gesture = this.gesture;
+      const previous = gesture.to;
       gesture.to = this.toBoard(e.global);
       gesture.free = e.altKey;
       gesture.dragged ||= Math.hypot(e.global.x - gesture.screenFrom.x, e.global.y - gesture.screenFrom.y) >= MIN_MARK_DRAG_PX;
-      if (this.tool.kind === "erase") return this.eraseAt(gesture.to);
+      if (this.tool.kind === "erase") return this.eraseAt(gesture.to, previous);
       const last = gesture.path[gesture.path.length - 1]!;
       const step = Math.hypot(gesture.to.x - last.x, gesture.to.y - last.y) * this.world.scale.x;
       const brushing = this.tool.kind === "draw" && this.tool.shape === "brush";

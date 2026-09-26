@@ -123,6 +123,18 @@ export function areaSizeFromDrag(origin: Point, to: Point, grid: GridSpec, free:
   return Math.max(1, Math.round(cells)) * grid.unitsPerCell;
 }
 
+/**
+ * Points every `step` board pixels from `from` to `to`, both ends included, so a fast eraser
+ * drag is tested along its whole path and not only where the pointer events landed.
+ */
+export function sweepPoints(from: Point, to: Point, step: number): Point[] {
+  const steps = Math.max(1, Math.ceil(Math.hypot(to.x - from.x, to.y - from.y) / step));
+  return Array.from({ length: steps + 1 }, (_, i) => ({
+    x: from.x + ((to.x - from.x) * i) / steps,
+    y: from.y + ((to.y - from.y) * i) / steps,
+  }));
+}
+
 function distanceToSegment(p: Point, a: Point, b: Point): number {
   const dx = b.x - a.x;
   const dy = b.y - a.y;

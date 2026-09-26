@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_GRID, type GridSpec, type Point } from "@vtt/shared";
-import { areaOrigin, areaShape, areaSizeFromDrag, hitMark, measure, snapToCellCenter, snapToIntersection, type Mark } from "../src/board/tools";
+import { areaOrigin, areaShape, areaSizeFromDrag, hitMark, measure, snapToCellCenter, snapToIntersection, sweepPoints, type Mark } from "../src/board/tools";
 
 const grid: GridSpec = DEFAULT_GRID; // 70 px cells, 5 ft per cell
 const offsetGrid: GridSpec = { ...DEFAULT_GRID, offsetX: 10, offsetY: 20 };
@@ -153,6 +153,27 @@ describe("board tools (KAN-69, FR-TAC-03/04/06)", () => {
     it("hits a measurement along its snapped line", () => {
       expect(hitMark(ruler, { x: 150, y: 38 }, 8, grid)).toBe(true);
       expect(hitMark(ruler, { x: 150, y: 80 }, 8, grid)).toBe(false);
+    });
+  });
+
+  describe("eraser sweep", () => {
+    it("samples the whole path at most one reach apart, both ends included", () => {
+      const pts = sweepPoints({ x: 0, y: 0 }, { x: 100, y: 0 }, 12);
+      expect(pts[0]).toEqual({ x: 0, y: 0 });
+      expect(pts.at(-1)).toEqual({ x: 100, y: 0 });
+      for (let i = 1; i < pts.length; i++) expect(pts[i]!.x - pts[i - 1]!.x).toBeLessThanOrEqual(12);
+    });
+
+    it("catches a thin line crossed between two far-apart pointer positions", () => {
+      const line: Mark = { kind: "draw", shape: "line", color: 0, from: { x: 50, y: -100 }, to: { x: 50, y: 100 } };
+      const from = { x: 0, y: 0 };
+      const to = { x: 100, y: 0 };
+      expect(hitMark(line, from, 12, grid) || hitMark(line, to, 12, grid)).toBe(false);
+      expect(sweepPoints(from, to, 12).some((p) => hitMark(line, p, 12, grid))).toBe(true);
+    });
+
+    it("is a single point for a click", () => {
+      expect(sweepPoints({ x: 5, y: 5 }, { x: 5, y: 5 }, 12)).toEqual([{ x: 5, y: 5 }, { x: 5, y: 5 }]);
     });
   });
 });

@@ -29,6 +29,9 @@ const HINTS: Record<BoardTool["kind"], string> = {
   erase: "Click or drag over your marks and areas to erase them · Esc to stop",
 };
 
+/** With GM only ticked, the areas are the GM's alone; saying "everyone sees them" would mislead. */
+const GM_ONLY_AREA_HINT = "Drag to size and aim · click to place the chosen size · GM only: players won't see these areas";
+
 /** Keys typed into a field belong to that field, not to the board. */
 function isTyping(target: EventTarget | null) {
   return target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
@@ -59,10 +62,10 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
         if (!result.ok) console.warn("Area rejected:", result.message);
         return result.ok;
       },
-      removeTemplate: (templateId) => {
-        void connection.command({ type: "template.remove", templateId }).then((result) => {
-          if (!result.ok) console.warn("Area removal rejected:", result.message);
-        });
+      removeTemplate: async (templateId) => {
+        const result = await connection.command({ type: "template.remove", templateId });
+        if (!result.ok) console.warn("Area removal rejected:", result.message);
+        return result.ok;
       },
     });
 
@@ -134,7 +137,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
         onClear={() => viewRef.current?.clearMarks()}
       />
       {notices}
-      <p className="board-hint">{HINTS[tool.kind]}</p>
+      <p className="board-hint">{tool.kind === "area" && tool.gmOnly ? GM_ONLY_AREA_HINT : HINTS[tool.kind]}</p>
     </div>
   );
 });
