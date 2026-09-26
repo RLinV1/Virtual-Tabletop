@@ -72,9 +72,10 @@ export function filterEventForViewer(
     case "ParticipantJoined":
     case "ParticipantRenamed":
     case "ParticipantLeft":
+    case "ParticipantRevoked":
     case "MapSet":
     case "GridSet":
-      // The participant list is public, and leaving reveals nothing hidden (ADR 0006).
+      // The participant list is public; leaving or removal reveals nothing hidden (ADR 0006).
       return pass;
   }
 }

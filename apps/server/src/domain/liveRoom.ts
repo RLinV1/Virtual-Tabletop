@@ -5,6 +5,7 @@ import {
   decideJoin,
   emptyRoomState,
   filterEventForViewer,
+  endReason,
   filterStateForViewer,
   isActive,
   reduce,
@@ -19,6 +20,7 @@ import {
   type RejectionCode,
   type RoomState,
   type ServerMessage,
+  type SessionEndReason,
 } from "@vtt/shared";
 import type { RoomStore } from "../store/roomStore";
 
@@ -70,15 +72,26 @@ export class LiveRoom {
     this.seq = events.at(-1)?.seq ?? 0;
   }
 
+  /** Replays the room's log, then heals the derived projections: the asset index and removed players' credential locks. */
   static async load(roomId: string, store: RoomStore) {
     const room = new LiveRoom(roomId, store, await store.loadEvents(roomId));
     // Heals an index left stale by a crash between append and projection (ADR 0004).
     await room.syncAssetRefs();
+    // Same for the credential-row lock on removed participants (FR-GM-20). Idempotent.
+    for (const p of Object.values(room.state.participants)) {
+      if (p.revoked) await room.revokeCredentials(p.id);
+    }
     return room;
   }
 
   participant(id: string): Participant | undefined {
     return this.state.participants[id];
+  }
+
+  /** Why this participant's seat ended, or null if they are still in the room (ADR 0006). */
+  endReason(id: string): SessionEndReason | null {
+    const p = this.state.participants[id];
+    return p ? endReason(p) : null;
   }
 
   /** The participant, only while they are still in the room (ADR 0006). */
@@ -94,7 +107,7 @@ export class LiveRoom {
       if (!actor) return { ok: false, code: "forbidden", message: "Unknown participant" };
       // Checked inside the queue, so a command sent from another tab just before the leave
       // committed can't run after it (ADR 0006).
-      if (!isActive(actor)) return { ok: false, code: "forbidden", message: "You have left this room" };
+      if (!isActive(actor)) return { ok: false, code: "forbidden", message: "You are no longer in this room" };
       // Randomness is injected, never reached for inside `decide` — that is what keeps the
       // kernel pure and the dice testable (CLAUDE.md invariant 2).
       const decision = decide(this.state, actor, command, { newId: randomUUID, random: secureRandom });
@@ -125,8 +138,9 @@ export class LiveRoom {
   attach(client: RoomClient) {
     // The handshake checked this too, but Socket.IO runs the connection handler a tick
     // later; a leave committed in between must not let this socket in (ADR 0006).
-    if (!this.activeParticipant(client.participantId)) {
-      client.send({ type: "sessionEnded", reason: "left" });
+    const ended = this.endReason(client.participantId);
+    if (ended) {
+      client.send({ type: "sessionEnded", reason: ended });
       client.close();
       return;
     }
@@ -145,7 +159,7 @@ export class LiveRoom {
   /** Full filtered state (FR-PL-06). Used on connect, on request, and when filtering needs it. */
   sendSnapshot(client: RoomClient) {
     const viewer = this.state.participants[client.participantId];
-    if (!viewer) return;
+    if (!viewer || !isActive(viewer)) return;
     client.send({
       type: "welcome",
       you: viewer,
@@ -187,6 +201,12 @@ export class LiveRoom {
       this.seq = c.seq;
       this.broadcast(c, before);
       if (c.event.type === "ParticipantLeft") this.endSession(c.event.participant.id, "left");
+      if (c.event.type === "ParticipantRevoked") this.endSession(c.event.participant.id, "revoked");
+    }
+    for (const c of committed) {
+      // Not awaited: the committed event and the state gate are the authority, and a slow
+      // database must not hold up every other command in the room (sync review).
+      if (c.event.type === "ParticipantRevoked") void this.revokeCredentials(c.event.participant.id);
     }
     await this.syncAssetRefs();
     return committed;
@@ -211,10 +231,22 @@ export class LiveRoom {
   }
 
   /**
+   * The credential rows' second lock for a removal (FR-GM-20, ADR 0006). The event is already
+   * committed and is the authority, so a failure is logged, not surfaced: the state gate holds.
+   */
+  private async revokeCredentials(participantId: string) {
+    try {
+      await this.store.revokeCredentials(this.roomId, participantId);
+    } catch (err) {
+      console.error(`[vtt] could not revoke credentials for ${participantId} in room ${this.roomId}`, err);
+    }
+  }
+
+  /**
    * Ends every connection bound to a participant who is no longer in the room: all their
    * tabs and devices, not just the one that asked (ADR 0006).
    */
-  private endSession(participantId: string, reason: "left") {
+  private endSession(participantId: string, reason: SessionEndReason) {
     for (const client of [...this.clients]) {
       if (client.participantId !== participantId) continue;
       this.clients.delete(client);
