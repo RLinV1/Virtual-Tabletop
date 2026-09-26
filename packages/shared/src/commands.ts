@@ -25,6 +25,21 @@ export const DepartureAction = z.discriminatedUnion("action", [
 ]);
 export type DepartureAction = z.infer<typeof DepartureAction>;
 
+/** Fields a token editor may change in one validated, atomic room command. */
+export const TokenUpdate = z.object({
+  name: z.string().min(1).max(60).optional(),
+  position: Point.optional(),
+  size: z.number().positive().max(10).optional(),
+  rotation: z.number().finite().optional(),
+  imageUrl: z.string().min(1).max(2048).nullable().optional(),
+  assetId: Id.nullable().optional(),
+  stats: TokenStats.optional(),
+  conditions: z.array(ConditionId).max(12).optional(),
+  ownerIds: z.array(Id).optional(),
+  hidden: z.boolean().optional(),
+}).strict();
+export type TokenUpdate = z.infer<typeof TokenUpdate>;
+
 export const Command = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("scene.setMap"),
@@ -61,6 +76,11 @@ export const Command = z.discriminatedUnion("type", [
     name: z.string().min(1).max(60),
     size: z.number().positive().max(10),
     rotation: z.number().finite(),
+  }),
+  z.object({
+    type: z.literal("token.configure"),
+    tokenId: Id,
+    changes: TokenUpdate,
   }),
   z.object({
     type: z.literal("token.delete"),

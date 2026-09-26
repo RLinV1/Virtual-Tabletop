@@ -127,6 +127,41 @@ describe("visibility (FR-GM-16, FR-GM-23)", () => {
     await alice.waitFor((m) => m.type === "welcome");
     expect(tokens(alice).map((t) => t.name)).toEqual(["Secret Ogre"]);
   });
+
+  it("applies a token edit together and hides secret changes before broadcasting (KAN-12)", async () => {
+    const { gm, alice } = await setup();
+    await gm.command({ type: "token.create", name: "Guard", position: { x: 0, y: 0 } });
+    await alice.waitForSeq(gm.seq);
+    const tokenId = tokens(gm)[0]!.id;
+    const before = gm.seq;
+
+    const rejected = await gm.command({ type: "token.configure", tokenId, changes: {
+      name: "Assassin", position: { x: 900, y: 600 }, hidden: true,
+      stats: { hp: 20, maxHp: 10, ac: 12 },
+    } });
+    expect(rejected).toMatchObject({ type: "rejected", code: "invalid" });
+    expect(gm.seq).toBe(before);
+    expect(gm.state.tokens[tokenId]).toMatchObject({ name: "Guard", position: { x: 0, y: 0 }, hidden: false });
+
+    const saved = await gm.command({ type: "token.configure", tokenId, changes: {
+      name: "Assassin", position: { x: 900, y: 600 }, hidden: true,
+      imageUrl: "/uploads/assassin.webp", assetId: null,
+      stats: { hp: 20, maxHp: 30, ac: 12 },
+    } });
+    expect(saved.type).toBe("ack");
+    await alice.waitForSeq(gm.seq);
+    expect(tokens(alice)).toHaveLength(0);
+    const playerTraffic = alice.rawLog.join("\n");
+    expect(playerTraffic).not.toContain("Assassin");
+    expect(playerTraffic).not.toContain("assassin.webp");
+    expect(playerTraffic).not.toContain('"x":900');
+    expect(playerTraffic).not.toContain('"y":600');
+
+    const revealed = await gm.command({ type: "token.configure", tokenId, changes: { hidden: false } });
+    expect(revealed.type).toBe("ack");
+    await alice.waitForSeq(gm.seq);
+    expect(alice.state.tokens[tokenId]).toEqual(gm.state.tokens[tokenId]);
+  });
 });
 
 describe("reconnect (FR-PL-02, FR-PL-05, FR-PL-06)", () => {

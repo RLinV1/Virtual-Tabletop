@@ -5,11 +5,11 @@ import {
   hpFraction,
   inactiveLabel,
   isActive,
-  type Command,
   type ConditionId,
   type Participant,
   type RoomState,
   type Token,
+  type TokenUpdate,
 } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { api } from "../net/api";
@@ -110,10 +110,8 @@ export function TokenRoster({
             players={Object.values(state.participants).filter((p) => p.role === "player" && isActive(p))}
             departedOwner={departedOwner(state, editing.ownerIds)}
             error={error}
-            onSave={async (commands) => {
-              // One command per changed field, in order; stop at the first the server rejects.
-              for (const c of commands) if (!(await send(c))) return;
-              setEditingId(null);
+            onSave={async (changes) => {
+              if (await send({ type: "token.configure", tokenId: editing.id, changes })) setEditingId(null);
             }}
             onDelete={async () => {
               if (await send({ type: "token.delete", tokenId: editing.id })) setEditingId(null);
@@ -219,7 +217,7 @@ function TokenEditor({
   /** Set when the current owner left the room and the GM hasn't resolved the token yet. */
   departedOwner: Participant | null;
   error: string | null;
-  onSave: (commands: Command[]) => Promise<void>;
+  onSave: (changes: TokenUpdate) => Promise<void>;
   onDelete: () => void;
 }) {
   const [hp, setHp] = useState(token.stats.hp?.toString() ?? "");
@@ -246,25 +244,29 @@ function TokenEditor({
   const sameConditions =
     conditions.length === token.conditions.length && conditions.every((c) => token.conditions.includes(c));
 
-  const changes: Command[] = [];
+  const changes: TokenUpdate = {};
   if (isGm && (name.trim() !== token.name || Number(size) !== token.size || Number(rotation) !== token.rotation))
-    changes.push({ type: "token.setAppearance", tokenId: token.id, name, size: Number(size), rotation: Number(rotation) });
+    Object.assign(changes, { name, size: Number(size), rotation: Number(rotation) });
   if (isGm && (Number(x) !== token.position.x || Number(y) !== token.position.y))
-    changes.push({ type: "token.move", tokenId: token.id, to: { x: Number(x), y: Number(y) } });
+    changes.position = { x: Number(x), y: Number(y) };
   if (isGm && (image.url !== token.imageUrl || image.assetId !== (token.assetId ?? null)))
-    changes.push({ type: "token.setImage", tokenId: token.id, imageUrl: image.url, assetId: image.assetId });
+    Object.assign(changes, { imageUrl: image.url, assetId: image.assetId });
   if (stats.hp !== token.stats.hp || stats.maxHp !== token.stats.maxHp || stats.ac !== token.stats.ac)
-    changes.push({ type: "token.setStats", tokenId: token.id, stats });
-  if (!sameConditions) changes.push({ type: "token.setConditions", tokenId: token.id, conditions });
+    changes.stats = stats;
+  if (!sameConditions) changes.conditions = conditions;
   if (isGm && ownerId !== (token.ownerIds[0] ?? ""))
-    changes.push({ type: "token.setOwners", tokenId: token.id, ownerIds: ownerId ? [ownerId] : [] });
-  if (isGm && hidden !== token.hidden) changes.push({ type: "token.setHidden", tokenId: token.id, hidden });
+    changes.ownerIds = ownerId ? [ownerId] : [];
+  if (isGm && hidden !== token.hidden) changes.hidden = hidden;
+  const hasChanges = Object.keys(changes).length > 0;
 
   const save = async () => {
     setBusy(true);
-    await onSave(changes);
-    setBusy(false);
-    setConfirming(null);
+    try {
+      await onSave(changes);
+    } finally {
+      setBusy(false);
+      setConfirming(null);
+    }
   };
 
   async function onUpload(file: File | undefined) {
@@ -287,7 +289,7 @@ function TokenEditor({
       className="token-editor"
       onSubmit={(e) => {
         e.preventDefault();
-        if (changes.length) setConfirming("save");
+        if (hasChanges && !uploading) setConfirming("save");
       }}
     >
       {isGm && (
@@ -296,7 +298,7 @@ function TokenEditor({
           <div className="token-setup-grid">
             <label>Board X<input type="number" value={x} onChange={(e) => setX(e.target.value)} required step="any" /></label>
             <label>Board Y<input type="number" value={y} onChange={(e) => setY(e.target.value)} required step="any" /></label>
-            <label>Size (cells)<input type="number" value={size} onChange={(e) => setSize(e.target.value)} required min="0.25" max="10" step="0.25" /></label>
+            <label>Size (cells)<input type="number" value={size} onChange={(e) => setSize(e.target.value)} required min="0.25" max="10" step="any" /></label>
             <label>Rotation (°)<input type="number" value={rotation} onChange={(e) => setRotation(e.target.value)} required step="any" /></label>
           </div>
           <div className="stack token-image-field">
@@ -304,7 +306,7 @@ function TokenEditor({
             {image.url && (
               <div className="row token-image-chosen">
                 <TokenPreview url={image.url} color={token.color} hidden={hidden} />
-                <button type="button" className="link" onClick={() => setImage({ url: null, assetId: null })}>Remove image</button>
+                <button type="button" className="link" disabled={uploading} onClick={() => setImage({ url: null, assetId: null })}>Remove image</button>
               </div>
             )}
             <div className="row">
@@ -313,7 +315,7 @@ function TokenEditor({
                 <input type="file" className="sr-only" accept="image/png,image/jpeg,image/webp" disabled={uploading}
                   onChange={(e) => void onUpload(e.target.files?.[0])} />
               </label>
-              {gmToken && <button type="button" className="secondary" onClick={() => setPicking(true)}>From library</button>}
+              {gmToken && <button type="button" className="secondary" disabled={uploading} onClick={() => setPicking(true)}>From library</button>}
             </div>
           </div>
         </div>
@@ -365,14 +367,14 @@ function TokenEditor({
       {confirming === "save" ? (
         <div className="confirm" role="group" aria-label="Confirm changes">
           <p>
-            Save {changes.length} {changes.length === 1 ? "change" : "changes"} to {token.name}? Everyone in the
+            Save changes to {token.name}? Everyone in the
             room sees the update.
           </p>
           <div className="row">
             <button type="button" className="secondary" disabled={busy} onClick={() => setConfirming(null)}>
               Back
             </button>
-            <button type="button" disabled={busy} onClick={() => void save()} autoFocus>
+            <button type="button" disabled={busy || uploading} onClick={() => void save()} autoFocus>
               Confirm
             </button>
           </div>
@@ -402,7 +404,7 @@ function TokenEditor({
               <Trash size={18} aria-hidden />
             </button>
           )}
-          <button type="submit" className="token-save" disabled={!changes.length || uploading}>
+          <button type="submit" className="token-save" disabled={!hasChanges || uploading}>
             Save
           </button>
         </div>

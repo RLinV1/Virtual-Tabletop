@@ -136,7 +136,7 @@ function AddToken(props: {
         <div className="token-setup-grid">
           <label>Board X<input type="number" value={x} onChange={(e) => setX(e.target.value)} required step="any" /></label>
           <label>Board Y<input type="number" value={y} onChange={(e) => setY(e.target.value)} required step="any" /></label>
-          <label>Size (cells)<input type="number" value={size} onChange={(e) => setSize(e.target.value)} required min="0.25" max="10" step="0.25" /></label>
+          <label>Size (cells)<input type="number" value={size} onChange={(e) => setSize(e.target.value)} required min="0.25" max="10" step="any" /></label>
           <label>Rotation (°)<input type="number" value={rotation} onChange={(e) => setRotation(e.target.value)} required step="any" /></label>
         </div>
         <p className="muted small-print">Position is in board pixels. You can drag the token after adding it.</p>
@@ -179,7 +179,7 @@ function AddToken(props: {
                 />
               </label>
               {props.gmToken && (
-                <button type="button" className="secondary" onClick={() => setPicking(true)}>
+                <button type="button" className="secondary" disabled={uploading} onClick={() => setPicking(true)}>
                   From library
                 </button>
               )}

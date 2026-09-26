@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Command, filterEventForViewer, reduceAll, Token, type CommittedEvent } from "../src";
+import { Command, filterEventForViewer, filterStateForViewer, reduce, reduceAll, Token, type CommittedEvent } from "../src";
 import { alice, attempt, baseRoom, gm, run, withToken } from "./fixtures";
 
 describe("KAN-12 token setup", () => {
@@ -49,5 +49,66 @@ describe("KAN-12 token setup", () => {
     expect(events[0]).toMatchObject({ name: "Goblin 2" });
     const committed: CommittedEvent = { seq: 10, at: "2026-09-26T00:00:00Z", actorId: gm.id, event: events[0]! };
     expect(filterEventForViewer(committed, second.state, alice)).toEqual({ kind: "redacted", seq: 10 });
+  });
+
+  it("keeps a conflicting 60-character rename within the schema limit", () => {
+    const long = "A".repeat(60);
+    const first = withToken(baseRoom(), { name: long });
+    const second = withToken(first.state, { name: "Other" });
+    const originalCommand = run(second.state, gm, {
+      type: "token.setAppearance", tokenId: second.token.id, name: long, size: 1, rotation: 0,
+    });
+    expect(originalCommand.state.tokens[second.token.id]!.name).toBe(`${"A".repeat(58)} 2`);
+    const { state, events } = run(second.state, gm, {
+      type: "token.configure", tokenId: second.token.id, changes: { name: long },
+    });
+    expect(state.tokens[second.token.id]!.name).toBe(`${"A".repeat(58)} 2`);
+    expect(state.tokens[second.token.id]!.name).toHaveLength(60);
+    expect(reduceAll(second.state, events)).toEqual(state);
+  });
+
+  it("rejects a whole edit before any field changes and avoids suffix drift on retry", () => {
+    const first = withToken(baseRoom(), { name: "Goblin 1" });
+    const second = withToken(first.state, { name: "Goblin 2" });
+    const original = second.state.tokens[first.token.id]!;
+    const invalid = { name: "Goblin 2", position: { x: 500, y: 300 }, hidden: true,
+      stats: { hp: 20, maxHp: 10, ac: 12 } };
+    expect(attempt(second.state, gm, { type: "token.configure", tokenId: first.token.id, changes: invalid }))
+      .toMatchObject({ ok: false, code: "invalid" });
+    expect(second.state.tokens[first.token.id]).toEqual(original);
+    const { state, events } = run(second.state, gm, { type: "token.configure", tokenId: first.token.id,
+      changes: { ...invalid, stats: { hp: 20, maxHp: 30, ac: 12 } } });
+    expect(state.tokens[first.token.id]).toMatchObject({ name: "Goblin 3", position: { x: 500, y: 300 }, hidden: true });
+    expect(events[0]).toMatchObject({ type: "TokenHiddenSet", hidden: true });
+    expect(reduceAll(second.state, events)).toEqual(state);
+  });
+
+  it("hides before secret edits and reveals only after all edits", () => {
+    const { state, token } = withToken(baseRoom(), { name: "Guard" });
+    const hidden = run(state, gm, { type: "token.configure", tokenId: token.id,
+      changes: { name: "Assassin", position: { x: 900, y: 600 }, imageUrl: "/uploads/assassin.webp", assetId: null, hidden: true } });
+    expect(hidden.events.map((e) => e.type)).toEqual(["TokenHiddenSet", "TokenAppearanceSet", "TokenMoved", "TokenImageSet"]);
+    let before = state;
+    for (const [index, event] of hidden.events.entries()) {
+      const committed: CommittedEvent = { seq: index + 1, at: "2026-09-26T00:00:00Z", actorId: gm.id, event };
+      expect(filterEventForViewer(committed, before, alice).kind).toBe(index === 0 ? "resync" : "redacted");
+      before = reduce(before, event);
+      expect(Object.values(filterStateForViewer(before, alice).tokens)).toHaveLength(0);
+    }
+    const revealed = run(hidden.state, gm, { type: "token.configure", tokenId: token.id,
+      changes: { name: "Captain", hidden: false } });
+    expect(revealed.events.map((e) => e.type)).toEqual(["TokenAppearanceSet", "TokenHiddenSet"]);
+    expect(filterEventForViewer({ seq: 10, at: "2026-09-26T00:00:00Z", actorId: gm.id, event: revealed.events[0]! }, hidden.state, alice))
+      .toEqual({ kind: "redacted", seq: 10 });
+  });
+
+  it("lets an owner atomically edit resources but rejects GM-only fields", () => {
+    const { state, token } = withToken(baseRoom(), { ownerIds: [alice.id] });
+    const valid = run(state, alice, { type: "token.configure", tokenId: token.id,
+      changes: { stats: { hp: 8, maxHp: 10, ac: 12 }, conditions: ["prone"] } });
+    expect(valid.events.map((e) => e.type)).toEqual(["TokenStatsSet", "TokenConditionsSet"]);
+    expect(valid.state.tokens[token.id]).toMatchObject({ stats: { hp: 8, maxHp: 10, ac: 12 }, conditions: ["prone"] });
+    expect(attempt(state, alice, { type: "token.configure", tokenId: token.id,
+      changes: { name: "Unauthorized", stats: { hp: 8, maxHp: 10, ac: 12 } } })).toMatchObject({ ok: false, code: "forbidden" });
   });
 });
