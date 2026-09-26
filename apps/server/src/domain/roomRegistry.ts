@@ -19,7 +19,11 @@ export class RoomRegistry {
     if (!loading) {
       loading = LiveRoom.load(roomId, this.store);
       this.rooms.set(roomId, loading);
-      loading.catch(() => this.rooms.delete(roomId));
+      // A failed load is logged and forgotten, so the next caller tries again (room-load-isolation).
+      loading.catch((err: unknown) => {
+        console.error(`[vtt] room ${roomId} failed to load:`, err);
+        this.rooms.delete(roomId);
+      });
     }
     return loading;
   }

@@ -28,6 +28,12 @@ async function createStore(): Promise<RoomStore> {
   return store;
 }
 
+// A rejection nobody handled is a bug, but it should cost one request, not the whole server:
+// log it and keep serving (room-load-isolation). Synchronous throws still end the process.
+process.on("unhandledRejection", (reason) => {
+  console.error("[vtt] unhandled rejection:", reason);
+});
+
 await mkdir(uploadDir, { recursive: true });
 const app = await buildApp({
   store: await createStore(),

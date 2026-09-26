@@ -1,15 +1,19 @@
 import { useEffect, useRef, useState } from "react";
+import { CaretDown } from "@phosphor-icons/react";
 import { api } from "../net/api";
 import { loadCredentials, saveCredentials } from "../net/identity";
 import { Modal } from "./Modal";
+import { PopoverButton } from "./Popover";
 
 /**
- * The GM's Share button in the panel header. One click copies the invite link; there is no
- * popover to open first. Rendered only for the GM, who is the only one holding an invite code.
+ * The GM's Share control, last in the room's top bar. One click on Share copies the invite
+ * link; there is no popover to open first. Rendered only for the GM, who is the only one
+ * holding an invite code.
  *
  * The code is read from the server on each click, not from this browser's cache, so a reset
- * made in another tab or device is what gets copied (FR-GM-20). Beside it, "Reset link"
- * replaces the code so a leaked link stops admitting anyone new.
+ * made in another tab or device is what gets copied (FR-GM-20). The chevron beside it opens a
+ * small menu whose "Reset link" clears the current code and makes a new one, so a leaked link
+ * stops admitting anyone new. One control, no tab of its own (isolate-room-load-failures).
  */
 export function ShareButton({ roomId, token }: { roomId: string; token: string }) {
   const [result, setResult] = useState<"copied" | "failed" | "reset" | null>(null);
@@ -17,6 +21,7 @@ export function ShareButton({ roomId, token }: { roomId: string; token: string }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const shareRef = useRef<HTMLButtonElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
 
@@ -97,6 +102,21 @@ export function ShareButton({ roomId, token }: { roomId: string; token: string }
     flash(ok ? "copied" : "failed");
   }
 
+  const closeConfirm = () => {
+    setConfirming(false);
+    setError(null);
+  };
+  /**
+   * The menu item that opened the confirmation is gone by the time it closes, so focus goes back
+   * to Share rather than being lost to the page. An effect, not the click handler: the modal's
+   * own effect (a child's, so it runs first) must close the dialog before focus can leave it.
+   */
+  const wasConfirming = useRef(false);
+  useEffect(() => {
+    if (wasConfirming.current && !confirming) shareRef.current?.focus();
+    wasConfirming.current = confirming;
+  }, [confirming]);
+
   /** Replaces the invite code after confirmation; the old link stops working. */
   async function reset() {
     // Invalidate fetches still in flight first, then let a copy whose link already arrived finish
@@ -108,7 +128,7 @@ export function ShareButton({ roomId, token }: { roomId: string; token: string }
     try {
       const { inviteCode } = await api.resetInvite(roomId, token);
       remember(inviteCode);
-      setConfirming(false);
+      closeConfirm();
       flash("reset");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't reset the link");
@@ -124,8 +144,9 @@ export function ShareButton({ roomId, token }: { roomId: string; token: string }
   return (
     <div className="share-group" data-tour="share">
       <button
+        ref={shareRef}
         type="button"
-        className="share-button"
+        className="tool-button share-button"
         title="Copy the invite link"
         aria-label="Copy invite link. Anyone with it can join as a player."
         disabled={busy}
@@ -133,9 +154,26 @@ export function ShareButton({ roomId, token }: { roomId: string; token: string }
       >
         {label}
       </button>
-      <button type="button" className="share-button share-reset" title="Make a new invite link; the old one stops working" onClick={() => setConfirming(true)}>
-        Reset link
-      </button>
+      <PopoverButton
+        label="Invite link options"
+        title="Invite link options"
+        align="right"
+        className="tool-button share-button share-menu-button"
+        buttonContent={<CaretDown size={12} weight="bold" aria-hidden="true" />}
+      >
+        {(close) => (
+          <button
+            type="button"
+            className="share-menu-item share-reset"
+            onClick={() => {
+              close();
+              setConfirming(true);
+            }}
+          >
+            Reset link
+          </button>
+        )}
+      </PopoverButton>
       <span className="sr-only" role="status">
         {result === "copied"
           ? "Invite link copied"
@@ -148,7 +186,7 @@ export function ShareButton({ roomId, token }: { roomId: string; token: string }
       <Modal
         open={confirming}
         title="Reset the invite link?"
-        onClose={() => !busy && (setConfirming(false), setError(null))}
+        onClose={() => !busy && closeConfirm()}
         initialFocus={cancelRef}
       >
         <div className="leave-confirm">
@@ -163,7 +201,7 @@ export function ShareButton({ roomId, token }: { roomId: string; token: string }
             </p>
           )}
           <div className="row modal-actions">
-            <button ref={cancelRef} type="button" className="secondary" onClick={() => setConfirming(false)} disabled={busy}>
+            <button ref={cancelRef} type="button" className="secondary" onClick={closeConfirm} disabled={busy}>
               Cancel
             </button>
             <button type="button" className="danger-fill" onClick={() => void reset()} disabled={busy}>
