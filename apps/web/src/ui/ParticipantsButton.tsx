@@ -39,14 +39,7 @@ export function ParticipantsButton({
         label={`Participants, ${count}`}
         title="Participants"
         tourId="participants"
-        buttonContent={
-          <>
-            <PeopleIcon />
-            <span className="icon-count" aria-hidden>
-              {count}
-            </span>
-          </>
-        }
+        buttonContent={<AvatarStack participants={participants} />}
       >
         <ul className="plain participant-list">
           {participants.map((p) => (
@@ -161,13 +154,36 @@ function RemoveParticipant({
   );
 }
 
-function PeopleIcon() {
+/**
+ * Player colours for avatars; the GM always gets the accent. Picked by join order, which every
+ * viewer shares, so a player is the same colour on every screen and neighbours never match.
+ */
+const AVATAR_COLORS = ["#3b82c4", "#3f9d5b", "#c9892b", "#b0487a", "#2f9aa0", "#7a64c8"];
+const MAX_AVATARS = 5;
+
+function avatarColor(p: Participant, playerIndex: number) {
+  return p.role === "gm" ? "var(--accent)" : AVATAR_COLORS[playerIndex % AVATAR_COLORS.length];
+}
+
+function initials(p: Participant) {
+  if (p.role === "gm") return "GM";
+  const words = p.displayName.trim().split(/\s+/);
+  return ((words[0]?.[0] ?? "") + (words[1]?.[0] ?? "")).toUpperCase() || "?";
+}
+
+/** Who is here at a glance, as the top bar's participants button (the list opens on click). */
+function AvatarStack({ participants }: { participants: Participant[] }) {
+  const players = participants.filter((p) => p.role !== "gm");
+  const shown = participants.slice(0, MAX_AVATARS);
+  const extra = participants.length - shown.length;
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <circle cx="9" cy="8" r="3.5" />
-      <path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6" />
-      <path d="M16 4.6a3.5 3.5 0 0 1 0 6.8" />
-      <path d="M18 14.3c2.2.7 3.5 2.8 3.5 5.7" />
-    </svg>
+    <span className="avatar-stack" aria-hidden>
+      {shown.map((p) => (
+        <span key={p.id} className="avatar" style={{ background: avatarColor(p, players.indexOf(p)) }} title={p.displayName}>
+          {initials(p)}
+        </span>
+      ))}
+      {extra > 0 && <span className="avatar avatar-more">+{extra}</span>}
+    </span>
   );
 }

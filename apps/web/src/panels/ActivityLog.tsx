@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowClockwise } from "@phosphor-icons/react";
+import { ArrowClockwise, ClockCounterClockwise } from "@phosphor-icons/react";
 import type { HistoryResponse } from "@vtt/shared";
 import { api } from "../net/api";
 import { Modal } from "../ui/Modal";
@@ -8,7 +8,10 @@ import { Modal } from "../ui/Modal";
 export function ActivityLog({ roomId, token, seq }: { roomId: string; token: string; seq: number }) {
   const [open, setOpen] = useState(false);
   return <>
-    <button type="button" className="tool-button" onClick={() => setOpen(true)}>Activity log</button>
+    <button type="button" className="tool-button" onClick={() => setOpen(true)}>
+      <ClockCounterClockwise size={16} aria-hidden="true" />
+      Activity log
+    </button>
     <Modal open={open} title="Activity log" onClose={() => setOpen(false)}>
       {open && <History key={roomId} roomId={roomId} token={token} seq={seq} />}
     </Modal>

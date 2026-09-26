@@ -5,7 +5,7 @@ import { Link } from "../Link";
 import type { SessionEndReason } from "@vtt/shared";
 import { forgetCredentials, loadCredentials } from "../net/identity";
 import { RoomConnection, useRoomSnapshot, type ConnectionStatus } from "../net/roomConnection";
-import { RoomPanel } from "../panels/RoomPanel";
+import { PanelTabs, RoomPanel, isTabId, type TabId } from "../panels/RoomPanel";
 import { ActivityLog } from "../panels/ActivityLog";
 import { LeaveTable } from "../panels/LeaveTable";
 import { ResolveDepartureModal } from "../panels/ResolveDeparture";
@@ -106,6 +106,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
   const compact = useCompactLayout();
   const focusToken = useCallback((tokenId: string) => boardRef.current?.focusToken(tokenId), []);
   const [sidebarCollapsed, setSidebarCollapsed] = usePersistentState("vtt.ui.sidebar", false, isBoolean);
+  const [tab, setTab] = usePersistentState<TabId>("vtt.ui.tab", "play", isTabId);
   const [guideOpen, setGuideOpen] = useState(false);
   const guideButtonRef = useRef<HTMLButtonElement>(null);
   const closeGuide = useCallback(() => {
@@ -150,6 +151,58 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
       >
         Skip to room controls
       </a>
+      {/* Who is here and what the sidebar shows, above the board and the panel alike. */}
+      <header className="room-topbar">
+        <div className="topbar-start">
+          {/* The GM has rooms, a library and "Create room" to get back to, all on the GM
+              dashboard; a player came from an invite and just closes the tab (room-navigation). */}
+          {you.role === "gm" && (
+            <Link href="/gm-dashboard" className="tool-button" title="Back to your GM dashboard">
+              <House size={16} aria-hidden="true" />
+              Home
+            </Link>
+          )}
+          <h1 className="room-title">{state.name}</h1>
+        </div>
+        <div className="topbar-center">
+          <ParticipantsButton state={state} you={you} connection={connection} onReviewDeparture={setReviewing} />
+        </div>
+        <div className="topbar-end">
+          {!compact && (
+            <PanelTabs
+              className="tabbar topbar-tabs"
+              isGm={you.role === "gm"}
+              tab={tab}
+              onTab={(next, reselected) => {
+                // A hidden sidebar opens on the tab pressed; pressing the open tab hides it.
+                if (collapsed) {
+                  setTab(next);
+                  setSidebarCollapsed(false);
+                } else if (reselected) setSidebarCollapsed(true);
+                else setTab(next);
+              }}
+            />
+          )}
+          {you.role === "gm" && <ActivityLog roomId={state.roomId} token={token} seq={seq} />}
+          <button
+            ref={guideButtonRef}
+            type="button"
+            className="tool-button"
+            data-tour="guide"
+            title="A quick tour of this page"
+            onClick={() => {
+              // The sidebar's steps need it open. It animates open, and its sections have
+              // no width until it has, so wait out the transition before starting.
+              const wait = collapsed && !matchMedia("(prefers-reduced-motion: reduce)").matches ? 220 : 0;
+              setSidebarCollapsed(false);
+              window.setTimeout(() => setGuideOpen(true), wait);
+            }}
+          >
+            <GuideIcon />
+            Guide
+          </button>
+        </div>
+      </header>
       {/* Same element, same position in both states: collapsing must never remount the
           canvas or reset the viewer's zoom and pan. */}
       <Board
@@ -158,37 +211,6 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
         state={state}
         you={you}
         notices={you.role === "gm" ? <DepartureNotices state={state} onReview={setReviewing} /> : undefined}
-        toolbar={
-          <>
-            {/* The GM has rooms, a library and "Create room" to get back to, all on the GM
-                dashboard; a player came from an invite and just closes the tab (room-navigation). */}
-            {you.role === "gm" && (
-              <Link href="/gm-dashboard" className="tool-button" title="Back to your GM dashboard">
-                <House size={16} aria-hidden="true" />
-                Home
-              </Link>
-            )}
-            <ParticipantsButton state={state} you={you} connection={connection} onReviewDeparture={setReviewing} />
-            {you.role === "gm" && <ActivityLog roomId={state.roomId} token={token} seq={seq} />}
-            <button
-              ref={guideButtonRef}
-              type="button"
-              className="tool-button"
-              data-tour="guide"
-              title="A quick tour of this page"
-              onClick={() => {
-                // The sidebar's steps need it open. It animates open, and its sections have
-                // no width until it has, so wait out the transition before starting.
-                const wait = collapsed && !matchMedia("(prefers-reduced-motion: reduce)").matches ? 220 : 0;
-                setSidebarCollapsed(false);
-                window.setTimeout(() => setGuideOpen(true), wait);
-              }}
-            >
-              <GuideIcon />
-              Guide
-            </button>
-          </>
-        }
       />
       <aside className="panel" id="room-panel" tabIndex={-1} aria-label="Room controls">
         {!compact && (
@@ -214,10 +236,11 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
             spare, so it collapses to one line: room name, who you are, and connection state.
           */}
           <header className="panel-header">
-            <div className="panel-title-row">
-              <h1>{state.name}</h1>
-              {you.role === "gm" && <ShareButton roomId={roomId} token={token} />}
-            </div>
+            {you.role === "gm" && (
+              <div className="panel-title-row">
+                <ShareButton roomId={roomId} token={token} />
+              </div>
+            )}
             <span className={`status status-${status}`} role="status">
               {STATUS_LABEL[status]} · seq {seq}
             </span>
@@ -246,6 +269,8 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
               token={token}
               onFocusToken={focusToken}
               compact={compact}
+              tab={tab}
+              onTab={setTab}
               onReviewDeparture={setReviewing}
             />
           </SectionCollapseProvider>

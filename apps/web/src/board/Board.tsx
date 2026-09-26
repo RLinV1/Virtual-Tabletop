@@ -1,3 +1,4 @@
+import { CornersOut } from "@phosphor-icons/react";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from "react";
 import type { Participant, RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
@@ -116,6 +117,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       <div className="board-toolbar">
         {toolbar}
         <button type="button" className="tool-button" data-tour="fit" onClick={() => viewRef.current?.resetView()} title="Fit the map to the screen">
+          <CornersOut size={16} aria-hidden="true" />
           Fit
         </button>
       </div>
