@@ -1,6 +1,6 @@
 import { CaretDown } from "@phosphor-icons/react";
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
-import { GRID_LINE_WIDTHS, gridLineStyle, inactiveLabel, pendingDepartures, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
+import { GRID_LINE_WIDTHS, gridLineStyle, inactiveLabel, normalizeGridOffsets, pendingDepartures, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
 import { api } from "../net/api";
 import { libraryAssetId } from "../net/builtinAssets";
 import { loadGmToken } from "../net/identity";
@@ -147,7 +147,7 @@ function MapSection(props: {
   // library edits never reach back into this room.
   const place = async (asset: LibraryAsset) => {
     const map = { url: asset.url, width: asset.width, height: asset.height, assetId: libraryAssetId(asset) };
-    if (await props.onSetMap(map, asset.grid ?? undefined, setPickError)) setPicking(false);
+    if (await props.onSetMap(map, asset.grid ? normalizeGridOffsets(asset.grid) : undefined, setPickError)) setPicking(false);
   };
 
   return (

@@ -43,6 +43,15 @@ export const GridSpec = z.object({
 });
 export type GridSpec = z.infer<typeof GridSpec>;
 
+/** Bring offsets from older saved grids into the canonical range before reuse. */
+export function normalizeGridOffsets(grid: GridSpec): GridSpec {
+  return {
+    ...grid,
+    offsetX: grid.offsetX % grid.cellSize,
+    offsetY: grid.offsetY % grid.cellSize,
+  };
+}
+
 /** Thickness presets offered to the GM, in board pixels (Hairline, Thin, Medium, Thick, Bold). */
 export const GRID_LINE_WIDTHS = [1, 2, 3, 4, 6] as const;
 

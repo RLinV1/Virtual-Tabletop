@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  cellAt, ClientMessage, DEFAULT_GRID, GridSpec, LibraryPatchRequest, snapTokenCenter, type GridSpec as GridSpecType,
+  cellAt, ClientMessage, DEFAULT_GRID, GridSpec, LibraryPatchRequest, normalizeGridOffsets, snapTokenCenter, type GridSpec as GridSpecType,
 } from "../src";
 
 const grid: GridSpecType = { cellSize: 50, offsetX: 10, offsetY: 20, unitsPerCell: 5, unitLabel: "ft" };
@@ -24,6 +24,19 @@ describe("grid geometry", () => {
       }).success).toBe(false);
       expect(LibraryPatchRequest.safeParse({ grid: invalid }).success).toBe(false);
     }
+  });
+
+  it("normalizes legacy library offsets before placing their map", () => {
+    const legacy = { ...DEFAULT_GRID, offsetX: 2 * DEFAULT_GRID.cellSize, offsetY: DEFAULT_GRID.cellSize + 12, lineColor: "#abcdef" };
+    const normalized = normalizeGridOffsets(legacy);
+
+    expect(normalized).toEqual({ ...legacy, offsetX: 0, offsetY: 12 });
+    expect(legacy.offsetX).toBe(140);
+    expect(ClientMessage.safeParse({
+      type: "command", clientCommandId: "c3", command: {
+        type: "scene.setMap", map: { url: "/uploads/map.png", width: 500, height: 500 }, grid: normalized,
+      },
+    }).success).toBe(true);
   });
 
   it("finds the containing cell, respecting offset", () => {
