@@ -7,7 +7,7 @@ import { SeqConflictError, type CredentialRecord, type NewEvent, type RoomStore 
 export class MemoryRoomStore implements RoomStore {
   private events = new Map<string, CommittedEvent[]>();
   private invites = new Map<string, string>();
-  private credentials = new Map<string, CredentialRecord>();
+  private credentials = new Map<string, CredentialRecord & { revokedAt?: string }>();
   private rooms = new Map<string, { ownerGmId: string | null; name: string; createdAt: string }>();
   private gms = new Map<string, string>();
   private assets = new Map<string, LibraryAssetRecord>();
@@ -33,12 +33,51 @@ export class MemoryRoomStore implements RoomStore {
     return this.invites.get(inviteCode) ?? null;
   }
 
-  async saveCredential(tokenHash: string, record: CredentialRecord) {
-    this.credentials.set(tokenHash, record);
+  /** The room's current invite code, found by scanning the invite map. */
+  async getInviteCode(roomId: string) {
+    for (const [code, id] of this.invites) if (id === roomId) return code;
+    return null;
   }
 
+  async setInviteCode(roomId: string, generate: () => string) {
+    if (!this.events.has(roomId)) throw new Error(`No room ${roomId}`);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const code = generate();
+      if (this.invites.has(code)) continue;
+      for (const [old, id] of this.invites) if (id === roomId) this.invites.delete(old);
+      this.invites.set(code, roomId);
+      return code;
+    }
+    throw new Error("Could not generate a unique invite code");
+  }
+
+  /** Stores a credential; re-saving a revoked token keeps it revoked, like the Postgres upsert. */
+  async saveCredential(tokenHash: string, record: CredentialRecord) {
+    // Like the Postgres upsert, re-saving a token keeps its revoked mark: a removed token stays removed.
+    const revokedAt = this.credentials.get(tokenHash)?.revokedAt;
+    this.credentials.set(tokenHash, revokedAt ? { ...record, revokedAt } : record);
+  }
+
+  /** The credential for a token hash, or null when it is unknown or revoked. */
   async findCredential(tokenHash: string) {
-    return this.credentials.get(tokenHash) ?? null;
+    const row = this.credentials.get(tokenHash);
+    // FR-GM-20: a revoked credential resolves to nothing, as in the Postgres store.
+    if (!row || row.revokedAt) return null;
+    return { roomId: row.roomId, participantId: row.participantId };
+  }
+
+  /** The credential for a token hash only when it has been revoked. */
+  async findRevokedCredential(tokenHash: string) {
+    const row = this.credentials.get(tokenHash);
+    return row?.revokedAt ? { roomId: row.roomId, participantId: row.participantId } : null;
+  }
+
+  /** Marks every live credential of this participant in this room revoked. */
+  async revokeCredentials(roomId: string, participantId: string) {
+    const at = new Date().toISOString();
+    for (const row of this.credentials.values()) {
+      if (row.roomId === roomId && row.participantId === participantId && !row.revokedAt) row.revokedAt = at;
+    }
   }
 
   async append(roomId: string, expectedLastSeq: number, events: NewEvent[]) {

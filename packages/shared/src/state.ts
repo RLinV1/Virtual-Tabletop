@@ -18,6 +18,8 @@ export const Participant = z.object({
    * rolls and history still name them. Optional so older events and snapshots parse unchanged.
    */
   left: z.boolean().optional(),
+  /** Set when the GM removed them (FR-GM-20, ADR 0006). Same rules as `left`; optional for old data. */
+  revoked: z.boolean().optional(),
 });
 export type Participant = z.infer<typeof Participant>;
 

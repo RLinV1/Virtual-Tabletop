@@ -1,7 +1,7 @@
 # ADR 0006: Participant lifecycle
 
 **Status:** Accepted. Reviewed by the Real-Time Architecture owner (Raymond) as part of the `leave-table` design, 2026-09-24. **Extends:** `docs/adr/0001-event-model.md`, `docs/adr/0002-transport-and-identity.md`
-**Owner:** Real-Time Architecture (Raymond) · **Changes:** `openspec/changes/leave-table` (KAN-58, this version), `openspec/changes/guest-revocation-and-invite-regeneration` (KAN-52, adds the revocation section)
+**Owner:** Real-Time Architecture (Raymond) · **Changes:** `openspec/changes/leave-table` (KAN-58), `openspec/changes/guest-revocation-and-invite-regeneration` (KAN-52, adds the revocation section)
 
 ## Context
 
@@ -30,9 +30,16 @@ A participant is either **active** or **inactive**. `isActive(p)` is the single 
 
 `token.create` and `token.setOwners` reject owners who aren't active.
 
-### Revocation (KAN-52)
+### Revocation (KAN-52, FR-GM-20)
 
-Reserved for `guest-revocation-and-invite-regeneration`. It adds `revoked?`, extends `isActive`, and adds a `"revoked"` reason to `sessionEnded`. The gates, the close path and the departure review above key on `isActive`, not on `left`, so they cover a revoked participant unchanged.
+**Status of this section:** Accepted. The Real-Time Architecture owner (Raymond) approved finishing KAN-52 on this design, 2026-09-25.
+
+- **State.** `Participant` gains `revoked?: boolean`, next to `left`. `isActive(p)` becomes `!p.left && !p.revoked`. Every gate above already keys on `isActive`, so it covers a revoked participant unchanged: display-name uniqueness, owner validation, `LiveRoom.submit`, the handshake, REST authentication, `relayEphemeral`, `pendingDepartures` and `resolveDeparture`. Two flags rather than one lets the log and the UI say "left" or "removed" truthfully. `inactiveLabel(p)` and `endReason(p)` are the only readers of that difference.
+- **Command.** `participant.revoke { participantId }`, GM only. `decide` checks in this order: `forbidden` for a non-GM; `not_found` for an unknown target; `invalid` for the actor themselves, any GM, or a target who is already inactive.
+- **Event.** `ParticipantRevoked { participant }`: the whole participant as it was before (invariant 6), the same shape as `ParticipantLeft`. `reduce` sets `revoked: true` and **changes no token**. The revoked player's tokens keep naming them until the GM resolves each one through the same departure review (`participant.resolveDeparture`) used for leaving. Until then only the GM and any active co-owners can act on them. The event is public, like `ParticipantLeft`.
+- **Protocol.** `SessionEndReason = "left" | "revoked"` is both the `sessionEnded.reason` and the handshake error text, so a removed guest sees "You were removed from <room>".
+- **Credential row.** After committing `ParticipantRevoked`, `LiveRoom` calls `store.revokeCredentials(roomId, participantId)` inside the room queue. That sets `credentials.revoked_at` (Postgres) or `revokedAt` (memory). Room state stays the authority; the row is a second lock that holds even if the event log were lost. A failed write is logged, not retried, like the asset index. `findRevokedCredential` lets the handshake answer `revoked` rather than `unauthorized` for such a token. Leaving does not write the row, because leaving isn't a security event.
+- **Invite reset is not an event.** `GET`/`POST /api/rooms/:roomId/invite` (the room's own GM only) read and replace `rooms.invite_code`. The old code stops resolving as soon as the update commits, and nobody already in the room is affected. Putting the code in the append-only log would let a leaked code be dug back out of history and would need its own visibility filter, so it stays access configuration on the room row.
 
 ## Consequences
 

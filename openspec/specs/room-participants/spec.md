@@ -65,9 +65,39 @@ Only active participants SHALL block a display name. A participant who has left 
 - **WHEN** the room records that participant "Raymond" was revoked, and a new guest joins as "Raymond"
 - **THEN** the join succeeds
 
+#### Scenario: Departed participant frees the name
+- **WHEN** participant "Raymond" leaves the table, and a new guest then joins as "Raymond"
+- **THEN** the join succeeds as a new participant, and the departed participant's record is unchanged
+
 ### Requirement: Join form shows a name conflict inline
 When a join is rejected because the name is taken, the join form SHALL show the server's message next to the name field. The form SHALL keep the name the user typed and stay usable, so the user can change the name and submit again without reloading the page.
 
 #### Scenario: User picks another name after a conflict
 - **WHEN** a guest submits "Raymond", gets the name-taken message, changes the name to "Ray" and submits again
 - **THEN** the second submit joins the room without the page reloading
+
+### Requirement: Participants list shows active participants only
+The room's participants list and its count SHALL include only active participants. A participant who has left the room SHALL NOT appear in the list or be counted, and SHALL NOT be offered as a token owner in any owner picker.
+
+#### Scenario: Departed player disappears from the list
+- **WHEN** the room has the GM, Sam and Kim, and Sam leaves
+- **THEN** every client's participants list shows the GM and Kim with a count of 2
+
+#### Scenario: Owner picker skips departed players
+- **WHEN** the GM opens a token's owner choices after Sam left
+- **THEN** Sam is not offered
+
+### Requirement: Revoked participants are not listed or assignable
+A revoked participant SHALL NOT appear in the room's participant list or be counted in it. A revoked participant SHALL NOT be offered in any owner picker. The server SHALL reject with `invalid` a command that creates a token or sets token owners when it names a revoked participant. Revoked participants SHALL stay in the room's history, so earlier activity log entries still show their name.
+
+#### Scenario: Revoked player leaves the list
+- **WHEN** the room has players "Sam" and "Alex" and the GM revokes Sam
+- **THEN** the participants list shows the GM and Alex, and the count drops by one
+
+#### Scenario: Cannot give a token to a revoked player
+- **WHEN** the GM sends `token.setOwners` naming a revoked participant
+- **THEN** the command is rejected with `invalid` and the token's owners are unchanged
+
+#### Scenario: History keeps the name
+- **WHEN** Sam moved a token and was later revoked
+- **THEN** the activity log still shows "Sam moved ..." for that entry, followed by "GM removed Sam from the room"

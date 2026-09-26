@@ -1,6 +1,6 @@
 import { CaretDown } from "@phosphor-icons/react";
 import { useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
-import { GRID_LINE_WIDTHS, gridLineStyle, pendingDepartures, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
+import { GRID_LINE_WIDTHS, gridLineStyle, inactiveLabel, pendingDepartures, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
 import { api } from "../net/api";
 import { loadGmToken } from "../net/identity";
 import { imageSize } from "../net/imageFile";
@@ -59,7 +59,7 @@ export function GmPanel({ connection, state, token, onReviewDeparture }: Props) 
 }
 
 /**
- * Players who left while still controlling tokens (KAN-58, ADR 0006). Derived from state, so
+ * Players who left or were removed while still controlling tokens (KAN-58, FR-GM-20, ADR 0006). Derived from state, so
  * "Decide later" survives a reload, and a player drops off once nothing names them.
  */
 function DepartedPlayers({ state, onReview }: { state: RoomState; onReview: (participantId: string) => void }) {
@@ -72,7 +72,7 @@ function DepartedPlayers({ state, onReview }: { state: RoomState; onReview: (par
           <li key={participant.id} className="departed-row">
             <span>
               <strong>{participant.displayName}</strong>
-              <span className="muted"> left, {tokenIds.length} {tokenIds.length === 1 ? "token" : "tokens"} to decide</span>
+              <span className="muted"> {inactiveLabel(participant)}, {tokenIds.length} {tokenIds.length === 1 ? "token" : "tokens"} to decide</span>
             </span>
             <button type="button" className="small secondary" onClick={() => onReview(participant.id)}>
               Review

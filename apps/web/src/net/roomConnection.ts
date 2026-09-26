@@ -10,6 +10,7 @@ import {
   type Participant,
   type RoomState,
   type ServerMessage,
+  type SessionEndReason,
 } from "@vtt/shared";
 
 /** `ended`: this seat left the room (ADR 0006). Terminal, like `unauthorized`: never reconnects. */
@@ -20,6 +21,8 @@ export interface RoomSnapshot {
   state: RoomState | null;
   you: Participant | null;
   seq: number;
+  /** Set with status `ended`: whether this seat left or was removed by the GM (ADR 0006). */
+  endReason: SessionEndReason | null;
 }
 
 export type CommandResult =
@@ -50,6 +53,7 @@ export class RoomConnection {
     state: null,
     you: null,
     seq: 0,
+    endReason: null,
   }));
 
   constructor(
@@ -80,9 +84,9 @@ export class RoomConnection {
       if (err.message === "unauthorized" || err.message === "not_found") {
         socket.disconnect();
         this.update({ status: "unauthorized" });
-      } else if (err.message === "left") {
+      } else if (err.message === "left" || err.message === "revoked") {
         socket.disconnect();
-        this.update({ status: "ended" });
+        this.update({ status: "ended", endReason: err.message });
       }
     });
   }
@@ -153,9 +157,9 @@ export class RoomConnection {
       case "sessionEnded":
         // Every tab of this seat gets this, not only the one that clicked Leave. The server
         // disconnects next; stop here so Socket.IO doesn't try to reconnect (ADR 0006).
-        this.update({ status: "ended" });
+        this.update({ status: "ended", endReason: msg.reason });
         // Before disconnecting: the disconnect listener would fail them as "Connection lost".
-        this.failPending("You left this room");
+        this.failPending(msg.reason === "revoked" ? "You were removed from this room" : "You left this room");
         this.socket?.disconnect();
         return;
 
