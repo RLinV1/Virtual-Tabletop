@@ -152,6 +152,22 @@ export function decide(
       });
     }
 
+    case "token.setImage": {
+      if (!can.administer(actor)) return forbidden();
+      const token = state.tokens[command.tokenId];
+      if (!token) return notFound("token");
+      if (token.imageUrl === command.imageUrl && (token.assetId ?? null) === command.assetId) {
+        return reject("invalid", `${token.name} already has that image.`);
+      }
+      return accept({
+        type: "TokenImageSet",
+        tokenId: token.id,
+        imageUrl: command.imageUrl,
+        assetId: command.assetId,
+        previous: { imageUrl: token.imageUrl, assetId: token.assetId ?? null },
+      });
+    }
+
     case "token.setConditions": {
       const token = state.tokens[command.tokenId];
       if (!token || (token.hidden && !can.administer(actor))) return notFound("token");

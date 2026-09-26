@@ -76,6 +76,11 @@ export function reduce(state: RoomState, event: DomainEvent): RoomState {
       return { ...state, tokens: { ...state.tokens, [t.id]: { ...t, stats: event.stats } } };
     }
 
+    case "TokenImageSet": {
+      const t = required(state.tokens[event.tokenId], event);
+      return { ...state, tokens: { ...state.tokens, [t.id]: { ...t, imageUrl: event.imageUrl, assetId: event.assetId ?? null } } };
+    }
+
     case "TokenConditionsSet": {
       const t = required(state.tokens[event.tokenId], event);
       return { ...state, tokens: { ...state.tokens, [t.id]: { ...t, conditions: event.conditions } } };

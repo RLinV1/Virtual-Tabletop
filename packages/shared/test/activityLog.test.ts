@@ -30,6 +30,7 @@ describe("Human-readable activity formatter (FR-REC-01)", () => {
     InitiativeAdvanced: [{ type: "InitiativeAdvanced", initiative: { ...initiative, round: 2 }, previous: initiative }, "Mara advanced to round 2, Goblin's turn"],
     InitiativeEnded: [{ type: "InitiativeEnded", previous: initiative }, "Mara ended initiative"],
     DiceRolled: [{ type: "DiceRolled", roll }, "Mara rolled 1d20: 15"],
+    TokenImageSet: [{ type: "TokenImageSet", tokenId: token.id, imageUrl: "/uploads/new.png", assetId: null, previous: { imageUrl: null, assetId: null } }, "Mara changed Goblin's image"],
     TemplatePlaced: [{ type: "TemplatePlaced", template: areaTemplate }, "Mara placed a 20 ft cone"],
     TemplateRemoved: [{ type: "TemplateRemoved", template: { ...areaTemplate, gmOnly: true } }, "Mara removed a 20 ft cone (GM only)"],
   };

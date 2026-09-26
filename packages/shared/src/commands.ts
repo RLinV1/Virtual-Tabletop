@@ -71,6 +71,14 @@ export const Command = z.discriminatedUnion("type", [
     tokenId: Id,
     stats: TokenStats,
   }),
+  /** Replace or remove a token's art (ADR 0008). GM only, like choosing it at creation. */
+  z.object({
+    type: z.literal("token.setImage"),
+    tokenId: Id,
+    imageUrl: z.string().min(1).max(2048).nullable(),
+    /** Library asset the image came from, if any (ADR 0004). */
+    assetId: Id.nullable().default(null),
+  }),
   z.object({
     type: z.literal("token.setConditions"),
     tokenId: Id,

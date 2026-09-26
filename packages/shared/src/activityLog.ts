@@ -54,6 +54,7 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
     case "TokenOwnersSet": return `${actorName} assigned ${tokenName(event.tokenId)} to ${event.ownerIds.length ? event.ownerIds.map(participantName).join(", ") : "no players"}`;
     case "TokenHiddenSet": return `${actorName} ${event.hidden ? "hid" : "revealed"} ${tokenName(event.tokenId)}`;
     case "TokenStatsSet": return `${actorName} updated ${tokenName(event.tokenId)}'s stats: HP ${event.stats.hp ?? "unset"}/${event.stats.maxHp ?? "unset"}, AC ${event.stats.ac ?? "unset"}`;
+    case "TokenImageSet": return `${actorName} ${event.imageUrl ? "changed" : "removed"} ${tokenName(event.tokenId)}'s image`;
     case "TokenConditionsSet": return `${actorName} set ${tokenName(event.tokenId)}'s conditions to ${event.conditions.length ? event.conditions.join(", ") : "none"}`;
     case "InitiativeStarted": return `${actorName} started initiative: ${event.initiative.order.map(tokenName).join(", ") || "no tokens"}`;
     case "InitiativeAdvanced": return `${actorName} advanced to round ${event.initiative.round}, ${tokenName(event.initiative.order[event.initiative.activeIndex] ?? "")}'s turn`;

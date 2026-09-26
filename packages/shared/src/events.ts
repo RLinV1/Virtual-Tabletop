@@ -86,6 +86,14 @@ export const DomainEvent = z.discriminatedUnion("type", [
     stats: TokenStats,
     previous: TokenStats,
   }),
+  /** A token's art changed. Carries the art it replaced, so undo can restore it (invariant 6). */
+  z.object({
+    type: z.literal("TokenImageSet"),
+    tokenId: Id,
+    imageUrl: z.string().nullable(),
+    assetId: Id.nullish(),
+    previous: z.object({ imageUrl: z.string().nullable(), assetId: Id.nullish() }),
+  }),
   z.object({
     type: z.literal("TokenConditionsSet"),
     tokenId: Id,

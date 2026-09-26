@@ -57,6 +57,7 @@ export function filterEventForViewer(
     case "TokenMoved":
     case "TokenOwnersSet":
     case "TokenStatsSet":
+    case "TokenImageSet":
     case "TokenConditionsSet":
       return hiddenBefore(e.tokenId) ? redacted : pass;
     case "DiceRolled":
