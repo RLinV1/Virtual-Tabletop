@@ -147,7 +147,12 @@ function MapSection(props: {
   // library edits never reach back into this room.
   const place = async (asset: LibraryAsset) => {
     const map = { url: asset.url, width: asset.width, height: asset.height, assetId: libraryAssetId(asset) };
-    if (await props.onSetMap(map, asset.grid ? normalizeGridOffsets(asset.grid) : undefined, setPickError)) setPicking(false);
+    // Older library grids can be smaller than the line cap now permits on this map.
+    const grid = asset.grid && normalizeGridOffsets({
+      ...asset.grid,
+      cellSize: Math.max(asset.grid.cellSize, minimumGridCellSizeForDisplay(map)),
+    });
+    if (await props.onSetMap(map, grid || undefined, setPickError)) setPicking(false);
   };
 
   return (

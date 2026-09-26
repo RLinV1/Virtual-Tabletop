@@ -54,4 +54,29 @@ describe("grid line style over the wire (grid-line-style, ADR 0005)", () => {
     expect(gm.seq).toBe(seqBefore);
     expect(gm.state.scene.grid).toEqual(DEFAULT_GRID);
   });
+
+  it("rejects grids that exceed the board line cap at the command boundary (FR-GM-04)", async () => {
+    const gmCreds = await server.createRoom();
+    const gm = await server.connect(gmCreds);
+    clients.push(gm);
+    const seqBefore = gm.seq;
+
+    expect(await gm.command({ type: "scene.setGrid", grid: { ...DEFAULT_GRID, cellSize: 0.07 } }))
+      .toMatchObject({ type: "rejected", code: "invalid" });
+    expect(gm.seq).toBe(seqBefore);
+
+    const map = { url: "/uploads/map.png", width: 500, height: 500 };
+    expect(await gm.command({ type: "scene.setMap", map, grid: { ...DEFAULT_GRID, cellSize: 0.01 } }))
+      .toMatchObject({ type: "rejected", code: "invalid" });
+    expect(gm.seq).toBe(seqBefore);
+
+    expect(await gm.command({
+      type: "scene.setMap", map: { ...map, width: 2_000_000, height: 2_000_000 },
+    })).toMatchObject({ type: "rejected", code: "invalid" });
+    expect(gm.seq).toBe(seqBefore);
+
+    expect(await gm.command({ type: "scene.setMap", map, grid: { ...DEFAULT_GRID, cellSize: 0.07 } }))
+      .toMatchObject({ type: "ack" });
+    expect(gm.state.scene.grid.cellSize).toBe(0.07);
+  });
 });

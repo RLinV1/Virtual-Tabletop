@@ -2,6 +2,7 @@ import type { Command, DepartureAction } from "./commands";
 import { EMPTY_STATS } from "./conditions";
 import { formatExpression, parseDiceExpression, rollDice } from "./dice";
 import type { DomainEvent } from "./events";
+import { canRenderGrid } from "./gridRenderLimit";
 import type { SessionEndReason } from "./protocol";
 import { MAX_AREA_TEMPLATES, type AreaTemplate, type Initiative, type Participant, type RoomState, type Token } from "./state";
 
@@ -48,6 +49,9 @@ export function decide(
   switch (command.type) {
     case "scene.setMap":
       if (!can.administer(actor)) return forbidden();
+      if (!canRenderGrid((command.grid ?? state.scene.grid).cellSize, command.map)) {
+        return reject("invalid", "Grid cell size creates too many lines for this map.");
+      }
       // One event, not MapSet + GridSet: a library map and its grid are one undoable step (ADR 0004).
       return accept(
         command.grid
@@ -62,6 +66,9 @@ export function decide(
 
     case "scene.setGrid":
       if (!can.administer(actor)) return forbidden();
+      if (!canRenderGrid(command.grid.cellSize, state.scene.map)) {
+        return reject("invalid", "Grid cell size creates too many lines for this map.");
+      }
       return accept({ type: "GridSet", grid: command.grid, previous: state.scene.grid });
 
     case "token.create": {

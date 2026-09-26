@@ -23,10 +23,11 @@ describe("grid calibration draft with line styling", () => {
   it("rejects a cell size that would exceed the board's line limit", () => {
     const draft = { ...toGridDraft(DEFAULT_GRID), cellSize: "0.05" };
     expect(parseGridDraft(draft)).toBeNull();
-    expect(parseGridDraft({ ...draft, cellSize: "0.07" })).not.toBeNull();
+    expect(parseGridDraft({ ...draft, cellSize: "0.07" })).toBeNull();
+    expect(parseGridDraft({ ...draft, cellSize: "0.08" })).not.toBeNull();
     expect(parseGridDraft(draft, { width: 500, height: 500 })).not.toBeNull();
     expect(parseGridDraft({ ...draft, cellSize: "0.01" }, { width: 500, height: 500 })).toBeNull();
-    expect(minimumGridCellSizeForDisplay()).toBe(0.07);
+    expect(minimumGridCellSizeForDisplay()).toBe(0.08);
     expect(minimumGridCellSizeForDisplay({ width: 2501, height: 1500 })).toBe(0.09);
   });
 });
