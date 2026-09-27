@@ -58,6 +58,12 @@ const GHOST_ID = "placement-ghost";
 const ERASER_REACH_PX = 12;
 /** A brush stroke adds a point once the pointer has moved this far (screen pixels). */
 const BRUSH_STEP_PX = 2;
+/**
+ * Named fonts, never `system-ui`: Pixi measures text on an OffscreenCanvas but draws it on a
+ * DOM canvas, and Firefox resolves `system-ui` to a narrower font offscreen, which crops the
+ * end of long token names (fix-token-label-clipping).
+ */
+const BOARD_FONT = '"Helvetica Neue", Arial, sans-serif';
 /** Longest brush stroke, in points, so one stroke can't grow without bound. */
 const MAX_STROKE_POINTS = 2000;
 /**
@@ -152,7 +158,7 @@ export class BoardView {
   private overlayGraphics = new Graphics();
   private measureLabel = new Text({
     text: "",
-    style: { fill: 0xffffff, fontSize: 14, fontFamily: "system-ui, sans-serif", fontWeight: "600", stroke: { color: 0x000000, width: 4 } },
+    style: { fill: 0xffffff, fontSize: 14, fontFamily: BOARD_FONT, fontWeight: "600", stroke: { color: 0x000000, width: 4 } },
   });
   private fxLayer = new Container();
   private tokens = new Map<string, TokenView>();
@@ -869,7 +875,7 @@ export class BoardView {
     const markers = new Container();
     const label = new Text({
       text: "",
-      style: { fill: 0xffffff, fontSize: 14, fontFamily: "system-ui, sans-serif", stroke: { color: 0x000000, width: 3 } },
+      style: { fill: 0xffffff, fontSize: 14, fontFamily: BOARD_FONT, stroke: { color: 0x000000, width: 3 } },
     });
     label.anchor.set(0.5, 0);
     const image = new Sprite(Texture.EMPTY);
@@ -996,7 +1002,7 @@ export class BoardView {
         style: {
           fill: 0xffffff,
           fontSize: size * 0.85,
-          fontFamily: "system-ui, sans-serif",
+          fontFamily: BOARD_FONT,
           fontWeight: "700",
           stroke: { color: 0x000000, width: 2 },
         },
