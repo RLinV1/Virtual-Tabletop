@@ -163,7 +163,7 @@ export const api = {
     remove: (gmToken: string, id: string) =>
       gmRequest<void>(gmToken, `/api/library/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
-    /** Reusable creatures placed from Add Token (library-creatures, ADR 0010). */
+    /** Reusable creatures placed from Add Token (library-creatures, ADR 0012). */
     creatures: {
       list: (gmToken: string) => gmRequest<LibraryCreature[]>(gmToken, "/api/library/creatures"),
       create: (gmToken: string, creature: CreateCreatureRequest) =>

@@ -1,6 +1,6 @@
-# ADR 0010: Library creatures
+# ADR 0012: Library creatures
 
-**Status:** Proposed. Awaiting review by the Real-Time Architecture owner (Raymond). **Amends:** `docs/adr/0004-asset-library.md` (token names, the usage response)
+**Status:** Accepted — reviewed by the Real-Time Architecture owner (Raymond), 2026-09-27 · **Amends:** `docs/adr/0004-asset-library.md` (token names, the usage response)
 **Owner:** Real-Time Architecture (Raymond) · **Changes:** `openspec/changes/library-creatures`
 
 ## Context

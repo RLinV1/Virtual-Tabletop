@@ -1,6 +1,6 @@
 # ADR 0009: Room deletion
 
-**Status:** Proposed. Awaiting review by the Real-Time Architecture owner (Raymond). **Amends:** `docs/adr/0001-event-model.md` (append-only), `docs/adr/0006-participant-lifecycle.md` (session end reasons)
+**Status:** Accepted — reviewed by the Real-Time Architecture owner (Raymond), 2026-09-27 · **Amends:** `docs/adr/0001-event-model.md` (append-only), `docs/adr/0006-participant-lifecycle.md` (session end reasons)
 **Owner:** Real-Time Architecture (Raymond) · **Changes:** `openspec/changes/delete-room` (KAN-72)
 
 ## Context

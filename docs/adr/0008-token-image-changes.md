@@ -1,6 +1,6 @@
 # ADR 0008 — Changing a token's image
 
-**Status:** Proposed — awaiting review by the Real-Time Architecture owner · **Extends:** `docs/adr/0001-event-model.md`, `docs/adr/0004-asset-library.md`
+**Status:** Accepted — reviewed by the Real-Time Architecture owner (Raymond), 2026-09-27 · **Extends:** `docs/adr/0001-event-model.md`, `docs/adr/0004-asset-library.md`
 **Change:** `openspec/changes/token-image-edit`
 
 ## Context

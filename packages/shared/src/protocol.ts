@@ -182,12 +182,12 @@ export interface LibraryAsset {
 
 export interface LibraryUsageResponse {
   rooms: { id: string; name: string }[];
-  /** The GM's creatures that use this token art as their image (ADR 0010). */
+  /** The GM's creatures that use this token art as their image (ADR 0012). */
   creatures: { id: string; name: string }[];
 }
 
 /**
- * A reusable creature in the GM's library (ADR 0010). Built from the token limits so a saved
+ * A reusable creature in the GM's library (ADR 0012). Built from the token limits so a saved
  * creature always places as a valid `token.create`. The name is the name shown on the board.
  */
 export const CreatureFields = z.object({

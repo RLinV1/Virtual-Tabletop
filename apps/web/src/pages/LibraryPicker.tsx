@@ -14,7 +14,7 @@ export function LibraryPicker(props: {
   onPick: (asset: LibraryAsset) => void;
   /** Shows a Close button when the picker is inline; omitted inside a modal. */
   onClose?: () => void;
-  /** False lists only the GM's own assets, e.g. for a creature's image (ADR 0010). */
+  /** False lists only the GM's own assets, e.g. for a creature's image (ADR 0012). */
   includeBuiltins?: boolean;
 }) {
   const includeBuiltins = props.includeBuiltins ?? true;

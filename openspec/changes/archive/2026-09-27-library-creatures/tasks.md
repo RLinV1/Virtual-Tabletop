@@ -2,7 +2,7 @@
 
 ## 1. Contract and ADR
 
-- [x] 1.1 Write `docs/adr/0010-library-creatures.md` covering: creatures as a separate resource, the null-on-delete image link, placement copying values, the `LibraryUsageResponse` change, and the board-name exception to ADR 0004. Verify it is linked from the ADR list or index if one exists, and flag it for review by the Real-Time Architecture owner in the PR description.
+- [x] 1.1 Write `docs/adr/0012-library-creatures.md` covering: creatures as a separate resource, the null-on-delete image link, placement copying values, the `LibraryUsageResponse` change, and the board-name exception to ADR 0004. Verify it is linked from the ADR list or index if one exists, and flag it for review by the Real-Time Architecture owner in the PR description.
 - [x] 1.2 In `packages/shared/src/protocol.ts`, add `CreatureFields`, `CreateCreatureRequest`, `UpdateCreatureRequest` and `LibraryCreature`, built from `Token.shape` and `TokenStats.shape`. Add `creatures: { id, name }[]` to `LibraryUsageResponse`. Unit tests in `packages/shared/test/creatures.test.ts` (`describe("... (FR-TAC-07)")`) cover each boundary (name 0/60/61, size 0/10/11, Max HP 0/1/9999/10000, AC -1/0/99/100), the size default, and rejection of an empty patch. Verify with `npm test --workspace=@vtt/shared`.
 
 ## 2. Storage

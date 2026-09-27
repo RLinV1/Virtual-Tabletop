@@ -1,6 +1,6 @@
 import type { LibraryCreature, TokenStats } from "@vtt/shared";
 
-/** What "From creature" fills into Add Token (library-creatures, ADR 0010). */
+/** What "From creature" fills into Add Token (library-creatures, ADR 0012). */
 export interface CreatureDraft {
   name: string;
   size: number;

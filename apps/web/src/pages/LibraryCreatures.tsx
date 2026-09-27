@@ -74,7 +74,7 @@ const optionalNumber = (value: string) => (value.trim() === "" ? null : Number(v
 
 /**
  * New or Edit creature. The name is the name its tokens show on the board, so players see
- * it (ADR 0010). The image is only ever the GM's own token art.
+ * it (ADR 0012). The image is only ever the GM's own token art.
  */
 export function CreatureForm(props: {
   creature: LibraryCreature | null;

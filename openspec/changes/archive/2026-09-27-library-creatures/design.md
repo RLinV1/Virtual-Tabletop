@@ -89,7 +89,7 @@ When a request sets `imageAssetId` to a non-null value, the route loads it with 
 
 ### 5. `/usage` also lists creatures
 
-`LibraryUsageResponse` becomes `{ rooms: { id, name }[]; creatures: { id, name }[] }`. This is a change to an existing shared type, so it is recorded in ADR 0010. Clients that ignore the new field keep working. `AssetCard`'s confirmation lists rooms first, then creatures ("Used by 2 creatures: Goblin, Goblin Boss. They will lose their image."). Deleting still needs only one confirmation.
+`LibraryUsageResponse` becomes `{ rooms: { id, name }[]; creatures: { id, name }[] }`. This is a change to an existing shared type, so it is recorded in ADR 0012. Clients that ignore the new field keep working. `AssetCard`'s confirmation lists rooms first, then creatures ("Used by 2 creatures: Goblin, Goblin Boss. They will lose their image."). Deleting still needs only one confirmation.
 
 ### 6. Library page
 
@@ -102,9 +102,9 @@ When a request sets `imageAssetId` to a non-null value, the route loads it with 
 
 A **From creature** button sits above the Name field whenever `gmToken` exists. It opens a stacked `Modal` with a searchable creature list (its own small component, since `LibraryPicker` lists assets). Choosing a creature sets the form's existing state from `creatureDraft`: name, size, hp, maxHp, ac, and image (`{ url, assetId, label: name }`). Rotation, Owner and Hidden keep their current values. Every field stays editable, and submitting goes through the unchanged `onAdd`, so placement, duplicate numbering and authorization are exactly as today. No creature id reaches the command.
 
-### 8. ADR 0010
+### 8. ADR 0012
 
-`docs/adr/0010-library-creatures.md` records:
+`docs/adr/0012-library-creatures.md` records:
 
 - why creatures are a separate resource
 - the null-on-delete image link
@@ -116,7 +116,7 @@ A **From creature** button sits above the Name field whenever `gmToken` exists. 
 
 - [Players see a creature's name, HP and AC on visible tokens] → This is the same as typing them in, and it is today's behavior. Hidden tokens are still withheld. GM-only stats are out of scope, as agreed.
 - [Creatures fall out of sync with tokens already placed] → This is intended (spec: placed tokens are independent). The form shows the creature's values at the time it's chosen.
-- [Changing `LibraryUsageResponse`] → The change is additive, and it is reviewed through ADR 0010 by the Real-Time Architecture owner.
+- [Changing `LibraryUsageResponse`] → The change is additive, and it is reviewed through ADR 0012 by the Real-Time Architecture owner.
 - [Token art deleted during creature save] → Mapped to the same 400 (decision 4). A server test covers it in the memory store, and the Postgres test does too when a database is available.
 - [Renaming the tab could confuse returning GMs] → The in-room pickers and "Add token" wording are unchanged. Only the library tab label and its related text change.
 
