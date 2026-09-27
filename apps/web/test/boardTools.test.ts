@@ -100,6 +100,15 @@ describe("board tools (KAN-69, FR-TAC-03/04/06)", () => {
       expect(areaOrigin({ x: 150, y: 125 }, grid, false)).toEqual({ x: 140, y: 140 });
       expect(areaOrigin({ x: 150, y: 125 }, grid, true)).toEqual({ x: 150, y: 125 });
     });
+
+    it("snaps the origin to a cell centre, so an aura can sit on a token", () => {
+      expect(areaOrigin({ x: 100, y: 110 }, grid, false)).toEqual(cell(1, 1));
+      expect(areaOrigin({ x: 110, y: 120 }, offsetGrid, false)).toEqual({ x: 115, y: 125 });
+    });
+
+    it("snaps the origin to an edge midpoint, where a line or cone leaves a square", () => {
+      expect(areaOrigin({ x: 138, y: 100 }, grid, false)).toEqual({ x: 140, y: 105 });
+    });
   });
 
   describe("sizing an area by dragging", () => {

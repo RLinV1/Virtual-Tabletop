@@ -110,9 +110,15 @@ export function areaShape(shape: AreaShape, origin: Point, toward: Point, size: 
   return { kind: "polygon", points: [at(0, -h), at(length, -h), at(length, h), at(0, h)] };
 }
 
-/** Where an area's origin lands: a grid intersection, unless placed freely (Alt). */
+/**
+ * Where an area's origin lands: the nearest half-cell point (a corner, an edge midpoint or a
+ * cell centre, so an aura can sit on a token), unless placed freely (Alt).
+ */
 export function areaOrigin(p: Point, grid: GridSpec, free: boolean): Point {
-  return free ? p : snapToIntersection(p, grid);
+  if (free) return p;
+  const half = grid.cellSize / 2;
+  const snap = (v: number, offset: number) => Math.round((v - offset) / half) * half + offset;
+  return { x: snap(p.x, grid.offsetX), y: snap(p.y, grid.offsetY) };
 }
 
 /**
