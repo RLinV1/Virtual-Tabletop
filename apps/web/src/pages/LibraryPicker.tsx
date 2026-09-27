@@ -14,7 +14,10 @@ export function LibraryPicker(props: {
   onPick: (asset: LibraryAsset) => void;
   /** Shows a Close button when the picker is inline; omitted inside a modal. */
   onClose?: () => void;
+  /** False lists only the GM's own assets, e.g. for a creature's image (ADR 0010). */
+  includeBuiltins?: boolean;
 }) {
+  const includeBuiltins = props.includeBuiltins ?? true;
   const [assets, setAssets] = useState<LibraryAsset[] | null>(null);
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -28,8 +31,8 @@ export function LibraryPicker(props: {
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
     const own = (assets ?? []).filter((a) => a.kind === props.kind && (!q || a.name.toLowerCase().includes(q)));
-    return [...own, ...builtinsMatching(props.kind, query)];
-  }, [assets, props.kind, query]);
+    return includeBuiltins ? [...own, ...builtinsMatching(props.kind, query)] : own;
+  }, [assets, props.kind, query, includeBuiltins]);
 
   return (
     <div className="library-picker" role="group" aria-label={`Choose a ${props.kind} from your library`}>
@@ -43,7 +46,11 @@ export function LibraryPicker(props: {
       </div>
       {error && <p role="alert" className="error">{error}</p>}
       {!assets && !error && <p className="muted">Loading…</p>}
-      {shown.length === 0 && <p className="muted">Nothing matches that search.</p>}
+      {assets && shown.length === 0 && (
+        <p className="muted">
+          {query.trim() || includeBuiltins ? "Nothing matches that search." : "No token art uploaded yet. Add some on the library's Token Art tab."}
+        </p>
+      )}
       <ul className="plain picker-grid">
         {shown.map((a) => (
           <li key={a.id}>

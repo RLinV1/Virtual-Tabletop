@@ -32,11 +32,11 @@ A GM SHALL be able to upload a PNG, JPEG or WebP image of up to 25 MB as either 
 - **THEN** the image URL contains neither "beholder" nor "Beholder"
 
 ### Requirement: Browse and search the library
-The library page (`/library`) SHALL show the GM's assets in separate Maps and Tokens tabs as thumbnails with name and pixel size. It SHALL filter by a case-insensitive name search. The GM SHALL be able to rename an asset.
+The library page (`/library`) SHALL show the GM's library in separate Maps, Token Art and Creatures tabs. Maps and Token Art SHALL show the GM's assets as thumbnails with name and pixel size. Creatures SHALL show the GM's creatures as described in `library-creatures`. Each tab SHALL filter by a case-insensitive name search. The GM SHALL be able to rename an asset.
 
 #### Scenario: Tabs separate kinds
-- **WHEN** a GM with two maps and three tokens opens the Tokens tab
-- **THEN** exactly the three tokens are shown
+- **WHEN** a GM with two maps, three pieces of token art and one creature opens the Token Art tab
+- **THEN** exactly the three pieces of token art are shown
 
 #### Scenario: Search by name
 - **WHEN** the GM types "gob" in the search field on the Maps tab
@@ -75,12 +75,51 @@ When the room's current map came from the GM's library, the GM SHALL be able to 
 - **WHEN** the room's map was uploaded directly rather than placed from the library
 - **THEN** "Save grid to library" is not offered
 
+### Requirement: Edit a map's grid in the library
+From the asset library, the GM SHALL be able to edit the grid of any map they own without opening a room. The editor SHALL offer the same fields and validation as the in-room grid correction: cell size, offsets, units per cell with a label, and line style. It SHALL show the draft grid over the whole map image, and the GM SHALL be able to zoom and pan that view. The editor SHALL open with the map's saved grid, with the cell size raised to the smallest drawable size if the saved value is below it. Saving SHALL replace the library map's grid. Cancelling or dismissing the editor SHALL leave the saved grid unchanged. Built-in example maps and token assets SHALL NOT offer grid editing.
+
+The server MUST reject a saved grid whose cell size is too small for its lines to be drawn on that map at its stored pixel size, and MUST leave the stored grid unchanged. This is the same limit that applies to a room's grid.
+
+Editing a library grid SHALL NOT change any room. It only affects later placements of the map.
+
+#### Scenario: Edit and save a map's grid
+- **WHEN** the GM opens Edit grid on their map "Goblin Cave", sets the cell size to 64 and saves
+- **THEN** the library shows "Goblin Cave" with a 64 px grid, and no room was opened or changed
+
+#### Scenario: Preview before saving
+- **WHEN** the GM changes the offset in the editor without saving
+- **THEN** the preview shows grid lines at the new offset over the map, and the library map's saved grid is unchanged
+
+#### Scenario: Cancel discards the draft
+- **WHEN** the GM changes the cell size and then cancels or dismisses the editor
+- **THEN** the library map keeps its previous grid
+
+#### Scenario: Invalid draft cannot be saved
+- **WHEN** a field is blank, an offset is not less than the cell size, or the cell size is below the map's minimum drawable size
+- **THEN** saving is disabled and the editor explains what to change
+
+#### Scenario: Server rejects an undrawable grid
+- **WHEN** a request saves a grid with cell size 0.1 to a 4000×3000 library map
+- **THEN** the server responds 400 and the map's stored grid is unchanged
+
+#### Scenario: No grid editing for built-in maps or tokens
+- **WHEN** the GM views a built-in example map or any token in the library
+- **THEN** no Edit grid action is offered
+
+#### Scenario: Rooms keep their grid
+- **WHEN** the GM edits the library grid of a map that is currently placed in room "Crypt"
+- **THEN** the grid in "Crypt" is unchanged, and the next placement of that map in any room uses the edited grid
+
 ### Requirement: Warn before deleting an asset in use
-An asset is **in use** when the current state of any room owned by its GM references it as the map or as a token's image. Hidden tokens count. Before deleting, the library SHALL show the names of the rooms using the asset and require confirmation. An asset not in use SHALL still require a plain confirmation. Past references in a room's history do not count as in use.
+An asset is **in use** when the current state of any room owned by its GM references it as the map or as a token's image. Hidden tokens count. Before deleting, the library SHALL show the names of the rooms using the asset and require confirmation. For token art, the confirmation SHALL also name the GM's creatures that use it as their image, and say that they will lose their image. An asset not in use by any room or creature SHALL still require a plain confirmation. Past references in a room's history do not count as in use.
 
 #### Scenario: Deleting an asset in use
 - **WHEN** the GM deletes a token asset used by tokens in rooms "Goblin Cave" and "Crypt"
 - **THEN** a confirmation names both rooms and says they will show a generic token, and nothing is deleted until the GM confirms
+
+#### Scenario: Deleting token art used by creatures
+- **WHEN** the GM deletes token art used by the creatures "Goblin" and "Goblin Boss"
+- **THEN** the confirmation names both creatures and says they will lose their image, and nothing is deleted until the GM confirms
 
 #### Scenario: Reference removed from the board
 - **WHEN** the only token using an asset is deleted from its room
@@ -88,7 +127,7 @@ An asset is **in use** when the current state of any room owned by its GM refere
 
 #### Scenario: Confirmed deletion
 - **WHEN** the GM confirms deletion
-- **THEN** the asset disappears from the library and its image is no longer retrievable, and rooms that referenced it fall back as described in `board-asset-fallback`
+- **THEN** the asset disappears from the library and its image is no longer retrievable, rooms that referenced it fall back as described in `board-asset-fallback`, and creatures that used it have no image
 
 ### Requirement: Library details stay private
 Library names, tags, the in-use listing, and the fact that an image comes from the library SHALL NOT be sent to player clients. Hidden tokens stay fully withheld from players under the existing visibility rules. A player MAY be able to load an image URL they already have. Nothing a player receives SHALL name the asset or reveal which assets a GM owns.

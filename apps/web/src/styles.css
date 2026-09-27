@@ -787,7 +787,11 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 .asset-thumb.token img { width: 70%; height: auto; aspect-ratio: 1; border-radius: 50%; }
 .asset-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .asset-meta { font-size: 0.8rem; }
-.asset-actions { justify-content: space-between; }
+/* Three actions don't fit a narrow map card on one line: wrap whole labels instead of
+   squeezing one onto two lines, and keep Delete at the right edge. */
+.asset-actions { justify-content: space-between; flex-wrap: wrap; row-gap: 0; }
+.asset-actions button { white-space: nowrap; }
+.asset-actions button.danger { margin-left: auto; }
 .confirm { display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.85rem; }
 .confirm p { margin: 0; }
 .confirm .row { justify-content: flex-end; }
@@ -878,6 +882,33 @@ dialog.modal.grid-preview-modal::backdrop { background: rgba(6, 8, 11, 0.35); }
 @media (max-width: 720px) {
   dialog.modal.grid-preview-modal { margin-inline: auto; }
 }
+/* Library Edit grid: the whole map beside the grid form, stacked on narrow screens. */
+dialog.modal.library-grid-modal { width: min(68rem, calc(100vw - 2rem)); }
+.library-grid-editor {
+  display: grid; grid-template-columns: minmax(0, 1fr) 22rem; gap: var(--space-4); align-items: start;
+}
+.map-grid-preview { position: relative; min-width: 0; }
+.map-grid-canvas {
+  /* Shaped like the map (inline aspect-ratio), letterboxed only when the height cap applies. */
+  display: block; width: 100%; height: auto; min-height: 12rem; max-height: min(70dvh, 38rem);
+  border-radius: var(--radius); background: var(--field);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 0 0 1px var(--border);
+  cursor: grab; touch-action: none; user-select: none;
+}
+.map-grid-canvas:active { cursor: grabbing; }
+.map-grid-zoom {
+  position: absolute; right: var(--space-2); bottom: var(--space-2);
+  display: flex; align-items: center; gap: var(--space-1);
+  padding: var(--space-1); border-radius: var(--radius);
+  background: rgba(14, 16, 19, 0.82); border: 1px solid var(--border);
+}
+.map-grid-zoom button { display: grid; place-items: center; }
+.map-grid-zoom-level { min-width: 3.5rem; text-align: center; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+@media (max-width: 860px) {
+  .library-grid-editor { grid-template-columns: minmax(0, 1fr); }
+  .map-grid-canvas { max-height: min(45dvh, 22rem); }
+}
+
 .modal-body {
   display: flex; flex-direction: column; gap: var(--space-3);
   max-height: calc(100dvh - 3rem); overflow-y: auto;
@@ -1794,3 +1825,10 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 }
 .tool-options .tool-check { display: flex; flex-direction: row; align-items: center; gap: var(--space-2); font-size: var(--fs-sm); color: var(--text); }
 .tool-button.rail-button.rail-toggle { width: 100%; min-height: 1.5rem; }
+
+/* Library creatures (library-creatures): a creature without art is a plain disc, as on the board. */
+.creature-disc { display: block; width: 70%; aspect-ratio: 1; border-radius: 50%; }
+.add-token-creature { flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.picker-item .creature-disc { width: 100%; }
+.creature-image-choose { flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.creature-image-choose button { white-space: nowrap; }

@@ -4,6 +4,7 @@ import path from "node:path";
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import {
+  canRenderGrid,
   DEFAULT_GRID,
   GmIdentifyRequest,
   LibraryPatchRequest,
@@ -13,6 +14,7 @@ import {
   type LibraryUsageResponse,
 } from "@vtt/shared";
 import { hashToken } from "../domain/credentials";
+import { registerCreatureRoutes } from "./creatures";
 import type { AssetStore } from "../store/assetStore";
 import type { LibraryAssetRecord } from "../store/libraryStore";
 import type { RoomStore } from "../store/roomStore";
@@ -94,6 +96,10 @@ export function registerLibraryRoutes(
       if (patch.data.grid && existing.kind !== "map") {
         return void res.status(400).json({ error: "Only maps have a grid" });
       }
+      // The same drawable-grid limit `decide` applies to a room's grid, against this map's size.
+      if (patch.data.grid && !canRenderGrid(patch.data.grid.cellSize, existing)) {
+        return void res.status(400).json({ error: "Grid cell size is too small for this map" });
+      }
       const updated = await store.updateAsset(id.data, gmId, patch.data);
       if (!updated) return void notFound(res);
       res.json(toWire(updated));
@@ -104,7 +110,10 @@ export function registerLibraryRoutes(
     void withGm(req, res, async (gmId) => {
       const id = AssetIdParam.safeParse(req.params.id);
       if (!id.success || !(await store.findAsset(id.data, gmId))) return void notFound(res);
-      const response: LibraryUsageResponse = { rooms: await store.assetUsage(id.data, gmId) };
+      const response: LibraryUsageResponse = {
+        rooms: await store.assetUsage(id.data, gmId),
+        creatures: await store.creaturesUsingImage(id.data, gmId),
+      };
       res.json(response);
     });
   });
@@ -120,6 +129,8 @@ export function registerLibraryRoutes(
       res.status(204).end();
     });
   });
+
+  registerCreatureRoutes(app, { store, withGm });
 
   async function withGm(req: Request, res: Response, handler: (gmId: string) => Promise<void>) {
     try {
