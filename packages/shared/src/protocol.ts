@@ -2,7 +2,8 @@ import { z } from "zod";
 import { Command } from "./commands";
 import { CommittedEvent } from "./events";
 import { GridSpec, Point } from "./geometry";
-import { Id, Participant, type RoomState } from "./state";
+import { TokenStats } from "./conditions";
+import { Id, Participant, Token, type RoomState } from "./state";
 import type { RejectionCode } from "./decide";
 
 /**
@@ -181,4 +182,44 @@ export interface LibraryAsset {
 
 export interface LibraryUsageResponse {
   rooms: { id: string; name: string }[];
+  /** The GM's creatures that use this token art as their image (ADR 0010). */
+  creatures: { id: string; name: string }[];
+}
+
+/**
+ * A reusable creature in the GM's library (ADR 0010). Built from the token limits so a saved
+ * creature always places as a valid `token.create`. The name is the name shown on the board.
+ */
+export const CreatureFields = z.object({
+  name: Token.shape.name.refine((name) => name.trim() !== "", { message: "Name can't be blank" }),
+  size: Token.shape.size,
+  maxHp: TokenStats.shape.maxHp,
+  ac: TokenStats.shape.ac,
+  /** The GM's own token art, or null for a plain colour disc. */
+  imageAssetId: z.uuid().nullable(),
+});
+
+export const CreateCreatureRequest = CreatureFields.extend({
+  size: Token.shape.size.default(1),
+  maxHp: TokenStats.shape.maxHp.default(null),
+  ac: TokenStats.shape.ac.default(null),
+  imageAssetId: z.uuid().nullable().default(null),
+});
+export type CreateCreatureRequest = z.infer<typeof CreateCreatureRequest>;
+
+export const UpdateCreatureRequest = CreatureFields.partial().refine((p) => Object.keys(p).length > 0, {
+  message: "Nothing to change",
+});
+export type UpdateCreatureRequest = z.infer<typeof UpdateCreatureRequest>;
+
+export interface LibraryCreature {
+  id: string;
+  name: string;
+  size: number;
+  maxHp: number | null;
+  ac: number | null;
+  imageAssetId: string | null;
+  /** Resolved from the linked token art; null when there is none or it was deleted. */
+  imageUrl: string | null;
+  createdAt: string;
 }

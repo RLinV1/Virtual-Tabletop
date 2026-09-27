@@ -14,6 +14,7 @@ import {
   type LibraryUsageResponse,
 } from "@vtt/shared";
 import { hashToken } from "../domain/credentials";
+import { registerCreatureRoutes } from "./creatures";
 import type { AssetStore } from "../store/assetStore";
 import type { LibraryAssetRecord } from "../store/libraryStore";
 import type { RoomStore } from "../store/roomStore";
@@ -109,7 +110,10 @@ export function registerLibraryRoutes(
     void withGm(req, res, async (gmId) => {
       const id = AssetIdParam.safeParse(req.params.id);
       if (!id.success || !(await store.findAsset(id.data, gmId))) return void notFound(res);
-      const response: LibraryUsageResponse = { rooms: await store.assetUsage(id.data, gmId) };
+      const response: LibraryUsageResponse = {
+        rooms: await store.assetUsage(id.data, gmId),
+        creatures: await store.creaturesUsingImage(id.data, gmId),
+      };
       res.json(response);
     });
   });
@@ -125,6 +129,8 @@ export function registerLibraryRoutes(
       res.status(204).end();
     });
   });
+
+  registerCreatureRoutes(app, { store, withGm });
 
   async function withGm(req: Request, res: Response, handler: (gmId: string) => Promise<void>) {
     try {

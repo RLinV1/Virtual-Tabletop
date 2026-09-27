@@ -1,6 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { CommittedEvent, GmRoomSummary, GridSpec } from "@vtt/shared";
-import type { LibraryAssetRecord, NewRoomOptions } from "./libraryStore";
+import {
+  CreatureImageMissingError,
+  type CreaturePatch,
+  type LibraryAssetRecord,
+  type LibraryCreatureRecord,
+  type NewCreatureRecord,
+  type NewRoomOptions,
+} from "./libraryStore";
 import { SeqConflictError, type CredentialRecord, type NewEvent, type RoomStore } from "./roomStore";
 
 /** Dev/test store. Loses everything on restart. */
@@ -11,6 +18,7 @@ export class MemoryRoomStore implements RoomStore {
   private rooms = new Map<string, { ownerGmId: string | null; name: string; createdAt: string }>();
   private gms = new Map<string, string>();
   private assets = new Map<string, LibraryAssetRecord>();
+  private creatures = new Map<string, NewCreatureRecord>();
   /** roomId -> asset ids its current state references. */
   private refs = new Map<string, Set<string>>();
   /** roomId -> object keys uploaded from inside it (ADR 0009). */
@@ -177,6 +185,8 @@ export class MemoryRoomStore implements RoomStore {
     if (!asset || asset.ownerGmId !== ownerGmId) return null;
     this.assets.delete(id);
     for (const ids of this.refs.values()) ids.delete(id);
+    // As `ON DELETE SET NULL` does in Postgres: the creatures stay, without their image.
+    for (const creature of this.creatures.values()) if (creature.imageAssetId === id) creature.imageAssetId = null;
     return asset;
   }
 
@@ -193,5 +203,54 @@ export class MemoryRoomStore implements RoomStore {
       if (ids.has(assetId) && room?.ownerGmId === ownerGmId) usage.push({ id: roomId, name: room.name });
     }
     return usage;
+  }
+
+  async listCreatures(ownerGmId: string) {
+    return [...this.creatures.values()]
+      .filter((c) => c.ownerGmId === ownerGmId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((c) => this.withImage(c));
+  }
+
+  async findCreature(id: string, ownerGmId: string) {
+    const creature = this.creatures.get(id);
+    return creature && creature.ownerGmId === ownerGmId ? this.withImage(creature) : null;
+  }
+
+  async createCreature(creature: NewCreatureRecord) {
+    this.requireImage(creature.imageAssetId);
+    this.creatures.set(creature.id, structuredClone(creature));
+    return this.withImage(creature);
+  }
+
+  async updateCreature(id: string, ownerGmId: string, patch: CreaturePatch) {
+    const creature = this.creatures.get(id);
+    if (!creature || creature.ownerGmId !== ownerGmId) return null;
+    if (patch.imageAssetId !== undefined) this.requireImage(patch.imageAssetId);
+    const next = { ...creature, ...patch };
+    this.creatures.set(id, next);
+    return this.withImage(next);
+  }
+
+  async deleteCreature(id: string, ownerGmId: string) {
+    const creature = this.creatures.get(id);
+    if (!creature || creature.ownerGmId !== ownerGmId) return false;
+    return this.creatures.delete(id);
+  }
+
+  async creaturesUsingImage(assetId: string, ownerGmId: string) {
+    return [...this.creatures.values()]
+      .filter((c) => c.ownerGmId === ownerGmId && c.imageAssetId === assetId)
+      .map((c) => ({ id: c.id, name: c.name }));
+  }
+
+  /** The foreign key Postgres enforces on `image_asset_id`. */
+  private requireImage(assetId: string | null) {
+    if (assetId !== null && !this.assets.has(assetId)) throw new CreatureImageMissingError();
+  }
+
+  private withImage(creature: NewCreatureRecord): LibraryCreatureRecord {
+    const image = creature.imageAssetId ? this.assets.get(creature.imageAssetId) : undefined;
+    return { ...structuredClone(creature), imageUrl: image?.url ?? null };
   }
 }

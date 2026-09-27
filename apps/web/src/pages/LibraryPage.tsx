@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { DEFAULT_GRID, normalizeLegacyGridForBoard, type AssetKind, type GridSpec, type LibraryAsset } from "@vtt/shared";
+import { DEFAULT_GRID, normalizeLegacyGridForBoard, type AssetKind, type GridSpec, type LibraryAsset, type LibraryCreature } from "@vtt/shared";
 import { Link } from "../Link";
 import { api } from "../net/api";
 import { builtinsMatching } from "../net/builtinAssets";
@@ -10,12 +10,17 @@ import { navigate } from "../router";
 import { Modal } from "../ui/Modal";
 import { AccountMenu } from "./AccountPages";
 import { GridForm } from "./GridForm";
+import { CreatureCard, CreatureForm } from "./LibraryCreatures";
 import { parseGridDraft, toGridDraft } from "./gridDraft";
 import { MapGridPreview } from "./MapGridPreview";
 
-const TABS: { kind: AssetKind; label: string }[] = [
-  { kind: "map", label: "Maps" },
-  { kind: "token", label: "Tokens" },
+/** Maps and token art are uploaded assets; creatures are reusable token setups (library-creatures). */
+type Tab = AssetKind | "creature";
+
+const TABS: { tab: Tab; label: string }[] = [
+  { tab: "map", label: "Maps" },
+  { tab: "token", label: "Token Art" },
+  { tab: "creature", label: "Creatures" },
 ];
 
 /**
@@ -33,14 +38,18 @@ export function LibraryPage() {
   return recognised ? <Library /> : null;
 }
 
-/** The GM's maps and token art, managed before a session (asset-library). */
+/** The GM's maps, token art and creatures, managed before a session (asset-library, library-creatures). */
 function Library() {
   const [gmToken, setGmToken] = useState<string | null>(loadGmToken);
   // No GM identity yet means nothing uploaded yet: an empty library, with nothing to fetch.
   const [assets, setAssets] = useState<LibraryAsset[] | null>(gmToken ? null : []);
-  const [kind, setKind] = useState<AssetKind>("map");
+  const [creatures, setCreatures] = useState<LibraryCreature[] | null>(gmToken ? null : []);
+  const [tab, setTab] = useState<Tab>("map");
+  const kind: AssetKind = tab === "creature" ? "token" : tab;
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
+  /** The creature open in the New/Edit form. */
+  const [creatureTarget, setCreatureTarget] = useState<LibraryCreature | "new" | null>(null);
   /** The owned map whose grid is open in the editor. */
   const [gridTarget, setGridTarget] = useState<LibraryAsset | null>(null);
 
@@ -51,6 +60,10 @@ function Library() {
     api.library.list(gmToken).then(
       (list) => live && setAssets(list),
       (err: unknown) => live && setError(err instanceof Error ? err.message : "Could not load the library"),
+    );
+    api.library.creatures.list(gmToken).then(
+      (list) => live && setCreatures(list),
+      (err: unknown) => live && setError(err instanceof Error ? err.message : "Could not load your creatures"),
     );
     return () => {
       live = false;
@@ -63,7 +76,12 @@ function Library() {
     return (assets ?? []).filter((a) => a.kind === kind && (!q || a.name.toLowerCase().includes(q)));
   }, [assets, kind, query]);
 
-  const builtins = useMemo(() => builtinsMatching(kind, query), [kind, query]);
+  const builtins = useMemo(() => (tab === "creature" ? [] : builtinsMatching(kind, query)), [tab, kind, query]);
+
+  const shownCreatures = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return (creatures ?? []).filter((c) => !q || c.name.toLowerCase().includes(q));
+  }, [creatures, query]);
 
   const replace = (next: LibraryAsset) => setAssets((all) => (all ?? []).map((a) => (a.id === next.id ? next : a)));
 
@@ -85,12 +103,12 @@ function Library() {
         <div role="tablist" aria-label="Asset type" className="tabs">
           {TABS.map((t) => (
             <button
-              key={t.kind}
+              key={t.tab}
               type="button"
               role="tab"
-              aria-selected={kind === t.kind}
-              className={kind === t.kind ? "tab active" : "tab"}
-              onClick={() => setKind(t.kind)}
+              aria-selected={tab === t.tab}
+              className={tab === t.tab ? "tab active" : "tab"}
+              onClick={() => setTab(t.tab)}
             >
               {t.label}
             </button>
@@ -103,37 +121,72 @@ function Library() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <UploadButton
-          kind={kind}
-          onUploaded={(token, a) => {
-            setGmToken(token);
-            setAssets((all) => [a, ...(all ?? [])]);
-          }}
-          onError={setError}
-        />
+        {tab === "creature" ? (
+          <button type="button" onClick={() => setCreatureTarget("new")}>New creature</button>
+        ) : (
+          <UploadButton
+            kind={kind}
+            onUploaded={(token, a) => {
+              setGmToken(token);
+              setAssets((all) => [a, ...(all ?? [])]);
+            }}
+            onError={setError}
+          />
+        )}
       </div>
 
-      {!assets && !error && <p className="muted" aria-busy="true">Loading…</p>}
-      {assets && shown.length === 0 && (
-        <p className="muted">
-          {query
-            ? "None of your uploads match that search."
-            : `You haven't uploaded any ${kind === "map" ? "maps" : "tokens"} yet. The ones below are ready to use.`}
-        </p>
+      {tab === "creature" ? (
+        <>
+          {!creatures && !error && <p className="muted" aria-busy="true">Loading…</p>}
+          {creatures && shownCreatures.length === 0 && (
+            <p className="muted">
+              {query
+                ? "None of your creatures match that search."
+                : "You haven't made any creatures yet. A creature saves a name, size, HP and AC, so you can place it from Add token without setting it up again."}
+            </p>
+          )}
+          <ul className="plain asset-grid" role="tabpanel">
+            {gmToken &&
+              shownCreatures.map((creature) => (
+                <CreatureCard
+                  key={creature.id}
+                  creature={creature}
+                  gmToken={gmToken}
+                  onEdit={() => setCreatureTarget(creature)}
+                  onDeleted={() => setCreatures((all) => (all ?? []).filter((c) => c.id !== creature.id))}
+                />
+              ))}
+          </ul>
+        </>
+      ) : (
+        <>
+          {!assets && !error && <p className="muted" aria-busy="true">Loading…</p>}
+          {assets && shown.length === 0 && (
+            <p className="muted">
+              {query
+                ? "None of your uploads match that search."
+                : `You haven't uploaded any ${kind === "map" ? "maps" : "token art"} yet. The ones below are ready to use.`}
+            </p>
+          )}
+          <ul className="plain asset-grid" role="tabpanel">
+            {gmToken &&
+              shown.map((asset) => (
+                <AssetCard
+                  key={asset.id}
+                  asset={asset}
+                  gmToken={gmToken}
+                  onChanged={replace}
+                  onEditGrid={() => setGridTarget(asset)}
+                  onDeleted={() => {
+                    setAssets((all) => (all ?? []).filter((a) => a.id !== asset.id));
+                    // The server cleared the link; creatures that used this art are now colour discs.
+                    setCreatures((all) => (all ?? []).map((c) => (c.imageAssetId === asset.id ? { ...c, imageAssetId: null, imageUrl: null } : c)));
+                  }}
+                />
+              ))}
+          </ul>
+        </>
       )}
-      <ul className="plain asset-grid" role="tabpanel">
-        {gmToken &&
-          shown.map((asset) => (
-            <AssetCard
-              key={asset.id}
-              asset={asset}
-              gmToken={gmToken}
-              onChanged={replace}
-              onEditGrid={() => setGridTarget(asset)}
-              onDeleted={() => setAssets((all) => (all ?? []).filter((a) => a.id !== asset.id))}
-            />
-          ))}
-      </ul>
 
       {builtins.length > 0 && (
         <section className="builtin-assets" aria-labelledby="builtin-heading">
@@ -146,6 +199,26 @@ function Library() {
           </ul>
         </section>
       )}
+
+      <Modal
+        open={creatureTarget !== null}
+        title={creatureTarget === "new" ? "New creature" : "Edit creature"}
+        onClose={() => setCreatureTarget(null)}
+      >
+        {creatureTarget !== null && (
+          <CreatureForm
+            key={creatureTarget === "new" ? "new" : creatureTarget.id}
+            creature={creatureTarget === "new" ? null : creatureTarget}
+            gmToken={gmToken}
+            onCancel={() => setCreatureTarget(null)}
+            onSaved={(saved, token) => {
+              setGmToken(token);
+              setCreatures((all) => [saved, ...(all ?? []).filter((c) => c.id !== saved.id)]);
+              setCreatureTarget(null);
+            }}
+          />
+        )}
+      </Modal>
 
       <Modal open={gridTarget !== null} title="Edit grid" className="library-grid-modal" onClose={() => setGridTarget(null)}>
         {gmToken && gridTarget && (
@@ -206,7 +279,7 @@ function UploadButton(props: {
   }
   return (
     <label className="upload-button">
-      <span>{busy ? "Uploading…" : props.kind === "map" ? "Upload map" : "Upload token"}</span>
+      <span>{busy ? "Uploading…" : props.kind === "map" ? "Upload map" : "Upload token art"}</span>
       <input
         type="file"
         className="sr-only"
@@ -224,7 +297,7 @@ function UploadButton(props: {
 type DeleteState =
   | { step: "idle" }
   | { step: "checking" }
-  | { step: "confirm"; rooms: { id: string; name: string }[] }
+  | { step: "confirm"; rooms: { id: string; name: string }[]; creatures: { id: string; name: string }[] }
   | { step: "deleting" };
 
 function AssetCard(props: {
@@ -256,8 +329,8 @@ function AssetCard(props: {
     setDel({ step: "checking" });
     try {
       // Ask the server who uses it now, so the warning is never stale (asset-library).
-      const { rooms } = await api.library.usage(gmToken, asset.id);
-      setDel({ step: "confirm", rooms });
+      const { rooms, creatures } = await api.library.usage(gmToken, asset.id);
+      setDel({ step: "confirm", rooms, creatures });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not check where this is used");
       setDel({ step: "idle" });
@@ -308,14 +381,19 @@ function AssetCard(props: {
 
       {del.step === "confirm" ? (
         <div className="confirm" role="alertdialog" aria-label={`Delete ${asset.name}?`}>
-          {del.rooms.length > 0 ? (
+          {del.rooms.length > 0 && (
             <p>
               Used in {del.rooms.length === 1 ? "1 room" : `${del.rooms.length} rooms`}:{" "}
               <strong>{del.rooms.map((r) => r.name || "Untitled room").join(", ")}</strong>. They will show {standIn} instead.
             </p>
-          ) : (
-            <p>Delete “{asset.name}”? This can't be undone.</p>
           )}
+          {del.creatures.length > 0 && (
+            <p>
+              Used by {del.creatures.length === 1 ? "1 creature" : `${del.creatures.length} creatures`}:{" "}
+              <strong>{del.creatures.map((c) => c.name).join(", ")}</strong>. {del.creatures.length === 1 ? "It" : "They"} will lose {del.creatures.length === 1 ? "its" : "their"} image.
+            </p>
+          )}
+          {del.rooms.length === 0 && del.creatures.length === 0 && <p>Delete “{asset.name}”? This can't be undone.</p>}
           <div className="row">
             <button type="button" className="secondary small" onClick={() => setDel({ step: "idle" })}>
               Cancel

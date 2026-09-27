@@ -1,12 +1,23 @@
-import { Prisma, PrismaClient, type LibraryAsset } from "@prisma/client";
+import { Prisma, PrismaClient, type LibraryAsset, type LibraryCreature } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import type { AssetKind, CommittedEvent, DomainEvent, GmRoomSummary, GridSpec } from "@vtt/shared";
-import type { LibraryAssetRecord, NewRoomOptions } from "./libraryStore";
+import {
+  CreatureImageMissingError,
+  type CreaturePatch,
+  type LibraryAssetRecord,
+  type LibraryCreatureRecord,
+  type NewCreatureRecord,
+  type NewRoomOptions,
+} from "./libraryStore";
 import type { RedisSeqSource } from "./redisSeq";
 import { SeqConflictError, type CredentialRecord, type NewEvent, type RoomStore } from "./roomStore";
 
 /** Postgres unique-violation code; Prisma surfaces it as P2002. */
 const PRISMA_UNIQUE_VIOLATION = "P2002";
+/** Foreign-key violation: here, a creature linking to token art deleted mid-request. */
+const PRISMA_FOREIGN_KEY_VIOLATION = "P2003";
+/** Joined so a creature carries its art's URL; null once the art is deleted (ON DELETE SET NULL). */
+const WITH_IMAGE = { image: { select: { url: true } } } as const;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
@@ -296,6 +307,42 @@ export class PostgresRoomStore implements RoomStore {
     return refs.map((r) => ({ id: r.room.id, name: r.room.name ?? "" }));
   }
 
+  async listCreatures(ownerGmId: string) {
+    const rows = await this.prisma.libraryCreature.findMany({
+      where: { ownerGmId }, orderBy: { createdAt: "desc" }, include: WITH_IMAGE,
+    });
+    return rows.map(toCreatureRecord);
+  }
+
+  async findCreature(id: string, ownerGmId: string) {
+    const row = await this.prisma.libraryCreature.findFirst({ where: { id, ownerGmId }, include: WITH_IMAGE });
+    return row ? toCreatureRecord(row) : null;
+  }
+
+  async createCreature(creature: NewCreatureRecord) {
+    const row = await missingImageAsError(() => this.prisma.libraryCreature.create({
+      data: { ...creature, createdAt: new Date(creature.createdAt) },
+      include: WITH_IMAGE,
+    }));
+    return toCreatureRecord(row);
+  }
+
+  async updateCreature(id: string, ownerGmId: string, patch: CreaturePatch) {
+    const { count } = await missingImageAsError(() => this.prisma.libraryCreature.updateMany({ where: { id, ownerGmId }, data: patch }));
+    return count === 1 ? this.findCreature(id, ownerGmId) : null;
+  }
+
+  async deleteCreature(id: string, ownerGmId: string) {
+    const { count } = await this.prisma.libraryCreature.deleteMany({ where: { id, ownerGmId } });
+    return count === 1;
+  }
+
+  async creaturesUsingImage(assetId: string, ownerGmId: string) {
+    return this.prisma.libraryCreature.findMany({
+      where: { imageAssetId: assetId, ownerGmId }, select: { id: true, name: true }, orderBy: { createdAt: "desc" },
+    });
+  }
+
   async close() {
     await this.prisma.$disconnect();
   }
@@ -303,6 +350,31 @@ export class PostgresRoomStore implements RoomStore {
 
 function isUniqueViolation(err: unknown): boolean {
   return typeof err === "object" && err !== null && "code" in err && err.code === PRISMA_UNIQUE_VIOLATION;
+}
+
+async function missingImageAsError<T>(write: () => Promise<T>): Promise<T> {
+  try {
+    return await write();
+  } catch (err) {
+    if (typeof err === "object" && err !== null && "code" in err && err.code === PRISMA_FOREIGN_KEY_VIOLATION) {
+      throw new CreatureImageMissingError();
+    }
+    throw err;
+  }
+}
+
+function toCreatureRecord(row: LibraryCreature & { image: { url: string } | null }): LibraryCreatureRecord {
+  return {
+    id: row.id,
+    ownerGmId: row.ownerGmId,
+    name: row.name,
+    size: row.size,
+    maxHp: row.maxHp,
+    ac: row.ac,
+    imageAssetId: row.imageAssetId,
+    imageUrl: row.image?.url ?? null,
+    createdAt: row.createdAt.toISOString(),
+  };
 }
 
 function toAssetRecord(row: LibraryAsset): LibraryAssetRecord {

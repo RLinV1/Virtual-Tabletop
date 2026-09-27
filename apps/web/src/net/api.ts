@@ -2,10 +2,13 @@ import {
   GM_TOKEN_HEADER,
   HistoryResponse,
   type AssetKind,
+  type CreateCreatureRequest,
   type GmRoomSummary,
   type GridSpec,
   type LibraryAsset,
+  type LibraryCreature,
   type LibraryUsageResponse,
+  type UpdateCreatureRequest,
 } from "@vtt/shared";
 import type {
   CreateRoomRequest,
@@ -159,5 +162,16 @@ export const api = {
 
     remove: (gmToken: string, id: string) =>
       gmRequest<void>(gmToken, `/api/library/${encodeURIComponent(id)}`, { method: "DELETE" }),
+
+    /** Reusable creatures placed from Add Token (library-creatures, ADR 0010). */
+    creatures: {
+      list: (gmToken: string) => gmRequest<LibraryCreature[]>(gmToken, "/api/library/creatures"),
+      create: (gmToken: string, creature: CreateCreatureRequest) =>
+        gmRequest<LibraryCreature>(gmToken, "/api/library/creatures", { method: "POST", ...jsonBody(creature) }),
+      update: (gmToken: string, id: string, patch: UpdateCreatureRequest) =>
+        gmRequest<LibraryCreature>(gmToken, `/api/library/creatures/${encodeURIComponent(id)}`, { method: "PATCH", ...jsonBody(patch) }),
+      remove: (gmToken: string, id: string) =>
+        gmRequest<void>(gmToken, `/api/library/creatures/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    },
   },
 };

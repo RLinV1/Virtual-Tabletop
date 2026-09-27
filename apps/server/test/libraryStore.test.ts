@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
 import { DEFAULT_GRID } from "@vtt/shared";
-import type { LibraryAssetRecord } from "../src/store/libraryStore";
+import { CreatureImageMissingError, type LibraryAssetRecord, type NewCreatureRecord } from "../src/store/libraryStore";
 import { MemoryRoomStore } from "../src/store/memoryRoomStore";
 import { PostgresRoomStore } from "../src/store/postgresRoomStore";
 import type { RoomStore } from "../src/store/roomStore";
@@ -110,6 +110,69 @@ for (const [label, store] of stores) {
       // A room still showing the deleted asset cannot write it back into the index.
       await s().setAssetRefs(roomA, [a.id]);
       expect(await s().assetUsage(a.id, gmA)).toEqual([]);
+    });
+
+    const creature = (ownerGmId: string, overrides: Partial<NewCreatureRecord> = {}): NewCreatureRecord => ({
+      id: randomUUID(),
+      ownerGmId,
+      name: "Goblin",
+      size: 1,
+      maxHp: 7,
+      ac: 15,
+      imageAssetId: null,
+      createdAt: new Date().toISOString(),
+      ...overrides,
+    });
+
+    it("scopes every creature read and write to its owner (library-creatures)", async () => {
+      const gmA = await s().registerGm(randomUUID());
+      const gmB = await s().registerGm(randomUUID());
+      const c = creature(gmA);
+      expect(await s().createCreature(c)).toEqual({ ...c, imageUrl: null });
+
+      expect((await s().listCreatures(gmA)).map((x) => x.id)).toEqual([c.id]);
+      expect(await s().listCreatures(gmB)).toEqual([]);
+      expect(await s().findCreature(c.id, gmB)).toBeNull();
+      expect(await s().updateCreature(c.id, gmB, { name: "Stolen" })).toBeNull();
+      expect(await s().deleteCreature(c.id, gmB)).toBe(false);
+      expect((await s().findCreature(c.id, gmA))?.name).toBe("Goblin");
+    });
+
+    it("edits and deletes a creature, newest listed first", async () => {
+      const gm = await s().registerGm(randomUUID());
+      const older = creature(gm, { createdAt: new Date(Date.now() - 1000).toISOString() });
+      const newer = creature(gm, { name: "Orc" });
+      await s().createCreature(older);
+      await s().createCreature(newer);
+      expect((await s().listCreatures(gm)).map((x) => x.name)).toEqual(["Orc", "Goblin"]);
+
+      expect(await s().updateCreature(older.id, gm, { maxHp: 9, ac: null, size: 1.5 }))
+        .toMatchObject({ name: "Goblin", maxHp: 9, ac: null, size: 1.5 });
+      expect(await s().deleteCreature(older.id, gm)).toBe(true);
+      expect((await s().listCreatures(gm)).map((x) => x.name)).toEqual(["Orc"]);
+    });
+
+    it("links token art, reports it, and keeps the creature without it when the art is deleted", async () => {
+      const gm = await s().registerGm(randomUUID());
+      const art = asset(gm, { kind: "token", grid: null, url: "/uploads/goblin.webp" });
+      await s().createAsset(art);
+      const c = creature(gm, { imageAssetId: art.id });
+      expect((await s().createCreature(c)).imageUrl).toBe("/uploads/goblin.webp");
+      expect(await s().creaturesUsingImage(art.id, gm)).toEqual([{ id: c.id, name: "Goblin" }]);
+
+      await s().deleteAsset(art.id, gm);
+      expect(await s().findCreature(c.id, gm)).toMatchObject({ name: "Goblin", maxHp: 7, imageAssetId: null, imageUrl: null });
+      expect(await s().creaturesUsingImage(art.id, gm)).toEqual([]);
+    });
+
+    it("refuses to link art that does not exist", async () => {
+      const gm = await s().registerGm(randomUUID());
+      await expect(s().createCreature(creature(gm, { imageAssetId: randomUUID() }))).rejects.toBeInstanceOf(CreatureImageMissingError);
+      expect(await s().listCreatures(gm)).toEqual([]);
+      const c = creature(gm);
+      await s().createCreature(c);
+      await expect(s().updateCreature(c.id, gm, { imageAssetId: randomUUID() })).rejects.toBeInstanceOf(CreatureImageMissingError);
+      expect((await s().findCreature(c.id, gm))?.imageAssetId).toBeNull();
     });
   });
 }

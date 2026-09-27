@@ -14,6 +14,29 @@ export interface LibraryAssetRecord {
   createdAt: string;
 }
 
+/** A reusable creature (ADR 0010). `imageUrl` is read from the linked token art, never stored. */
+export interface LibraryCreatureRecord {
+  id: string;
+  ownerGmId: string;
+  name: string;
+  size: number;
+  maxHp: number | null;
+  ac: number | null;
+  imageAssetId: string | null;
+  imageUrl: string | null;
+  createdAt: string;
+}
+
+export type NewCreatureRecord = Omit<LibraryCreatureRecord, "imageUrl">;
+export type CreaturePatch = Partial<Pick<LibraryCreatureRecord, "name" | "size" | "maxHp" | "ac" | "imageAssetId">>;
+
+/** The creature would link to token art that does not exist (or was deleted mid-request). */
+export class CreatureImageMissingError extends Error {
+  constructor() {
+    super("Image must be your own token art");
+  }
+}
+
 export interface NewRoomOptions {
   /** GM device identity that owns the room; null for rooms created without one. */
   ownerGmId?: string | null;
@@ -43,4 +66,15 @@ export interface LibraryStore {
   setAssetRefs(roomId: string, assetIds: string[]): Promise<void>;
   /** Rooms owned by `ownerGmId` whose current state references the asset. */
   assetUsage(assetId: string, ownerGmId: string): Promise<{ id: string; name: string }[]>;
+
+  /** The GM's creatures, newest first. Every creature read and write is scoped to its owner. */
+  listCreatures(ownerGmId: string): Promise<LibraryCreatureRecord[]>;
+  findCreature(id: string, ownerGmId: string): Promise<LibraryCreatureRecord | null>;
+  /** Throws `CreatureImageMissingError` when `imageAssetId` names no asset. */
+  createCreature(creature: NewCreatureRecord): Promise<LibraryCreatureRecord>;
+  /** Null when the GM has no such creature. Throws `CreatureImageMissingError` like `createCreature`. */
+  updateCreature(id: string, ownerGmId: string, patch: CreaturePatch): Promise<LibraryCreatureRecord | null>;
+  deleteCreature(id: string, ownerGmId: string): Promise<boolean>;
+  /** The GM's creatures whose image is this asset, for the delete warning. */
+  creaturesUsingImage(assetId: string, ownerGmId: string): Promise<{ id: string; name: string }[]>;
 }

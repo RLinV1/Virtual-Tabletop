@@ -1821,3 +1821,10 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 }
 .tool-options .tool-check { display: flex; flex-direction: row; align-items: center; gap: var(--space-2); font-size: var(--fs-sm); color: var(--text); }
 .tool-button.rail-button.rail-toggle { width: 100%; min-height: 1.5rem; }
+
+/* Library creatures (library-creatures): a creature without art is a plain disc, as on the board. */
+.creature-disc { display: block; width: 70%; aspect-ratio: 1; border-radius: 50%; }
+.add-token-creature { flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.picker-item .creature-disc { width: 100%; }
+.creature-image-choose { flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.creature-image-choose button { white-space: nowrap; }

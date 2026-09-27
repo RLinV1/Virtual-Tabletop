@@ -45,8 +45,9 @@ model GmIdentity {
   tokenHash String   @unique @map("token_hash")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  rooms  Room[]
-  assets LibraryAsset[]
+  rooms     Room[]
+  assets    LibraryAsset[]
+  creatures LibraryCreature[]
 
   @@map("gm_identities")
 }
@@ -64,10 +65,31 @@ model LibraryAsset {
   grid      Json?
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  owner GmIdentity @relation(fields: [ownerGmId], references: [id])
+  owner     GmIdentity        @relation(fields: [ownerGmId], references: [id])
+  creatures LibraryCreature[]
 
   @@index([ownerGmId, kind])
   @@map("library_assets")
+}
+
+/// A reusable creature the GM places from Add Token (docs/adr/0010-library-creatures.md).
+/// Deleting its token art clears `imageAssetId`; the creature itself stays.
+model LibraryCreature {
+  id           String   @id @db.Uuid
+  ownerGmId    String   @map("owner_gm_id") @db.Uuid
+  name         String
+  size         Float
+  maxHp        Int?     @map("max_hp")
+  ac           Int?
+  imageAssetId String?  @map("image_asset_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  owner GmIdentity    @relation(fields: [ownerGmId], references: [id])
+  image LibraryAsset? @relation(fields: [imageAssetId], references: [id], onDelete: SetNull)
+
+  @@index([ownerGmId])
+  @@index([imageAssetId])
+  @@map("library_creatures")
 }
 
 /// Projection: which library assets a room's CURRENT state references (ADR 0004).

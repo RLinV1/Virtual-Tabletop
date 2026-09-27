@@ -4,6 +4,8 @@ import type { TokenDraft } from "../board/placement";
 import { api } from "../net/api";
 import { loadGmToken } from "../net/identity";
 import { libraryAssetId } from "../net/builtinAssets";
+import { creatureDraft } from "../pages/creatureDraft";
+import { CreaturePicker } from "../pages/LibraryCreatures";
 import { LibraryPicker } from "../pages/LibraryPicker";
 import { Modal } from "../ui/Modal";
 import { TokenPreview } from "../ui/TokenPreview";
@@ -85,6 +87,7 @@ function AddToken(props: {
   const [ac, setAc] = useState("");
   const [image, setImage] = useState<TokenImage | null>(null);
   const [picking, setPicking] = useState(false);
+  const [pickingCreature, setPickingCreature] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -116,6 +119,14 @@ function AddToken(props: {
           });
         }}
       >
+        {props.gmToken && (
+          <div className="row add-token-creature">
+            <button type="button" className="secondary" disabled={uploading} onClick={() => setPickingCreature(true)}>
+              From creature
+            </button>
+            <span className="muted">Fills in the details below from one of your creatures.</span>
+          </div>
+        )}
         <label>
           Name
           <input
@@ -192,6 +203,25 @@ function AddToken(props: {
       </form>
       {/* Its own modal, stacked over this one (native dialogs stack), so searching the
           library has room. Kept outside the form so its buttons can never submit it. */}
+      {props.gmToken && (
+        <Modal open={pickingCreature} title="Choose a creature" onClose={() => setPickingCreature(false)}>
+          <CreaturePicker
+            gmToken={props.gmToken}
+            onPick={(creature) => {
+              // A creature's name is entered as its board name, so it may prefill the token's (ADR 0010).
+              // Owner, Hidden and rotation stay as the GM set them.
+              const draft = creatureDraft(creature);
+              setName(draft.name);
+              setSize(String(draft.size));
+              setHp(draft.stats.hp === null ? "" : String(draft.stats.hp));
+              setMaxHp(draft.stats.maxHp === null ? "" : String(draft.stats.maxHp));
+              setAc(draft.stats.ac === null ? "" : String(draft.stats.ac));
+              setImage(draft.image && { ...draft.image, label: creature.name });
+              setPickingCreature(false);
+            }}
+          />
+        </Modal>
+      )}
       {props.gmToken && (
         <Modal open={picking} title="Choose a token image" onClose={() => setPicking(false)}>
           <LibraryPicker
