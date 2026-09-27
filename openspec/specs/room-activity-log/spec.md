@@ -28,11 +28,15 @@ History SHALL be newest-first, default to 50 entries, accept a limit from 1 to 1
 - **THEN** matching actions are returned regardless of whether previously loaded
 
 ### Requirement: Readable attributed actions
-Every supported event SHALL have a sentence describing its action and actor, with System for a null actor and a readable fallback for missing names. Token names SHALL remain available for actions preceding deletion. Entries SHALL include their committed timestamp and sequence.
+Every supported event SHALL have a sentence describing its action and actor, with System for a null actor and a readable fallback for missing names. Token names SHALL remain available for actions preceding deletion. A dice roll that carries attack context SHALL also name the attacking token, the target token, and the label if one was given, using their names at the time of the roll. Entries SHALL include their committed timestamp and sequence.
 
 #### Scenario: Movement and dice
 - **WHEN** Mara moves Goblin and Tomas rolls 1d20 with a total of 15
 - **THEN** history describes Mara moving Goblin and Tomas rolling 1d20: 15
+
+#### Scenario: Attack roll
+- **WHEN** Tomas makes a Longsword attack roll with Aria against Goblin 2 and totals 17 on 1d20+5
+- **THEN** history describes Tomas rolling an attack, Aria → Goblin 2 with Longsword, 1d20+5: 17
 
 #### Scenario: Renaming and deletion
 - **WHEN** an actor changes name or a token is deleted after an action
@@ -48,3 +52,20 @@ The GM room page SHALL offer an Activity log modal with player search, older-pag
 #### Scenario: Player room controls
 - **WHEN** a player opens the room page
 - **THEN** no Activity log control is offered
+
+### Requirement: Readable rulings
+The activity log SHALL describe each GM ruling and damage application with the GM's name and the roll it concerns, using the token names recorded on that roll:
+- a new verdict;
+- a changed verdict, naming the previous one;
+- a cleared verdict;
+- applied damage, including the amount.
+
+The HP change that applying damage causes SHALL also appear, as for any stats change.
+
+#### Scenario: Ruling and correction
+- **WHEN** the GM marks Aria's 17 against Goblin a hit, then changes it to a miss
+- **THEN** history describes the GM ruling Aria → Goblin (1d20+5: 17) a hit, and then changing it from a hit to a miss
+
+#### Scenario: Damage applied
+- **WHEN** the GM applies Aria's 7 damage to Goblin
+- **THEN** history describes the GM applying 7 damage from Aria → Goblin, followed by Goblin's stats update
