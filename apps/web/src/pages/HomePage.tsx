@@ -61,8 +61,8 @@ const PORTRAITS = {
     ash: "/img/tokens/hero-ash.webp",
   },
   visibility: {
-    brenna: "/img/tokens/jungle-brenna.webp",
-    toma: "/img/tokens/jungle-toma.webp",
+    nalani: "/img/tokens/jungle-brenna.webp",
+    kaveh: "/img/tokens/jungle-toma.webp",
   },
 } as const;
 
@@ -454,17 +454,17 @@ function VisibilityChapter() {
           <img src={MAPS.visibility.src} width={CROP.width} height={CROP.height} alt={MAPS.visibility.alt} loading="lazy" decoding="async" />
           <MapGrid width={CROP.width} height={CROP.height} cell={CROP.cell} variant="faint" />
           <TokenChip
-            name="Brenna"
+            name="Nalani"
             color="#5b8def"
             hp={84}
-            image={PORTRAITS.visibility.brenna}
+            image={PORTRAITS.visibility.nalani}
             at={{ col: 7, row: 3 }}
           />
           <TokenChip
-            name="Toma"
+            name="Kaveh"
             color="#3fb950"
             hp={61}
-            image={PORTRAITS.visibility.toma}
+            image={PORTRAITS.visibility.kaveh}
             at={{ col: 11, row: 6 }}
           />
           {asGm && (

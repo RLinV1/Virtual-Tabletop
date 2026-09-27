@@ -37,8 +37,8 @@ export const BUILTIN_ASSETS: readonly LibraryAsset[] = [
   token("brenna", "Brenna", "/img/tokens/hero-brenna.webp"),
   token("toma", "Toma", "/img/tokens/hero-toma.webp"),
   token("ash", "Ash", "/img/tokens/hero-ash.webp"),
-  token("brenna-jungle", "Brenna (jungle)", "/img/tokens/jungle-brenna.webp"),
-  token("toma-jungle", "Toma (jungle)", "/img/tokens/jungle-toma.webp"),
+  token("nalani", "Nalani", "/img/tokens/jungle-brenna.webp"),
+  token("kaveh", "Kaveh", "/img/tokens/jungle-toma.webp"),
 ];
 
 export function isBuiltin(asset: LibraryAsset): boolean {

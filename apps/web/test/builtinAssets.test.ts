@@ -13,6 +13,12 @@ describe("built-in library assets (builtin-library-assets)", () => {
     for (const a of BUILTIN_ASSETS) expect(isBuiltin(a)).toBe(true);
   });
 
+  it("gives every token its own name, so the picker never shows two of one character", () => {
+    const names = BUILTIN_ASSETS.filter((a) => a.kind === "token").map((a) => a.name);
+    expect(new Set(names).size).toBe(names.length);
+    expect(names.some((n) => /[()]/.test(n))).toBe(false);
+  });
+
   it("gives each map its own measured size and grid, and tokens none (top-down-default-maps)", () => {
     const maps = Object.fromEntries(BUILTIN_ASSETS.filter((a) => a.kind === "map").map((a) => [a.name, a]));
     const expected = {
