@@ -1,6 +1,6 @@
 import { CornersOut } from "@phosphor-icons/react";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from "react";
-import type { GridSpec, Participant, RoomState } from "@vtt/shared";
+import type { GridSpec, Participant, Point, RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { DEFAULT_TOOL_OPTIONS, ToolRail, toolFor, type ToolOptions } from "../ui/ToolRail";
 import { BoardView } from "./boardView";
@@ -15,11 +15,17 @@ interface Props {
   toolbar?: ReactNode;
   /** Notices pinned to the top right of the board, e.g. the GM's "Sam left the table". */
   notices?: ReactNode;
+  /** The viewer clicked the token `attackerId` attacks, in Pick on board (attack-targeting). */
+  onPickTarget?: (attackerId: string, targetId: string) => void;
 }
 
 /** What the roster and initiative list can ask the canvas to do (FR-GM-24). */
 export interface BoardHandle {
   focusToken(tokenId: string): void;
+  /** Pick a target on the board for `tokenId` to attack; the pick goes to `onPickTarget` (attack-targeting). */
+  startAttack(tokenId: string): void;
+  /** Show a ping on this viewer's board only, e.g. the one an attack roll just sent. */
+  showPing(at: Point): void;
 }
 
 const HINTS: Record<BoardTool["kind"], string> = {
@@ -28,6 +34,7 @@ const HINTS: Record<BoardTool["kind"], string> = {
   draw: "Drag to draw · only you can see drawings · Esc to stop",
   area: "Drag to size and aim · click to place the chosen size · hold Alt to place freely · everyone at the table sees areas",
   erase: "Click or drag over your marks and areas to erase them · Esc to stop",
+  attack: "Click the token to attack · Esc or right-click to cancel",
 };
 
 /** With GM only ticked, the areas are the GM's alone; saying "everyone sees them" would mislead. */
@@ -39,15 +46,18 @@ function isTyping(target: EventTarget | null) {
 }
 
 /** The PixiJS board plus its React toolbar and notices; Pixi objects stay inside `BoardView`. */
-export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, toolbar, notices }, ref) {
+export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, toolbar, notices, onPickTarget }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<BoardView | null>(null);
-  const latest = useRef({ state, you, gridPreview });
-  latest.current = { state, you, gridPreview };
+  const latest = useRef({ state, you, gridPreview, onPickTarget });
+  latest.current = { state, you, gridPreview, onPickTarget };
   const [tool, setTool] = useState<BoardTool>({ kind: "select" });
   const [toolOptions, setToolOptions] = useState<ToolOptions>(DEFAULT_TOOL_OPTIONS);
   const toolRef = useRef(tool);
   toolRef.current = tool;
+  /** The tool to go back to once an attack's target is picked or cancelled. */
+  const beforeAttack = useRef<BoardTool>({ kind: "select" });
+  const endAttack = () => setTool((current) => (current.kind === "attack" ? beforeAttack.current : current));
 
   useEffect(() => {
     const view = new BoardView(hostRef.current!, {
@@ -68,6 +78,11 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
         if (!result.ok) console.warn("Area removal rejected:", result.message);
         return result.ok;
       },
+      pickTarget: (attackerId, targetId) => {
+        endAttack();
+        latest.current.onPickTarget?.(attackerId, targetId);
+      },
+      cancelAttack: () => endAttack(),
     });
 
     let disposed = false;
@@ -106,18 +121,32 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   }, [tool]);
 
   // Escape puts the board back to Select, unless it is meant for a field or an open dialog.
+  // An attack being aimed goes back to whatever tool was in use before it.
   useEffect(() => {
     if (tool.kind === "select") return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented || isTyping(e.target) || document.querySelector("dialog[open]")) return;
-      setTool({ kind: "select" });
+      if (toolRef.current.kind === "attack") endAttack();
+      else setTool({ kind: "select" });
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [tool.kind]);
 
+  // The attacker can vanish while its target is being picked: deleted, or hidden from a player.
+  const attackerId = tool.kind === "attack" ? tool.attackerId : null;
+  const attackerGone = attackerId !== null && !state.tokens[attackerId];
+  useEffect(() => {
+    if (attackerGone) endAttack();
+  }, [attackerGone]);
+
   useImperativeHandle(ref, () => ({
     focusToken: (tokenId: string) => viewRef.current?.focusToken(tokenId),
+    startAttack: (tokenId: string) => {
+      if (toolRef.current.kind !== "attack") beforeAttack.current = toolRef.current;
+      setTool({ kind: "attack", attackerId: tokenId });
+    },
+    showPing: (at: Point) => viewRef.current?.showPing(at),
   }), []);
 
   return (
@@ -139,7 +168,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
         onSelect={(kind) => setTool(toolFor(kind, toolOptions))}
         onOptions={(options) => {
           setToolOptions(options);
-          setTool((current) => toolFor(current.kind, options));
+          setTool((current) => (current.kind === "attack" ? current : toolFor(current.kind, options)));
         }}
         onClear={() => viewRef.current?.clearMarks()}
       />

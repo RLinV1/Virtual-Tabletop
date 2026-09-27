@@ -1,13 +1,17 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { DiceFive, MapTrifold, Sword, UserList } from "@phosphor-icons/react";
-import type { GridSpec, Participant, RoomState } from "@vtt/shared";
+import { can, type DiceVisibility, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { GmPanel } from "../pages/GmPanel";
 import type { GridDraft } from "../pages/gridDraft";
 import { DicePanel } from "./DicePanel";
 import { InitiativeTracker } from "./InitiativeTracker";
+import { AttackPanel, type AttackPick } from "./AttackPanel";
+import { attackSectionChange, type EncounterView } from "./attackRoll";
 import { MyTokens } from "./MyTokens";
+import { RulingsPanel } from "./RulingsPanel";
 import { TokenRoster } from "./TokenRoster";
+import { useSectionCollapse } from "../ui/PanelSection";
 
 /**
  * The room's side panel, composed per role and per screen size (FR-PL-03).
@@ -47,13 +51,18 @@ export const TAB_PANEL_ID = "room-tabpanel";
  * The tab buttons, as an ARIA tablist with a roving tab stop. Rendered in the room's top bar
  * on wide screens and above the panel on phones; either way they drive the same panel.
  */
+/** A small mark after a tab's label: a count, or a dot when there is none (attack-ux-polish). */
+export type TabBadges = Partial<Record<TabId, { count?: number; label: string }>>;
+
 export function PanelTabs({
   isGm,
   tab,
   onTab,
+  badges = {},
   className = "tabbar",
 }: {
   isGm: boolean;
+  badges?: TabBadges;
   tab: TabId;
   /** `reselected` is true when the already-selected tab was pressed again. */
   onTab: (tab: TabId, reselected: boolean) => void;
@@ -103,6 +112,14 @@ export function PanelTabs({
         >
           {t.icon}
           {t.label}
+          {badges[t.id] && (
+            <>
+              <span className={badges[t.id]!.count ? "tab-badge" : "tab-badge dot"} aria-hidden="true">
+                {badges[t.id]!.count ?? ""}
+              </span>
+              <span className="sr-only">, {badges[t.id]!.label}</span>
+            </>
+          )}
         </button>
       ))}
     </div>
@@ -115,6 +132,13 @@ interface Props {
   you: Participant;
   token: string;
   onFocusToken: (tokenId: string) => void;
+  /** Who attacks whom, shared with the board's Pick on board (attack-targeting). */
+  attackPick: AttackPick;
+  onAttackPick: (pick: AttackPick) => void;
+  onPickOnBoard: (attackerId: string) => void;
+  onShowPing: (at: Point) => void;
+  attackVisibility: DiceVisibility;
+  onAttackVisibility: (visibility: DiceVisibility) => void;
   gridDraft: GridDraft;
   hasGridDraft: boolean;
   onGridDraftChange: (draft: GridDraft) => void;
@@ -128,6 +152,8 @@ interface Props {
   onTab: (tab: TabId) => void;
   /** GM only: open the review of a departed player's tokens (KAN-58). */
   onReviewDeparture: (participantId: string) => void;
+  /** Marks on the tabs, e.g. pending rulings on Play (attack-ux-polish). */
+  tabBadges?: TabBadges;
 }
 
 /**
@@ -135,11 +161,12 @@ interface Props {
  * (Play, Tokens, Dice) from the GM's setup (Manage), instead of one long column.
  */
 export function RoomPanel({
-  connection, state, you, token, onFocusToken,
+  connection, state, you, token, onFocusToken, attackPick, onAttackPick, onPickOnBoard, onShowPing, attackVisibility, onAttackVisibility,
   gridDraft, hasGridDraft, onGridDraftChange, onGridDraftCancel, onGridApply, gridApplying, gridError,
-  compact, tab, onTab, onReviewDeparture,
+  compact, tab, onTab, onReviewDeparture, tabBadges,
 }: Props) {
   const isGm = you.role === "gm";
+  useQuietAttackSection(state, you);
 
   // Role is server-owned, so it can change under us. Don't strand the panel on a tab that
   // no longer exists.
@@ -150,7 +177,19 @@ export function RoomPanel({
   const sections: Record<TabId, ReactNode> = {
     play: (
       <>
+        {isGm && <RulingsPanel connection={connection} state={state} />}
         <MyTokens connection={connection} state={state} you={you} onFocusToken={onFocusToken} />
+        <AttackPanel
+          connection={connection}
+          state={state}
+          you={you}
+          pick={attackPick}
+          onPick={onAttackPick}
+          onPickOnBoard={onPickOnBoard}
+          onShowPing={onShowPing}
+          visibility={attackVisibility}
+          onVisibility={onAttackVisibility}
+        />
         <InitiativeTracker connection={connection} state={state} you={you} onFocusToken={onFocusToken} />
       </>
     ),
@@ -175,10 +214,39 @@ export function RoomPanel({
 
   return (
     <div className="tabbed">
-      {compact && <PanelTabs isGm={isGm} tab={tab} onTab={(t) => onTab(t)} />}
+      {compact && <PanelTabs isGm={isGm} tab={tab} badges={tabBadges} onTab={(t) => onTab(t)} />}
       <div role="tabpanel" id={TAB_PANEL_ID} aria-labelledby={tabButtonId(tab)} tabIndex={0} className="tabpanel">
         {sections[tab === "gm" && !isGm ? "play" : tab]}
       </div>
     </div>
   );
 }
+
+/**
+ * The Attack section outside combat (attack-ux-polish): collapsed while no encounter runs, opened
+ * when one starts or the viewer's turn begins, collapsed again when it ends. Never disabled.
+ * Here, in the always-mounted panel, so a turn or encounter change on another tab still counts.
+ */
+function useQuietAttackSection(state: RoomState, you: Participant) {
+  const sections = useSectionCollapse();
+  const activeId = state.initiative?.order[state.initiative.activeIndex] ?? null;
+  const activeToken = activeId ? state.tokens[activeId] : undefined;
+  const inEncounter = state.initiative !== null;
+  const yourTurn = !!activeToken && can.attackWith(you, activeToken);
+  const previous = useRef<EncounterView | null>(null);
+  useEffect(() => {
+    const next = { inEncounter, yourTurn };
+    const prev = previous.current;
+    previous.current = next;
+    if (!prev) {
+      // First look: quiet by default outside combat, open if it's already your go.
+      if (!inEncounter && !sections.hasChoice(ATTACK_SECTION)) sections.setCollapsed(ATTACK_SECTION, true);
+      else if (inEncounter && yourTurn) sections.setCollapsed(ATTACK_SECTION, false);
+      return;
+    }
+    const change = attackSectionChange(prev, next, sections.toggledSince(ATTACK_SECTION));
+    if (change) sections.setCollapsed(ATTACK_SECTION, change === "collapse");
+  }, [inEncounter, yourTurn, sections]);
+}
+
+const ATTACK_SECTION = "attack";

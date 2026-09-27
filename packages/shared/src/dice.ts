@@ -27,6 +27,42 @@ export type DiceExpression = z.infer<typeof DiceExpression>;
 export const DiceVisibility = z.enum(["public", "gm"]);
 export type DiceVisibility = z.infer<typeof DiceVisibility>;
 
+/** Longest label an attack roll may carry ("Longsword"). */
+export const MAX_ATTACK_LABEL = 40;
+
+/**
+ * One token named by an attack roll (ADR 0010). `name` and `hidden` are as they were when
+ * rolled, so the log still reads right after a rename or delete, and the filter knows about
+ * a hidden token that no longer exists.
+ */
+export const AttackSide = z.object({
+  tokenId: z.string().min(1).max(64),
+  name: z.string().min(1).max(60),
+  hidden: z.boolean(),
+});
+export type AttackSide = z.infer<typeof AttackSide>;
+
+/** Whether an attack roll is to hit (the GM rules Hit or Miss) or damage (the GM applies it) (ADR 0011). */
+export const AttackKind = z.enum(["toHit", "damage"]);
+export type AttackKind = z.infer<typeof AttackKind>;
+
+/** The GM's ruling on a to-hit roll (ADR 0011). */
+export const Verdict = z.enum(["hit", "miss"]);
+export type Verdict = z.infer<typeof Verdict>;
+
+/**
+ * What an attack roll was for. `decide` always fills both sides; a side is `null` only in a
+ * player's copy, where it named a token hidden from them (FR-GM-23).
+ */
+export const AttackContext = z.object({
+  actor: AttackSide.nullable(),
+  target: AttackSide.nullable(),
+  label: z.string().min(1).max(MAX_ATTACK_LABEL).nullable(),
+  /** Rolls made before ADR 0011 have none and count as to hit. */
+  kind: AttackKind.default("toHit"),
+});
+export type AttackContext = z.infer<typeof AttackContext>;
+
 export const DiceRoll = z.object({
   id: z.string().min(1).max(64),
   /** The expression as typed, echoed back so the log reads the way the roller wrote it. */
@@ -39,6 +75,12 @@ export const DiceRoll = z.object({
   total: z.number().int(),
   /** `gm` rolls are never sent to players (FR-GM-22). */
   visibility: DiceVisibility,
+  /** Set when the roll is an attack (ADR 0010); plain rolls leave it out. */
+  attack: AttackContext.optional(),
+  /** The GM's ruling on a to-hit roll; absent until ruled (ADR 0011). */
+  verdict: Verdict.optional(),
+  /** Set once the GM has applied a damage roll to its target (ADR 0011). */
+  damageApplied: z.boolean().optional(),
 });
 export type DiceRoll = z.infer<typeof DiceRoll>;
 
@@ -79,4 +121,30 @@ export function rollDice(expression: DiceExpression, random: () => number): { di
 export function formatExpression(e: DiceExpression): string {
   const mod = e.modifier === 0 ? "" : e.modifier > 0 ? `+${e.modifier}` : `${e.modifier}`;
   return `${e.count}d${e.sides}${mod}`;
+}
+
+/** "Aria → Goblin 2"; a side blanked for this viewer reads "Unknown" (ADR 0010). */
+export function formatAttackParties(attack: AttackContext): string {
+  return `${attack.actor?.name ?? "Unknown"} → ${attack.target?.name ?? "Unknown"}`;
+}
+
+/** The label an attack roll reads with: its own, or "damage" for an unlabelled damage roll (ADR 0011). */
+export function attackLabel(attack: AttackContext): string | null {
+  return attack.label ?? (attack.kind === "damage" ? "damage" : null);
+}
+
+/** What the GM has done with an attack roll so far: "Hit", "Miss", "Applied", or nothing yet (ADR 0011). */
+export function formatAttackOutcome(roll: Pick<DiceRoll, "verdict" | "damageApplied">): string | null {
+  if (roll.verdict) return roll.verdict === "hit" ? "Hit" : "Miss";
+  return roll.damageApplied ? "Applied" : null;
+}
+
+/**
+ * "Aria → Goblin 2 · Longsword · 1d20+5 = 17 · Hit", for the roll log. Plain rolls read "1d20+5 = 17".
+ * The outcome is only ever what the GM decided; nothing here compares the roll to anything.
+ */
+export function formatAttackRoll(roll: Pick<DiceRoll, "expression" | "total" | "attack" | "verdict" | "damageApplied">): string {
+  const result = `${roll.expression} = ${roll.total}`;
+  if (!roll.attack) return result;
+  return [formatAttackParties(roll.attack), attackLabel(roll.attack), result, formatAttackOutcome(roll)].filter(Boolean).join(" · ");
 }

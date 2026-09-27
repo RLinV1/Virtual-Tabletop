@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { House } from "@phosphor-icons/react";
-import type { GridSpec } from "@vtt/shared";
+import { can, type DiceVisibility, type GridSpec, type Point } from "@vtt/shared";
 import { Board, type BoardHandle } from "../board/Board";
 import { Link } from "../Link";
 import type { SessionEndReason } from "@vtt/shared";
 import { forgetCredentials, loadCredentials } from "../net/identity";
 import { RoomConnection, useRoomSnapshot, type ConnectionStatus } from "../net/roomConnection";
-import { PanelTabs, RoomPanel, isTabId, type TabId } from "../panels/RoomPanel";
+import { PanelTabs, RoomPanel, isTabId, type TabBadges, type TabId } from "../panels/RoomPanel";
+import { outcomeKey, pendingRulings } from "../panels/attackRoll";
 import { ActivityLog } from "../panels/ActivityLog";
+import type { AttackPick } from "../panels/AttackPanel";
 import { gridsEqual, parseGridDraft, toGridDraft, type GridDraft } from "./gridDraft";
 import { LeaveTable } from "../panels/LeaveTable";
 import { ResolveDepartureModal } from "../panels/ResolveDeparture";
@@ -119,6 +121,13 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
   const boardRef = useRef<BoardHandle>(null);
   const compact = useCompactLayout();
   const focusToken = useCallback((tokenId: string) => boardRef.current?.focusToken(tokenId), []);
+  // Who attacks whom (attack-targeting): chosen in the Play tab's Attack section or on the board.
+  const [attackPick, setAttackPick] = useState<AttackPick>({ attackerId: null, targetId: null });
+  const pickOnBoard = useCallback((attackerId: string) => boardRef.current?.startAttack(attackerId), []);
+  const pickTarget = useCallback((attackerId: string, targetId: string) => setAttackPick({ attackerId, targetId }), []);
+  const showPing = useCallback((at: Point) => boardRef.current?.showPing(at), []);
+  // The GM's "Roll privately" for attacks: here, so leaving the Play tab doesn't reset it.
+  const [attackVisibility, setAttackVisibility] = useState<DiceVisibility>("public");
   const [gridDraft, setGridDraft] = useState<GridDraft | null>(null);
   const [gridPreview, setGridPreview] = useState<GridSpec | null>(null);
   const [gridApplying, setGridApplying] = useState(false);
@@ -185,6 +194,34 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
     guideButtonRef.current?.focus();
   }, []);
 
+  // The attacker follows the turn onto a token the viewer controls, even after they picked
+  // another; a pick made after that sticks until the next turn change (attack-ux-polish). Kept
+  // here, not in the Attack section, so a turn that passes while Play isn't showing still counts.
+  const activeTurnId = state?.initiative?.order[state.initiative.activeIndex] ?? null;
+  const activeToken = activeTurnId ? state?.tokens[activeTurnId] : undefined;
+  const controlsActive = !!(activeToken && you && can.attackWith(you, activeToken));
+  useEffect(() => {
+    if (!controlsActive || !activeTurnId) return;
+    setAttackPick((p) => (p.attackerId === activeTurnId ? p : { attackerId: activeTurnId, targetId: p.targetId === activeTurnId ? null : p.targetId }));
+  }, [activeTurnId, controlsActive]);
+
+  // Play-tab indicator (attack-ux-polish): the GM's pending rulings, or a dot when the GM has
+  // ruled on a player's latest roll since they last had Play in view.
+  const playVisible = tab === "play" && !(sidebarCollapsed && !compact);
+  const pendingCount = state && you?.role === "gm" ? pendingRulings(state).length : 0;
+  const myLatest = state && you ? [...state.rolls].reverse().find((r) => r.attack && r.byParticipantId === you.id) : undefined;
+  const outcome = outcomeKey(myLatest);
+  /** The outcome last seen with Play in view; undefined until the room has loaded. */
+  const [seenOutcome, setSeenOutcome] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (state && (playVisible || seenOutcome === undefined)) setSeenOutcome(outcome);
+  }, [state, playVisible, outcome, seenOutcome]);
+  const tabBadges: TabBadges = pendingCount > 0
+    ? { play: { count: pendingCount, label: `${pendingCount} ${pendingCount === 1 ? "ruling" : "rulings"} pending` } }
+    : you?.role !== "gm" && !playVisible && outcome && seenOutcome !== undefined && outcome !== seenOutcome
+      ? { play: { label: "new ruling" } }
+      : {};
+
   if (status === "ended") return <SessionEnded roomName={state?.name ?? null} reason={endReason} />;
 
   if (status === "unauthorized") {
@@ -245,6 +282,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
             <PanelTabs
               className="tabbar topbar-tabs"
               isGm={you.role === "gm"}
+              badges={tabBadges}
               tab={tab}
               onTab={(next, reselected) => {
                 // A hidden sidebar opens on the tab pressed; pressing the open tab hides it.
@@ -286,6 +324,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
         state={state}
         you={you}
         gridPreview={you.role === "gm" ? gridPreview : null}
+        onPickTarget={pickTarget}
         notices={you.role === "gm" ? <DepartureNotices state={state} onReview={setReviewing} /> : undefined}
       />
       <aside className="panel" id="room-panel" tabIndex={-1} aria-label="Room controls">
@@ -339,6 +378,12 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
               you={you}
               token={token}
               onFocusToken={focusToken}
+              attackPick={attackPick}
+              onAttackPick={setAttackPick}
+              onPickOnBoard={pickOnBoard}
+              onShowPing={showPing}
+              attackVisibility={attackVisibility}
+              onAttackVisibility={setAttackVisibility}
               gridDraft={gridDraft ?? toGridDraft(state.scene.grid)}
               hasGridDraft={gridDraft !== null}
               onGridDraftChange={changeGridDraft}
@@ -349,6 +394,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
               compact={compact}
               tab={tab}
               onTab={setTab}
+              tabBadges={tabBadges}
               onReviewDeparture={setReviewing}
             />
           </SectionCollapseProvider>

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { formatAttackParties, type DiceRoll } from "./dice";
 import { CommittedEvent, type DomainEvent } from "./events";
 import { reduce } from "./reducer";
 import { emptyRoomState, type Participant, type RoomState } from "./state";
@@ -37,6 +38,11 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
   const tokenName = (id: string) => before.tokens[id]?.name ?? "an unknown token";
   /** A participant's name as it was just before this event. */
   const participantName = (id: string) => before.participants[id]?.displayName ?? "an unknown participant";
+  /** A roll still in the log just before this event (ADR 0011). */
+  const rolledEarlier = (id: string) => before.rolls.find((r) => r.id === id);
+  /** "Aria → Goblin (1d20+5: 17)", with the names the roll recorded. */
+  const rollLabel = (roll: DiceRoll | undefined) =>
+    roll?.attack ? `${formatAttackParties(roll.attack)} (${roll.expression}: ${roll.total})` : "an earlier roll";
   /** "20 ft cone", in the room grid's units. */
   const templateLabel = (t: { shape: string; size: number }) =>
     `${Number(t.size.toFixed(2))} ${before.scene.grid.unitLabel} ${t.shape}`;
@@ -60,7 +66,24 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
     case "InitiativeStarted": return `${actorName} started initiative: ${event.initiative.order.map(tokenName).join(", ") || "no tokens"}`;
     case "InitiativeAdvanced": return `${actorName} advanced to round ${event.initiative.round}, ${tokenName(event.initiative.order[event.initiative.activeIndex] ?? "")}'s turn`;
     case "InitiativeEnded": return `${actorName} ended initiative`;
-    case "DiceRolled": return `${actorName} rolled ${event.roll.expression}: ${event.roll.total}${event.roll.visibility === "gm" ? " (GM only)" : ""}`;
+    case "DiceRolled": {
+      const { attack, expression, total, visibility } = event.roll;
+      const what = attack
+        ? `an attack: ${formatAttackParties(attack)}${attack.label ? ` with ${attack.label}` : ""}, ${expression}`
+        : expression;
+      return `${actorName} rolled ${what}: ${total}${visibility === "gm" ? " (GM only)" : ""}`;
+    }
+    case "RollRuled": {
+      const roll = rolledEarlier(event.rollId);
+      const gmOnly = roll?.visibility === "gm" ? " (GM only)" : "";
+      if (!event.verdict) return `${actorName} cleared the ruling on ${rollLabel(roll)}${gmOnly}`;
+      if (event.previous) return `${actorName} changed the ruling on ${rollLabel(roll)} from a ${event.previous} to a ${event.verdict}${gmOnly}`;
+      return `${actorName} ruled ${rollLabel(roll)} a ${event.verdict}${gmOnly}`;
+    }
+    case "RollDamageApplied": {
+      const roll = rolledEarlier(event.rollId);
+      return `${actorName} applied ${event.amount} damage from ${rollLabel(roll)}${roll?.visibility === "gm" ? " (GM only)" : ""}`;
+    }
     case "TemplatePlaced": return `${actorName} placed a ${templateLabel(event.template)}${event.template.gmOnly ? " (GM only)" : ""}`;
     case "TemplateRemoved": return `${actorName} removed a ${templateLabel(event.template)}${event.template.gmOnly ? " (GM only)" : ""}`;
     default: {

@@ -102,6 +102,39 @@ describe("initiative visibility (FR-GM-21, FR-GM-23)", () => {
     expect(JSON.stringify(forPlayer)).not.toContain("Ambusher");
   });
 
+  it("points a player's active turn into their own order, and at no one on a hidden turn", () => {
+    let s = baseRoom();
+    const ids: Record<string, string> = {};
+    for (const [name, hidden] of [["Ambusher", true], ["Aria", false], ["Bram", false]] as const) {
+      const r = run(s, gm, { type: "token.create", name, position: { x: 0, y: 0 }, hidden });
+      s = r.state;
+      ids[name] = r.events[0]!.type === "TokenCreated" ? r.events[0]!.token.id : "";
+    }
+    // GM order: Ambusher (hidden), Aria, Bram.
+    s = run(s, gm, { type: "initiative.start", entries: [
+      { tokenId: ids.Ambusher!, score: 20 }, { tokenId: ids.Aria!, score: 15 }, { tokenId: ids.Bram!, score: 10 },
+    ] }).state;
+    const activeFor = (state: typeof s) => {
+      const init = filterStateForViewer(state, alice).initiative!;
+      return init.order[init.activeIndex] ?? null;
+    };
+
+    // The hidden Ambusher's turn: nobody is highlighted, and the index doesn't hint at a gap.
+    expect(s.initiative!.activeIndex).toBe(0);
+    expect(activeFor(s)).toBeNull();
+    expect(filterStateForViewer(s, alice).initiative!.activeIndex).toBe(2);
+
+    // Aria's turn: GM index 1, player index 0, the same token.
+    s = run(s, gm, { type: "initiative.advance" }).state;
+    expect(activeFor(s)).toBe(ids.Aria);
+    expect(filterStateForViewer(s, alice).initiative!.activeIndex).toBe(0);
+
+    // Bram's turn: GM index 2 is past the end of the player's 2-entry order without remapping.
+    s = run(s, gm, { type: "initiative.advance" }).state;
+    expect(activeFor(s)).toBe(ids.Bram);
+    expect(filterStateForViewer(s, gm).initiative!.activeIndex).toBe(2);
+  });
+
   it("resyncs a player on an initiative change rather than sending the raw order", () => {
     const s = baseRoom();
     const e = commit(21, {

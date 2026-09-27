@@ -3,6 +3,7 @@ import type { Participant, RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
 import { PanelSection } from "../ui/PanelSection";
+import { pendingRulings } from "./attackRoll";
 
 /**
  * Turn order (FR-GM-21).
@@ -103,6 +104,7 @@ export function InitiativeTracker({
   }
 
   const activeId = init.order[init.activeIndex];
+  const pending = isGm ? pendingRulings(state).length : 0;
 
   return (
     <PanelSection
@@ -139,12 +141,19 @@ export function InitiativeTracker({
       </ol>
 
       <p aria-live="polite" className="sr-only">
-        {state.tokens[activeId ?? ""]?.name ?? "Unknown"} is taking their turn, round {init.round}.
+        {/* No active token means a hidden one has the turn; say nothing about it (FR-GM-23). */}
+        {activeId && state.tokens[activeId] ? `${state.tokens[activeId].name} is taking their turn, round ${init.round}.` : `Round ${init.round}.`}
       </p>
 
       {isGm && (
         <div className="init-controls">
           <button onClick={() => send({ type: "initiative.advance" })}>Next turn</button>
+          {/* A reminder, not a gate: the GM may move on with rulings open (attack-ux-polish). */}
+          {pending > 0 && (
+            <span className="muted init-pending" role="status">
+              {pending} {pending === 1 ? "ruling" : "rulings"} pending
+            </span>
+          )}
           <button className="secondary" onClick={() => send({ type: "initiative.end" })}>
             End encounter
           </button>

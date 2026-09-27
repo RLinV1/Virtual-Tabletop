@@ -1,4 +1,4 @@
-import { createContext, useContext, useId, type ReactNode } from "react";
+import { createContext, useContext, useId, useRef, type ReactNode } from "react";
 import { isBooleanRecord, usePersistentState } from "./usePersistentState";
 
 /**
@@ -7,22 +7,45 @@ import { isBooleanRecord, usePersistentState } from "./usePersistentState";
  */
 interface SectionCollapse {
   isCollapsed(id: string): boolean;
+  /** The user pressed the heading. */
   toggle(id: string): void;
+  /** Set by the app, not the user, e.g. opening Attack when a fight starts (attack-ux-polish). */
+  setCollapsed(id: string, collapsed: boolean): void;
+  /** Whether this browser remembers a state for the section at all. */
+  hasChoice(id: string): boolean;
+  /** Whether the user toggled the section since the app last set it. In memory only. */
+  toggledSince(id: string): boolean;
 }
 
 const SectionCollapseContext = createContext<SectionCollapse>({
   isCollapsed: () => false,
   toggle: () => {},
+  setCollapsed: () => {},
+  hasChoice: () => false,
+  toggledSince: () => false,
 });
 
 export function SectionCollapseProvider({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = usePersistentState<Record<string, boolean>>("vtt.ui.sections", {}, isBooleanRecord);
+  const toggled = useRef(new Set<string>());
   const value: SectionCollapse = {
     isCollapsed: (id) => collapsed[id] === true,
-    toggle: (id) => setCollapsed((c) => ({ ...c, [id]: !c[id] })),
+    toggle: (id) => {
+      toggled.current.add(id);
+      setCollapsed((c) => ({ ...c, [id]: !c[id] }));
+    },
+    setCollapsed: (id, next) => {
+      toggled.current.delete(id);
+      setCollapsed((c) => (c[id] === next ? c : { ...c, [id]: next }));
+    },
+    hasChoice: (id) => id in collapsed,
+    toggledSince: (id) => toggled.current.has(id),
   };
   return <SectionCollapseContext.Provider value={value}>{children}</SectionCollapseContext.Provider>;
 }
+
+/** For code that opens or collapses a section on the user's behalf. */
+export const useSectionCollapse = () => useContext(SectionCollapseContext);
 
 interface Props {
   /** Stable key for the remembered collapse state, e.g. "dice". */

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ConditionId, EMPTY_STATS, TokenStats } from "./conditions";
-import { DiceVisibility } from "./dice";
+import { AttackKind, DiceVisibility, MAX_ATTACK_LABEL, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
 import { AreaShape, Id, MapImage } from "./state";
 
@@ -133,6 +133,27 @@ export const Command = z.discriminatedUnion("type", [
     type: z.literal("dice.roll"),
     expression: z.string().min(1).max(32),
     visibility: DiceVisibility.default("public"),
+    /** Makes this an attack roll: who attacks whom, and with what (ADR 0010). */
+    attack: z
+      .object({
+        actorTokenId: Id,
+        targetTokenId: Id,
+        label: z.string().trim().max(MAX_ATTACK_LABEL).optional(),
+        /** To hit (the GM rules on it) or damage (the GM applies it) (ADR 0011). */
+        kind: AttackKind.default("toHit"),
+      })
+      .optional(),
+  }),
+  /** GM only: mark a to-hit attack roll Hit or Miss, or clear the ruling with null (ADR 0011). */
+  z.object({
+    type: z.literal("roll.rule"),
+    rollId: Id,
+    verdict: Verdict.nullable(),
+  }),
+  /** GM only: lower a damage roll's target's HP by the roll's total, once (ADR 0011). */
+  z.object({
+    type: z.literal("roll.applyDamage"),
+    rollId: Id,
   }),
   z.object({
     type: z.literal("participant.rename"),
