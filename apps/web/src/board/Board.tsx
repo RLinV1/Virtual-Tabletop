@@ -232,7 +232,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
             >
               Place automatically
             </button>
-            <button type="button" className="secondary" onClick={() => setPlacing(null)}>
+            <button type="button" className="secondary" disabled={placing.busy} onClick={() => setPlacing(null)}>
               Cancel
             </button>
           </div>
