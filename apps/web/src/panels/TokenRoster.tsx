@@ -5,13 +5,18 @@ import {
   hpFraction,
   inactiveLabel,
   isActive,
-  type Command,
   type ConditionId,
   type Participant,
   type RoomState,
   type Token,
+  type TokenUpdate,
 } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
+import { api } from "../net/api";
+import { loadGmToken } from "../net/identity";
+import { libraryAssetId } from "../net/builtinAssets";
+import { LibraryPicker } from "../pages/LibraryPicker";
+import { TokenPreview } from "../ui/TokenPreview";
 import { ConditionMarker, ConditionPicker } from "./ConditionMarker";
 import { AddTokenButton } from "./AddToken";
 import { Modal } from "../ui/Modal";
@@ -100,14 +105,13 @@ export function TokenRoster({
           <TokenEditor
             key={editing.id}
             token={editing}
+            roomToken={guestToken}
             isGm={isGm}
             players={Object.values(state.participants).filter((p) => p.role === "player" && isActive(p))}
             departedOwner={departedOwner(state, editing.ownerIds)}
             error={error}
-            onSave={async (commands) => {
-              // One command per changed field, in order; stop at the first the server rejects.
-              for (const c of commands) if (!(await send(c))) return;
-              setEditingId(null);
+            onSave={async (changes) => {
+              if (await send({ type: "token.configure", tokenId: editing.id, changes })) setEditingId(null);
             }}
             onDelete={async () => {
               if (await send({ type: "token.delete", tokenId: editing.id })) setEditingId(null);
@@ -198,6 +202,7 @@ function departedOwner(state: RoomState, ownerIds: string[]): Participant | null
  */
 function TokenEditor({
   token,
+  roomToken,
   isGm,
   players,
   departedOwner,
@@ -206,15 +211,26 @@ function TokenEditor({
   onDelete,
 }: {
   token: Token;
+  roomToken: string;
   isGm: boolean;
   players: Participant[];
   /** Set when the current owner left the room and the GM hasn't resolved the token yet. */
   departedOwner: Participant | null;
   error: string | null;
-  onSave: (commands: Command[]) => Promise<void>;
+  onSave: (changes: TokenUpdate) => Promise<void>;
   onDelete: () => void;
 }) {
   const [hp, setHp] = useState(token.stats.hp?.toString() ?? "");
+  const [name, setName] = useState(token.name);
+  const [x, setX] = useState(String(token.position.x));
+  const [y, setY] = useState(String(token.position.y));
+  const [size, setSize] = useState(String(token.size));
+  const [rotation, setRotation] = useState(String(token.rotation));
+  const [image, setImage] = useState({ url: token.imageUrl, assetId: token.assetId ?? null });
+  const [gmToken] = useState(loadGmToken);
+  const [picking, setPicking] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [maxHp, setMaxHp] = useState(token.stats.maxHp?.toString() ?? "");
   const [ac, setAc] = useState(token.stats.ac?.toString() ?? "");
   const [conditions, setConditions] = useState<ConditionId[]>(token.conditions);
@@ -228,41 +244,94 @@ function TokenEditor({
   const sameConditions =
     conditions.length === token.conditions.length && conditions.every((c) => token.conditions.includes(c));
 
-  const changes: Command[] = [];
+  const changes: TokenUpdate = {};
+  if (isGm && (name.trim() !== token.name || Number(size) !== token.size || Number(rotation) !== token.rotation))
+    Object.assign(changes, { name, size: Number(size), rotation: Number(rotation) });
+  if (isGm && (Number(x) !== token.position.x || Number(y) !== token.position.y))
+    changes.position = { x: Number(x), y: Number(y) };
+  if (isGm && (image.url !== token.imageUrl || image.assetId !== (token.assetId ?? null)))
+    Object.assign(changes, { imageUrl: image.url, assetId: image.assetId });
   if (stats.hp !== token.stats.hp || stats.maxHp !== token.stats.maxHp || stats.ac !== token.stats.ac)
-    changes.push({ type: "token.setStats", tokenId: token.id, stats });
-  if (!sameConditions) changes.push({ type: "token.setConditions", tokenId: token.id, conditions });
+    changes.stats = stats;
+  if (!sameConditions) changes.conditions = conditions;
   if (isGm && ownerId !== (token.ownerIds[0] ?? ""))
-    changes.push({ type: "token.setOwners", tokenId: token.id, ownerIds: ownerId ? [ownerId] : [] });
-  if (isGm && hidden !== token.hidden) changes.push({ type: "token.setHidden", tokenId: token.id, hidden });
+    changes.ownerIds = ownerId ? [ownerId] : [];
+  if (isGm && hidden !== token.hidden) changes.hidden = hidden;
+  const hasChanges = Object.keys(changes).length > 0;
 
   const save = async () => {
     setBusy(true);
-    await onSave(changes);
-    setBusy(false);
-    setConfirming(null);
+    try {
+      await onSave(changes);
+    } finally {
+      setBusy(false);
+      setConfirming(null);
+    }
   };
 
+  async function onUpload(file: File | undefined) {
+    if (!file) return;
+    setUploadError(null);
+    setUploading(true);
+    try {
+      const { url } = await api.upload(file, roomToken);
+      setImage({ url, assetId: null });
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
   return (
+    <>
     <form
       className="token-editor"
       onSubmit={(e) => {
         e.preventDefault();
-        if (changes.length) setConfirming("save");
+        if (hasChanges && !uploading) setConfirming("save");
       }}
     >
+      {isGm && (
+        <div className="token-editor-gm">
+          <label>Name<input value={name} onChange={(e) => setName(e.target.value)} required maxLength={60} autoFocus /></label>
+          <div className="token-setup-grid">
+            <label>Board X<input type="number" value={x} onChange={(e) => setX(e.target.value)} required step="any" /></label>
+            <label>Board Y<input type="number" value={y} onChange={(e) => setY(e.target.value)} required step="any" /></label>
+            <label>Size (cells)<input type="number" value={size} onChange={(e) => setSize(e.target.value)} required min="0.25" max="10" step="any" /></label>
+            <label>Rotation (°)<input type="number" value={rotation} onChange={(e) => setRotation(e.target.value)} required step="any" /></label>
+          </div>
+          <div className="stack token-image-field">
+            <span className="field-label">Image</span>
+            {image.url && (
+              <div className="row token-image-chosen">
+                <TokenPreview url={image.url} color={token.color} hidden={hidden} />
+                <button type="button" className="link" disabled={uploading} onClick={() => setImage({ url: null, assetId: null })}>Remove image</button>
+              </div>
+            )}
+            <div className="row">
+              <label className="upload-button secondary">
+                <span>{uploading ? "Uploading…" : image.url ? "Replace image" : "Upload image"}</span>
+                <input type="file" className="sr-only" accept="image/png,image/jpeg,image/webp" disabled={uploading}
+                  onChange={(e) => void onUpload(e.target.files?.[0])} />
+              </label>
+              {gmToken && <button type="button" className="secondary" disabled={uploading} onClick={() => setPicking(true)}>From library</button>}
+            </div>
+          </div>
+        </div>
+      )}
       <div className="stats-row">
         <label>
           HP
-          <input type="number" inputMode="numeric" value={hp} onChange={(e) => setHp(e.target.value)} autoFocus />
+          <input type="number" inputMode="numeric" value={hp} onChange={(e) => setHp(e.target.value)} min="-999" max="9999" step="1" autoFocus={!isGm} />
         </label>
         <label>
           Max
-          <input type="number" inputMode="numeric" value={maxHp} onChange={(e) => setMaxHp(e.target.value)} />
+          <input type="number" inputMode="numeric" value={maxHp} onChange={(e) => setMaxHp(e.target.value)} min="1" max="9999" step="1" />
         </label>
         <label>
           AC
-          <input type="number" inputMode="numeric" value={ac} onChange={(e) => setAc(e.target.value)} />
+          <input type="number" inputMode="numeric" value={ac} onChange={(e) => setAc(e.target.value)} min="0" max="99" step="1" />
         </label>
       </div>
 
@@ -293,19 +362,19 @@ function TokenEditor({
         </div>
       )}
 
-      {error && <p role="alert" className="error">{error}</p>}
+      {(error || uploadError) && <p role="alert" className="error">{error || uploadError}</p>}
 
       {confirming === "save" ? (
         <div className="confirm" role="group" aria-label="Confirm changes">
           <p>
-            Save {changes.length} {changes.length === 1 ? "change" : "changes"} to {token.name}? Everyone in the
+            Save changes to {token.name}? Everyone in the
             room sees the update.
           </p>
           <div className="row">
             <button type="button" className="secondary" disabled={busy} onClick={() => setConfirming(null)}>
               Back
             </button>
-            <button type="button" disabled={busy} onClick={() => void save()} autoFocus>
+            <button type="button" disabled={busy || uploading} onClick={() => void save()} autoFocus>
               Confirm
             </button>
           </div>
@@ -335,12 +404,21 @@ function TokenEditor({
               <Trash size={18} aria-hidden />
             </button>
           )}
-          <button type="submit" className="token-save" disabled={!changes.length}>
+          <button type="submit" className="token-save" disabled={!hasChanges || uploading}>
             Save
           </button>
         </div>
       )}
     </form>
+    {isGm && gmToken && (
+      <Modal open={picking} title="Choose a token image" onClose={() => setPicking(false)}>
+        <LibraryPicker gmToken={gmToken} kind="token" onPick={(asset) => {
+          setImage({ url: asset.url, assetId: libraryAssetId(asset) });
+          setPicking(false);
+        }} />
+      </Modal>
+    )}
+    </>
   );
 }
 

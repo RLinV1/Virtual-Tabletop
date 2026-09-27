@@ -21,6 +21,7 @@ describe("Human-readable activity formatter (FR-REC-01)", () => {
     GridSet: [{ type: "GridSet", grid: state.scene.grid, previous: state.scene.grid }, "Mara updated the grid"],
     TokenCreated: [{ type: "TokenCreated", token }, "Mara created Goblin"],
     TokenMoved: [{ type: "TokenMoved", tokenId: token.id, from: { x: 35, y: 35 }, to: { x: 105, y: 35 } }, "Mara moved Goblin from (35, 35) to (105, 35)"],
+    TokenAppearanceSet: [{ type: "TokenAppearanceSet", tokenId: token.id, name: "Ogre", size: 2, rotation: 90, previous: { name: "Goblin", size: 1, rotation: 0 } }, "Mara updated Goblin to Ogre (size 2, rotation 90°)"],
     TokenDeleted: [{ type: "TokenDeleted", token }, "Mara deleted Goblin"],
     TokenOwnersSet: [{ type: "TokenOwnersSet", tokenId: token.id, ownerIds: [alice.id], previous: [] }, "Mara assigned Goblin to Alice"],
     TokenHiddenSet: [{ type: "TokenHiddenSet", tokenId: token.id, hidden: true, previous: false }, "Mara hid Goblin"],

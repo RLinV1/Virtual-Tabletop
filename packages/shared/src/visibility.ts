@@ -55,6 +55,7 @@ export function filterEventForViewer(
     case "TokenDeleted":
       return e.token.hidden ? redacted : pass;
     case "TokenMoved":
+    case "TokenAppearanceSet":
     case "TokenOwnersSet":
     case "TokenStatsSet":
     case "TokenImageSet":
