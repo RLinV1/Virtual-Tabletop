@@ -27,6 +27,7 @@ import {
 import { footprint, placementPoint, type PlacementGhost } from "./placement";
 import { recenterOnResize } from "./recenter";
 import { canRenderGrid, DEFAULT_BOARD_SIZE } from "./gridRenderLimit";
+import { gridLines } from "./gridLines";
 import { areaOrigin, areaShape, areaSizeFromDrag, formatDistance, hitMark, measure, sweepPoints, templateMark, type BoardTool, type Mark } from "./tools";
 
 export interface BoardCallbacks {
@@ -819,8 +820,9 @@ export class BoardView {
       this.invalidate();
       return;
     }
-    for (let x = g.offsetX; x <= width; x += g.cellSize) this.grid.moveTo(x, 0).lineTo(x, height);
-    for (let y = g.offsetY; y <= height; y += g.cellSize) this.grid.moveTo(0, y).lineTo(width, y);
+    const { xs, ys } = gridLines(g, { x: 0, y: 0, width, height });
+    for (const x of xs) this.grid.moveTo(x, 0).lineTo(x, height);
+    for (const y of ys) this.grid.moveTo(0, y).lineTo(width, y);
     // The GM's preview stays identifiable while the modal shows the precise line style.
     const style = gridLineStyle(g);
     this.grid.stroke(this.gridPreview

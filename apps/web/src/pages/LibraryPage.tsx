@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { AssetKind, LibraryAsset } from "@vtt/shared";
+import { DEFAULT_GRID, normalizeLegacyGridForBoard, type AssetKind, type GridSpec, type LibraryAsset } from "@vtt/shared";
 import { Link } from "../Link";
 import { api } from "../net/api";
 import { builtinsMatching } from "../net/builtinAssets";
@@ -7,7 +7,11 @@ import { getGmToken } from "../net/gm";
 import { isRecognised, loadGmToken } from "../net/identity";
 import { imageSize, nameFromFile } from "../net/imageFile";
 import { navigate } from "../router";
+import { Modal } from "../ui/Modal";
 import { AccountMenu } from "./AccountPages";
+import { GridForm } from "./GridForm";
+import { parseGridDraft, toGridDraft } from "./gridDraft";
+import { MapGridPreview } from "./MapGridPreview";
 
 const TABS: { kind: AssetKind; label: string }[] = [
   { kind: "map", label: "Maps" },
@@ -37,6 +41,8 @@ function Library() {
   const [kind, setKind] = useState<AssetKind>("map");
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
+  /** The owned map whose grid is open in the editor. */
+  const [gridTarget, setGridTarget] = useState<LibraryAsset | null>(null);
 
   useEffect(() => {
     // Reading the library never creates a GM identity (asset-library); the first upload does.
@@ -123,6 +129,7 @@ function Library() {
               asset={asset}
               gmToken={gmToken}
               onChanged={replace}
+              onEditGrid={() => setGridTarget(asset)}
               onDeleted={() => setAssets((all) => (all ?? []).filter((a) => a.id !== asset.id))}
             />
           ))}
@@ -139,6 +146,21 @@ function Library() {
           </ul>
         </section>
       )}
+
+      <Modal open={gridTarget !== null} title="Edit grid" className="library-grid-modal" onClose={() => setGridTarget(null)}>
+        {gmToken && gridTarget && (
+          <LibraryGridEditor
+            key={gridTarget.id}
+            asset={gridTarget}
+            gmToken={gmToken}
+            onCancel={() => setGridTarget(null)}
+            onSaved={(saved) => {
+              replace(saved);
+              setGridTarget((open) => (open?.id === saved.id ? null : open));
+            }}
+          />
+        )}
+      </Modal>
     </main>
   );
 }
@@ -209,6 +231,7 @@ function AssetCard(props: {
   asset: LibraryAsset;
   gmToken: string;
   onChanged: (asset: LibraryAsset) => void;
+  onEditGrid: () => void;
   onDeleted: () => void;
 }) {
   const { asset, gmToken } = props;
@@ -307,6 +330,11 @@ function AssetCard(props: {
           <button type="button" className="link" onClick={() => setEditing(!editing)}>
             {editing ? "Cancel" : "Rename"}
           </button>
+          {asset.kind === "map" && (
+            <button type="button" className="link" onClick={props.onEditGrid}>
+              Edit grid
+            </button>
+          )}
           <button
             type="button"
             className="link danger"
@@ -318,5 +346,61 @@ function AssetCard(props: {
         </div>
       )}
     </li>
+  );
+}
+
+/**
+ * A library map's grid, edited without a room (asset-library: Edit a map's grid in the
+ * library). Saving writes only the library copy; rooms keep the grid they placed.
+ */
+function LibraryGridEditor({ asset, gmToken, onCancel, onSaved }: {
+  asset: LibraryAsset;
+  gmToken: string;
+  onCancel: () => void;
+  onSaved: (asset: LibraryAsset) => void;
+}) {
+  const saved = asset.grid ?? DEFAULT_GRID;
+  // An older grid too fine to draw starts at the smallest drawable size, as placement does.
+  const [draft, setDraft] = useState(() => toGridDraft(normalizeLegacyGridForBoard(saved, asset)));
+  const [shown, setShown] = useState<GridSpec>(() => normalizeLegacyGridForBoard(saved, asset));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  return (
+    <div className="library-grid-editor">
+      {/* An invalid draft leaves the last valid grid on the map. */}
+      <MapGridPreview map={asset} grid={shown} />
+      <div className="stack">
+        <GridForm
+          grid={saved}
+          map={asset}
+          draft={draft}
+          hasDraft
+          onChange={(next) => {
+            setDraft(next);
+            setError(null);
+            const valid = parseGridDraft(next, asset);
+            if (valid) setShown(valid);
+          }}
+          onCancel={onCancel}
+          onApply={async (grid) => {
+            setSaving(true);
+            setError(null);
+            try {
+              onSaved(await api.library.update(gmToken, asset.id, { grid }));
+            } catch (err) {
+              setError(err instanceof Error ? err.message : "Could not save the grid");
+            } finally {
+              setSaving(false);
+            }
+          }}
+          applying={saving}
+          error={error}
+          submitLabel="Save grid"
+          busyLabel="Saving…"
+        />
+        <p className="muted small-print">Rooms already using this map keep their grid. New placements use this one.</p>
+      </div>
+    </div>
   );
 }

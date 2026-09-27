@@ -4,6 +4,7 @@ import path from "node:path";
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import {
+  canRenderGrid,
   DEFAULT_GRID,
   GmIdentifyRequest,
   LibraryPatchRequest,
@@ -93,6 +94,10 @@ export function registerLibraryRoutes(
       if (!existing) return void notFound(res);
       if (patch.data.grid && existing.kind !== "map") {
         return void res.status(400).json({ error: "Only maps have a grid" });
+      }
+      // The same drawable-grid limit `decide` applies to a room's grid, against this map's size.
+      if (patch.data.grid && !canRenderGrid(patch.data.grid.cellSize, existing)) {
+        return void res.status(400).json({ error: "Grid cell size is too small for this map" });
       }
       const updated = await store.updateAsset(id.data, gmId, patch.data);
       if (!updated) return void notFound(res);

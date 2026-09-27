@@ -204,6 +204,33 @@ describe("library upload and management (asset-library)", () => {
   });
 });
 
+describe("editing a map's grid in the library (asset-library, FR-GM-04)", () => {
+  const patchGrid = (gm: string, id: string, grid: object) =>
+    gmFetch(gm, `/api/library/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ grid }),
+    });
+
+  it("rejects a grid too fine to draw on the map's stored size and keeps the saved grid", async () => {
+    const gm = await newGm();
+    const map = await uploadOk(gm, { kind: "map", name: "Vast", width: 4000, height: 3000 });
+    const res = await patchGrid(gm, map.id, { cellSize: 0.1, offsetX: 0, offsetY: 0, unitsPerCell: 5, unitLabel: "ft" });
+    expect(res.status).toBe(400);
+    const list = (await (await gmFetch(gm, "/api/library")).json()) as LibraryAsset[];
+    expect(list.find((a) => a.id === map.id)?.grid).toEqual(map.grid);
+  });
+
+  it("saves a drawable grid on the same map", async () => {
+    const gm = await newGm();
+    const map = await uploadOk(gm, { kind: "map", name: "Vast", width: 4000, height: 3000 });
+    const grid = { cellSize: 0.2, offsetX: 0, offsetY: 0, unitsPerCell: 5, unitLabel: "ft" };
+    const res = await patchGrid(gm, map.id, grid);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as LibraryAsset).grid).toEqual(grid);
+  });
+});
+
 describe("in-use tracking (asset-library: Warn before deleting an asset in use)", () => {
   async function gmInRoom(roomName: string, gmToken: string) {
     const creds = await server.createRoom("GM", { gmToken, roomName });
