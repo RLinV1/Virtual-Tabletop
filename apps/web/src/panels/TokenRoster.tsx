@@ -18,6 +18,7 @@ import { libraryAssetId } from "../net/builtinAssets";
 import { LibraryPicker } from "../pages/LibraryPicker";
 import { TokenPreview } from "../ui/TokenPreview";
 import { ConditionMarker, ConditionPicker } from "./ConditionMarker";
+import type { TokenDraft } from "../board/placement";
 import { AddTokenButton } from "./AddToken";
 import { Modal } from "../ui/Modal";
 import { PanelSection } from "../ui/PanelSection";
@@ -39,6 +40,7 @@ export function TokenRoster({
   you,
   token: guestToken,
   onFocusToken,
+  onPlaceToken,
 }: {
   connection: RoomConnection;
   state: RoomState;
@@ -46,6 +48,8 @@ export function TokenRoster({
   /** Room credential, for the GM's token image uploads. */
   token: string;
   onFocusToken: (tokenId: string) => void;
+  /** GM: pick the square for a token filled in by Add token (place-token-on-board). */
+  onPlaceToken: (draft: TokenDraft) => void;
 }) {
   const [query, setQuery] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -98,7 +102,7 @@ export function TokenRoster({
         </ul>
       )}
       {error && !editing && <p role="alert" className="error">{error}</p>}
-      {isGm && <AddTokenButton connection={connection} state={state} token={guestToken} />}
+      {isGm && <AddTokenButton state={state} token={guestToken} onPlace={onPlaceToken} />}
 
       <Modal open={!!editing} title={editing ? `Edit ${editing.name}` : "Edit token"} onClose={() => setEditingId(null)}>
         {editing && (

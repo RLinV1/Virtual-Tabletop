@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { DiceFive, MapTrifold, Sword, UserList } from "@phosphor-icons/react";
 import type { GridSpec, Participant, RoomState } from "@vtt/shared";
+import type { TokenDraft } from "../board/placement";
 import type { RoomConnection } from "../net/roomConnection";
 import { GmPanel } from "../pages/GmPanel";
 import type { GridDraft } from "../pages/gridDraft";
@@ -122,6 +123,8 @@ interface Props {
   onGridApply: (grid: GridSpec) => Promise<boolean>;
   gridApplying: boolean;
   gridError: string | null;
+  /** GM: pick the square for a token filled in by Add token (place-token-on-board). */
+  onPlaceToken: (draft: TokenDraft) => void;
   /** True on narrow screens, where the tab buttons sit above the panel instead of in the top bar. */
   compact: boolean;
   tab: TabId;
@@ -135,7 +138,7 @@ interface Props {
  * (Play, Tokens, Dice) from the GM's setup (Manage), instead of one long column.
  */
 export function RoomPanel({
-  connection, state, you, token, onFocusToken,
+  connection, state, you, token, onFocusToken, onPlaceToken,
   gridDraft, hasGridDraft, onGridDraftChange, onGridDraftCancel, onGridApply, gridApplying, gridError,
   compact, tab, onTab, onReviewDeparture,
 }: Props) {
@@ -154,7 +157,9 @@ export function RoomPanel({
         <InitiativeTracker connection={connection} state={state} you={you} onFocusToken={onFocusToken} />
       </>
     ),
-    tokens: <TokenRoster connection={connection} state={state} you={you} token={token} onFocusToken={onFocusToken} />,
+    tokens: (
+      <TokenRoster connection={connection} state={state} you={you} token={token} onFocusToken={onFocusToken} onPlaceToken={onPlaceToken} />
+    ),
     dice: <DicePanel connection={connection} state={state} isGm={isGm} />,
     gm: isGm ? (
       <GmPanel

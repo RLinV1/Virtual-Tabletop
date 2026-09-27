@@ -210,6 +210,22 @@ a.tool-button { text-decoration: none; }
   font-size: var(--fs-xs); color: var(--muted); pointer-events: none;
 }
 
+/* Placing a new token (place-token-on-board): top centre, clear of the toolbar and notices. */
+.placement-bar {
+  position: absolute; top: var(--space-3); left: 50%; transform: translateX(-50%); z-index: 6;
+  display: flex; flex-direction: column; align-items: center; gap: var(--space-2);
+  width: max-content; max-width: calc(100% - 2 * var(--space-3));
+  padding: var(--space-2) var(--space-3);
+  background: var(--raised); border: 1px solid var(--border-strong); border-radius: var(--radius);
+  box-shadow: 0 10px 28px var(--shadow);
+  font-size: var(--fs-sm); text-align: center;
+}
+.placement-bar p { margin: 0; }
+.placement-bar .row { flex-wrap: wrap; justify-content: center; }
+@media (prefers-reduced-motion: no-preference) {
+  .placement-bar { animation: modal-in 0.16s ease-out; }
+}
+
 .popover-anchor { position: relative; flex: none; }
 .popover {
   position: absolute; top: calc(100% + var(--space-2)); z-index: 10;

@@ -1,8 +1,8 @@
-import { useState } from "react";
-import { DEFAULT_TOKEN_COLOR, isActive, snapTokenCenter, type CommandInput, type RoomState } from "@vtt/shared";
+import { useRef, useState } from "react";
+import { DEFAULT_TOKEN_COLOR, isActive, type RoomState } from "@vtt/shared";
+import type { TokenDraft } from "../board/placement";
 import { api } from "../net/api";
 import { loadGmToken } from "../net/identity";
-import type { RoomConnection } from "../net/roomConnection";
 import { libraryAssetId } from "../net/builtinAssets";
 import { LibraryPicker } from "../pages/LibraryPicker";
 import { Modal } from "../ui/Modal";
@@ -13,39 +13,48 @@ const TOKEN_COLORS = ["#c0392b", "#2980b9", "#27ae60", "#8e44ad", "#d35400", "#1
 /**
  * The GM's "Add token" button and its modal (room-sidebar-layout: GM setup forms open in
  * modals). Lives at the top of the Tokens section so every token control is in one place.
+ * The form only describes the token; the GM then picks its square on the board, which
+ * sends the `token.create` (place-token-on-board).
  */
-export function AddTokenButton({ connection, state, token }: { connection: RoomConnection; state: RoomState; token: string }) {
+export function AddTokenButton({
+  state,
+  token,
+  onPlace,
+}: {
+  state: RoomState;
+  token: string;
+  /** Hand the filled-in token to the board, where the GM chooses its square. */
+  onPlace: (draft: TokenDraft) => void;
+}) {
   const [open, setOpen] = useState(false);
+  /** Filled in and waiting for the dialog to finish closing, so the board takes focus after it. */
+  const pending = useRef<TokenDraft | null>(null);
   // The library belongs to this device's GM identity; rooms made before it existed have none.
   const [gmToken] = useState(loadGmToken);
   const players = Object.values(state.participants).filter((p) => p.role === "player" && isActive(p));
-  const count = Object.keys(state.tokens).length;
-  const map = state.scene.map;
-  const center = map ? { x: map.width / 2, y: map.height / 2 } : { x: 1050, y: 700 };
-  const ring = Math.floor(count / 8) + 1;
-  const angle = (count % 8) * (Math.PI / 4);
-  const spread = state.scene.grid.cellSize * ring;
-  const suggestedPosition = snapTokenCenter({ x: center.x + Math.cos(angle) * spread, y: center.y + Math.sin(angle) * spread }, 1, state.scene.grid);
 
   return (
     <>
       <button type="button" data-tour="gm-add-token" onClick={() => setOpen(true)}>
         Add token
       </button>
-      <Modal open={open} title="Add token" onClose={() => setOpen(false)}>
+      <Modal
+        open={open}
+        title="Add token"
+        onClose={() => setOpen(false)}
+        onAfterClose={() => {
+          const draft = pending.current;
+          pending.current = null;
+          if (draft) onPlace(draft);
+        }}
+      >
         <AddToken
           players={players}
           token={token}
           gmToken={gmToken}
-          suggestedPosition={suggestedPosition}
-          onDone={() => setOpen(false)}
-          onAdd={async (draft, report) => {
-            const result = await connection.command({
-              ...draft,
-              color: TOKEN_COLORS[count % TOKEN_COLORS.length],
-            });
-            report(result.ok ? null : result.message);
-            return result.ok;
+          onAdd={(draft) => {
+            pending.current = { ...draft, color: TOKEN_COLORS[Object.keys(state.tokens).length % TOKEN_COLORS.length] };
+            setOpen(false);
           }}
         />
       </Modal>
@@ -63,16 +72,12 @@ function AddToken(props: {
   players: { id: string; displayName: string }[];
   token: string;
   gmToken: string | null;
-  suggestedPosition: { x: number; y: number };
-  onAdd: (draft: Extract<CommandInput, { type: "token.create" }>, report: (message: string | null) => void) => Promise<boolean>;
-  /** Called after a token is created, to close the modal. */
-  onDone: () => void;
+  /** The form is complete; the token is created once the GM picks its square on the board. */
+  onAdd: (draft: TokenDraft) => void;
 }) {
   const [name, setName] = useState("");
   const [ownerId, setOwnerId] = useState("");
   const [hidden, setHidden] = useState(false);
-  const [x, setX] = useState(String(props.suggestedPosition.x));
-  const [y, setY] = useState(String(props.suggestedPosition.y));
   const [size, setSize] = useState("1");
   const [rotation, setRotation] = useState("0");
   const [hp, setHp] = useState("");
@@ -81,7 +86,6 @@ function AddToken(props: {
   const [image, setImage] = useState<TokenImage | null>(null);
   const [picking, setPicking] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function onUpload(file: File | undefined) {
@@ -102,20 +106,14 @@ function AddToken(props: {
     <>
       <form
         className="stack"
-        onSubmit={async (e) => {
+        onSubmit={(e) => {
           e.preventDefault();
-          if (creating || uploading) return;
-          setCreating(true);
-          try {
-            if (await props.onAdd({
-              type: "token.create", name, hidden, ownerIds: ownerId ? [ownerId] : [],
-              position: { x: Number(x), y: Number(y) }, size: Number(size), rotation: Number(rotation),
-              stats: { hp: optionalNumber(hp), maxHp: optionalNumber(maxHp), ac: optionalNumber(ac) },
-              imageUrl: image?.url ?? null, assetId: image?.assetId ?? null,
-            }, setError)) props.onDone();
-          } finally {
-            setCreating(false);
-          }
+          props.onAdd({
+            type: "token.create", name, hidden, ownerIds: ownerId ? [ownerId] : [],
+            size: Number(size), rotation: Number(rotation),
+            stats: { hp: optionalNumber(hp), maxHp: optionalNumber(maxHp), ac: optionalNumber(ac) },
+            imageUrl: image?.url ?? null, assetId: image?.assetId ?? null,
+          });
         }}
       >
         <label>
@@ -133,13 +131,11 @@ function AddToken(props: {
             Duplicate names are numbered automatically, e.g. Goblin 2.
           </span>
         </label>
+        {/* No position fields: the GM points at the square on the board next (place-token-on-board). */}
         <div className="token-setup-grid">
-          <label>Board X<input type="number" value={x} onChange={(e) => setX(e.target.value)} required step="any" /></label>
-          <label>Board Y<input type="number" value={y} onChange={(e) => setY(e.target.value)} required step="any" /></label>
           <label>Size (cells)<input type="number" value={size} onChange={(e) => setSize(e.target.value)} required min="0.25" max="10" step="any" /></label>
           <label>Rotation (°)<input type="number" value={rotation} onChange={(e) => setRotation(e.target.value)} required step="any" /></label>
         </div>
-        <p className="muted small-print">Position is in board pixels. You can drag the token after adding it.</p>
         <div className="token-setup-grid">
           <label>HP<input type="number" value={hp} onChange={(e) => setHp(e.target.value)} min="-999" max="9999" step="1" /></label>
           <label>Max HP<input type="number" value={maxHp} onChange={(e) => setMaxHp(e.target.value)} min="1" max="9999" step="1" /></label>
@@ -191,7 +187,8 @@ function AddToken(props: {
           Hidden from players
         </label>
         {error && <p role="alert" className="error">{error}</p>}
-        <button type="submit" disabled={uploading || creating}>{creating ? "Adding…" : "Add token"}</button>
+        <button type="submit" disabled={uploading}>Choose a square</button>
+        <p className="muted">Next, click the square on the map where it should go.</p>
       </form>
       {/* Its own modal, stacked over this one (native dialogs stack), so searching the
           library has room. Kept outside the form so its buttons can never submit it. */}

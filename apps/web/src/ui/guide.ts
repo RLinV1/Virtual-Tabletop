@@ -96,7 +96,7 @@ const STEPS: StepSpec[] = [
       player: "Every token you can see. Search, click one to find it on the map, and Edit your own to update HP and conditions.",
     },
   },
-  { target: "gm-add-token", title: "Add tokens", body: { gm: "Create tokens for characters and monsters. Pick who controls each one, or hide it until you reveal it." } },
+  { target: "gm-add-token", title: "Add tokens", body: { gm: "Create tokens for characters and monsters, then click the square where each one goes. Pick who controls each one, or hide it until you reveal it." } },
   {
     target: "dice",
     title: "Dice",

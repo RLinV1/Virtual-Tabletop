@@ -11,6 +11,7 @@ export function Modal({
   title,
   className,
   onClose,
+  onAfterClose,
   initialFocus,
   children,
 }: {
@@ -18,6 +19,8 @@ export function Modal({
   title: string;
   className?: string;
   onClose: () => void;
+  /** Runs once the dialog has closed and returned focus to its opener, e.g. to move focus on from there. */
+  onAfterClose?: () => void;
   /** Focused on open instead of the first control, e.g. the safe choice in a confirmation. */
   initialFocus?: RefObject<HTMLElement | null>;
   children: ReactNode;
@@ -49,7 +52,10 @@ export function Modal({
         e.preventDefault();
         onClose();
       }}
-      onClose={() => opener.current?.focus()}
+      onClose={() => {
+        opener.current?.focus();
+        onAfterClose?.();
+      }}
       onKeyDown={(e) => {
         if (e.key !== "Escape") return;
         // Handle it here rather than relying on the dialog's cancel event, which a focused
