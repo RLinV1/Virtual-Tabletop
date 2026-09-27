@@ -30,8 +30,27 @@ export const GridSpec = z.object({
   lineWidth: z.number().min(0.5).max(8).optional(),
   /** 0.05 floor: an applied grid cannot become invisible by accident. */
   lineOpacity: z.number().min(0.05).max(1).optional(),
+}).superRefine((grid, ctx) => {
+  for (const offset of ["offsetX", "offsetY"] as const) {
+    if (grid[offset] >= grid.cellSize) {
+      ctx.addIssue({
+        code: "custom",
+        path: [offset],
+        message: "Grid offset must be less than the cell size",
+      });
+    }
+  }
 });
 export type GridSpec = z.infer<typeof GridSpec>;
+
+/** Bring offsets from older saved grids into the canonical range before reuse. */
+export function normalizeGridOffsets(grid: GridSpec): GridSpec {
+  return {
+    ...grid,
+    offsetX: grid.offsetX % grid.cellSize,
+    offsetY: grid.offsetY % grid.cellSize,
+  };
+}
 
 /** Thickness presets offered to the GM, in board pixels (Hairline, Thin, Medium, Thick, Bold). */
 export const GRID_LINE_WIDTHS = [1, 2, 3, 4, 6] as const;

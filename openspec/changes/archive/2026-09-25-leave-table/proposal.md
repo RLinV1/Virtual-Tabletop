@@ -14,7 +14,7 @@ KAN-58: a player has no way to leave a room except closing the tab, and FRONTEND
   - **Unassign.** The departed player is removed from the owners. With no owners left, only the GM controls it.
   - **Delete token.**
   - **Decide later.** The default. Leaves the token as it is.
-  
+
   An **Apply to all** control sets every row at once, and rows can then be changed one by one. Applying sends one new `participant.resolveDeparture` command, which the server turns into the existing `TokenOwnersSet` and `TokenDeleted` events, committed together.
 - **History stays.** Dice rolls and activity-log entries by a departed player remain (events are append-only). The modal says so.
 - **Participants list** shows active participants only. The name a departed player used is free for a new joiner (the `isActive` hook in `decide.ts` already anticipates this).

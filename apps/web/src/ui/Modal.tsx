@@ -9,12 +9,14 @@ import { useEffect, useId, useRef, type ReactNode, type RefObject } from "react"
 export function Modal({
   open,
   title,
+  className,
   onClose,
   initialFocus,
   children,
 }: {
   open: boolean;
   title: string;
+  className?: string;
   onClose: () => void;
   /** Focused on open instead of the first control, e.g. the safe choice in a confirmation. */
   initialFocus?: RefObject<HTMLElement | null>;
@@ -40,7 +42,7 @@ export function Modal({
   return (
     <dialog
       ref={ref}
-      className="modal"
+      className={className ? `modal ${className}` : "modal"}
       aria-labelledby={titleId}
       // Escape: let React state drive the close so `open` stays the source of truth.
       onCancel={(e) => {

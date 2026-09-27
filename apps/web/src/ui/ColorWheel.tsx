@@ -16,7 +16,12 @@ const SWATCHES = [
  * current colour is dark; brightness has its own slider. Keeps its own HSV so hue
  * survives passing through black or grey, where hex loses it.
  */
-export function ColorWheel({ value, onChange, label }: { value: string; onChange: (hex: string) => void; label: string }) {
+export function ColorWheel({ value, onChange, label, disabled = false }: {
+  value: string;
+  onChange: (hex: string) => void;
+  label: string;
+  disabled?: boolean;
+}) {
   const [hsv, setHsv] = useState<Hsv>(() => hexToHsv(value));
   const [hexDraft, setHexDraft] = useState(value);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -57,11 +62,13 @@ export function ColorWheel({ value, onChange, label }: { value: string; onChange
   }, []);
 
   const commit = (next: Hsv) => {
+    if (disabled) return;
     setHsv(next);
     onChange(hsvToHex(next));
   };
 
   const pick = (e: PointerEvent<HTMLDivElement>) => {
+    if (disabled) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const { h, s } = pointToHueSat(e.clientX - rect.left - RADIUS, e.clientY - rect.top - RADIUS, RADIUS);
     // Picking on the wheel means "this hue": lift brightness off black so the pick shows.
@@ -69,6 +76,7 @@ export function ColorWheel({ value, onChange, label }: { value: string; onChange
   };
 
   const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (disabled) return;
     const step = { ArrowLeft: [-5, 0], ArrowRight: [5, 0], ArrowDown: [0, -0.05], ArrowUp: [0, 0.05] }[e.key];
     if (!step) return;
     e.preventDefault();
@@ -85,7 +93,8 @@ export function ColorWheel({ value, onChange, label }: { value: string; onChange
         className="color-wheel-disc"
         style={{ width: SIZE, height: SIZE }}
         role="slider"
-        tabIndex={0}
+        tabIndex={disabled ? -1 : 0}
+        aria-disabled={disabled}
         aria-label={`${label}: hue and saturation`}
         aria-valuetext={hex}
         aria-valuenow={Math.round(hsv.h)}
@@ -93,10 +102,12 @@ export function ColorWheel({ value, onChange, label }: { value: string; onChange
         aria-valuemax={359}
         onKeyDown={onKey}
         onPointerDown={(e) => {
+          if (disabled) return;
           e.currentTarget.setPointerCapture(e.pointerId);
           pick(e);
         }}
         onPointerMove={(e) => {
+          if (disabled) return;
           if (e.currentTarget.hasPointerCapture(e.pointerId)) pick(e);
         }}
       >
@@ -116,6 +127,7 @@ export function ColorWheel({ value, onChange, label }: { value: string; onChange
             min={0}
             max={100}
             value={Math.round(hsv.v * 100)}
+            disabled={disabled}
             style={{ "--range-to": pureHue } as CSSProperties}
             onChange={(e) => commit({ ...hsv, v: Number(e.target.value) / 100 })}
           />
@@ -126,6 +138,7 @@ export function ColorWheel({ value, onChange, label }: { value: string; onChange
             <span className="color-wheel-chip" style={{ background: hex }} aria-hidden="true" />
             <input
               value={hexDraft}
+              disabled={disabled}
               maxLength={7}
               spellCheck={false}
               autoComplete="off"
@@ -145,6 +158,7 @@ export function ColorWheel({ value, onChange, label }: { value: string; onChange
               <button
                 key={s.hex}
                 type="button"
+                disabled={disabled}
                 className="color-swatch"
                 style={{ background: s.hex }}
                 aria-label={s.name}

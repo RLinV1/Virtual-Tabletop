@@ -1,6 +1,6 @@
 import { CornersOut } from "@phosphor-icons/react";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from "react";
-import type { Participant, RoomState } from "@vtt/shared";
+import type { GridSpec, Participant, RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { DEFAULT_TOOL_OPTIONS, ToolRail, toolFor, type ToolOptions } from "../ui/ToolRail";
 import { BoardView } from "./boardView";
@@ -10,6 +10,7 @@ interface Props {
   connection: RoomConnection;
   state: RoomState;
   you: Participant;
+  gridPreview: GridSpec | null;
   /** Plain React controls shown top left, before Fit (e.g. the participants button). */
   toolbar?: ReactNode;
   /** Notices pinned to the top right of the board, e.g. the GM's "Sam left the table". */
@@ -38,11 +39,11 @@ function isTyping(target: EventTarget | null) {
 }
 
 /** The PixiJS board plus its React toolbar and notices; Pixi objects stay inside `BoardView`. */
-export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, toolbar, notices }, ref) {
+export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, toolbar, notices }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<BoardView | null>(null);
-  const latest = useRef({ state, you });
-  latest.current = { state, you };
+  const latest = useRef({ state, you, gridPreview });
+  latest.current = { state, you, gridPreview };
   const [tool, setTool] = useState<BoardTool>({ kind: "select" });
   const [toolOptions, setToolOptions] = useState<ToolOptions>(DEFAULT_TOOL_OPTIONS);
   const toolRef = useRef(tool);
@@ -73,6 +74,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     view.init().then(() => {
       if (disposed) return view.destroy();
       viewRef.current = view;
+      view.setGridPreview(latest.current.gridPreview);
       view.update(latest.current.state, latest.current.you);
       view.setTool(toolRef.current);
     });
@@ -94,6 +96,10 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   useEffect(() => {
     viewRef.current?.update(state, you);
   }, [state, you]);
+
+  useEffect(() => {
+    viewRef.current?.setGridPreview(gridPreview);
+  }, [gridPreview]);
 
   useEffect(() => {
     viewRef.current?.setTool(tool);
@@ -124,6 +130,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
           Fit
         </button>
       </div>
+      {gridPreview && <p className="grid-preview-label" role="status">Preview · Not applied</p>}
       <ToolRail
         active={tool.kind}
         options={toolOptions}

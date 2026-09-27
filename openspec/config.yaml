@@ -9,27 +9,33 @@ schema: spec-driven
 #     We use conventional commits
 #     Domain: e-commerce platform
 context: |
-  Project: a free, feature-complete virtual tabletop (VTT) for remote D&D-style
-  play — shared map, real-time token movement, fog of war, dice, turn tracking.
-  No code has been written yet; README.md is the living PRD (architecture,
-  data model, API/WS protocol, milestones) and is the source of truth to
-  check against before proposing changes.
+  Project: a browser-based virtual tabletop for remote D&D-style play.
+  README.md defines product requirements by FR ID. docs/DESIGN.md and
+  docs/DELIVERY.md describe the current architecture and delivery slices;
+  inspect the implementation before proposing changes because some features
+  in those documents are planned rather than built.
 
-  Pinned stack (see README.md §9 for rationale):
-    Client:   React + TypeScript, react-konva for the board canvas
-    Server:   Node.js + Express, Socket.IO (rooms = sessions)
-    ORM/DB:   Prisma over Postgres (durable), Redis (live session state + pub/sub)
-    Storage:  MinIO (S3-compatible) for map images
-    Auth:     short-lived JWT access token + httpOnly refresh cookie
+  Current implementation:
+    - npm workspaces: packages/shared (zod state, commands, events, decision,
+      reduction, visibility), apps/server (Express, Socket.IO), apps/web
+      (React, TypeScript, PixiJS board).
+    - Persistence adapters include Prisma/Postgres, Redis, and asset storage;
+      memory implementations support development and tests.
+    - Room access uses guest credentials; GM device tokens own rooms and
+      library assets. Account sign-in is planned, not yet implemented.
+    - Grid metadata uses map-image pixels. Manual grid correction and a
+      GM-local preview exist; automatic detection (FR-GM-03) is planned.
 
-  Design rules that changes must respect:
-    - Server is authoritative for game state; clients send intents, never
-      write state directly (README.md §9.3).
-    - Every session has a monotonic `seq`; conflicting writes are rejected
-      with an explicit `error`, never silently merged.
-    - v1 fog of war is GM-painted regions, not per-token line-of-sight
-      (that's an explicit stretch goal — see README.md §7, §9.4, §11).
-    - No feature ships tiered/paywalled — if it ships, every user gets it.
+  Design rules:
+    - The server owns persistent room state. Commands are authorized in
+      packages/shared, converted to events, appended, reduced, and broadcast.
+    - Events have monotonically increasing room sequence numbers. Ephemeral
+      previews are not persisted and do not receive sequence numbers.
+    - Filter every room payload for the viewer so hidden GM information never
+      reaches players.
+    - Changes to existing shared schemas need an ADR and review by the
+      real-time architecture owner (CLAUDE.md).
+    - No feature ships tiered or paywalled.
 
 # Per-artifact rules (optional)
 # Add custom rules for specific artifacts.
