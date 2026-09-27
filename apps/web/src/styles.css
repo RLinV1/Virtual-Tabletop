@@ -793,13 +793,13 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 .home .card p { margin: 0; }
 @media (max-width: 760px) { .home-grid { grid-template-columns: 1fr; } }
 
-/* The dashboard follows on from the home page's "Set up a room", so it shares its type
-   rather than the room's Alegreya (dashboard-typography). */
-.gm-dashboard { font-family: var(--font-ui); }
-.gm-dashboard h1,
-.gm-dashboard h2 { font-family: var(--font-ui); letter-spacing: -0.02em; text-transform: none; }
-.gm-dashboard h1 { font-size: 1.5rem; }
-.gm-dashboard .card h2 { font-size: 1.05rem; font-weight: 650; color: var(--text); }
+/* The GM's pages outside a room (dashboard, asset library) follow on from the home page's
+   "Set up a room", so they share its type rather than the room's Alegreya (dashboard-typography). */
+.gm-page { font-family: var(--font-ui); }
+.gm-page h1,
+.gm-page h2 { font-family: var(--font-ui); letter-spacing: -0.02em; text-transform: none; }
+.gm-page h1 { font-size: 1.5rem; }
+.gm-page h2 { font-size: 1.05rem; font-weight: 650; color: var(--text); }
 
 .room-list li {
   display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;

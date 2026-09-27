@@ -86,7 +86,7 @@ function Library() {
   const replace = (next: LibraryAsset) => setAssets((all) => (all ?? []).map((a) => (a.id === next.id ? next : a)));
 
   return (
-    <main className="home">
+    <main className="home gm-page">
       <header className="home-header">
         <Link href="/" className="brand">
           Virtual Tabletop
