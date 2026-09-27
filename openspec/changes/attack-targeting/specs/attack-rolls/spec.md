@@ -1,0 +1,142 @@
+## Purpose
+
+Lets a participant make an attack by picking the attacking token, pointing at a target on the board and rolling. The table sees who attacked whom and with what, and the GM still decides hit or miss.
+
+## ADDED Requirements
+
+### Requirement: Attack section in Play
+The Play tab SHALL contain an Attack section. Its attacker list SHALL offer exactly the tokens the viewer controls: tokens they own, and every visible token for the GM. It SHALL preselect the viewer's token holding the active turn when there is one, and otherwise the first token in the list. A viewer who controls no token SHALL be told so instead of being offered the controls. Choosing an attacker SHALL be allowed whether or not it is that token's turn. The Tokens roster and the My tokens rows SHALL NOT offer attack controls.
+
+#### Scenario: Player sees only their own tokens as attackers
+- **WHEN** a player who owns Aria opens the Play tab with Aria and Goblin 2 on the board
+- **THEN** the Attack section offers Aria as the attacker and does not offer Goblin 2
+
+#### Scenario: The active turn is preselected
+- **WHEN** a player owns Aria and Bram and it is Bram's turn
+- **THEN** the Attack section preselects Bram
+
+#### Scenario: Attacking out of turn is allowed
+- **WHEN** initiative is running, it is Goblin 2's turn, and Aria's owner picks a target for Aria
+- **THEN** the target is selected and Aria can roll
+
+### Requirement: Choosing a target
+The viewer SHALL be able to choose a target in either of two ways.
+
+**Pick on board** SHALL put the viewer's board into targeting mode:
+- The cursor SHALL be a crosshair.
+- A line SHALL run from the attacking token to the token under the pointer, labeled with the distance in the room's grid units.
+- Clicking another token the viewer can see SHALL choose it as the target.
+- Clicking the attacking token or empty board SHALL NOT choose a target.
+- `Esc` or a right-click SHALL leave targeting mode without choosing.
+
+**The target list** SHALL show every token the viewer can see other than the attacker, nearest first, each with its distance in grid units. Choosing one SHALL make it the target.
+
+Targeting SHALL be local to the viewer. Nothing SHALL be sent to other participants until a roll is made. The chosen target SHALL stay selected after a roll until the viewer clears it, the target is no longer visible to the viewer, or the viewer makes it the attacker.
+
+#### Scenario: Hovering shows the distance
+- **WHEN** Aria's owner is picking on the board and the pointer is over Goblin 2, three squares away on a 5 ft grid
+- **THEN** a line from Aria to Goblin 2 is labeled "15 ft"
+
+#### Scenario: Choosing from the list
+- **WHEN** Goblin 2 is 15 ft from Aria and an Orc is 30 ft away
+- **THEN** the list shows "Goblin 2 · 15 ft" before "Orc · 30 ft", and choosing Goblin 2 makes it the target
+
+#### Scenario: Cancelling
+- **WHEN** the viewer presses `Esc` while picking on the board
+- **THEN** the board returns to its previous tool, the target is unchanged, and no roll or ping is sent
+
+#### Scenario: A token cannot target itself
+- **WHEN** the viewer clicks the attacking token while picking on the board
+- **THEN** no target is chosen and targeting mode continues
+
+#### Scenario: Target stays for the damage roll
+- **WHEN** Aria's owner rolls an attack at Goblin 2
+- **THEN** Goblin 2 is still the target, and the next roll is made against it without choosing again
+
+### Requirement: Choosing dice and rolling
+The viewer SHALL be able to set:
+- a die type from d4, d6, d8, d10, d12, d20 and d100;
+- a number of dice from 1 to 20;
+- an integer modifier from −99 to 99;
+- an optional label of at most 40 characters;
+- for the GM only, whether the roll is GM-only.
+
+The settings SHALL start from the last ones this browser used with the chosen attacker, or `1d20` with no label the first time. The Roll control SHALL name the expression and the target, e.g. "Roll 1d20+5 at Goblin 2", and SHALL be unavailable until a target is chosen. Rolling SHALL make a single roll that carries the attacker, the target and the label. It SHALL also send a ping at the target's position; the ping SHALL be sent only for a public roll whose target is visible to players. The Attack section SHALL show the dice landing and the result of the viewer's latest attack roll.
+
+#### Scenario: Rolling an attack
+- **WHEN** Aria's owner targets Goblin 2, chooses 1 × d20 with modifier +5 and label "Longsword", and rolls
+- **THEN** one roll of `1d20+5` is made, carrying Aria as attacker, Goblin 2 as target and "Longsword" as the label, a ping appears on Goblin 2 for everyone, and the section shows the result
+
+#### Scenario: Damage with different dice
+- **WHEN** after that roll the owner chooses 1 × d8 with modifier +3 and label "Damage", and rolls
+- **THEN** a roll of `1d8+3` is made against Goblin 2 with the label "Damage"
+
+#### Scenario: Settings are remembered per token
+- **WHEN** the viewer rolls `1d20+5` with Aria, reloads the page, and chooses Aria again
+- **THEN** the dice are set to `1d20+5`
+
+#### Scenario: GM-only attack sends no ping
+- **WHEN** the GM makes a GM-only attack roll against Aria
+- **THEN** players receive neither the roll nor a ping
+
+### Requirement: Saved attacks
+The viewer SHALL be able to save the current dice and label as a named attack for the chosen attacker, for example "Longsword 1d20+5" or "Damage 1d8+3". Saved attacks SHALL be shown as one-tap choices for that attacker, and choosing one SHALL set the dice and label without rolling. The viewer SHALL be able to remove a saved attack. At most 8 SHALL be kept per token. Saved attacks SHALL be kept in this browser only and SHALL NOT be sent to the server or other participants.
+
+#### Scenario: Save and reuse
+- **WHEN** the viewer saves "Damage 1d8+3" for Aria, reloads the page, and taps it
+- **THEN** the dice are set to `1d8+3` with the label "Damage", and nothing is rolled until they choose Roll
+
+### Requirement: Attack rolls show who attacked whom
+Everywhere the room shows a roll that carries attack context, it SHALL name the attacking token, the target token and the label if any, followed by the expression and total, e.g. "Aria → Goblin 2 · Longsword · 1d20+5 = 17". The names shown SHALL be the tokens' names at the time of the roll, even after a token is renamed or deleted. The system SHALL NOT state whether the attack hits, and SHALL NOT change any token's hit points or conditions as a result of the roll.
+
+#### Scenario: Roll log entry
+- **WHEN** Aria's owner rolls 17 on a Longsword attack at Goblin 2
+- **THEN** every participant's roll log shows "Aria → Goblin 2 · Longsword · 1d20+5 = 17", with no hit or miss verdict
+
+#### Scenario: Target deleted later
+- **WHEN** Goblin 2 is deleted after being attacked
+- **THEN** the earlier roll still names Goblin 2
+
+### Requirement: Server authorizes attack rolls
+The server SHALL accept a roll with attack context only when all of the following hold:
+- The attacking token exists and is visible to the actor.
+- The actor controls the attacking token (owns it or is the GM).
+- The target token exists and is visible to the actor.
+- The target differs from the attacker.
+
+A token the actor cannot see SHALL be answered exactly as a token that does not exist. A roll without attack context SHALL behave exactly as before. The server SHALL NOT restrict attack rolls by turn order, range, or the dice expression used.
+
+#### Scenario: Player attacks with someone else's token
+- **WHEN** a player sends an attack roll naming Goblin 2 as the attacker, which they do not own
+- **THEN** the server refuses it as forbidden and no roll is recorded
+
+#### Scenario: Player targets a hidden token
+- **WHEN** a player sends an attack roll whose target is a hidden token's ID
+- **THEN** the server answers "not found", exactly as for a nonexistent token, and no roll is recorded
+
+#### Scenario: Attacker and target are the same
+- **WHEN** an attack roll names the same token as attacker and target
+- **THEN** the server refuses it as invalid
+
+#### Scenario: Plain rolls are unchanged
+- **WHEN** a participant rolls `2d6+1` with no attack context
+- **THEN** the roll is accepted and shown as before
+
+### Requirement: Attack rolls never reveal hidden tokens
+A player SHALL NOT receive the ID or name of a token that is hidden from them through an attack roll, in any snapshot, live event, reconnect payload or response. This SHALL hold when the GM makes a public attack roll involving a hidden token, and when a token becomes hidden after the roll was made. In that case the player SHALL still see the roll's expression, total and label, with the hidden side shown as an unknown token. A side that has been hidden SHALL stay unknown to players for that roll even after the token is revealed, renamed or deleted. The system SHALL NOT ping the position of a hidden target. GM-only attack rolls SHALL remain withheld from players entirely, as for any GM-only roll.
+
+#### Scenario: Hidden monster attacks in public
+- **WHEN** the GM makes a public attack roll with a hidden Shadow against Aria
+- **THEN** players see the roll against Aria with the attacker shown as unknown, and no player-bound payload contains the Shadow's ID or name
+
+#### Scenario: Hidden target is not pinged
+- **WHEN** the GM makes a public attack roll against a hidden token
+- **THEN** players see the roll with the target shown as unknown, and no ping is shown at the hidden token's position
+
+#### Scenario: Revealed after a rename
+- **WHEN** the GM makes a public attack roll with a hidden Doppelganger, then renames it Innkeeper and reveals it
+- **THEN** players still see that roll's attacker as unknown, and never receive the name Doppelganger
+
+#### Scenario: Target hidden after the roll
+- **WHEN** a player attacks the visible Goblin 2 and the GM later hides Goblin 2
+- **THEN** players' roll logs no longer contain Goblin 2's ID or name for that roll, and the GM's log still does
