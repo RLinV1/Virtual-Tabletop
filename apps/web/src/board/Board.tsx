@@ -1,9 +1,10 @@
 import { CornersOut } from "@phosphor-icons/react";
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from "react";
-import type { GridSpec, Participant, Point, RoomState } from "@vtt/shared";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
+import { DEFAULT_TOKEN_COLOR, EMPTY_STATS, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { DEFAULT_TOOL_OPTIONS, ToolRail, toolFor, type ToolOptions } from "../ui/ToolRail";
 import { BoardView } from "./boardView";
+import { autoPlacementPoint, type PlacementGhost, type TokenDraft } from "./placement";
 import type { BoardTool } from "./tools";
 
 interface Props {
@@ -22,11 +23,15 @@ interface Props {
 /** What the roster and initiative list can ask the canvas to do (FR-GM-24). */
 export interface BoardHandle {
   focusToken(tokenId: string): void;
+  /** Let the GM choose the square for a token filled in by Add token (place-token-on-board). */
+  placeToken(draft: TokenDraft): void;
   /** Pick a target on the board for `tokenId` to attack; the pick goes to `onPickTarget` (attack-targeting). */
   startAttack(tokenId: string): void;
   /** Show a ping on this viewer's board only, e.g. the one an attack roll just sent. */
   showPing(at: Point): void;
 }
+
+const PLACING_HINT = "Click a square to place the token · drag to pan · hold Alt to place freely · Esc to cancel";
 
 const HINTS: Record<BoardTool["kind"], string> = {
   select: "Drag to pan · scroll to zoom · double-click to ping · hold Alt to place freely",
@@ -58,6 +63,40 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   /** The tool to go back to once an attack's target is picked or cancelled. */
   const beforeAttack = useRef<BoardTool>({ kind: "select" });
   const endAttack = () => setTool((current) => (current.kind === "attack" ? beforeAttack.current : current));
+  /** The token Add token handed over, until it is on the board or cancelled. */
+  const [placing, setPlacing] = useState<{ draft: TokenDraft; busy: boolean; error: string | null } | null>(null);
+  const placingRef = useRef(placing);
+  placingRef.current = placing;
+  const draft = placing?.draft ?? null;
+  const ghost = useMemo<PlacementGhost | null>(
+    () =>
+      draft && {
+        name: draft.name,
+        size: draft.size ?? 1,
+        rotation: draft.rotation ?? 0,
+        color: draft.color ?? DEFAULT_TOKEN_COLOR,
+        imageUrl: draft.imageUrl ?? null,
+        hidden: draft.hidden ?? false,
+        stats: draft.stats ?? EMPTY_STATS,
+      },
+    [draft],
+  );
+  const ghostRef = useRef(ghost);
+  ghostRef.current = ghost;
+  const placeAutomaticallyRef = useRef<HTMLButtonElement>(null);
+
+  /** Create the token at `at`. One at a time: a second click while the first is in flight does nothing. */
+  const place = async (at: Point) => {
+    const current = placingRef.current;
+    if (!current || current.busy) return;
+    placingRef.current = { ...current, busy: true };
+    setPlacing(placingRef.current);
+    const result = await connection.command({ ...current.draft, position: at });
+    // Keep the draft on a rejection, so the GM can read why and try another square.
+    setPlacing((now) => (now?.draft !== current.draft ? now : result.ok ? null : { ...now, busy: false, error: result.message }));
+  };
+  const placeRef = useRef(place);
+  placeRef.current = place;
 
   useEffect(() => {
     const view = new BoardView(hostRef.current!, {
@@ -78,6 +117,8 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
         if (!result.ok) console.warn("Area removal rejected:", result.message);
         return result.ok;
       },
+      placeToken: (at) => void placeRef.current(at),
+      cancelPlacement: () => setPlacing(null),
       pickTarget: (attackerId, targetId) => {
         endAttack();
         latest.current.onPickTarget?.(attackerId, targetId);
@@ -92,6 +133,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       view.setGridPreview(latest.current.gridPreview);
       view.update(latest.current.state, latest.current.you);
       view.setTool(toolRef.current);
+      view.setPlacement(ghostRef.current);
     });
     const stopEphemeral = connection.onEphemeral((_from, payload) => {
       if (payload.type === "ping") view.showPing(payload.at, 0x3498db);
@@ -120,6 +162,28 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     viewRef.current?.setTool(tool);
   }, [tool]);
 
+  useEffect(() => {
+    viewRef.current?.setPlacement(ghost);
+  }, [ghost]);
+
+  // Keyboard path: put focus on "Place automatically". Add token starts placing only once its
+  // dialog has closed and handed focus back, so nothing takes it away again.
+  useEffect(() => {
+    if (draft) placeAutomaticallyRef.current?.focus();
+  }, [draft]);
+
+  // Escape cancels placing, unless it is meant for a field or an open dialog.
+  useEffect(() => {
+    if (!draft) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented || isTyping(e.target) || document.querySelector("dialog[open]")) return;
+      e.preventDefault();
+      setPlacing(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [draft]);
+
   // Escape puts the board back to Select, unless it is meant for a field or an open dialog.
   // An attack being aimed goes back to whatever tool was in use before it.
   useEffect(() => {
@@ -142,7 +206,14 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
 
   useImperativeHandle(ref, () => ({
     focusToken: (tokenId: string) => viewRef.current?.focusToken(tokenId),
+    placeToken: (next: TokenDraft) => {
+      // The rail's tools would compete with placing for the same clicks.
+      setTool({ kind: "select" });
+      setPlacing({ draft: next, busy: false, error: null });
+    },
     startAttack: (tokenId: string) => {
+      // Aiming and placing would compete for the same click; the aim wins.
+      setPlacing(null);
       if (toolRef.current.kind !== "attack") beforeAttack.current = toolRef.current;
       setTool({ kind: "attack", attackerId: tokenId });
     },
@@ -165,7 +236,10 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
         options={toolOptions}
         unitLabel={state.scene.grid.unitLabel}
         isGm={you.role === "gm"}
-        onSelect={(kind) => setTool(toolFor(kind, toolOptions))}
+        onSelect={(kind) => {
+          setPlacing(null);
+          setTool(toolFor(kind, toolOptions));
+        }}
         onOptions={(options) => {
           setToolOptions(options);
           setTool((current) => (current.kind === "attack" ? current : toolFor(current.kind, options)));
@@ -173,7 +247,31 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
         onClear={() => viewRef.current?.clearMarks()}
       />
       {notices}
-      <p className="board-hint">{tool.kind === "area" && tool.gmOnly ? GM_ONLY_AREA_HINT : HINTS[tool.kind]}</p>
+      {placing && (
+        <div className="placement-bar">
+          <p aria-live="polite">
+            Placing <strong>{placing.draft.name}</strong>: click a square on the map.
+          </p>
+          {placing.error && <p role="alert" className="error">{placing.error}</p>}
+          <div className="row">
+            <button
+              ref={placeAutomaticallyRef}
+              type="button"
+              className="secondary"
+              disabled={placing.busy}
+              onClick={() => void place(autoPlacementPoint(state, placing.draft.size ?? 1))}
+            >
+              Place automatically
+            </button>
+            <button type="button" className="secondary" disabled={placing.busy} onClick={() => setPlacing(null)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      <p className="board-hint">
+        {placing ? PLACING_HINT : tool.kind === "area" && tool.gmOnly ? GM_ONLY_AREA_HINT : HINTS[tool.kind]}
+      </p>
     </div>
   );
 });
