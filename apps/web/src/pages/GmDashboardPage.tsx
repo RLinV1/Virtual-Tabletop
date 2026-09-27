@@ -24,7 +24,7 @@ export function GmDashboardPage() {
   if (!recognised) return null;
 
   return (
-    <main className="home gm-dashboard">
+    <main className="home gm-page">
       <header className="home-header">
         <Link href="/" className="brand">
           Virtual Tabletop
