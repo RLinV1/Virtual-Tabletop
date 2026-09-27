@@ -23,7 +23,9 @@ export type BoardTool =
       /** GM only: place it where players can't see it (ADR 0007). */
       gmOnly: boolean;
     }
-  | { kind: "erase" };
+  | { kind: "erase" }
+  /** Picking whom `attackerId` attacks (attack-targeting). Started from a token's Attack button, not the rail. */
+  | { kind: "attack"; attackerId: string };
 
 /** Colours offered by the Draw tool. */
 export const DRAW_COLORS = [

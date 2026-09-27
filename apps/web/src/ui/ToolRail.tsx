@@ -14,7 +14,8 @@ export const DEFAULT_TOOL_OPTIONS: ToolOptions = {
   area: { shape: "circle", size: 20, gmOnly: false },
 };
 
-type ToolKind = BoardTool["kind"];
+/** Tools the rail offers; Attack starts from a token instead (attack-targeting). */
+type ToolKind = Exclude<BoardTool["kind"], "attack">;
 
 const TOOLS: { kind: ToolKind; label: string; icon: ReactNode }[] = [
   { kind: "select", label: "Select", icon: <Cursor size={18} aria-hidden="true" /> },
@@ -59,7 +60,7 @@ export function ToolRail({
   onOptions,
   onClear,
 }: {
-  active: ToolKind;
+  active: BoardTool["kind"];
   options: ToolOptions;
   /** The room grid's unit label, for the area sizes. */
   unitLabel: string;

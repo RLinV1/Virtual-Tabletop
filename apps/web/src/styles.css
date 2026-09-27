@@ -588,7 +588,7 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 .init-entry.active .init-focus { font-weight: 700; box-shadow: inset 2px 0 0 var(--accent); background: var(--accent-soft); }
 .init-turn { width: 1.2rem; text-align: center; color: var(--muted); font-variant-numeric: tabular-nums; }
 .init-entry.active .init-turn { color: var(--accent); }
-.init-controls { display: flex; gap: var(--space-2); }
+.init-controls { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 .init-controls button { flex: 1; }
 
 /* --- Roster --- */
@@ -636,6 +636,74 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 .my-token-head { display: flex; align-items: center; gap: var(--space-2); font-size: 1.05rem; font-weight: 700; }
 .my-token-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .my-token-stats { display: flex; gap: 0.6rem; margin: 0; font-size: var(--fs-sm); }
+
+/* Attack section in Play (attack-targeting). */
+.attack-panel { gap: var(--space-3); }
+.attack-field { display: flex; flex-direction: column; gap: 0.35rem; }
+.attack-target-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
+.attack-target { display: inline-flex; align-items: center; gap: 0.35rem; min-width: 0; }
+.attack-target strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attack-target-row button.small { display: inline-flex; align-items: center; gap: 0.3rem; }
+.attack-targets { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.attack-targets { max-height: 6.5rem; overflow-y: auto; }
+.attack-panel .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.attack-panel .chip[aria-pressed="true"] .muted { color: inherit; }
+.attack-dice { border: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
+.attack-kind { display: grid; grid-template-columns: 1fr 1fr; gap: 0.2rem; }
+.attack-kind .chip { text-align: center; }
+.attack-waiting { margin: 0; display: inline-flex; align-items: center; gap: 0.3rem; }
+.attack-latest button.small { display: inline-flex; align-items: center; gap: 0.3rem; align-self: flex-start; }
+.attack-die-types { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0.2rem; }
+.attack-die-types .chip { padding: 0.15rem 0; text-align: center; }
+.attack-dice-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.attack-stepper { display: inline-flex; align-items: center; gap: 0.35rem; }
+.attack-stepper .icon-button { min-height: 0; padding: 0.25rem; }
+.attack-stepper output { min-width: 1.5ch; text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; }
+.attack-modifier { flex-direction: row; align-items: center; gap: 0.3rem; }
+.attack-modifier input { width: 4rem; }
+.attack-label-row { display: flex; gap: 0.3rem; align-items: stretch; }
+.attack-label-row input { flex: 1; min-width: 0; }
+.attack-roll { display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; width: 100%; }
+.attack-latest { display: flex; flex-direction: column; gap: 0.35rem; }
+.roll-verdict { display: inline-flex; gap: 0.25rem; margin-top: 0.2rem; }
+.roll-verdict .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+/* Attack section layout (attack-ux-polish). */
+.attack-attacker { margin: 0; display: flex; align-items: center; gap: 0.4rem; font-size: 1.05rem; }
+.attack-latest { padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius); }
+.attack-presets { display: flex; flex-direction: column; gap: 0.35rem; }
+.attack-preset { display: flex; align-items: stretch; gap: 0.3rem; }
+.attack-preset-roll { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.45rem; text-align: left; min-height: 40px; }
+.attack-preset-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attack-preset-dice { margin-left: auto; font-weight: 500; font-variant-numeric: tabular-nums; opacity: 0.85; }
+.attack-add { align-self: flex-start; display: inline-flex; align-items: center; gap: 0.3rem; }
+.attack-follow-up { display: inline-flex; align-items: center; gap: 0.35rem; align-self: flex-start; }
+.attack-editor { padding: var(--space-2); border: 1px dashed var(--border-strong); border-radius: var(--radius); gap: var(--space-2); }
+.attack-editor-actions { justify-content: flex-end; flex-wrap: wrap; gap: 0.4rem; }
+.attack-dice-field { border: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
+.attack-dice-inputs { display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; }
+.attack-dice-inputs input[type="number"] { width: 3.6rem; }
+.attack-dice-preview { font-variant-numeric: tabular-nums; }
+.attack-custom summary { cursor: pointer; font-size: var(--fs-sm); color: var(--muted); padding: 0.2rem 0; }
+.attack-custom[open] summary { margin-bottom: var(--space-2); color: var(--text); }
+.attack-warning { margin: 0; font-size: var(--fs-sm); color: var(--text); border-left: 3px solid var(--accent); padding-left: 0.5rem; }
+.ruling-buttons { display: inline-flex; gap: 0.35rem; flex-wrap: wrap; }
+.ruling-buttons button { min-height: 36px; min-width: 4.5rem; }
+.init-pending { font-size: var(--fs-sm); align-self: center; }
+.tab-badge { display: inline-grid; place-items: center; min-width: 1.15rem; height: 1.15rem; padding: 0 0.3rem; margin-left: 0.3rem; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-size: 0.7rem; font-weight: 700; line-height: 1; }
+.tab.selected .tab-badge { background: var(--accent-ink); color: var(--accent); }
+.tab-badge.dot { min-width: 0.55rem; width: 0.55rem; height: 0.55rem; padding: 0; }
+
+/* GM Rulings list (attack-rulings). */
+.rulings { display: flex; flex-direction: column; gap: var(--space-2); }
+.ruling { display: flex; flex-direction: column; gap: 0.3rem; padding-bottom: var(--space-2); border-bottom: 1px solid var(--border); }
+.ruling:last-child { border-bottom: none; padding-bottom: 0; }
+.ruling-line { display: flex; justify-content: space-between; gap: var(--space-2); align-items: baseline; }
+.ruling-parties { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ruling-total { flex: none; display: inline-flex; align-items: baseline; gap: 0.3rem; font-variant-numeric: tabular-nums; }
+.ruling-total strong { font-size: 1.1rem; }
+.ruling-actions { display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; }
+.ruling-actions .muted { margin-right: auto; font-size: var(--fs-sm); }
+.attack-result { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
 .swatch.large { width: 1rem; height: 1rem; }
 .hp-quick { display: flex; gap: 0.3rem; }
 .hp-quick .chip { flex: 1; }

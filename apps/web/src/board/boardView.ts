@@ -39,6 +39,10 @@ export interface BoardCallbacks {
   placeTemplate(template: { shape: AreaTemplate["shape"]; origin: Point; toward: Point; size: number; gmOnly: boolean }): Promise<boolean>;
   /** Resolves false if the server rejected the removal. */
   removeTemplate(templateId: string): Promise<boolean>;
+  /** The viewer clicked the token `attackerId` attacks (attack-targeting). */
+  pickTarget(attackerId: string, targetId: string): void;
+  /** The viewer right-clicked while picking a target: stop without attacking. */
+  cancelAttack(): void;
   /** The GM clicked a square while placing a new token (place-token-on-board). */
   placeToken(at: Point): void;
   /** The GM right-clicked while placing: put the token back. */
@@ -108,8 +112,22 @@ const TOOL_CURSORS = {
       "<rect x='2' y='8' width='8' height='8' rx='2' fill='#e07a8a'/></g>",
     4, 20,
   ),
+  // A red reticle, aimed from its centre.
+  attack: svgCursor(
+    "<circle cx='12' cy='12' r='7.5' fill='none' stroke='#111' stroke-width='3.6'/>" +
+      "<circle cx='12' cy='12' r='7.5' fill='none' stroke='#e74c3c' stroke-width='1.8'/>" +
+      outlined("M12 1v6M12 17v6M1 12h6M17 12h6", 1.6),
+    12, 12,
+  ),
 } as const;
 const MEASURE_COLOR = 0xf1c40f;
+/**
+ * The attack aim (attack-targeting): the board's neutral mark style, a warm off-white on a soft
+ * charcoal edge like the token direction arrows and ruler labels, so it reads on bright and dark
+ * maps alike without shouting over the tokens.
+ */
+const AIM_COLOR = 0xf4ede4;
+const AIM_EDGE = 0x14171b;
 const AREA_COLOR = 0xe67e22;
 /** GM-only templates, which players never see, are drawn in a colour of their own. */
 const GM_AREA_COLOR = 0x9b59b6;
@@ -186,6 +204,10 @@ export class BoardView {
   /** Templates the eraser has asked to remove, so one sweep sends each only once. */
   private removing = new Set<string>();
   private drawnTemplates: RoomState["templates"] | null = null;
+  /** The token under the pointer while picking an attack target; null over the map or the attacker. */
+  private attackHover: string | null = null;
+  /** When a target was last picked: a double-click there is part of the pick, not a ping. */
+  private lastPickAt = 0;
   /** The last measurement; stays until the next one starts, the tool changes, or Clear. */
   private measurement: Mark | null = null;
   /** A Measure/Draw/Area/Eraser drag in progress, in board coordinates. */
@@ -366,6 +388,11 @@ export class BoardView {
       this.removeCancelledAreas();
       this.redrawMarks();
     }
+    // Tokens may have moved or gone while a target is being picked.
+    if (this.tool.kind === "attack") {
+      if (this.attackHover && !state.tokens[this.attackHover]) this.attackHover = null;
+      this.redrawOverlay();
+    }
     if (this.autoFit) this.fitToScreen();
     // A grid change moves the squares under a still pointer.
     if (this.placement) this.redrawGhost();
@@ -457,6 +484,7 @@ export class BoardView {
       this.measurement = null;
       this.gesture = null;
     }
+    this.attackHover = null;
     this.tool = tool;
     if (this.initialized) this.app.stage.cursor = this.toolCursor();
     if (this.state) this.syncTokens();
@@ -699,7 +727,89 @@ export class BoardView {
         if (gesture.dragged) this.showLabel(formatDistance(area.size, this.state!.scene.grid), gesture.to);
       }
     }
+    if (tool.kind === "attack") this.drawAttackLine(g, tool.attackerId);
     this.invalidate();
+  }
+
+  /**
+   * While picking a target: a dashed arrow from the attacker to the token under the pointer, with
+   * the distance halfway along. It starts and ends just outside each token's rings (owner, focus,
+   * active turn) rather than crossing the portraits, and a thin ring marks the token aimed at.
+   * Only this viewer sees it; nothing is sent until the roll (attack-targeting).
+   */
+  private drawAttackLine(g: Graphics, attackerId: string) {
+    const state = this.state;
+    const attacker = state?.tokens[attackerId];
+    const target = this.attackHover ? state?.tokens[this.attackHover] : undefined;
+    if (!state || !attacker || !target) return;
+    const grid = state.scene.grid;
+    const px = 1 / this.world.scale.x;
+    // A token's disc is size × cell / 2 − 2; its active-turn ring reaches 9 beyond (see drawDecor).
+    const clearance = (t: Token) => (t.size * grid.cellSize) / 2 - 2 + 9 + 3 * px;
+
+    const from = attacker.position;
+    const to = target.position;
+    const length = Math.hypot(to.x - from.x, to.y - from.y);
+    const ux = (to.x - from.x) / (length || 1);
+    const uy = (to.y - from.y) / (length || 1);
+    const start = { x: from.x + ux * clearance(attacker), y: from.y + uy * clearance(attacker) };
+    const tip = { x: to.x - ux * clearance(target), y: to.y - uy * clearance(target) };
+
+    // The token aimed at: one thin ring just inside where the arrow stops.
+    const ringRadius = clearance(target) - 3 * px;
+    g.circle(to.x, to.y, ringRadius).stroke({ width: 3.5 * px, color: AIM_EDGE, alpha: 0.45 });
+    g.circle(to.x, to.y, ringRadius).stroke({ width: 1.5 * px, color: AIM_COLOR, alpha: 0.95 });
+
+    // Snapped cell to cell, like Measure: exact for 1-cell tokens, a hint for larger ones.
+    const m = measure(from, to, grid, false);
+    const span = Math.hypot(tip.x - start.x, tip.y - start.y);
+    // Tokens touching or overlapping: no room for an arrow, so the ring and distance say it all.
+    if (span <= 0 || (tip.x - start.x) * ux + (tip.y - start.y) * uy <= 0) {
+      this.showLabel(m.label, { x: to.x, y: to.y - ringRadius });
+      return;
+    }
+
+    const head = Math.min(10 * px, span / 2);
+    const shaftEnd = { x: tip.x - ux * head, y: tip.y - uy * head };
+    const dashes = (style: { width: number; color: number; alpha: number }) => {
+      const total = Math.hypot(shaftEnd.x - start.x, shaftEnd.y - start.y);
+      const dash = 7 * px;
+      const gap = 5 * px;
+      for (let d = 0; d < total; d += dash + gap) {
+        const e = Math.min(d + dash, total);
+        g.moveTo(start.x + ux * d, start.y + uy * d).lineTo(start.x + ux * e, start.y + uy * e);
+      }
+      g.stroke({ ...style, cap: "round" });
+    };
+    dashes({ width: 4 * px, color: AIM_EDGE, alpha: 0.45 });
+    dashes({ width: 2 * px, color: AIM_COLOR, alpha: 0.95 });
+
+    const wing = 5 * px;
+    g.poly([
+      tip.x, tip.y,
+      shaftEnd.x - uy * wing, shaftEnd.y + ux * wing,
+      shaftEnd.x + uy * wing, shaftEnd.y - ux * wing,
+    ])
+      .fill({ color: AIM_COLOR, alpha: 0.95 })
+      .stroke({ width: 1.5 * px, color: AIM_EDGE, alpha: 0.55, join: "round" });
+
+    // Halfway along, above the shaft, so it names the gap rather than sitting on a portrait.
+    this.showLabel(m.label, { x: (start.x + tip.x) / 2, y: (start.y + tip.y) / 2 });
+  }
+
+  /** The topmost token whose disc contains `p`, other than `exceptId`. */
+  private tokenAt(p: Point, exceptId: string): string | null {
+    const state = this.state;
+    if (!state) return null;
+    const cell = state.scene.grid.cellSize;
+    // Later children of the token layer draw on top, so search from the top down.
+    const views = [...this.tokens.entries()].sort(([, a], [, b]) => this.tokenLayer.getChildIndex(b.container) - this.tokenLayer.getChildIndex(a.container));
+    for (const [id] of views) {
+      const t = state.tokens[id];
+      if (!t || id === exceptId) continue;
+      if (Math.hypot(p.x - t.position.x, p.y - t.position.y) <= (t.size * cell) / 2) return id;
+    }
+    return null;
   }
 
   /** The size label beside the pointer, kept the same size on screen at any zoom. */
@@ -1053,6 +1163,17 @@ export class BoardView {
       this.pan = { start: { x: e.global.x, y: e.global.y }, origin: { x: this.world.x, y: this.world.y } };
       return;
     }
+    if (this.tool.kind === "attack") {
+      if (e.button === 2) return this.callbacks.cancelAttack();
+      const target = e.button === 0 ? this.tokenAt(this.toBoard(e.global), this.tool.attackerId) : null;
+      if (target) {
+        this.lastPickAt = performance.now();
+        return this.callbacks.pickTarget(this.tool.attackerId, target);
+      }
+      // A press on the map or the attacker picks nothing; dragging still pans.
+      this.pan = { start: { x: e.global.x, y: e.global.y }, origin: { x: this.world.x, y: this.world.y } };
+      return;
+    }
     if (this.tool.kind !== "select" && e.button === 0) {
       const at = this.toBoard(e.global);
       this.gesture = { from: at, to: at, screenFrom: { x: e.global.x, y: e.global.y }, free: e.altKey, dragged: false, path: [at] };
@@ -1068,6 +1189,13 @@ export class BoardView {
     if (this.placement) {
       this.hover = { at: this.toBoard(e.global), free: e.altKey };
       this.redrawGhost();
+    }
+    if (this.tool.kind === "attack" && !this.pan) {
+      const hover = this.tokenAt(this.toBoard(e.global), this.tool.attackerId);
+      if (hover !== this.attackHover) {
+        this.attackHover = hover;
+        this.redrawOverlay();
+      }
     }
     if (this.gesture) {
       const gesture = this.gesture;
@@ -1223,6 +1351,10 @@ export class BoardView {
     const quick = now - this.lastTap.at < 350;
     const close = Math.hypot(x - this.lastTap.x, y - this.lastTap.y) < 30;
     if (quick && close) {
+      if (this.partOfAttackPick()) {
+        this.lastTap = { at: 0, x: 0, y: 0 };
+        return;
+      }
       const at = this.toBoard({ x, y });
       this.showPing(at);
       this.callbacks.ping(at);
@@ -1245,6 +1377,14 @@ export class BoardView {
     this.invalidate();
   };
 
+  /**
+   * Whether a double-click or double-tap belongs to picking an attack target. Such a ping would
+   * land on the target for everyone, and the GM may be picking a hidden one (FR-GM-23).
+   */
+  private partOfAttackPick() {
+    return this.tool.kind === "attack" || performance.now() - this.lastPickAt < 600;
+  }
+
   /** The pointer left the board: there is no square to show the new token on. */
   private onPointerLeave = () => {
     if (!this.hover) return;
@@ -1255,6 +1395,7 @@ export class BoardView {
   private onDoubleClick = (e: MouseEvent) => {
     // A double click while placing is two tries at the same square, not a ping.
     if (this.placement) return;
+    if (this.partOfAttackPick()) return;
     const rect = this.app.canvas.getBoundingClientRect();
     const at = this.toBoard({ x: e.clientX - rect.left, y: e.clientY - rect.top });
     this.showPing(at);

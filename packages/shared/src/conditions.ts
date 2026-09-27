@@ -58,9 +58,12 @@ const BY_ID = new Map(CONDITIONS.map((c) => [c.id, c]));
 export const conditionSpec = (id: ConditionId): ConditionSpec => BY_ID.get(id)!;
 
 /** Numeric resources shown on a token (FR-TAC-07). */
+/** The lowest HP a token can hold; applying damage stops here (ADR 0011). */
+export const MIN_HP = -999;
+
 export const TokenStats = z.object({
   /** Current hit points, or null when this token does not track them. */
-  hp: z.number().int().min(-999).max(9999).nullable(),
+  hp: z.number().int().min(MIN_HP).max(9999).nullable(),
   /** Maximum hit points; drives the resource bar when both are set. */
   maxHp: z.number().int().min(1).max(9999).nullable(),
   /** Armour class or equivalent defence number. */

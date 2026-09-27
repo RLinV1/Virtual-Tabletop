@@ -1,0 +1,239 @@
+import { MAX_ATTACK_LABEL, type AttackKind, type DiceRoll, type RoomState, type Token } from "@vtt/shared";
+import { measure } from "../board/tools";
+
+/**
+ * Pure helpers for the Attack section (attack-targeting). The server rolls whatever `NdX+M` it
+ * is sent; the dice picked here are the client's choice, never a rule.
+ */
+
+/** The die types the picker offers. */
+export const DIE_SIDES = [4, 6, 8, 10, 12, 20, 100] as const;
+export const MAX_ATTACK_DICE = 20;
+export const MAX_ATTACK_MODIFIER = 99;
+/** Saved attacks kept per token. */
+export const MAX_SAVED_ATTACKS = 8;
+
+export interface AttackDice {
+  count: number;
+  sides: number;
+  modifier: number;
+}
+
+/** What the section last rolled with a token, restored when it is chosen again. */
+export interface AttackSettings extends AttackDice {
+  label: string;
+  /** To hit or damage (ADR 0011). Values stored before it existed have none and read as to hit. */
+  kind?: AttackKind;
+}
+
+/** A one-tap attack, e.g. "Longsword" 1d20+5. */
+export interface SavedAttack extends AttackSettings {
+  name: string;
+}
+
+export const DEFAULT_ATTACK: AttackSettings = { count: 1, sides: 20, modifier: 0, label: "", kind: "toHit" };
+
+/** The roll type a stored setting stands for; older ones without it are to hit. */
+export const kindOf = (settings: AttackSettings): AttackKind => settings.kind ?? "toHit";
+
+const clamp = (value: number, min: number, max: number) =>
+  Number.isFinite(value) ? Math.min(max, Math.max(min, Math.trunc(value))) : min < 0 ? 0 : min;
+
+export const clampCount = (value: number) => clamp(value, 1, MAX_ATTACK_DICE);
+export const clampModifier = (value: number) => clamp(value, -MAX_ATTACK_MODIFIER, MAX_ATTACK_MODIFIER);
+
+/** `1d20`, `1d20+5`, `2d6-1`: always a shape `parseDiceExpression` accepts. */
+export function attackExpression({ count, sides, modifier }: AttackDice): string {
+  const m = clampModifier(modifier);
+  const mod = m === 0 ? "" : m > 0 ? `+${m}` : `${m}`;
+  return `${clampCount(count)}d${sides}${mod}`;
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+
+function isAttackSettings(v: unknown): v is AttackSettings {
+  if (!isRecord(v)) return false;
+  const { count, sides, modifier, label, kind } = v;
+  return (
+    Number.isInteger(count) && clampCount(count as number) === count &&
+    (DIE_SIDES as readonly unknown[]).includes(sides) &&
+    Number.isInteger(modifier) && clampModifier(modifier as number) === modifier &&
+    typeof label === "string" &&
+    (kind === undefined || kind === "toHit" || kind === "damage")
+  );
+}
+
+const isSavedAttack = (v: unknown): v is SavedAttack => isAttackSettings(v) && typeof (v as { name?: unknown }).name === "string";
+
+/** Stored last settings by token id; anything malformed or from an older build is ignored. */
+export const isSettingsRecord = (v: unknown): v is Record<string, AttackSettings> =>
+  isRecord(v) && Object.values(v).every(isAttackSettings);
+
+/** Saved attacks by token id, as stored before named attacks; read only to migrate them. */
+export const isSavedRecord = (v: unknown): v is Record<string, SavedAttack[]> =>
+  isRecord(v) && Object.values(v).every((list) => Array.isArray(list) && list.length <= MAX_SAVED_ATTACKS && list.every(isSavedAttack));
+
+export interface TargetOption {
+  token: Token;
+  /** Distance in the grid's units, snapped cell to cell like Measure. */
+  units: number;
+  /** "15 ft". */
+  distance: string;
+}
+
+/** Every token in the viewer's state other than the attacker, nearest first, then by name. */
+export function targetsByDistance(state: RoomState, attackerId: string): TargetOption[] {
+  const attacker = state.tokens[attackerId];
+  if (!attacker) return [];
+  const grid = state.scene.grid;
+  return Object.values(state.tokens)
+    .filter((t) => t.id !== attackerId)
+    .map((token) => {
+      const m = measure(attacker.position, token.position, grid, false);
+      return { token, units: m.units, distance: m.label };
+    })
+    .sort((a, b) => a.units - b.units || a.token.name.localeCompare(b.token.name));
+}
+
+/**
+ * Whether to ping the target once the roll is accepted. Only for a roll everyone sees, and never
+ * on a hidden target: the ping would show players where it stands (FR-GM-23).
+ */
+export const shouldPingTarget = (target: { hidden: boolean } | undefined, visibility: "public" | "gm"): boolean =>
+  visibility === "public" && !!target && !target.hidden;
+
+/** What applying a damage roll takes off: its total, and never less than nothing (ADR 0011). */
+export const damageAmount = (roll: Pick<DiceRoll, "total">): number => Math.max(0, roll.total);
+
+export type PendingRuling =
+  | { kind: "toHit"; roll: DiceRoll; /** The target's AC now, or null if unset or the target is gone. */ ac: number | null }
+  | { kind: "damage"; roll: DiceRoll; hp: number; maxHp: number | null; amount: number };
+
+/**
+ * What the GM still has to deal with, newest first (ADR 0011): to-hit rolls without a verdict,
+ * and damage rolls not yet applied whose target is still there with HP. Only rolls in the state's
+ * window, which are the only ones the server will take a ruling on.
+ */
+export function pendingRulings(state: RoomState): PendingRuling[] {
+  const pending: PendingRuling[] = [];
+  for (const roll of [...state.rolls].reverse()) {
+    const attack = roll.attack;
+    if (!attack) continue;
+    const target = attack.target ? state.tokens[attack.target.tokenId] : undefined;
+    if (attack.kind === "toHit") {
+      if (!roll.verdict) pending.push({ kind: "toHit", roll, ac: target?.stats.ac ?? null });
+    } else if (!roll.damageApplied && target && target.stats.hp !== null) {
+      pending.push({ kind: "damage", roll, hp: target.stats.hp, maxHp: target.stats.maxHp, amount: damageAmount(roll) });
+    }
+  }
+  return pending;
+}
+
+// ---------- Named attacks (attack-ux-polish) ----------
+
+/** Named attacks kept per token. */
+export const MAX_PRESETS = 8;
+
+/**
+ * A named attack, e.g. "Longsword": a to-hit roll, a damage roll, or both. The name is only a
+ * label; the app never treats a weapon, a spell or claws differently (README §7).
+ */
+export interface AttackPreset {
+  name: string;
+  toHit: AttackDice | null;
+  damage: AttackDice | null;
+}
+
+function isAttackDice(v: unknown): v is AttackDice {
+  if (!isRecord(v)) return false;
+  const { count, sides, modifier } = v;
+  return (
+    Number.isInteger(count) && clampCount(count as number) === count &&
+    (DIE_SIDES as readonly unknown[]).includes(sides) &&
+    Number.isInteger(modifier) && clampModifier(modifier as number) === modifier
+  );
+}
+
+function isPreset(v: unknown): v is AttackPreset {
+  if (!isRecord(v)) return false;
+  const { name, toHit, damage } = v;
+  return (
+    typeof name === "string" && name.trim().length > 0 && name.length <= MAX_ATTACK_LABEL &&
+    (toHit === null || isAttackDice(toHit)) &&
+    (damage === null || isAttackDice(damage)) &&
+    (toHit !== null || damage !== null)
+  );
+}
+
+/** Stored named attacks by token id; anything malformed or from an older build is ignored. */
+export const isPresetRecord = (v: unknown): v is Record<string, AttackPreset[]> =>
+  isRecord(v) && Object.values(v).every((list) => Array.isArray(list) && list.length <= MAX_PRESETS && list.every(isPreset));
+
+const diceOf = ({ count, sides, modifier }: AttackDice): AttackDice => ({ count, sides, modifier });
+
+/** Saved attacks from before named attacks: a to-hit one keeps its to-hit roll, a damage one becomes damage-only. */
+export function migrateSaved(saved: SavedAttack[]): AttackPreset[] {
+  return saved.slice(0, MAX_PRESETS).map((s) => {
+    const name = (s.name.trim() || attackExpression(s)).slice(0, MAX_ATTACK_LABEL);
+    return kindOf(s) === "damage" ? { name, toHit: null, damage: diceOf(s) } : { name, toHit: diceOf(s), damage: null };
+  });
+}
+
+/**
+ * The named attack a to-hit roll was made with, so Roll damage can use its damage dice: the
+ * roll's attacker's attack whose name is the roll's label. Null for custom rolls, and when the
+ * attack has since been renamed or removed; Roll damage then falls back to Custom roll.
+ */
+export function presetForRoll(presets: Record<string, AttackPreset[]>, roll: DiceRoll): AttackPreset | null {
+  const attack = roll.attack;
+  if (!attack?.actor || attack.kind !== "toHit" || !attack.label) return null;
+  return (presets[attack.actor.tokenId] ?? []).find((p) => p.name === attack.label && p.toHit) ?? null;
+}
+
+const DAMAGE_SUFFIX = " damage";
+
+/** The label a named attack's roll carries: "Longsword", or "Longsword damage", within the 40-character limit. */
+export function presetRollLabel(preset: AttackPreset, kind: AttackKind): string {
+  if (kind === "toHit") return preset.name.slice(0, MAX_ATTACK_LABEL);
+  return preset.name.slice(0, MAX_ATTACK_LABEL - DAMAGE_SUFFIX.length).trimEnd() + DAMAGE_SUFFIX;
+}
+
+/** "+5 · 1d8+3": to hit as a bonus when it is a plain d20, the full expression otherwise. */
+export function presetSummary(preset: AttackPreset): string {
+  const parts: string[] = [];
+  if (preset.toHit) {
+    const { count, sides, modifier } = preset.toHit;
+    parts.push(count === 1 && sides === 20 ? (modifier < 0 ? `${modifier}` : `+${modifier}`) : attackExpression(preset.toHit));
+  }
+  if (preset.damage) parts.push(attackExpression(preset.damage));
+  return parts.join(" · ");
+}
+
+/**
+ * Identifies what the GM has done with a roll, for the player's Play-tab indicator: changes when a
+ * verdict is set, changed or cleared, or damage is applied. Null while there is nothing to report.
+ */
+export function outcomeKey(roll: Pick<DiceRoll, "id" | "verdict" | "damageApplied"> | undefined): string | null {
+  if (!roll || (!roll.verdict && !roll.damageApplied)) return null;
+  return `${roll.id}:${roll.verdict ?? ""}:${roll.damageApplied ? "applied" : ""}`;
+}
+
+/** What the Attack section reacts to (attack-ux-polish): whether a fight is on, and whether it's your go. */
+export interface EncounterView {
+  inEncounter: boolean;
+  /** A token the viewer controls holds the active turn. Always true for the GM during an encounter. */
+  yourTurn: boolean;
+}
+
+/**
+ * Whether the Attack section should open or collapse on this change, or be left alone. It opens
+ * when an encounter starts, collapses when it ends, and opens when your turn begins unless you
+ * collapsed it yourself during this encounter. Never disabled: attacks outside an encounter
+ * (surprise, traps, objects) stay one tap away.
+ */
+export function attackSectionChange(previous: EncounterView, next: EncounterView, toggledThisEncounter: boolean): "open" | "collapse" | null {
+  if (!previous.inEncounter && next.inEncounter) return "open";
+  if (previous.inEncounter && !next.inEncounter) return "collapse";
+  if (next.inEncounter && !previous.yourTurn && next.yourTurn && !toggledThisEncounter) return "open";
+  return null;
+}

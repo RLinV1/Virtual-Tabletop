@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ConditionId, TokenStats } from "./conditions";
-import { DiceRoll } from "./dice";
+import { DiceRoll, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
 import { AreaTemplate, Id, Initiative, MapImage, Participant, Token } from "./state";
 
@@ -125,6 +125,22 @@ export const DomainEvent = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("DiceRolled"),
     roll: DiceRoll,
+  }),
+  /** The GM ruled on a to-hit roll; `null` clears it. Carries the verdict it replaced (ADR 0011). */
+  z.object({
+    type: z.literal("RollRuled"),
+    rollId: Id,
+    verdict: Verdict.nullable(),
+    previous: Verdict.nullable(),
+  }),
+  /**
+   * The GM applied a damage roll. Follows the `TokenStatsSet` that changed the target's HP, which
+   * carries the stats it replaced. No token id here, so it can pass to players (ADR 0011).
+   */
+  z.object({
+    type: z.literal("RollDamageApplied"),
+    rollId: Id,
+    amount: z.number().int().min(0),
   }),
   z.object({
     type: z.literal("TemplatePlaced"),

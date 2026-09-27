@@ -1,5 +1,6 @@
 import type { Command, DepartureAction } from "./commands";
-import { formatExpression, parseDiceExpression, rollDice } from "./dice";
+import { MIN_HP } from "./conditions";
+import { formatExpression, parseDiceExpression, rollDice, type AttackContext } from "./dice";
 import type { DomainEvent } from "./events";
 import { canRenderGrid } from "./gridRenderLimit";
 import type { SessionEndReason } from "./protocol";
@@ -33,6 +34,11 @@ export const can = {
   /** Whoever placed a template may remove it; the GM may remove any (ADR 0007). */
   removeTemplate: (actor: Participant, template: AreaTemplate) =>
     actor.role === "gm" || template.ownerId === actor.id,
+  /** Only the GM rules on attack rolls and applies damage (ADR 0011). */
+  ruleRolls: (actor: Participant) => actor.role === "gm",
+  /** Who may roll an attack as this token: its owners and the GM (ADR 0010). */
+  attackWith: (actor: Participant, token: Token) =>
+    actor.role === "gm" || token.ownerIds.includes(actor.id),
 };
 
 /**
@@ -310,6 +316,22 @@ export function decide(
     }
 
     case "dice.roll": {
+      let attack: AttackContext | undefined;
+      if (command.attack) {
+        // Authorization first; a token the actor can't see is answered as a missing one (ADR 0010).
+        const visible = (id: string) => {
+          const token = state.tokens[id];
+          return token && (!token.hidden || can.administer(actor)) ? token : null;
+        };
+        const attacker = visible(command.attack.actorTokenId);
+        if (!attacker) return notFound("token");
+        if (!can.attackWith(actor, attacker)) return forbidden();
+        const target = visible(command.attack.targetTokenId);
+        if (!target) return notFound("token");
+        if (target.id === attacker.id) return reject("invalid", "A token can't attack itself");
+        const side = (t: Token) => ({ tokenId: t.id, name: t.name, hidden: t.hidden });
+        attack = { actor: side(attacker), target: side(target), label: command.attack.label || null, kind: command.attack.kind };
+      }
       if (command.visibility === "gm" && !can.rollHidden(actor)) return forbidden();
       const parsed = parseDiceExpression(command.expression);
       if (!parsed.ok) return reject("invalid", parsed.message);
@@ -326,8 +348,41 @@ export function decide(
           modifier: parsed.expression.modifier,
           total,
           visibility: command.visibility,
+          ...(attack && { attack }),
         },
       });
+    }
+
+    case "roll.rule": {
+      // The GM rules afterwards; nobody asks before rolling, and the app never decides (ADR 0011).
+      if (!can.ruleRolls(actor)) return forbidden();
+      const roll = state.rolls.find((r) => r.id === command.rollId);
+      if (!roll) return reject("not_found", "That roll is too old to rule on");
+      if (roll.attack?.kind !== "toHit") return reject("invalid", "Only to-hit attack rolls take a ruling");
+      const previous = roll.verdict ?? null;
+      if (previous === command.verdict) {
+        return reject("invalid", command.verdict ? `That roll is already a ${command.verdict}` : "That roll has no ruling");
+      }
+      return accept({ type: "RollRuled", rollId: roll.id, verdict: command.verdict, previous });
+    }
+
+    case "roll.applyDamage": {
+      if (!can.ruleRolls(actor)) return forbidden();
+      const roll = state.rolls.find((r) => r.id === command.rollId);
+      if (!roll) return reject("not_found", "That roll is too old to apply");
+      if (roll.attack?.kind !== "damage") return reject("invalid", "Only damage rolls can be applied");
+      if (roll.damageApplied) return reject("invalid", "That damage has already been applied");
+      // The GM's copy always has both sides; a missing target was deleted.
+      const target = roll.attack.target ? state.tokens[roll.attack.target.tokenId] : undefined;
+      if (!target) return notFound("token");
+      if (target.stats.hp === null) return reject("invalid", `${target.name} has no HP to change`);
+      // Worked out here from current HP, so a stale screen or a second tap can't apply twice.
+      const amount = Math.max(0, roll.total);
+      const hp = Math.max(MIN_HP, target.stats.hp - amount);
+      const applied: DomainEvent = { type: "RollDamageApplied", rollId: roll.id, amount };
+      // Nothing to change (no damage, or already at the floor): just mark the roll applied.
+      if (hp === target.stats.hp) return accept(applied);
+      return accept({ type: "TokenStatsSet", tokenId: target.id, stats: { ...target.stats, hp }, previous: target.stats }, applied);
     }
 
     case "template.place": {

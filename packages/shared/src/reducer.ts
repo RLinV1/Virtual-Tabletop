@@ -1,3 +1,4 @@
+import type { DiceRoll } from "./dice";
 import type { DomainEvent } from "./events";
 import { ROLL_LOG_LIMIT, type RoomState } from "./state";
 
@@ -73,7 +74,8 @@ export function reduce(state: RoomState, event: DomainEvent): RoomState {
 
     case "TokenHiddenSet": {
       const t = required(state.tokens[event.tokenId], event);
-      return { ...state, tokens: { ...state.tokens, [t.id]: { ...t, hidden: event.hidden } } };
+      const tokens = { ...state.tokens, [t.id]: { ...t, hidden: event.hidden } };
+      return { ...state, tokens, rolls: event.hidden ? concealInRolls(state.rolls, t.id) : state.rolls };
     }
 
     case "TokenStatsSet": {
@@ -98,10 +100,27 @@ export function reduce(state: RoomState, event: DomainEvent): RoomState {
     case "InitiativeEnded":
       return { ...state, initiative: null };
 
-    case "DiceRolled":
+    case "DiceRolled": {
+      // Stored events are loaded without parsing, so an attack roll from before ADR 0011 arrives
+      // with no `kind`; the schema's default only applies on parse. Fill it in here instead.
+      const roll = event.roll.attack && !event.roll.attack.kind
+        ? { ...event.roll, attack: { ...event.roll.attack, kind: "toHit" as const } }
+        : event.roll;
       // Newest last, oldest dropped. The full history stays in the event log (FR-REC-01);
       // state keeps only what the roll panel shows.
-      return { ...state, rolls: [...state.rolls, event.roll].slice(-ROLL_LOG_LIMIT) };
+      return { ...state, rolls: [...state.rolls, roll].slice(-ROLL_LOG_LIMIT) };
+    }
+
+    // A roll that has left the window (or a player's copy never had) is simply not there to
+    // update; `decide` only rules on rolls it can see, so this stays safe on replay (ADR 0011).
+    case "RollRuled":
+      return updateRoll(state, event.rollId, (roll) => {
+        const { verdict: _old, ...rest } = roll;
+        return event.verdict ? { ...rest, verdict: event.verdict } : rest;
+      });
+
+    case "RollDamageApplied":
+      return updateRoll(state, event.rollId, (roll) => ({ ...roll, damageApplied: true }));
 
     case "TemplatePlaced":
       return { ...state, templates: { ...state.templates, [event.template.id]: event.template } };
@@ -130,6 +149,31 @@ function required<T>(value: T | undefined, event: DomainEvent): T {
   return value;
 }
 
+function updateRoll(state: RoomState, rollId: string, update: (roll: DiceRoll) => DiceRoll): RoomState {
+  if (!state.rolls.some((r) => r.id === rollId)) return state;
+  return { ...state, rolls: state.rolls.map((r) => (r.id === rollId ? update(r) : r)) };
+}
+
 function assertNever(x: never): never {
   throw new Error(`Unhandled event: ${JSON.stringify(x)}`);
+}
+
+/**
+ * Marks a token hidden on every attack roll that names it (ADR 0010). Once hidden, a roll's
+ * side stays concealed from players for good: a later reveal, rename or delete must not bring
+ * back a name or id they never saw, or tell them the hidden token is gone.
+ */
+function concealInRolls(rolls: RoomState["rolls"], tokenId: string): RoomState["rolls"] {
+  const conceal = <S extends { tokenId: string; hidden: boolean } | null>(side: S): S =>
+    side && side.tokenId === tokenId && !side.hidden ? { ...side, hidden: true } : side;
+  let changed = false;
+  const next = rolls.map((roll) => {
+    if (!roll.attack) return roll;
+    const actor = conceal(roll.attack.actor);
+    const target = conceal(roll.attack.target);
+    if (actor === roll.attack.actor && target === roll.attack.target) return roll;
+    changed = true;
+    return { ...roll, attack: { ...roll.attack, actor, target } };
+  });
+  return changed ? next : rolls;
 }

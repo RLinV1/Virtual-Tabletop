@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { parseDiceExpression, type DiceVisibility, type RoomState } from "@vtt/shared";
+import { attackLabel, formatAttackParties, formatAttackRoll, type Verdict, parseDiceExpression, type DiceVisibility, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
 import { PanelSection } from "../ui/PanelSection";
@@ -51,6 +51,23 @@ export function DicePanel({
   };
 
   const rolls = [...state.rolls].reverse();
+  // The GM corrects rulings here once a roll has left the Play tab's Rulings list (ADR 0011).
+  const [ruling, setRuling] = useState<ReadonlySet<string>>(new Set());
+  const rule = isGm
+    ? async (rollId: string, verdict: Verdict | null) => {
+        // One request per roll: a fast second click would otherwise read the first's result as
+        // the current verdict and clear it.
+        if (ruling.has(rollId)) return;
+        setRuling((s) => new Set(s).add(rollId));
+        const result = await connection.command({ type: "roll.rule", rollId, verdict });
+        setRuling((s) => {
+          const next = new Set(s);
+          next.delete(rollId);
+          return next;
+        });
+        setError(result.ok ? null : result.message);
+      }
+    : undefined;
   const latest = rolls[0];
   const [landed, setLanded] = useState<{ id: string | undefined; thrown: boolean }>({ id: latest?.id, thrown: false });
   const throwing = latest !== undefined && latest.id !== landed.id;
@@ -123,6 +140,8 @@ export function DicePanel({
               state={state}
               rolling={throwing}
               fresh={!throwing && landed.thrown}
+              onRule={rule}
+              ruleBusy={ruling.has(latest.id)}
             />
           </ul>
           <button type="button" className="secondary small history-button" onClick={() => setHistoryOpen(true)}>
@@ -138,13 +157,13 @@ export function DicePanel({
           setWho("");
         }}
       >
-        <RollHistory rolls={rolls} state={state} query={who} onQuery={setWho} />
+        <RollHistory rolls={rolls} state={state} query={who} onQuery={setWho} onRule={rule} ruling={ruling} />
       </Modal>
     </PanelSection>
   );
 }
 
-function trayRoll(r: RoomState["rolls"][number]): TrayRoll {
+export function trayRoll(r: RoomState["rolls"][number]): TrayRoll {
   const parsed = parseDiceExpression(r.expression);
   // The server parsed this expression before rolling it; the fallback only guards a log
   // entry written by some older build.
@@ -157,6 +176,8 @@ function RollRow({
   state,
   rolling = false,
   fresh = false,
+  onRule,
+  ruleBusy = false,
 }: {
   roll: RoomState["rolls"][number];
   state: RoomState;
@@ -164,6 +185,10 @@ function RollRow({
   rolling?: boolean;
   /** Just landed from a throw: the total arrives with the dice. */
   fresh?: boolean;
+  /** GM only: set or clear the verdict on a to-hit attack roll. */
+  onRule?: (rollId: string, verdict: Verdict | null) => void;
+  /** A ruling on this roll is on its way to the server. */
+  ruleBusy?: boolean;
 }) {
   const who = state.participants[r.byParticipantId]?.displayName ?? "Someone";
   const className = ["roll", r.visibility === "gm" && "private", fresh && "fresh"].filter(Boolean).join(" ");
@@ -176,7 +201,7 @@ function RollRow({
           <span className="roll-total">…</span>
         </span>
         <span className="roll-detail">
-          <span className="roll-title">{r.expression}</span>
+          <span className="roll-title">{rollTitle(r, false)}</span>
           <span className="roll-meta">
             {who} is rolling{r.visibility === "gm" && <em className="badge">GM only</em>}
           </span>
@@ -193,15 +218,43 @@ function RollRow({
       <span className="roll-detail">
         <span className="roll-title">
           <span className="sr-only">{who} rolled </span>
-          {r.expression}
+          {rollTitle(r, true)}
         </span>
         <span className="roll-meta" aria-hidden="true">
           {who}{r.visibility === "gm" && <em className="badge">GM only</em>}
         </span>
         {r.visibility === "gm" && <span className="sr-only">, GM only</span>}
+        {onRule && r.attack?.kind === "toHit" && (
+          <span className="roll-verdict" role="group" aria-label="Ruling">
+            {(["hit", "miss"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                className="chip"
+                aria-pressed={r.verdict === v}
+                disabled={ruleBusy}
+                // Pressing the current verdict clears it.
+                onClick={() => onRule(r.id, r.verdict === v ? null : v)}
+              >
+                {v === "hit" ? "Hit" : "Miss"}
+              </button>
+            ))}
+          </span>
+        )}
       </span>
     </li>
   );
+}
+
+/**
+ * What was rolled. An attack names who attacked whom (attack-targeting) and, once the dice
+ * have landed, the total and the GM's ruling so far: "Aria → Goblin 2 · Longsword · 1d20+5 = 17 · Hit".
+ * The ruling is only ever the GM's; nothing here compares the roll to anything (ADR 0011).
+ */
+function rollTitle(r: RoomState["rolls"][number], landed: boolean) {
+  if (!r.attack) return r.expression;
+  if (landed) return formatAttackRoll(r);
+  return [formatAttackParties(r.attack), attackLabel(r.attack), r.expression].filter(Boolean).join(" · ");
 }
 
 /** "12 + 5", "3 + 4 + 1 - 2": each die, then the modifier. */
@@ -217,11 +270,15 @@ function RollHistory({
   state,
   query,
   onQuery,
+  onRule,
+  ruling,
 }: {
   rolls: RoomState["rolls"];
   state: RoomState;
   query: string;
   onQuery: (q: string) => void;
+  onRule?: (rollId: string, verdict: Verdict | null) => void;
+  ruling: ReadonlySet<string>;
 }) {
   const q = query.trim().toLowerCase();
   const shown = q
@@ -249,7 +306,7 @@ function RollHistory({
       ) : (
         <ul className="plain roll-log roll-history">
           {shown.map((r) => (
-            <RollRow key={r.id} roll={r} state={state} />
+            <RollRow key={r.id} roll={r} state={state} onRule={onRule} ruleBusy={ruling.has(r.id)} />
           ))}
         </ul>
       )}
