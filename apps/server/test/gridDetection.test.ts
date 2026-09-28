@@ -243,7 +243,14 @@ describe("automatic map grid detection (FR-GM-03)", () => {
     const target = { scope: "library" as const, id };
     expect(await store.recoverDetections()).toEqual([{ target, attempt: 1 }]);
     expect(await store.markDetectionRunning(target, 1)).toBe(true);
-    expect(await store.recoverDetections()).toEqual([{ target, attempt: 2 }]);
+    expect(await store.recoverDetections()).toEqual([]);
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(Date.now() + 61_000);
+      expect(await store.recoverDetections()).toEqual([{ target, attempt: 2 }]);
+    } finally {
+      vi.useRealTimers();
+    }
     expect(await store.finishDetection(target, 1, { status: "suggested", candidate })).toBe(false);
     expect(await store.markDetectionRunning(target, 2)).toBe(true);
   });

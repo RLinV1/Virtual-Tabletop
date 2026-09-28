@@ -43,6 +43,8 @@ for (const [name, store] of [["memory", new MemoryRoomStore()], ["postgres", pos
       expect((await s().recoverDetections()).some((job) => job.target.scope === "room"
         && job.target.roomId === roomId && job.attempt === 1)).toBe(true);
       expect(await s().markDetectionRunning(target, 1)).toBe(true);
+      expect((await s().recoverDetections()).some((job) => job.target.scope === "room"
+        && job.target.roomId === roomId)).toBe(false);
       expect(await s().finishDetection(target, 1, { status: "error" })).toBe(true);
       expect((await Promise.all([s().retryDetection(target), s().retryDetection(target)])).filter(Boolean)).toEqual([2]);
       expect(await s().finishDetection(target, 1, { status: "no_grid" })).toBe(false);
@@ -51,6 +53,22 @@ for (const [name, store] of [["memory", new MemoryRoomStore()], ["postgres", pos
       expect((await s().findDetection(target))?.status).toBe("no_grid");
       await s().deleteRoom(roomId);
       expect(await s().findDetection(target)).toBeNull();
+    });
+
+    it("recovers only stale running analysis and supersedes its old attempt", async () => {
+      const ownerGmId = await s().registerGm(randomUUID());
+      const id = randomUUID();
+      const target = { scope: "library" as const, id };
+      await s().createAsset({
+        id, ownerGmId, kind: "map", objectKey: `${id}.png`, url: `/uploads/${id}.png`,
+        name: "Interrupted map", width: 768, height: 648, grid: DEFAULT_GRID,
+        createdAt: new Date().toISOString(), detectionStatus: "running", detectionAttempt: 1,
+        detectionUpdatedAt: new Date(Date.now() - 61_000).toISOString(),
+      });
+      expect(await s().recoverDetections()).toContainEqual({ target, attempt: 2 });
+      expect(await s().finishDetection(target, 1, { status: "no_grid" })).toBe(false);
+      expect((await s().findDetection(target))?.status).toBe("queued");
+      await s().deleteAsset(id, ownerGmId);
     });
   });
 }

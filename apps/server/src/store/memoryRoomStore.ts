@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { CommittedEvent, GmRoomSummary, GridSpec } from "@vtt/shared";
 import type { RoomUploadPurpose } from "@vtt/shared";
-import type { DetectionOutcome, DetectionRecord, DetectionTarget } from "./gridDetectionStore";
+import { DETECTION_STALE_MS, type DetectionOutcome, type DetectionRecord, type DetectionTarget } from "./gridDetectionStore";
 import {
   CreatureImageMissingError,
   type CreaturePatch,
@@ -26,6 +26,7 @@ export class MemoryRoomStore implements RoomStore {
   /** roomId -> object keys uploaded from inside it (ADR 0009). */
   private uploads = new Map<string, Set<string>>();
   private roomDetections = new Map<string, DetectionRecord>();
+  private roomDetectionUpdatedAt = new Map<string, number>();
 
   async createRoom(roomId: string, inviteCode: string, options: NewRoomOptions = {}) {
     if (this.events.has(roomId)) throw new Error(`Room ${roomId} already exists`);
@@ -122,10 +123,12 @@ export class MemoryRoomStore implements RoomStore {
     keys.add(objectKey);
     this.uploads.set(roomId, keys);
     if (purpose === "map" && width && height) {
-      this.roomDetections.set(`${roomId}:${objectKey}`, {
+      const key = `${roomId}:${objectKey}`;
+      this.roomDetections.set(key, {
         target: { scope: "room", roomId, objectKey }, objectKey, width, height,
         status: "queued", attempt: 1, candidate: null,
       });
+      this.roomDetectionUpdatedAt.set(key, Date.now());
     }
   }
 
@@ -137,7 +140,10 @@ export class MemoryRoomStore implements RoomStore {
     this.rooms.delete(roomId);
     this.refs.delete(roomId);
     this.uploads.delete(roomId);
-    for (const key of uploadKeys) this.roomDetections.delete(`${roomId}:${key}`);
+    for (const key of uploadKeys) {
+      this.roomDetections.delete(`${roomId}:${key}`);
+      this.roomDetectionUpdatedAt.delete(`${roomId}:${key}`);
+    }
     for (const [code, id] of this.invites) if (id === roomId) this.invites.delete(code);
     for (const [hash, row] of this.credentials) if (row.roomId === roomId) this.credentials.delete(hash);
     return { uploadKeys };
@@ -167,7 +173,10 @@ export class MemoryRoomStore implements RoomStore {
   }
 
   async createAsset(asset: LibraryAssetRecord) {
-    this.assets.set(asset.id, structuredClone(asset));
+    this.assets.set(asset.id, structuredClone({
+      ...asset,
+      ...(asset.detectionStatus && !asset.detectionUpdatedAt && { detectionUpdatedAt: new Date().toISOString() }),
+    }));
   }
 
   async findDetection(target: DetectionTarget): Promise<DetectionRecord | null> {
@@ -217,6 +226,10 @@ export class MemoryRoomStore implements RoomStore {
     }
     for (const row of rows) {
       if (row.status === "running") {
+        const updatedAt = row.target.scope === "room"
+          ? this.roomDetectionUpdatedAt.get(`${row.target.roomId}:${row.target.objectKey}`)
+          : Date.parse(this.assets.get(row.target.id)?.detectionUpdatedAt ?? "");
+        if (updatedAt !== undefined && updatedAt >= Date.now() - DETECTION_STALE_MS) continue;
         const next = { ...row, status: "queued" as const, attempt: row.attempt + 1 };
         this.setDetection(row.target, next);
         jobs.push({ target: row.target, attempt: next.attempt });
@@ -227,7 +240,9 @@ export class MemoryRoomStore implements RoomStore {
 
   private setDetection(target: DetectionTarget, row: DetectionRecord) {
     if (target.scope === "room") {
-      this.roomDetections.set(`${target.roomId}:${target.objectKey}`, structuredClone(row));
+      const key = `${target.roomId}:${target.objectKey}`;
+      this.roomDetections.set(key, structuredClone(row));
+      this.roomDetectionUpdatedAt.set(key, Date.now());
     } else {
       const asset = this.assets.get(target.id);
       if (asset) this.assets.set(target.id, {

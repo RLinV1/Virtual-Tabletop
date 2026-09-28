@@ -71,6 +71,7 @@ describe("GM grid suggestion editor (FR-GM-03)", () => {
     }
     const view = render(<Probe id="old" />);
     view.rerender(<Probe id="new" />);
+    expect(screen.getByText("pending")).toBeTruthy();
     await act(async () => next.resolve({ status: "no_grid", attempt: 1 }));
     await act(async () => old.resolve({ status: "suggested", attempt: 1, candidate }));
     expect(screen.getByText("no_grid")).toBeTruthy();

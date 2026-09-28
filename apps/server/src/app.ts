@@ -6,6 +6,7 @@ import { RoomRegistry } from "./domain/roomRegistry";
 import { createGridDetectionDispatcher, type Detector, type GridDetectionDispatcher } from "./domain/gridDetection";
 import { registerRoutes } from "./http/routes";
 import { LocalDiskAssetStore, type AssetStore } from "./store/assetStore";
+import { MemoryRoomStore } from "./store/memoryRoomStore";
 import type { RoomStore } from "./store/roomStore";
 import { registerSocket } from "./ws/socket";
 
@@ -84,7 +85,11 @@ export async function buildApp({
   }
 
   const assetStore = assets ?? new LocalDiskAssetStore(uploadDir);
-  const detection = dispatcher ?? await createGridDetectionDispatcher(store, assetStore, { detector, redisUrl, visionUrl });
+  // Redis workers may run in any process. A memory store exists only in this process, so
+  // another worker could consume and discard its job without ever finding the row.
+  const detection = dispatcher ?? await createGridDetectionDispatcher(store, assetStore, {
+    detector, redisUrl: store instanceof MemoryRoomStore ? undefined : redisUrl, visionUrl,
+  });
   registerRoutes(app, { store, registry, uploadDir, assets: assetStore, detection });
   registerSocket(io, { store, registry, logger });
 

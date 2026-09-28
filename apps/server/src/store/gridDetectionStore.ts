@@ -4,6 +4,7 @@ export type DetectionTarget =
   | { scope: "library"; id: string }
   | { scope: "room"; roomId: string; objectKey: string };
 export type DetectionState = "queued" | "running" | "suggested" | "no_grid" | "error";
+export const DETECTION_STALE_MS = 60_000;
 export interface DetectionRecord {
   target: DetectionTarget;
   objectKey: string;

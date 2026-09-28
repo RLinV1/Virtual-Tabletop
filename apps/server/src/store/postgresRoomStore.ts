@@ -2,7 +2,7 @@ import { Prisma, PrismaClient, type LibraryAsset, type LibraryCreature } from "@
 import { randomUUID } from "node:crypto";
 import type { AssetKind, CommittedEvent, DomainEvent, GmRoomSummary, GridSpec } from "@vtt/shared";
 import type { GridDetectionCandidate, RoomUploadPurpose } from "@vtt/shared";
-import type { DetectionOutcome, DetectionRecord, DetectionTarget, DetectionState } from "./gridDetectionStore";
+import { DETECTION_STALE_MS, type DetectionOutcome, type DetectionRecord, type DetectionTarget, type DetectionState } from "./gridDetectionStore";
 import {
   CreatureImageMissingError,
   type CreaturePatch,
@@ -319,7 +319,7 @@ export class PostgresRoomStore implements RoomStore {
   }
 
   async recoverDetections() {
-    const stale = new Date(Date.now() - 60_000);
+    const stale = new Date(Date.now() - DETECTION_STALE_MS);
     const pending: Array<{ target: DetectionTarget; attempt: number }> = [];
     const library = await this.prisma.libraryAsset.findMany({
       where: { kind: "map", OR: [{ detectionStatus: "queued" }, { detectionStatus: "running", detectionUpdatedAt: { lt: stale } }] },

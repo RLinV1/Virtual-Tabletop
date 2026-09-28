@@ -5,6 +5,7 @@ import type { DetectionOutcome, DetectionTarget } from "../store/gridDetectionSt
 import type { RoomStore } from "../store/roomStore";
 
 const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
+const MAX_VISION_RESPONSE_BYTES = 4096;
 const VISION_TIMEOUT_MS = 15_000;
 const RECOVERY_INTERVAL_MS = 30_000;
 
@@ -40,9 +41,25 @@ export function visionDetector(url: string): Detector {
       body: Buffer.from(bytes),
     });
     if (!response.ok) throw new Error("Vision service unavailable");
-    const raw = await response.text();
-    if (raw.length > 4096) throw new Error("Vision response too large");
-    const result: unknown = JSON.parse(raw);
+    if (!response.body) throw new Error("Empty vision response");
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > MAX_VISION_RESPONSE_BYTES) {
+          await reader.cancel();
+          throw new Error("Vision response too large");
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    const result: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
     if (typeof result !== "object" || result === null || !("kind" in result)) throw new Error("Invalid vision response");
     if (result.kind === "no_grid") return { status: "no_grid" };
     if (result.kind !== "candidate") throw new Error("Invalid vision response");
