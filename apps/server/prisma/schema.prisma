@@ -63,12 +63,17 @@ model LibraryAsset {
   width     Int
   height    Int
   grid      Json?
+  detectionStatus String? @map("detection_status")
+  detectionAttempt Int @default(0) @map("detection_attempt")
+  detectionResult Json? @map("detection_result")
+  detectionUpdatedAt DateTime? @map("detection_updated_at") @db.Timestamptz(6)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   owner     GmIdentity        @relation(fields: [ownerGmId], references: [id])
   creatures LibraryCreature[]
 
   @@index([ownerGmId, kind])
+  @@index([detectionStatus])
   @@map("library_assets")
 }
 
@@ -112,11 +117,19 @@ model AssetRef {
 model RoomUpload {
   roomId    String @map("room_id") @db.Uuid
   objectKey String @map("object_key")
+  purpose String @default("token")
+  width Int?
+  height Int?
+  detectionStatus String? @map("detection_status")
+  detectionAttempt Int @default(0) @map("detection_attempt")
+  detectionResult Json? @map("detection_result")
+  detectionUpdatedAt DateTime? @map("detection_updated_at") @db.Timestamptz(6)
 
   room Room @relation(fields: [roomId], references: [id])
 
   @@id([roomId, objectKey])
   @@index([roomId])
+  @@index([detectionStatus])
   @@map("room_uploads")
 }
 

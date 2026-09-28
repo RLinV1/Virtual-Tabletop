@@ -14,6 +14,7 @@ function fakeMinio(objects: Record<string, string> = {}): AssetStore {
     put: async (_temp, key) => `/uploads/${key}`,
     delete: async () => {},
     read: async (key) => (key in objects ? { body: Readable.from([objects[key]!]), contentType: "image/png" } : null),
+    readPrivate: async (key) => (key in objects ? Buffer.from(objects[key]!) : null),
   };
 }
 
@@ -84,6 +85,15 @@ describe("keeping a disk copy alongside MinIO (upload-storage)", () => {
     await store.delete("map.png");
     expect(minioDelete).toHaveBeenCalledWith("map.png");
     expect(existsSync(path.join(uploadDir, "map.png"))).toBe(false);
+  });
+
+  it("reads private analysis bytes by object key and falls back to the disk copy", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const uploadDir = await mkdtemp(path.join(tmpdir(), "vtt-uploads-"));
+    await writeFile(path.join(uploadDir, "map.png"), "stored bytes");
+    const store = await createAssetStore(uploadDir, { MINIO_ENDPOINT: "http://minio:9000" }, async () => fakeMinio());
+    expect(Buffer.from((await store.readPrivate("map.png", 100))!).toString()).toBe("stored bytes");
+    await expect(store.readPrivate("map.png", 2)).rejects.toThrow("limit");
   });
 });
 

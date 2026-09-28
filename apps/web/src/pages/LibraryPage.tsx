@@ -11,8 +11,9 @@ import { Modal } from "../ui/Modal";
 import { AccountMenu } from "./AccountPages";
 import { GridForm } from "./GridForm";
 import { CreatureCard, CreatureForm } from "./LibraryCreatures";
-import { parseGridDraft, toGridDraft } from "./gridDraft";
+import { parseGridDraft, toGridDraft, withGridSuggestion } from "./gridDraft";
 import { MapGridPreview } from "./MapGridPreview";
+import { useGridDetection } from "./useGridDetection";
 
 /** Maps and token art are uploaded assets; creatures are reusable token setups (library-creatures). */
 type Tab = AssetKind | "creature";
@@ -443,6 +444,7 @@ function LibraryGridEditor({ asset, gmToken, onCancel, onSaved }: {
   const [shown, setShown] = useState<GridSpec>(() => normalizeLegacyGridForBoard(saved, asset));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const detection = useGridDetection("library", gmToken, asset.id);
 
   return (
     <div className="library-grid-editor">
@@ -474,6 +476,15 @@ function LibraryGridEditor({ asset, gmToken, onCancel, onSaved }: {
           }}
           applying={saving}
           error={error}
+          detection={detection.status}
+          detectionError={detection.error}
+          onRetryDetection={() => { void detection.retry(); }}
+          onUseSuggestion={(candidate) => {
+            const next = withGridSuggestion(draft, candidate);
+            setDraft(next);
+            const valid = parseGridDraft(next, asset);
+            if (valid) setShown(valid);
+          }}
           submitLabel="Save grid"
           busyLabel="Saving…"
         />

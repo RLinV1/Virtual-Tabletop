@@ -3,6 +3,7 @@ import path from "node:path";
 import express, { type Express } from "express";
 import { Server as SocketIOServer } from "socket.io";
 import { RoomRegistry } from "./domain/roomRegistry";
+import { createGridDetectionDispatcher, type Detector, type GridDetectionDispatcher } from "./domain/gridDetection";
 import { registerRoutes } from "./http/routes";
 import { LocalDiskAssetStore, type AssetStore } from "./store/assetStore";
 import type { RoomStore } from "./store/roomStore";
@@ -16,6 +17,10 @@ export interface AppOptions {
   logger?: boolean;
   /** Browser origin allowed to open a socket; Socket.IO enforces CORS itself. */
   clientOrigin?: string;
+  detector?: Detector;
+  dispatcher?: GridDetectionDispatcher;
+  redisUrl?: string;
+  visionUrl?: string;
 }
 
 /**
@@ -38,6 +43,10 @@ export async function buildApp({
   assets,
   logger = false,
   clientOrigin = process.env.CLIENT_ORIGIN ?? "http://localhost:5173",
+  detector,
+  dispatcher,
+  redisUrl = process.env.REDIS_URL,
+  visionUrl = process.env.VISION_URL,
 }: AppOptions): Promise<App> {
   const app = express();
   const server = createServer(app);
@@ -74,7 +83,9 @@ export async function buildApp({
     });
   }
 
-  registerRoutes(app, { store, registry, uploadDir, assets: assets ?? new LocalDiskAssetStore(uploadDir) });
+  const assetStore = assets ?? new LocalDiskAssetStore(uploadDir);
+  const detection = dispatcher ?? await createGridDetectionDispatcher(store, assetStore, { detector, redisUrl, visionUrl });
+  registerRoutes(app, { store, registry, uploadDir, assets: assetStore, detection });
   registerSocket(io, { store, registry, logger });
 
   return {
@@ -88,9 +99,11 @@ export async function buildApp({
       }),
     // `io.close` also closes the HTTP server it was attached to, so closing it again
     // would raise ERR_SERVER_NOT_RUNNING.
-    close: () =>
-      new Promise((resolve, reject) => {
+    close: async () => {
+      await detection.close();
+      await new Promise<void>((resolve, reject) => {
         io.close((err) => (err ? reject(err) : resolve()));
-      }),
+      });
+    },
   };
 }

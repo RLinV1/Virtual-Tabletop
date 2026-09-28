@@ -1,6 +1,6 @@
 import { CaretDown } from "@phosphor-icons/react";
 import { type CSSProperties, type FormEvent, type ReactNode, useState } from "react";
-import { GRID_LINE_WIDTHS, gridLineStyle, type GridSpec, type MapImage } from "@vtt/shared";
+import { GRID_LINE_WIDTHS, gridLineStyle, type GridSpec, type MapImage, type GridDetectionStatus } from "@vtt/shared";
 import { gridLines } from "../board/gridLines";
 import { minimumGridCellSize, minimumGridCellSizeForDisplay } from "../board/gridRenderLimit";
 import { ColorWheel } from "../ui/ColorWheel";
@@ -8,7 +8,7 @@ import { gridsEqual, parseGridDraft, type GridDraft } from "./gridDraft";
 
 /**
  * Manual grid correction (FR-GM-04), shared by a room's Adjust grid and the library's
- * Edit grid. Automatic detection (FR-GM-03) will prefill these.
+ * Edit grid. Automatic detection (FR-GM-03) is an explicit draft action.
  */
 export function GridForm({
   grid,
@@ -20,6 +20,10 @@ export function GridForm({
   onApply,
   applying,
   error,
+  detection,
+  detectionError,
+  onUseSuggestion,
+  onRetryDetection,
   submitLabel = "Apply grid",
   busyLabel = "Applying…",
   children,
@@ -34,6 +38,10 @@ export function GridForm({
   onApply: (grid: GridSpec) => Promise<void>;
   applying: boolean;
   error: string | null;
+  detection?: GridDetectionStatus | null;
+  detectionError?: string | null;
+  onUseSuggestion?: (candidate: Extract<GridDetectionStatus, { status: "suggested" }>["candidate"]) => void;
+  onRetryDetection?: () => void;
   submitLabel?: string;
   busyLabel?: string;
   /** Extra actions below the form, e.g. the room's "Save grid to library". */
@@ -126,7 +134,32 @@ export function GridForm({
             lineOpacity: next.lineOpacity,
           })}
         />
-        <p className="muted grid-confidence">Confidence: manual</p>
+        <p className="muted grid-confidence">Current grid: accepted values</p>
+        {detection && (
+          <div className="grid-suggestion" role="status">
+            {detection.status === "queued" && <p>Checking the map for a grid…</p>}
+            {detection.status === "running" && <p>Analyzing the map grid…</p>}
+            {detection.status === "no_grid" && <p>No reliable square grid found. You can align it manually.</p>}
+            {detection.status === "error" && (
+              <>
+                <p>Grid analysis failed. Manual alignment is available.</p>
+                {onRetryDetection && <button type="button" className="secondary small" onClick={onRetryDetection}>Try again</button>}
+              </>
+            )}
+            {detection.status === "suggested" && (
+              <>
+                <p>Automatic suggestion: {detection.candidate.cellSize}px cells, offsets {detection.candidate.offsetX}px / {detection.candidate.offsetY}px. Confidence: {Math.round(detection.candidate.confidence * 100)}%.</p>
+                {detection.candidate.confidence < 0.75 && <p className="grid-suggestion-warning">Low confidence. Check the grid against the map before saving.</p>}
+                {onUseSuggestion && (
+                  <button type="button" className="secondary small" disabled={applying} onClick={() => onUseSuggestion(detection.candidate)}>
+                    Use suggestion
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        )}
+        {detectionError && <p className="error grid-message" role="alert">{detectionError}</p>}
         {hasDraft && !validDraft && (
           <p className="error grid-message" role="alert">
             {tooManyLines

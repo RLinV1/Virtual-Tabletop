@@ -7,11 +7,11 @@ Lets a GM align the active room grid to a battle map while seeing manual correct
 ## ADDED Requirements
 
 ### Requirement: GM can correct the active room grid
-The GM SHALL be able to open Adjust grid from the Battle map controls and edit the accepted cell size, horizontal and vertical offsets, and distance per cell. The form SHALL identify the alignment as manual. Pixel nudge controls SHALL adjust cell size and offsets in one- and five-pixel steps. Players SHALL NOT see the editing control.
+The GM SHALL be able to open Adjust grid from the Battle map controls and edit the accepted cell size, horizontal and vertical offsets, and distance per cell. The form SHALL identify the current grid values. Pixel nudge controls SHALL adjust cell size and offsets in one- and five-pixel steps. Players SHALL NOT see the editing control.
 
 #### Scenario: Open manual correction
 - **WHEN** the GM opens Adjust grid
-- **THEN** the form shows the room's accepted grid values and identifies confidence as manual
+- **THEN** the form shows the room's accepted grid values
 
 #### Scenario: Nudge an offset
 - **WHEN** the GM uses a positive or negative offset nudge

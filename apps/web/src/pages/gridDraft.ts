@@ -1,4 +1,4 @@
-import { GridSpec, gridLineStyle } from "@vtt/shared";
+import { GridSpec, gridLineStyle, type GridDetectionCandidate } from "@vtt/shared";
 import { canRenderGrid, type BoardSize } from "../board/gridRenderLimit";
 
 /** Text values let the GM clear a field while editing without turning it into zero. */
@@ -23,6 +23,16 @@ export function toGridDraft(grid: GridSpec): GridDraft {
     lineColor: grid.lineColor,
     lineWidth: grid.lineWidth,
     lineOpacity: grid.lineOpacity,
+  };
+}
+
+/** A suggestion changes only alignment. Units and style remain the GM's draft choices. */
+export function withGridSuggestion(draft: GridDraft, candidate: GridDetectionCandidate): GridDraft {
+  return {
+    ...draft,
+    cellSize: String(candidate.cellSize),
+    offsetX: String(candidate.offsetX),
+    offsetY: String(candidate.offsetY),
   };
 }
 

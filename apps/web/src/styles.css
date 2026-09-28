@@ -436,6 +436,10 @@ button.color-swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--panel), 0
 .grid-nudges { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.2rem; margin-top: 0.25rem; }
 .grid-nudges button { min-width: 0; padding: 0.25rem 0; }
 .grid-confidence, .grid-message, .grid-actions { grid-column: 1 / -1; }
+.grid-suggestion { grid-column: 1 / -1; border: 1px solid var(--line, #72777f); padding: 0.75rem; border-radius: 0.4rem; }
+.grid-suggestion p { margin: 0 0 0.5rem; }
+.grid-suggestion p:last-child { margin-bottom: 0; }
+.grid-suggestion-warning { color: #b65c16; font-weight: 600; }
 .grid-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
 
 /* Name and Delete on the first line, owner and visibility under it. */

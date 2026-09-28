@@ -5,6 +5,7 @@ import { GridSpec, Point } from "./geometry";
 import { TokenStats } from "./conditions";
 import { Id, Participant, Token, type RoomState } from "./state";
 import type { RejectionCode } from "./decide";
+import { RoomUploadPurpose } from "./gridDetection";
 
 /**
  * WebSocket wire protocol. One socket per client carries two logical channels:
@@ -157,6 +158,13 @@ export const LibraryUploadFields = z.object({
   height: Dimension,
 });
 export type LibraryUploadFields = z.infer<typeof LibraryUploadFields>;
+
+export const DirectUploadFields = z.object({
+  purpose: RoomUploadPurpose.default("token"),
+  width: Dimension.optional(),
+  height: Dimension.optional(),
+}).refine((data) => data.purpose !== "map" || (data.width !== undefined && data.height !== undefined),
+  { message: "Map uploads require image width and height" });
 
 export const LibraryPatchRequest = z
   .object({

@@ -35,6 +35,12 @@ services:
     ports: ["9000:9000", "9001:9001"]
     volumes:
       - miniodata:/data
+  vision:
+    build: ./services/vision
+    environment:
+      PORT: 8000
+      OPENCV_IO_MAX_IMAGE_PIXELS: 40000000
+    ports: ["127.0.0.1:8000:8000"]
 volumes:
   pgdata:
   redisdata:

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { inactiveLabel, normalizeLegacyGridForBoard, pendingDepartures, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
 import { api } from "../net/api";
 import { libraryAssetId } from "../net/builtinAssets";
@@ -7,9 +7,10 @@ import { imageSize } from "../net/imageFile";
 import type { CommandResult, RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
 import { PanelSection } from "../ui/PanelSection";
-import type { GridDraft } from "./gridDraft";
+import { withGridSuggestion, type GridDraft } from "./gridDraft";
 import { GridForm } from "./GridForm";
 import { LibraryPicker } from "./LibraryPicker";
+import { useGridDetection } from "./useGridDetection";
 
 interface Props {
   connection: RoomConnection;
@@ -51,9 +52,14 @@ export function GmPanel({
         onError={setError}
         onSetMap={(map, grid, report) => runWith(report)(connection.command({ type: "scene.setMap", map, grid }))}
         onGridClose={onGridDraftCancel}
+        mapUrl={state.scene.map?.url ?? null}
         gridApplying={gridApplying}
         grid={(close) => (
-          <GridForm
+          <RoomGridEditor
+            key={state.scene.map?.url ?? "no-map"}
+            roomId={state.roomId}
+            token={token}
+            directMap={Boolean(state.scene.map && !state.scene.map.assetId)}
             grid={state.scene.grid}
             map={state.scene.map}
             draft={gridDraft}
@@ -67,11 +73,28 @@ export function GmPanel({
             {gmToken && state.scene.map?.assetId && (
               <SaveGridToLibrary gmToken={gmToken} assetId={state.scene.map.assetId} grid={state.scene.grid} />
             )}
-          </GridForm>
+          </RoomGridEditor>
         )}
       />
     </>
   );
+}
+
+function RoomGridEditor(props: ComponentProps<typeof GridForm> & {
+  roomId: string; token: string; directMap: boolean;
+}) {
+  return props.directMap ? <DirectMapGridEditor {...props} /> : <GridForm {...props} />;
+}
+
+function DirectMapGridEditor(props: ComponentProps<typeof RoomGridEditor>) {
+  const detection = useGridDetection("room", props.token, props.roomId, props.map?.url ?? "");
+  return <GridForm
+    {...props}
+    detection={detection.status}
+    detectionError={detection.error}
+    onRetryDetection={() => { void detection.retry(); }}
+    onUseSuggestion={(candidate) => props.onChange(withGridSuggestion(props.draft, candidate))}
+  />;
 }
 
 /**
@@ -107,6 +130,7 @@ function MapSection(props: {
   onSetMap: (map: MapImage, grid: GridSpec | undefined, report: (message: string | null) => void) => Promise<boolean>;
   onError: (message: string | null) => void;
   onGridClose: () => void;
+  mapUrl: string | null;
   gridApplying: boolean;
   /** The grid form, shown in its own modal; `close` dismisses it after a successful apply. */
   grid: (close: () => void) => ReactNode;
@@ -117,6 +141,17 @@ function MapSection(props: {
   const [gridOpen, setGridOpen] = useState(false);
   const gridOpenRef = useRef(false);
   useEffect(() => { gridOpenRef.current = gridOpen; }, [gridOpen]);
+  const previousMap = useRef(props.mapUrl);
+  useEffect(() => {
+    if (previousMap.current !== props.mapUrl) {
+      previousMap.current = props.mapUrl;
+      if (gridOpenRef.current) {
+        gridOpenRef.current = false;
+        setGridOpen(false);
+        props.onGridClose();
+      }
+    }
+  }, [props.mapUrl, props.onGridClose]);
   // A compact-layout switch can unmount the editor without a dialog close event.
   useEffect(() => () => {
     if (gridOpenRef.current) props.onGridClose();
@@ -131,8 +166,8 @@ function MapSection(props: {
     if (!file) return;
     setBusy(true);
     try {
-      const { url } = await api.upload(file, props.token);
-      const { width, height } = await imageSize(url);
+      const { width, height } = await imageSize(file);
+      const { url } = await api.upload(file, props.token, { width, height });
       await props.onSetMap({ url, width, height }, undefined, props.onError);
     } catch (err) {
       props.onError(err instanceof Error ? err.message : "Upload failed");

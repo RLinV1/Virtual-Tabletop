@@ -112,6 +112,11 @@ export class LiveRoom {
     return this.state.participants[id];
   }
 
+  /** Server-only lookup for the current direct map's private analysis endpoint. */
+  currentMap() {
+    return this.state.scene.map;
+  }
+
   /** Why this participant's seat ended, or null if they are still in the room (ADR 0006). */
   endReason(id: string): SessionEndReason | null {
     const p = this.state.participants[id];

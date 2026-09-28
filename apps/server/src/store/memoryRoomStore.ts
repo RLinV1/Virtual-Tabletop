@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { CommittedEvent, GmRoomSummary, GridSpec } from "@vtt/shared";
+import type { RoomUploadPurpose } from "@vtt/shared";
+import type { DetectionOutcome, DetectionRecord, DetectionTarget } from "./gridDetectionStore";
 import {
   CreatureImageMissingError,
   type CreaturePatch,
@@ -23,6 +25,7 @@ export class MemoryRoomStore implements RoomStore {
   private refs = new Map<string, Set<string>>();
   /** roomId -> object keys uploaded from inside it (ADR 0009). */
   private uploads = new Map<string, Set<string>>();
+  private roomDetections = new Map<string, DetectionRecord>();
 
   async createRoom(roomId: string, inviteCode: string, options: NewRoomOptions = {}) {
     if (this.events.has(roomId)) throw new Error(`Room ${roomId} already exists`);
@@ -113,11 +116,17 @@ export class MemoryRoomStore implements RoomStore {
     return this.rooms.get(roomId)?.ownerGmId;
   }
 
-  async recordRoomUpload(roomId: string, objectKey: string) {
+  async recordRoomUpload(roomId: string, objectKey: string, purpose: RoomUploadPurpose = "token", width?: number, height?: number) {
     if (!this.events.has(roomId)) throw new Error(`No room ${roomId}`);
     const keys = this.uploads.get(roomId) ?? new Set<string>();
     keys.add(objectKey);
     this.uploads.set(roomId, keys);
+    if (purpose === "map" && width && height) {
+      this.roomDetections.set(`${roomId}:${objectKey}`, {
+        target: { scope: "room", roomId, objectKey }, objectKey, width, height,
+        status: "queued", attempt: 1, candidate: null,
+      });
+    }
   }
 
   /** Drops every map entry for the room. Nothing here can fail halfway, so it is atomic. */
@@ -128,6 +137,7 @@ export class MemoryRoomStore implements RoomStore {
     this.rooms.delete(roomId);
     this.refs.delete(roomId);
     this.uploads.delete(roomId);
+    for (const key of uploadKeys) this.roomDetections.delete(`${roomId}:${key}`);
     for (const [code, id] of this.invites) if (id === roomId) this.invites.delete(code);
     for (const [hash, row] of this.credentials) if (row.roomId === roomId) this.credentials.delete(hash);
     return { uploadKeys };
@@ -158,6 +168,73 @@ export class MemoryRoomStore implements RoomStore {
 
   async createAsset(asset: LibraryAssetRecord) {
     this.assets.set(asset.id, structuredClone(asset));
+  }
+
+  async findDetection(target: DetectionTarget): Promise<DetectionRecord | null> {
+    return this.readDetection(target);
+  }
+
+  private readDetection(target: DetectionTarget): DetectionRecord | null {
+    if (target.scope === "room") return structuredClone(this.roomDetections.get(`${target.roomId}:${target.objectKey}`) ?? null);
+    const asset = this.assets.get(target.id);
+    if (!asset || asset.kind !== "map" || !asset.detectionStatus) return null;
+    return {
+      target, objectKey: asset.objectKey, width: asset.width, height: asset.height,
+      status: asset.detectionStatus, attempt: asset.detectionAttempt ?? 0,
+      candidate: structuredClone(asset.detectionResult ?? null),
+    };
+  }
+
+  async markDetectionRunning(target: DetectionTarget, attempt: number) {
+    const row = this.readDetection(target);
+    if (!row || row.status !== "queued" || row.attempt !== attempt) return false;
+    this.setDetection(target, { ...row, status: "running" });
+    return true;
+  }
+
+  async finishDetection(target: DetectionTarget, attempt: number, outcome: DetectionOutcome) {
+    const row = this.readDetection(target);
+    if (!row || row.status !== "running" || row.attempt !== attempt) return false;
+    this.setDetection(target, { ...row, status: outcome.status, candidate: outcome.status === "suggested" ? outcome.candidate : null });
+    return true;
+  }
+
+  async retryDetection(target: DetectionTarget) {
+    const row = this.readDetection(target);
+    if (!row || row.status !== "error") return null;
+    const attempt = row.attempt + 1;
+    this.setDetection(target, { ...row, status: "queued", attempt, candidate: null });
+    return attempt;
+  }
+
+  async recoverDetections() {
+    const jobs: Array<{ target: DetectionTarget; attempt: number }> = [];
+    const rows: DetectionRecord[] = [...this.roomDetections.values()];
+    for (const asset of this.assets.values()) {
+      if (asset.kind === "map" && asset.detectionStatus) {
+        rows.push(this.readDetection({ scope: "library", id: asset.id })!);
+      }
+    }
+    for (const row of rows) {
+      if (row.status === "running") {
+        const next = { ...row, status: "queued" as const, attempt: row.attempt + 1 };
+        this.setDetection(row.target, next);
+        jobs.push({ target: row.target, attempt: next.attempt });
+      } else if (row.status === "queued") jobs.push({ target: row.target, attempt: row.attempt });
+    }
+    return jobs;
+  }
+
+  private setDetection(target: DetectionTarget, row: DetectionRecord) {
+    if (target.scope === "room") {
+      this.roomDetections.set(`${target.roomId}:${target.objectKey}`, structuredClone(row));
+    } else {
+      const asset = this.assets.get(target.id);
+      if (asset) this.assets.set(target.id, {
+        ...asset, detectionStatus: row.status, detectionAttempt: row.attempt,
+        detectionResult: row.candidate, detectionUpdatedAt: new Date().toISOString(),
+      });
+    }
   }
 
   async listAssets(ownerGmId: string) {

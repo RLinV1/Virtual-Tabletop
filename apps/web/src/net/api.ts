@@ -5,6 +5,7 @@ import {
   type CreateCreatureRequest,
   type GmRoomSummary,
   type GridSpec,
+  GridDetectionStatus,
   type LibraryAsset,
   type LibraryCreature,
   type LibraryUsageResponse,
@@ -114,9 +115,14 @@ export const api = {
   joinRoom: (inviteCode: string, req: JoinRoomRequest) =>
     postJson<JoinRoomResponse>(`/api/invites/${encodeURIComponent(inviteCode)}/join`, req),
 
-  async upload(file: File, token: string): Promise<UploadResponse> {
+  async upload(file: File, token: string, mapSize?: { width: number; height: number }): Promise<UploadResponse> {
     const form = new FormData();
     form.append("file", file);
+    if (mapSize) {
+      form.append("purpose", "map");
+      form.append("width", String(mapSize.width));
+      form.append("height", String(mapSize.height));
+    }
     const res = await fetch("/api/uploads", {
       method: "POST",
       headers: { authorization: `Bearer ${token}` },
@@ -124,6 +130,34 @@ export const api = {
     });
     if (!res.ok) throw new Error(await errorMessage(res));
     return (await res.json()) as UploadResponse;
+  },
+
+  detection: {
+    async room(roomId: string, token: string, mapUrl: string, signal?: AbortSignal) {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/grid-detection`, {
+        headers: { authorization: `Bearer ${token}`, "x-expected-map-url": mapUrl }, signal,
+      });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(await errorMessage(res));
+      return GridDetectionStatus.parse(await res.json());
+    },
+    async retryRoom(roomId: string, token: string, mapUrl: string) {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/grid-detection/retry`, {
+        method: "POST", headers: { authorization: `Bearer ${token}`, "x-expected-map-url": mapUrl },
+      });
+      if (!res.ok) throw new Error(await errorMessage(res));
+      return GridDetectionStatus.parse(await res.json());
+    },
+    async library(gmToken: string, id: string, signal?: AbortSignal) {
+      const res = await gmFetch(gmToken, `/api/library/${encodeURIComponent(id)}/grid-detection`, { signal });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(await errorMessage(res));
+      return GridDetectionStatus.parse(await res.json());
+    },
+    async retryLibrary(gmToken: string, id: string) {
+      return gmRequest<GridDetectionStatus>(gmToken, `/api/library/${encodeURIComponent(id)}/grid-detection/retry`, { method: "POST" })
+        .then((raw) => GridDetectionStatus.parse(raw));
+    },
   },
 
   gm: {

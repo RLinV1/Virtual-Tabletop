@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { unlink } from "node:fs/promises";
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import {
   CreateRoomRequest,
+  DirectUploadFields,
+  GridDetectionStatus,
   JoinRoomRequest,
   HistoryQuery,
   HistoryResponse,
@@ -20,13 +23,16 @@ import type { RoomStore } from "../store/roomStore";
 import { resolveGm } from "./gmAuth";
 import { imageUploader } from "./imageUpload";
 import { registerLibraryRoutes } from "./library";
+import { detectionWire } from "./library";
+import { enqueueDetection, type GridDetectionDispatcher } from "../domain/gridDetection";
+import type { DetectionTarget } from "../store/gridDetectionStore";
 
 /** Registers the REST API: rooms, invite joins, uploads, the library and GM history. */
 export function registerRoutes(
   app: Express,
-  deps: { store: RoomStore; registry: RoomRegistry; uploadDir: string; assets: AssetStore },
+  deps: { store: RoomStore; registry: RoomRegistry; uploadDir: string; assets: AssetStore; detection: GridDetectionDispatcher },
 ) {
-  const { store, registry, uploadDir, assets } = deps;
+  const { store, registry, uploadDir, assets, detection } = deps;
 
   const receiveImage = imageUploader(uploadDir);
 
@@ -98,20 +104,58 @@ export function registerRoutes(
       if (!actor || actor.participant.role !== "gm") return res.status(403).json({ error: "GM only" });
       const upload = await receiveImage(req, res);
       if (!upload.ok) return res.status(upload.status).json({ error: upload.error });
+      const fields = DirectUploadFields.safeParse(req.body);
+      if (!fields.success) {
+        await unlink(upload.file.path).catch(() => {});
+        return res.status(400).json({ error: fields.error.issues });
+      }
       const key = path.basename(upload.file.path);
       const url = await assets.put(upload.file.path, key, upload.file.mimetype);
       // So deleting the room removes the image too (ADR 0009). If the room was deleted
       // since the check above, recording fails: remove the object rather than orphan it.
       try {
-        await store.recordRoomUpload(actor.roomId, key);
+        await store.recordRoomUpload(actor.roomId, key, fields.data.purpose, fields.data.width, fields.data.height);
       } catch (err) {
         await assets.delete(key).catch((cleanupErr: unknown) => {
           console.error(`[vtt] could not delete upload ${key} after its room upload record failed`, cleanupErr);
         });
         throw err;
       }
+      if (fields.data.purpose === "map") await enqueueDetection(store, detection, { scope: "room", roomId: actor.roomId, objectKey: key }, 1);
       const response: UploadResponse = { url };
       return res.json(response);
+    })().catch(internalError(req, res));
+  });
+
+  const currentDirectMap = async (roomId: string, expectedUrl: string | undefined): Promise<DetectionTarget | null> => {
+    const room = await registry.get(roomId);
+    const map = room?.currentMap();
+    if (!map || map.url !== expectedUrl || map.assetId || !/^\/uploads\/[^/?#]+$/.test(map.url)) return null;
+    return { scope: "room", roomId, objectKey: map.url.slice("/uploads/".length) };
+  };
+
+  app.get("/api/rooms/:roomId/grid-detection", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void (async () => {
+      if (!(await isRoomGm(req, req.params.roomId))) return res.status(403).json({ error: "GM only" });
+      const target = await currentDirectMap(req.params.roomId, req.get("x-expected-map-url"));
+      const row = target ? await store.findDetection(target) : null;
+      if (!row) return res.status(404).json({ error: "No analysis for current map" });
+      return res.json(detectionWire(row));
+    })().catch(internalError(req, res));
+  });
+
+  app.post("/api/rooms/:roomId/grid-detection/retry", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void (async () => {
+      if (!(await isRoomGm(req, req.params.roomId))) return res.status(403).json({ error: "GM only" });
+      const target = await currentDirectMap(req.params.roomId, req.get("x-expected-map-url"));
+      if (!target || !(await store.findDetection(target))) return res.status(404).json({ error: "No analysis for current map" });
+      const attempt = await store.retryDetection(target);
+      if (!attempt) return res.status(409).json({ error: "Analysis is not in error" });
+      await enqueueDetection(store, detection, target, attempt);
+      const row = await store.findDetection(target);
+      return res.status(202).json(GridDetectionStatus.parse(detectionWire(row!)));
     })().catch(internalError(req, res));
   });
 
@@ -174,7 +218,7 @@ export function registerRoutes(
     })().catch(internalError(req, res));
   });
 
-  registerLibraryRoutes(app, { store, uploadDir, assets });
+  registerLibraryRoutes(app, { store, uploadDir, assets, detection });
 
   /** FR-REC-01: history belongs to this room's GM, never merely any valid GM token. */
   app.get("/api/rooms/:roomId/history", (req, res) => {

@@ -14,12 +14,13 @@ import {
   type ServerMessage,
 } from "@vtt/shared";
 import { buildApp } from "../src/app";
+import type { Detector, GridDetectionDispatcher } from "../src/domain/gridDetection";
 import { MemoryRoomStore } from "../src/store/memoryRoomStore";
 
 /** `store` lets a test start a second server on the same data, i.e. simulate a restart. */
-export async function startServer(store: MemoryRoomStore = new MemoryRoomStore()) {
+export async function startServer(store: MemoryRoomStore = new MemoryRoomStore(), options: { detector?: Detector; dispatcher?: GridDetectionDispatcher } = {}) {
   const uploadDir = await mkdtemp(path.join(tmpdir(), "vtt-uploads-"));
-  const app = await buildApp({ store, uploadDir, clientOrigin: "*" });
+  const app = await buildApp({ store, uploadDir, clientOrigin: "*", detector: options.detector, dispatcher: options.dispatcher });
   await app.listen({ port: 0, host: "127.0.0.1" });
   const addr = app.server.address();
   if (!addr || typeof addr === "string") throw new Error("no address");
