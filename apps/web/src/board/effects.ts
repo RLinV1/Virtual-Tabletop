@@ -27,6 +27,8 @@ export function attackEffectFor(event: DomainEvent, after: RoomState, viewer: Pa
   };
   switch (event.type) {
     case "DiceRolled": {
+      // The server never sends a player a GM-only roll; refuse one anyway if it ever did.
+      if (viewer.role !== "gm" && event.roll.visibility === "gm") return null;
       const { actor, target } = event.roll.attack ?? {};
       if (!actor || !target || !visible(actor.tokenId) || !visible(target.tokenId)) return null;
       return { kind: "strike", fromId: actor.tokenId, toId: target.tokenId };
@@ -306,8 +308,8 @@ export function artStyleFor(conditions: readonly ConditionId[], reducedMotion: b
 
 // ---------- render budget ----------
 
-/** Condition loops draw at most this often: 30 frames a second. */
-export const LOOP_INTERVAL_MS = 30;
+/** Condition loops draw at most this often: 30 frames a second, whatever the display's rate. */
+export const LOOP_INTERVAL_MS = 1000 / 30;
 
 /** Whether the condition loop should be running at all (design Decision 6). */
 export function conditionLoopWanted(input: { loopingTokens: number; pageVisible: boolean; reducedMotion: boolean }): boolean {

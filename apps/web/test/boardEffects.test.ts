@@ -87,6 +87,14 @@ describe("attackEffectFor: which events animate (KAN-76)", () => {
   });
 });
 
+describe("attackEffectFor: GM-only rolls (KAN-76, FR-GM-22)", () => {
+  it("never strikes for a player on a GM-only roll, even if one arrived", () => {
+    const gmRoll = roll({ visibility: "gm" });
+    expect(attackEffectFor(rolled(gmRoll), room({ rolls: [gmRoll] }), player)).toBeNull();
+    expect(attackEffectFor(rolled(gmRoll), room({ rolls: [gmRoll] }), gm)).toMatchObject({ kind: "strike" });
+  });
+});
+
 describe("attackEffectFor: rulings and damage (KAN-76)", () => {
   it("plays hit and miss on the roll's target, and nothing when the verdict is cleared", () => {
     expect(attackEffectFor(ruled("hit"), room(), player)).toEqual({ kind: "hit", tokenId: "b" });
@@ -184,6 +192,7 @@ describe("condition loop budget (KAN-76)", () => {
   it("draws at most 30 frames a second", () => {
     expect(loopFrameDue(1000, 1000)).toBe(false);
     expect(loopFrameDue(1016, 1000)).toBe(false);
+    expect(loopFrameDue(1030, 1000)).toBe(false);
     expect(loopFrameDue(1034, 1000)).toBe(true);
   });
 });

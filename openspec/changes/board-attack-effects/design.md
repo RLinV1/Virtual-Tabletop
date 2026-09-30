@@ -27,7 +27,7 @@ See proposal.md — Why. `BoardView` (`apps/web/src/board/boardView.ts`) renders
    - blinded — dark veil over the upper half; charmed — small hearts drifting up; frightened — tremble (visual jitter); grappled — tightening ring segments; invisible — art alpha 0.35 with a shimmering edge; paralyzed — static yellow sparks; poisoned — green bubbles rising; prone — art tilted 70°; restrained — chain ring; stunned — stars circling above; unconscious — greyscale tint + "Zz"; concentrating — pulsing blue ring.
    Drawn into a per-token `effects` layer beneath `markers`, so the FR-TAC-08 badges draw on top and are untouched.
 
-6. **Render budget.** A single board-level condition loop step is registered in `animations` while any visible token has a looping condition, the page is visible (`document.visibilityState`) and motion is allowed. It throttles to 30 fps by skipping frames when less than ~33 ms has passed. It unregisters itself when none remain (checked in `update`). Attack effects are short (≤ 1.2 s) steps in the same set.
+6. **Render budget.** A single board-level condition loop step is registered in `animations` while any token on the board has a looping condition (off-screen tokens are not culled; the 30 fps cap bounds the cost), the page is visible (`document.visibilityState`) and motion is allowed. It throttles to 30 fps by skipping frames when less than ~33 ms has passed. It unregisters itself when none remain (checked in `update`). Attack effects are short (≤ 1.2 s) steps in the same set.
 
 7. **Reduced motion.** `matchMedia("(prefers-reduced-motion: reduce)")` read once and on `change`. When set: strike → a static target marker for 600 ms; hit/miss → static icon for 600 ms; damage → static "−N" label for 1 s; conditions → rest pose with no loop registered.
 
@@ -37,7 +37,8 @@ See proposal.md — Why. `BoardView` (`apps/web/src/board/boardView.ts`) renders
 
 - [Continuous rendering drains battery with many conditioned tokens] → 30 fps cap, stops when tab hidden or reduced motion; spec change recorded in `client-render-performance`.
 - [An animation hints at a hidden token] → only filtered events and filtered state are used; effects.ts refuses null/absent/hidden sides; unit tests cover it; visibility-auditor reviews the diff.
-- [A long burst of rolls stacks effects] → cap concurrent attack effects at 8; oldest dropped.
+- [A long burst of rolls stacks effects] → cap concurrent attack effects at 8, oldest dropped; strikes waiting for their dice are capped at 8 too, and a landing plays only its own strike (older ones replaced mid-air are dropped, not replayed in a burst).
+- [Undoing a ruling replays an effect] → the compensating `RollRuled` looks like any ruling to the client (players never see `ActionUndone`), so it plays the restored verdict's effect. Cosmetic; accepted.
 - [Prone tilt conflicts with token rotation] → tilt is applied on the art wrapper on top of `token.rotation`, not replacing it.
 
 ## Migration Plan

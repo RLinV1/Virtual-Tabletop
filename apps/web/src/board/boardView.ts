@@ -185,6 +185,8 @@ interface TokenView {
   looping: boolean;
   /** Offsets from a hit shake and from trembling, added up on `art.position`. */
   shake: Point;
+  /** The hit whose shake `shake` holds, or null (KAN-76). */
+  shakeOwner: AttackFx | null;
   tremble: Point;
   /** Greyscale filter while Unconscious; made once, then reused. */
   grey: ColorMatrixFilter | null;
@@ -1023,6 +1025,8 @@ export class BoardView {
 
     for (const [id, view] of this.tokens) {
       if (!state.tokens[id]) {
+        // A filter is not a child: free the Unconscious greyscale's GPU resources by hand.
+        view.grey?.destroy();
         view.container.destroy({ children: true });
         this.tokens.delete(id);
         this.pendingMoves.delete(id);
@@ -1073,7 +1077,7 @@ export class BoardView {
     this.tokenLayer.addChild(container);
     return {
       container, art, body, image, imageMask, imageUrl: null, radius: 0, decor, markers, label, drawnKey: "",
-      effects, conditions: [], looping: false, shake: { x: 0, y: 0 }, tremble: { x: 0, y: 0 }, grey: null,
+      effects, conditions: [], looping: false, shake: { x: 0, y: 0 }, shakeOwner: null, tremble: { x: 0, y: 0 }, grey: null,
     };
   }
 
@@ -1229,6 +1233,8 @@ export class BoardView {
           this.drawStrike(g, views[0]!.container.position, at, r, t, plan.motion);
         } else if (effect.kind === "hit") {
           this.drawHit(g, at, r, t, plan.motion);
+          // The newest hit on a token owns its shake, so an older one ending can't cut it off.
+          to.shakeOwner = fx;
           to.shake.x = plan.motion ? Math.sin(t * 40) * r * 0.12 * (1 - t) : 0;
           this.applyArtOffset(to, to.tremble.x, to.tremble.y);
         } else if (effect.kind === "miss") {
@@ -1243,7 +1249,8 @@ export class BoardView {
       stop: () => {
         if (!g.destroyed) g.destroy();
         if (label && !label.destroyed) label.destroy();
-        if (effect.kind === "hit" && !target.container.destroyed) {
+        if (effect.kind === "hit" && !target.container.destroyed && target.shakeOwner === fx) {
+          target.shakeOwner = null;
           target.shake.x = 0;
           this.applyArtOffset(target, target.tremble.x, target.tremble.y);
         }

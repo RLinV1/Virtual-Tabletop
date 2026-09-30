@@ -4,7 +4,7 @@ import { DEFAULT_TOKEN_COLOR, EMPTY_STATS, type GridSpec, type Participant, type
 import type { RoomConnection } from "../net/roomConnection";
 import { DEFAULT_TOOL_OPTIONS, ToolRail, toolFor, type ToolOptions } from "../ui/ToolRail";
 import { BoardView } from "./boardView";
-import { attackEffectFor, type AttackEffect } from "./effects";
+import { MAX_ATTACK_EFFECTS, attackEffectFor, type AttackEffect } from "./effects";
 import { autoPlacementPoint, type PlacementGhost, type TokenDraft } from "./placement";
 import type { BoardTool } from "./tools";
 
@@ -159,6 +159,13 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       // Rulings and damage have no dice and play at once.
       if (effect.kind === "strike" && committed.event.type === "DiceRolled") {
         const rollId = committed.event.roll.id;
+        // A flood of rolls must not pile up strikes and timers: keep only the newest few.
+        const waiting = waitingStrikes.current;
+        while (waiting.size >= MAX_ATTACK_EFFECTS) {
+          const [oldest, strike] = waiting.entries().next().value!;
+          window.clearTimeout(strike.timer);
+          waiting.delete(oldest);
+        }
         const timer = window.setTimeout(() => {
           waitingStrikes.current.delete(rollId);
           viewRef.current?.playAttackEffect(effect);
@@ -186,15 +193,18 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     viewRef.current?.update(state, you);
   }, [state, you]);
 
-  // Landing a roll releases its strike, and any earlier one whose dice were replaced mid-air.
+  // Landing a roll releases its strike. Earlier ones whose dice were replaced mid-air are
+  // dropped, not played in a burst nobody would see.
   useEffect(() => {
     const waiting = waitingStrikes.current;
     if (!landedRollId || !waiting.has(landedRollId)) return;
     for (const [rollId, strike] of [...waiting]) {
       waiting.delete(rollId);
       window.clearTimeout(strike.timer);
-      viewRef.current?.playAttackEffect(strike.effect);
-      if (rollId === landedRollId) break;
+      if (rollId === landedRollId) {
+        viewRef.current?.playAttackEffect(strike.effect);
+        break;
+      }
     }
   }, [landedRollId]);
 
