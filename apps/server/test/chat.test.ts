@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { CHAT_LOG_LIMIT } from "@vtt/shared";
 import { startServer, type TestClient } from "./helpers";
 
 let server: Awaited<ReturnType<typeof startServer>>;
@@ -115,13 +114,15 @@ describe("room chat over the wire (KAN-75)", () => {
     expect(gm.state.chat[0]?.text).toBe(markup);
   });
 
-  it("keeps the newest 200 messages in state", async () => {
+  it("refuses an 11th message within 10 seconds from one connection, with no event", async () => {
     const { gm, alice } = await setup();
     let last = 0;
-    for (let i = 1; i <= CHAT_LOG_LIMIT + 3; i++) last = seqOf(await alice.command({ type: "chat.send", text: `m${i}` }));
+    for (let i = 1; i <= 10; i++) last = seqOf(await alice.command({ type: "chat.send", text: `m${i}` }));
+    const eleventh = await alice.command({ type: "chat.send", text: "m11" });
+    expect(eleventh).toMatchObject({ type: "rejected", code: "invalid" });
     await gm.waitForSeq(last);
-    expect(gm.state.chat).toHaveLength(CHAT_LOG_LIMIT);
-    expect(gm.state.chat[0]?.text).toBe("m4");
-    expect(gm.state.chat.at(-1)?.text).toBe(`m${CHAT_LOG_LIMIT + 3}`);
+    expect(gm.state.chat.map((m) => m.text)).toEqual(Array.from({ length: 10 }, (_, i) => `m${i + 1}`));
+    // Other commands are not limited by chat.
+    expect(await alice.command({ type: "participant.rename", displayName: "Alicia" })).toMatchObject({ type: "ack" });
   });
 });

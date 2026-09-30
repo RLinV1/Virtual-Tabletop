@@ -10,6 +10,7 @@ import {
   formatActivity,
   reduce,
   reduceCommitted,
+  reduceReceived,
   type CommittedEvent,
   type Participant,
   type RoomState,
@@ -40,8 +41,16 @@ describe("chat.send validation (KAN-75)", () => {
     ["a NUL character", "one\u0000two"],
     ["a right-to-left override", "safe‮gnp.exe"],
     ["a zero-width space", "zero​width"],
+    ["a lone surrogate", "broken\ud800text"],
+    ["only a Hangul filler", "\u3164"],
+    ["only Braille blanks", "\u2800\u2800"],
+    ["only joiners", "\u200d\u200c"],
   ])("refuses %s", (_name, text) => {
     expect(parse(text).success).toBe(false);
+  });
+  it("allows joiners inside emoji sequences and scripts that need them", () => {
+    expect(parse("\u{1F469}\u200d\u{1F52C} ready").success).toBe(true);
+    expect(parse("\u0645\u06cc\u200c\u062e\u0648\u0627\u0645").success).toBe(true);
   });
   it("refuses a forged sender field instead of ignoring it", () => {
     expect(Command.safeParse({ type: "chat.send", text: "hi", senderId: bob.id }).success).toBe(false);
@@ -88,6 +97,13 @@ describe("chat reduce (KAN-75)", () => {
       { id: "m1", senderId: alice.id, senderName: "Alice", text: "msg 1", at: AT },
       { id: "m2", senderId: alice.id, senderName: "Alice", text: "msg 2", at: "2026-09-24T12:00:05.000Z" },
     ]);
+  });
+  it("stamps the time the same way for a received player event and a GM event", () => {
+    const player = reduceReceived(baseRoom(), committed(sent(1)));
+    const gmView = reduceReceived(baseRoom(), committed(sent(1), 1, "cmd-1"));
+    expect(player.chat).toEqual(gmView.chat);
+    expect(player.chat[0]?.at).toBe(AT);
+    expect(player.undo).toEqual([]);
   });
   it("leaves the time null without metadata", () => {
     expect(reduce(baseRoom(), sent(1)).chat[0]?.at).toBeNull();

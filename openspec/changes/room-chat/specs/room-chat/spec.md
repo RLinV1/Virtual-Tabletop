@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Send a chat message
-Any active participant of a room (GM or player) SHALL be able to send a text message to the room. The server SHALL trim the text and SHALL accept it only when the trimmed text is 1 to 500 characters long and contains no control characters (including line breaks) or invisible formatting characters (such as right-to-left overrides). An empty, whitespace-only, over-length or control-character message SHALL be refused as invalid and SHALL NOT be recorded. A participant who has left or been removed SHALL NOT be able to send.
+Any active participant of a room (GM or player) SHALL be able to send a text message to the room. The server SHALL trim the text and SHALL accept it only when the trimmed text is 1 to 500 characters long and contains no control characters (including line breaks) or invisible formatting characters (such as right-to-left overrides; the zero-width joiner and non-joiner used by emoji and some scripts are allowed), and shows at least one visible character. An empty, whitespace-only, over-length or control-character message SHALL be refused as invalid and SHALL NOT be recorded. A participant who has left or been removed SHALL NOT be able to send.
 
 #### Scenario: Player sends a message
 - **WHEN** player Aria sends "Watch the door"
@@ -18,6 +18,13 @@ Any active participant of a room (GM or player) SHALL be able to send a text mes
 #### Scenario: Over-length message refused
 - **WHEN** a participant sends 501 characters
 - **THEN** the server refuses it as invalid and nothing is recorded
+
+### Requirement: Chat rate limit
+One connection SHALL be able to send at most 10 chat messages in any 10-second period. A message over that limit SHALL be refused with a message saying to wait, and SHALL NOT be recorded. The limit SHALL NOT affect other commands.
+
+#### Scenario: Eleventh message refused
+- **WHEN** a participant sends 11 messages within 10 seconds from one tab
+- **THEN** the first 10 are recorded and the 11th is refused and not recorded
 
 ### Requirement: Server sets the sender
 Each message SHALL name its sender by the participant id and display name of the connection that sent it, as decided by the server. A client SHALL NOT be able to choose or forge the sender; any sender fields in the request SHALL be rejected. The message SHALL keep the display name it was sent under after a later rename.

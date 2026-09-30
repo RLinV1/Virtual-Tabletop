@@ -4,7 +4,7 @@ Players and the GM have no way to talk inside a room, so every table leans on a 
 
 ## What Changes
 
-- **New command `chat.send`** with the message text. Any active participant may send it. The server validates it with zod: text is trimmed, 1–500 characters, and may not contain control characters or line breaks.
+- **New command `chat.send`** with the message text. Any active participant may send it. The server validates it with zod: text is trimmed, 1–500 characters, and may not contain control characters, line breaks or invisible formatting characters, and must show at least one visible character. Each connection may send at most 10 messages per 10 seconds.
 - **New event `ChatMessageSent`** carrying the whole message: a server-generated id, the sender's participant id and display name as they were when sent, and the text. The server sets the sender from the socket's identity, never from the payload.
 - **Room state gains `chat`**: the most recent 200 messages, oldest first, each with the committed timestamp. Older messages stay in the event log, like rolls beyond the roll window. Snapshots carry it, so a reload or a late join shows earlier messages in order.
 - **Visibility:** chat is public to everyone in the room. Both filters pass it through unchanged; the per-room broadcast keeps it out of other rooms.
@@ -16,7 +16,7 @@ Players and the GM have no way to talk inside a room, so every table leans on a 
 
 - Whispers or GM-only messages (would need visibility filters).
 - Dice rolls in chat, editing or deleting messages, reactions, markdown or links.
-- Server-side rate limiting beyond the length and state caps (tracked as a follow-up).
+- Rate limiting across one participant's several connections (a per-connection limit of 10 messages per 10 seconds is included).
 
 ## Capabilities
 

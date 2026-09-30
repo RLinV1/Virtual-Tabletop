@@ -6,11 +6,11 @@ See proposal.md — Why. Room data only changes through `Command → decide → 
 
 **Goals:** chat through the standard pipeline; server-owned sender; bounded state; plain-text rendering.
 
-**Non-Goals:** whispers, per-participant rate limiting, message edit/delete (invariant 5 would make delete a compensating event anyway).
+**Non-Goals:** whispers, rate limiting across a participant's connections, message edit/delete (invariant 5 would make delete a compensating event anyway).
 
 ## Decisions
 
-1. **Command `chat.send { text }`, strict.** zod: `z.string().trim().min(1).max(500)` refined to reject `\p{Cc}` and `\p{Cf}` characters with `.strict()` on the object so extra fields such as `senderId` fail validation (the forgery acceptance criterion). `decide` re-checks the actor is active (not `left`/`revoked`) — the socket layer already refuses ended seats, but `decide` is the authority.
+1. **Command `chat.send { text }`, strict.** zod: `z.string().trim().min(1).max(500)` refined to reject `\p{Cc}`, `\p{Cs}` and `\p{Cf}` characters (except ZWJ/ZWNJ) and text with no visible character, with `.strict()` on the object so extra fields such as `senderId` fail validation (the forgery acceptance criterion). `decide` re-checks the actor is active (not `left`/`revoked`) — the socket layer already refuses ended seats, but `decide` is the authority.
    *Alternative:* strip unknown keys silently. Rejected: explicit rejection makes forgery attempts visible and testable.
 
 2. **Event `ChatMessageSent { message: { id, senderId, senderName, text } }`.** `id` from `DecideContext.newId`; `senderName` is the actor's display name at send time, so the log reads correctly after a rename (the same reason `AttackSide` records names). Nothing is replaced, so invariant 6 has nothing to carry.
@@ -30,9 +30,9 @@ See proposal.md — Why. Room data only changes through `Command → decide → 
 
 ## Risks / Trade-offs
 
-- [Spam fills the 200-message window and the event log] → length cap and state cap bound memory; per-participant rate limiting is a named follow-up.
+- [Spam fills the 200-message window and the event log] → length cap and state cap bound memory; a per-connection limit of 10 messages per 10 seconds in `ws/socket.ts` bounds log growth. A limit across one participant's tabs is a follow-up.
 - [Schema change to `RoomState` breaks older snapshots or tests that build state by hand] → `emptyRoomState` adds `chat: []`; any persisted snapshot path is rebuilt by replay, so no migration. Fixtures updated.
-- [Bidirectional / zero-width Unicode used to spoof text] → `\p{Cc}` blocks control characters only; format characters (`\p{Cf}`) are also rejected to prevent RTL-override spoofing.
+- [Bidirectional / zero-width Unicode used to spoof text] → `\p{Cc}` blocks control characters only; format characters (`\p{Cf}`) are also rejected to prevent RTL-override spoofing, except ZWJ/ZWNJ so emoji and Persian/Indic text work; lone surrogates are rejected; blank-only fillers are rejected.
 
 ## Migration Plan
 

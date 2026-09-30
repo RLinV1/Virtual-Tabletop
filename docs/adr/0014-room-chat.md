@@ -13,7 +13,7 @@ Players and the GM have no way to talk inside a room, so a table leans on a sepa
 
 Any active participant, GM or player, may send. The command is a **strict** zod object, so a payload with an extra field such as `senderId` or `senderName` fails validation instead of being silently stripped. A forgery attempt is refused, visible and testable. Schema failures reach the client as `bad_request`, like any other malformed command.
 
-`ChatText` is trimmed, 1 to 500 characters (`MAX_CHAT_LENGTH`), and may not contain any `\p{Cc}` character (control characters, so no line breaks, tabs inside the text or NUL) or any `\p{Cf}` character (invisible formatting, such as the right-to-left override U+202E or zero-width characters that could make text read differently from what it is). Trimming happens first, so a trailing newline is dropped rather than refused. Markup is ordinary text and is stored verbatim; rendering it safely is the client's job.
+`ChatText` is trimmed, 1 to 500 characters (`MAX_CHAT_LENGTH`), and may not contain any `\p{Cc}` character (control characters, so no line breaks, tabs inside the text or NUL) or any `\p{Cf}` character (invisible formatting, such as the right-to-left override U+202E or zero-width characters that could make text read differently from what it is), except the zero-width joiner and non-joiner, which emoji sequences and Persian and Indic scripts need. Lone surrogates (`\p{Cs}`) are refused because Postgres `jsonb` cannot store them. The text must show at least one visible character, so a message of only blanks such as U+3164 or U+2800 is refused. Trimming happens first, so a trailing newline is dropped rather than refused. Markup is ordinary text and is stored verbatim; rendering it safely is the client's job.
 
 `decide` refuses a `left` or `revoked` actor as `forbidden`. The socket layer already refuses ended seats, but `decide` is the authority (invariant 7).
 
@@ -48,7 +48,7 @@ A section in the Play tab of `RoomPanel`. It lists messages oldest first with th
 - **Contract change.** `Command` (`chat.send`), `DomainEvent` (`ChatMessageSent`), `RoomState` (`chat`), and `EventMeta`/`reduce` change. All additions are optional or defaulted, and existing logs replay unchanged.
 - **Deploy web and server together.** An older reducer's `assertNever` throws on the new event and the client would resync in a loop, as with every earlier event addition.
 - **Rollback.** Rolling the code back after chat has been used would leave `ChatMessageSent` rows an older reducer cannot read; those rooms would need the rows handled by hand.
-- **Spam.** The length cap and the 200-message state cap bound memory, but the event log still grows with every message. There is no per-participant rate limit yet; it is a named follow-up.
+- **Spam.** The length cap and the 200-message state cap bound memory. Each connection may send at most 10 chat messages per 10 seconds (checked in `ws/socket.ts` before the command reaches the room queue, refused as `invalid`), which bounds how fast one seat can grow the event log. A participant with several tabs gets that allowance per tab; a per-participant limit across connections is a follow-up.
 - **Not covered.** Whispers or GM-only messages (they would need visibility filters), dice in chat, edit or delete, reactions, markdown and links.
 
 ## Alternatives considered

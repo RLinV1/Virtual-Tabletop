@@ -27,15 +27,25 @@ export type DepartureAction = z.infer<typeof DepartureAction>;
 
 /**
  * Chat text (KAN-75, ADR 0014): trimmed, 1 to MAX_CHAT_LENGTH characters, and no control
- * characters (\p{Cc}, so no line breaks) or invisible formatting characters (\p{Cf}, so no
- * right-to-left overrides or zero-width spoofing).
+ * characters (\p{Cc}, so no line breaks), invisible formatting characters (\p{Cf}, so no
+ * right-to-left overrides or zero-width spoofing) or lone surrogates (\p{Cs}, which Postgres
+ * `jsonb` refuses). The zero-width joiner and non-joiner are allowed: emoji sequences and
+ * Persian and Indic scripts need them. A message must show at least one visible character.
  */
 export const ChatText = z
   .string()
   .trim()
   .min(1)
   .max(MAX_CHAT_LENGTH)
-  .refine((text) => !/[\p{Cc}\p{Cf}]/u.test(text), "Messages can't contain control or invisible formatting characters.");
+  .refine(
+    (text) => !/[\p{Cc}\p{Cs}]|(?!\u200c|\u200d)\p{Cf}/u.test(text),
+    "Messages can't contain control or invisible formatting characters.",
+  )
+  .refine(
+    // Blank-looking fillers (Hangul and Braille blanks) are letters or symbols, not spaces.
+    (text) => text.replace(/[\p{Z}\u115f\u1160\u3164\uffa0\u2800]|\u200c|\u200d/gu, "").length > 0,
+    "Messages need at least one visible character.",
+  );
 
 /** Fields a token editor may change in one validated, atomic room command. */
 export const TokenUpdate = z.object({
