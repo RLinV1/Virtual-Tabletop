@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { RoomState } from "@vtt/shared";
 import { usePersistentState, writeStored } from "../ui/usePersistentState";
-import { LAST_USED_KEY } from "./attackRoll";
+import { LAST_USED_KEY, latestAttackRoll } from "./attackRoll";
 
 /** What the Attack section needs to know about the last encounter end (attack-panel-encounter-reset). */
 export interface AttackReset {
@@ -33,7 +33,8 @@ export function useEncounterReset(roomId: string, state: RoomState | null, youId
   const [count, setCount] = useState(0);
   const inEncounter = state ? state.initiative !== null : null;
   const previous = useRef<boolean | null>(null);
-  const latestId = state && youId ? [...state.rolls].reverse().find((r) => r.attack && r.byParticipantId === youId)?.id ?? null : null;
+  // The same rule the outcome card uses, so the roll recorded here is the one it hides.
+  const latestId = state && youId ? latestAttackRoll(state.rolls, youId, null)?.id ?? null : null;
   const onResetRef = useRef(onReset);
   onResetRef.current = onReset;
 

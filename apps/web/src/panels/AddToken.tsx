@@ -9,7 +9,7 @@ import { CreaturePicker } from "../pages/LibraryCreatures";
 import { LibraryPicker } from "../pages/LibraryPicker";
 import { Modal } from "../ui/Modal";
 import { TokenPreview } from "../ui/TokenPreview";
-import { DEFAULT_AC, DEFAULT_HP, statsWithDefaults } from "./tokenDefaults";
+import { statsWithDefaults } from "./tokenDefaults";
 
 const TOKEN_COLORS = ["#c0392b", "#2980b9", "#27ae60", "#8e44ad", "#d35400", "#16a085"];
 
@@ -91,6 +91,9 @@ function AddToken(props: {
   const [pickingCreature, setPickingCreature] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const typedStats = { hp: optionalNumber(hp), maxHp: optionalNumber(maxHp), ac: optionalNumber(ac) };
+  // What each blank field will become, given the others as typed now (token-stat-defaults).
+  const defaults = statsWithDefaults(typedStats);
 
   async function onUpload(file: File | undefined) {
     if (!file) return;
@@ -115,7 +118,7 @@ function AddToken(props: {
           props.onAdd({
             type: "token.create", name, hidden, ownerIds: ownerId ? [ownerId] : [],
             size: Number(size), rotation: Number(rotation),
-            stats: statsWithDefaults({ hp: optionalNumber(hp), maxHp: optionalNumber(maxHp), ac: optionalNumber(ac) }),
+            stats: defaults,
             imageUrl: image?.url ?? null, assetId: image?.assetId ?? null,
           });
         }}
@@ -145,11 +148,11 @@ function AddToken(props: {
         </label>
         {/* Blank HP and AC fall back to the defaults shown as placeholders (token-stat-defaults). */}
         <div className="token-setup-grid">
-          <label>HP<input type="number" value={hp} onChange={(e) => setHp(e.target.value)} min="-999" max="9999" step="1" placeholder={maxHp.trim() || String(DEFAULT_HP)} /></label>
-          <label>Max HP<input type="number" value={maxHp} onChange={(e) => setMaxHp(e.target.value)} min="1" max="9999" step="1" placeholder={String(DEFAULT_HP)} /></label>
-          <label>AC<input type="number" value={ac} onChange={(e) => setAc(e.target.value)} min="0" max="99" step="1" placeholder={String(DEFAULT_AC)} /></label>
+          <label>HP<input type="number" value={hp} onChange={(e) => setHp(e.target.value)} min="-999" max="9999" step="1" placeholder={String(defaults.hp)} /></label>
+          <label>Max HP<input type="number" value={maxHp} onChange={(e) => setMaxHp(e.target.value)} min="1" max="9999" step="1" placeholder={String(defaults.maxHp)} /></label>
+          <label>AC<input type="number" value={ac} onChange={(e) => setAc(e.target.value)} min="0" max="99" step="1" placeholder={String(defaults.ac)} /></label>
         </div>
-        <span className="muted small-print">Left blank, HP is {DEFAULT_HP} and AC is {DEFAULT_AC}.</span>
+        <span className="muted small-print">Blank fields use the value shown: HP and Max HP match each other, or are 100 if both are blank, and AC is 0.</span>
         <label>
           Owner
           <select value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>

@@ -53,6 +53,11 @@ export function Picker({
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [open]);
 
+  // A list can't stay open on a control that no longer takes input, or with nothing in it.
+  useEffect(() => {
+    if (disabled || options.length === 0) setOpen(false);
+  }, [disabled, options.length]);
+
   // Keep the highlighted option in view while moving through a long list.
   useEffect(() => {
     if (open) listRef.current?.children[active]?.scrollIntoView({ block: "nearest" });
