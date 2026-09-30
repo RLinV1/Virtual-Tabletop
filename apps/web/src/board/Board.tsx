@@ -16,6 +16,8 @@ interface Props {
   toolbar?: ReactNode;
   /** Notices pinned to the top right of the board, e.g. the GM's "Sam left the table". */
   notices?: ReactNode;
+  /** Drawn over the map, under the toolbar and notices; never takes pointer input. */
+  overlay?: ReactNode;
   /** The viewer clicked the token `attackerId` attacks, in Pick on board (attack-targeting). */
   onPickTarget?: (attackerId: string, targetId: string) => void;
 }
@@ -51,7 +53,7 @@ function isTyping(target: EventTarget | null) {
 }
 
 /** The PixiJS board plus its React toolbar and notices; Pixi objects stay inside `BoardView`. */
-export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, toolbar, notices, onPickTarget }, ref) {
+export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, toolbar, notices, overlay, onPickTarget }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<BoardView | null>(null);
   const latest = useRef({ state, you, gridPreview, onPickTarget });
@@ -246,6 +248,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
         }}
         onClear={() => viewRef.current?.clearMarks()}
       />
+      {overlay}
       {notices}
       {placing && (
         <div className="placement-bar">

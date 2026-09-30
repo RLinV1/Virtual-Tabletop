@@ -8,6 +8,17 @@ import { DiceTray, type TrayRoll } from "../ui/DiceTray";
 const QUICK = ["1d20", "1d20+5", "2d6", "1d8+3", "4d6"];
 
 /**
+ * Where the table's latest roll is in its throw (attack-section-compact), held by the room page so
+ * the board and the panels agree: the roll still in the air, the one that just landed, and how a
+ * panel tray reports its landing.
+ */
+export interface RollThrow {
+  rollId: string | null;
+  justLandedId: string | null;
+  onLanded: (rollId: string) => void;
+}
+
+/**
  * Dice roller and shared roll log (FR-TAC-09, FR-GM-22).
  *
  * The panel shows only the latest roll; the full log opens in a modal, so a long session
@@ -17,19 +28,22 @@ const QUICK = ["1d20", "1d20+5", "2d6", "1d8+3", "4d6"];
  * server re-parses and rolls, and its result is the only one anyone sees. A GM-only roll
  * never reaches a player, so players have no "hidden roll" placeholder in their log.
  *
- * Each new roll is thrown as 3D dice for everyone at the table, and its text row waits
- * until they land so the total is not read before the dice show it. Rolls already on the
- * table when the panel mounts have landed: joining, reconnecting or switching tabs does
- * not replay them.
+ * Each new public roll is thrown as 3D dice over everyone's board (attack-section-compact); a
+ * private roll is thrown in this panel's tray instead, off the shared view. Its text row waits
+ * until the dice land so the total is not read before the dice show it. Rolls already on the
+ * table when the room loads have landed: joining, reconnecting or switching tabs does not
+ * replay them.
  */
 export function DicePanel({
   connection,
   state,
   isGm,
+  rollThrow,
 }: {
   connection: RoomConnection;
   state: RoomState;
   isGm: boolean;
+  rollThrow: RollThrow;
 }) {
   const [expression, setExpression] = useState("1d20");
   const [visibility, setVisibility] = useState<DiceVisibility>("public");
@@ -69,8 +83,7 @@ export function DicePanel({
       }
     : undefined;
   const latest = rolls[0];
-  const [landed, setLanded] = useState<{ id: string | undefined; thrown: boolean }>({ id: latest?.id, thrown: false });
-  const throwing = latest !== undefined && latest.id !== landed.id;
+  const throwing = latest !== undefined && latest.id === rollThrow.rollId;
 
   return (
     <PanelSection id="dice" title="Dice">
@@ -125,12 +138,9 @@ export function DicePanel({
         <p className="muted">No rolls yet.</p>
       ) : (
         <>
-          <DiceTray
-            key={latest.id}
-            roll={trayRoll(latest)}
-            throwing={throwing}
-            onLanded={() => setLanded({ id: latest.id, thrown: true })}
-          />
+          {latest.visibility === "gm" && (
+            <DiceTray key={latest.id} roll={trayRoll(latest)} throwing={throwing} onLanded={() => rollThrow.onLanded(latest.id)} />
+          )}
           <ul className="plain roll-log" aria-live="polite">
             {/* A new key when the dice land, so the live region announces the result once,
                 as it appears, and not the placeholder before it. */}
@@ -139,7 +149,7 @@ export function DicePanel({
               roll={latest}
               state={state}
               rolling={throwing}
-              fresh={!throwing && landed.thrown}
+              fresh={!throwing && rollThrow.justLandedId === latest.id}
               onRule={rule}
               ruleBusy={ruling.has(latest.id)}
             />
