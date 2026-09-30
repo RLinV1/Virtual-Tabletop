@@ -204,7 +204,7 @@ function departedOwner(state: RoomState, ownerIds: string[]): Participant | null
  * Edits are a draft until Save, and Save asks once more before anything is sent, so a
  * stray click in the modal never changes a token everyone can see. Delete asks too.
  */
-function TokenEditor({
+export function TokenEditor({
   token,
   roomToken,
   isGm,
@@ -291,14 +291,69 @@ function TokenEditor({
     <>
     <form
       className="token-editor"
+      // A field that fails validation inside a closed section can't show its message; open the section.
+      onInvalidCapture={(e) => (e.target as HTMLElement).closest("details")?.setAttribute("open", "")}
       onSubmit={(e) => {
         e.preventDefault();
         if (hasChanges && !uploading) setConfirming("save");
       }}
     >
+      {isGm && <label>Name<input value={name} onChange={(e) => setName(e.target.value)} required maxLength={60} autoFocus /></label>}
+      <div className="stats-row">
+        <label>
+          HP
+          <input type="number" inputMode="numeric" value={hp} onChange={(e) => setHp(e.target.value)} min="-999" max="9999" step="1" autoFocus={!isGm} />
+        </label>
+        <label>
+          Max
+          <input type="number" inputMode="numeric" value={maxHp} onChange={(e) => setMaxHp(e.target.value)} min="1" max="9999" step="1" />
+        </label>
+        <label>
+          AC
+          <input type="number" inputMode="numeric" value={ac} onChange={(e) => setAc(e.target.value)} min="0" max="99" step="1" />
+        </label>
+      </div>
+
+      <details className="token-editor-section">
+        <summary>Conditions<span className="token-editor-summary">{conditions.length || "none"}</span></summary>
+        <ConditionPicker value={conditions} onChange={setConditions} />
+      </details>
+
       {isGm && (
-        <div className="token-editor-gm">
-          <label>Name<input value={name} onChange={(e) => setName(e.target.value)} required maxLength={60} autoFocus /></label>
+        <details className="token-editor-section">
+          <summary>
+            Control &amp; visibility
+            <span className="token-editor-summary">
+              {players.find((p) => p.id === ownerId)?.displayName ?? (ownerId ? departedOwner?.displayName : "GM only")}
+              {hidden && " · hidden"}
+            </span>
+          </summary>
+          <label>
+            Controlled by
+            <select value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
+              <option value="">No one (GM only)</option>
+              {departedOwner && (
+                <option value={departedOwner.id} disabled>
+                  {departedOwner.displayName} ({inactiveLabel(departedOwner)})
+                </option>
+              )}
+              {players.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.displayName}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="inline">
+            <input type="checkbox" checked={hidden} onChange={(e) => setHidden(e.target.checked)} />
+            Hidden from players
+          </label>
+        </details>
+      )}
+
+      {isGm && (
+        <details className="token-editor-section">
+          <summary>Advanced<span className="token-editor-summary">{size} cells · {rotation}° · {image.url ? "image" : "no image"}</span></summary>
           <div className="token-setup-grid">
             <label>Board X<input type="number" value={x} onChange={(e) => setX(e.target.value)} required step="any" /></label>
             <label>Board Y<input type="number" value={y} onChange={(e) => setY(e.target.value)} required step="any" /></label>
@@ -322,48 +377,7 @@ function TokenEditor({
               {gmToken && <button type="button" className="secondary" disabled={uploading} onClick={() => setPicking(true)}>From library</button>}
             </div>
           </div>
-        </div>
-      )}
-      <div className="stats-row">
-        <label>
-          HP
-          <input type="number" inputMode="numeric" value={hp} onChange={(e) => setHp(e.target.value)} min="-999" max="9999" step="1" autoFocus={!isGm} />
-        </label>
-        <label>
-          Max
-          <input type="number" inputMode="numeric" value={maxHp} onChange={(e) => setMaxHp(e.target.value)} min="1" max="9999" step="1" />
-        </label>
-        <label>
-          AC
-          <input type="number" inputMode="numeric" value={ac} onChange={(e) => setAc(e.target.value)} min="0" max="99" step="1" />
-        </label>
-      </div>
-
-      <ConditionPicker value={conditions} onChange={setConditions} />
-
-      {isGm && (
-        <div className="token-editor-gm">
-          <label>
-            Controlled by
-            <select value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
-              <option value="">No one (GM only)</option>
-              {departedOwner && (
-                <option value={departedOwner.id} disabled>
-                  {departedOwner.displayName} ({inactiveLabel(departedOwner)})
-                </option>
-              )}
-              {players.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.displayName}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="inline">
-            <input type="checkbox" checked={hidden} onChange={(e) => setHidden(e.target.checked)} />
-            Hidden from players
-          </label>
-        </div>
+        </details>
       )}
 
       {(error || uploadError) && <p role="alert" className="error">{error || uploadError}</p>}
