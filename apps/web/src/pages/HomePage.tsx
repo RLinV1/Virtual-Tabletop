@@ -14,6 +14,7 @@ import {
   ArrowRight,
   CircleHalfTilt,
   DiceFive,
+  DoorOpen,
   Eye,
   EyeSlash,
   GridFour,
@@ -29,6 +30,7 @@ import { navigate } from "../router";
 import { useGroundTheme, type ThemeChoice } from "../theme";
 import { DiceTray } from "../ui/DiceTray";
 import { BUILTIN_ASSETS } from "../net/builtinAssets";
+import { listJoinedRooms } from "../net/identity";
 
 /**
  * Every home crop is 20 squares wide and starts on a grid line of its map, cut by
@@ -253,6 +255,7 @@ function Landing({ theme, onTheme }: ThemeProps) {
             {/* Two readers arrive here. Players outnumber GMs at every table and their path is
                 one field, so it comes first; the GM's path keeps the only filled button. */}
             <div className="hero-paths enter enter-3">
+              <JoinedRooms />
               <JoinBlock />
               <RunBlock />
             </div>
@@ -622,6 +625,37 @@ function useJoinByInvite() {
   }
 
   return { value, setValue, error, onSubmit };
+}
+
+/**
+ * Rooms this browser joined as a guest (KAN-64), so a player who closed the tab can get back
+ * without the invite link. Per browser until accounts and the rooms hub (KAN-57) replace it.
+ * Seats the server refuses are forgotten by the room page, so every row here is one to open.
+ * Renders nothing when there are none, including when storage is unavailable.
+ */
+function JoinedRooms() {
+  const [rooms] = useState(() => listJoinedRooms());
+  if (rooms.length === 0) return null;
+
+  return (
+    <section className="joined-rooms" aria-labelledby="joined-rooms-label">
+      <p id="joined-rooms-label" className="path-label">
+        <DoorOpen weight="bold" aria-hidden="true" />
+        Rooms you've joined
+      </p>
+      <p className="path-hint">Pick up where you left off. Saved in this browser only.</p>
+      <ul className="plain joined-list">
+        {rooms.map((room) => (
+          <li key={room.roomId} className="joined-row">
+            <Link href={`/r/${encodeURIComponent(room.roomId)}`} className="joined-name">
+              {room.roomName ?? "A room you joined"}
+              <ArrowRight weight="bold" aria-hidden="true" />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }
 
 /** The player's way in, first in the hero. "You" here is someone their GM invited. */
