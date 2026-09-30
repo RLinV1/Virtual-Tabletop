@@ -188,6 +188,11 @@ export const Command = z.discriminatedUnion("type", [
     participantId: Id,
     actions: z.array(DepartureAction).min(1).max(MAX_DEPARTURE_ACTIONS),
   }),
+  /** GM reverses one recent action, picked from the activity log by its `commandId` (FR-REC-02, ADR 0013). */
+  z.object({
+    type: z.literal("history.undo"),
+    commandId: Id,
+  }).strict(),
 ]);
 export type Command = z.infer<typeof Command>;
 /** Command as a client writes it (defaults not yet applied). */

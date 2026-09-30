@@ -304,7 +304,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
               }}
             />
           )}
-          {you.role === "gm" && <ActivityLog roomId={state.roomId} token={token} seq={seq} />}
+          {you.role === "gm" && <ActivityLog roomId={state.roomId} token={token} seq={seq} state={state} connection={connection} />}
           <button
             ref={guideButtonRef}
             type="button"

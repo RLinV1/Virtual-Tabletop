@@ -4,6 +4,7 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import {
   SOCKET_EVENTS,
   reduce,
+  reduceCommitted,
   type ClientMessageInput,
   type CommandInput,
   type EphemeralPayload,
@@ -141,7 +142,9 @@ export class RoomConnection {
         const { state, seq } = this.snapshot;
         if (!state || msg.committed.seq !== seq + 1) return this.resync();
         try {
-          const next = reduce(state, msg.committed.event);
+          // Only the GM's events carry `commandId`; with it the undo history stays in step with
+          // the server's. Players get none, so they keep no history (ADR 0013).
+          const next = msg.committed.commandId ? reduceCommitted(state, msg.committed) : reduce(state, msg.committed.event);
           const you = this.snapshot.you ? (next.participants[this.snapshot.you.id] ?? null) : null;
           this.update({ state: next, seq: msg.committed.seq, you });
         } catch {

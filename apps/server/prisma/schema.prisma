@@ -126,6 +126,9 @@ model Event {
   type      String
   payload   Json
   actorId   String?  @map("actor_id") @db.Uuid
+  /// One id per committed command batch, so undo reverses a command as a unit (ADR 0013).
+  /// Null on events written before undo existed.
+  commandId String?  @map("command_id") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   room Room @relation(fields: [roomId], references: [id])

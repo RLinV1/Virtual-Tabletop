@@ -1,11 +1,24 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowClockwise, ClockCounterClockwise } from "@phosphor-icons/react";
-import type { HistoryResponse } from "@vtt/shared";
+import { ArrowClockwise, ArrowCounterClockwise, ClockCounterClockwise } from "@phosphor-icons/react";
+import { describeUndo, undoableAction, type HistoryResponse, type RoomState } from "@vtt/shared";
 import { api } from "../net/api";
+import type { RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
 
-/** Mounted only for the GM. The endpoint independently enforces room membership/role. */
-export function ActivityLog({ roomId, token, seq }: { roomId: string; token: string; seq: number }) {
+interface Props {
+  roomId: string;
+  token: string;
+  seq: number;
+  /** The GM's live state: its undo history says which entries can still be undone (ADR 0013). */
+  state: RoomState;
+  connection: RoomConnection;
+}
+
+/**
+ * Mounted only for the GM. The endpoint independently enforces room membership/role.
+ * Undo lives here, on the entry it reverses, so the GM always sees what they are undoing.
+ */
+export function ActivityLog({ roomId, token, seq, state, connection }: Props) {
   const [open, setOpen] = useState(false);
   return <>
     <button type="button" className="tool-button" data-tour="activity-log" onClick={() => setOpen(true)}>
@@ -13,12 +26,12 @@ export function ActivityLog({ roomId, token, seq }: { roomId: string; token: str
       Activity log
     </button>
     <Modal open={open} title="Activity log" onClose={() => setOpen(false)}>
-      {open && <History key={roomId} roomId={roomId} token={token} seq={seq} />}
+      {open && <History key={roomId} roomId={roomId} token={token} seq={seq} state={state} connection={connection} />}
     </Modal>
   </>;
 }
 
-function History({ roomId, token, seq }: { roomId: string; token: string; seq: number }) {
+function History({ roomId, token, seq, state, connection }: Props) {
   const [search, setSearch] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [page, setPage] = useState<HistoryResponse | null>(null);
@@ -28,6 +41,19 @@ function History({ roomId, token, seq }: { roomId: string; token: string; seq: n
   const latestSeq = useRef(seq);
   latestSeq.current = seq;
   const request = useRef<AbortController | null>(null);
+  const [undoing, setUndoing] = useState<string | null>(null);
+  const [undoError, setUndoError] = useState<{ commandId: string; message: string } | null>(null);
+
+  const undo = async (commandId: string) => {
+    if (undoing) return;
+    setUndoing(commandId);
+    setUndoError(null);
+    const result = await connection.command({ type: "history.undo", commandId });
+    setUndoing(null);
+    if (!result.ok) return setUndoError({ commandId, message: result.message });
+    // Show the undo's own entry, and the original marked Undone.
+    setRefresh((n) => n + 1);
+  };
 
   useEffect(() => {
     const controller = new AbortController();
@@ -69,6 +95,15 @@ function History({ roomId, token, seq }: { roomId: string; token: string; seq: n
     }
   };
 
+  /** Newest entry of each action on this page (entries are newest first). */
+  const firstSeq = new Map<string, number>();
+  /** Actions this page shows as undone. */
+  const undone = new Set<string>();
+  for (const { committed } of page?.entries ?? []) {
+    if (committed.commandId && !firstSeq.has(committed.commandId)) firstSeq.set(committed.commandId, committed.seq);
+    if (committed.event.type === "ActionUndone") undone.add(committed.event.commandId);
+  }
+
   return <div className="activity-log">
     <label htmlFor="activity-player">Search by player</label>
     <div className="activity-search">
@@ -89,10 +124,30 @@ function History({ roomId, token, seq }: { roomId: string; token: string; seq: n
     {busy && <p role="status">Loading activity…</p>}
     {page && page.entries.length === 0 && <p>No {search.trim() ? "matching " : ""}activity.</p>}
     <ol className="plain activity-entries" aria-busy={busy}>
-      {page?.entries.map(({ committed, sentence }) => <li key={committed.seq}>
-        <p>{sentence}</p>
-        <small className="muted"><time dateTime={committed.at}>{new Date(committed.at).toLocaleString()}</time> · #{committed.seq}</small>
-      </li>)}
+      {page?.entries.map(({ committed, sentence }) => {
+        const commandId = committed.commandId;
+        // One action can span several entries (an editor save); its controls go on the newest.
+        const newestOfAction = commandId !== undefined && firstSeq.get(commandId) === committed.seq;
+        const action = newestOfAction ? undoableAction(state.undo, commandId) : undefined;
+        const label = action ? `Undo ${describeUndo(action, state.tokens).verb}` : "";
+        return <li key={committed.seq}>
+          <div className="activity-entry-head">
+            <p>{sentence}</p>
+            {action && commandId && (
+              <button type="button" className="secondary small activity-undo" aria-label={label} title={label}
+                disabled={undoing !== null} onClick={() => void undo(commandId)}>
+                <ArrowCounterClockwise size={14} aria-hidden="true" />
+                {undoing === commandId ? "Undoing…" : "Undo"}
+              </button>
+            )}
+            {newestOfAction && undone.has(commandId) && <span className="activity-undone">Undone</span>}
+          </div>
+          {undoError && undoError.commandId === commandId && newestOfAction && (
+            <p role="alert" className="error">{undoError.message}</p>
+          )}
+          <small className="muted"><time dateTime={committed.at}>{new Date(committed.at).toLocaleString()}</time> · #{committed.seq}</small>
+        </li>;
+      })}
     </ol>
     {page?.nextBefore && <button type="button" disabled={busy} onClick={() => void loadOlder()}>Load older</button>}
   </div>;

@@ -1,6 +1,7 @@
 import type { DiceRoll } from "./dice";
-import type { DomainEvent } from "./events";
+import type { CommittedEvent, DomainEvent } from "./events";
 import { ROLL_LOG_LIMIT, type RoomState } from "./state";
+import { eventMeta, recordUndo, type EventMeta } from "./undo";
 
 /**
  * Pure state transition. The ONLY way RoomState changes, on both server and client.
@@ -8,8 +9,27 @@ import { ROLL_LOG_LIMIT, type RoomState } from "./state";
  *
  * Throws if an event references something that doesn't exist — that means the event
  * stream is corrupt or out of order, and the caller must resynchronize.
+ *
+ * With `meta` (the event's action grouping), it also keeps the undo history (ADR 0013).
+ * Without it, state changes the same way and the history is left alone.
  */
-export function reduce(state: RoomState, event: DomainEvent): RoomState {
+export function reduce(state: RoomState, event: DomainEvent, meta?: EventMeta): RoomState {
+  const next = apply(state, event);
+  if (event.type === "ActionUndone") {
+    // Drops the undone action, and the entry this undo's own inverse events just opened,
+    // so an undo is never itself undoable (no redo).
+    const undo = state.undo.filter((e) => e.commandId !== event.commandId && e.commandId !== meta?.commandId);
+    return { ...next, undo };
+  }
+  return meta ? { ...next, undo: recordUndo(state, event, meta) } : next;
+}
+
+/** `reduce` for a committed event, grouping it into its action for undo. */
+export function reduceCommitted(state: RoomState, committed: CommittedEvent): RoomState {
+  return reduce(state, committed.event, eventMeta(committed));
+}
+
+function apply(state: RoomState, event: DomainEvent): RoomState {
   switch (event.type) {
     case "RoomCreated":
       return { ...state, name: event.name };
@@ -122,6 +142,12 @@ export function reduce(state: RoomState, event: DomainEvent): RoomState {
     case "RollDamageApplied":
       return updateRoll(state, event.rollId, (roll) => ({ ...roll, damageApplied: true }));
 
+    case "RollDamageUnapplied":
+      return updateRoll(state, event.rollId, (roll) => {
+        const { damageApplied: _applied, ...rest } = roll;
+        return rest;
+      });
+
     case "TemplatePlaced":
       return { ...state, templates: { ...state.templates, [event.template.id]: event.template } };
 
@@ -130,6 +156,10 @@ export function reduce(state: RoomState, event: DomainEvent): RoomState {
       const { [event.template.id]: _removed, ...rest } = state.templates;
       return { ...state, templates: rest };
     }
+
+    // Its compensating events already restored the values; `reduce` updates the history.
+    case "ActionUndone":
+      return state;
 
     default:
       return assertNever(event);

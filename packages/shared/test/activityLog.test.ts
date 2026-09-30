@@ -37,6 +37,9 @@ describe("Human-readable activity formatter (FR-REC-01)", () => {
     TokenImageSet: [{ type: "TokenImageSet", tokenId: token.id, imageUrl: "/uploads/new.png", assetId: null, previous: { imageUrl: null, assetId: null } }, "Mara changed Goblin's image"],
     TemplatePlaced: [{ type: "TemplatePlaced", template: areaTemplate }, "Mara placed a 20 ft cone"],
     TemplateRemoved: [{ type: "TemplateRemoved", template: { ...areaTemplate, gmOnly: true } }, "Mara removed a 20 ft cone (GM only)"],
+    RollDamageUnapplied: [{ type: "RollDamageUnapplied", rollId: "gone", amount: 7 }, "Mara took back 7 damage from an earlier roll"],
+    // An action no longer in the undo history; undo.test.ts covers the named form (ADR 0013).
+    ActionUndone: [{ type: "ActionUndone", commandId: "gone" }, "Mara undid an action"],
   };
   it.each(Object.entries(cases))("formats %s", (_type, [event, sentence]) => {
     expect(DomainEvent.safeParse(event).success).toBe(true);
