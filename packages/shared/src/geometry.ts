@@ -86,3 +86,18 @@ export function snapTokenCenter(p: Point, sizeInCells: number, grid: GridSpec): 
     Math.round((v - offset - half) / grid.cellSize) * grid.cellSize + offset + half;
   return { x: snap(p.x, grid.offsetX), y: snap(p.y, grid.offsetY) };
 }
+
+/** True when a token's center is where `snapTokenCenter` would put it (within float noise). */
+export function isSnapped(p: Point, sizeInCells: number, grid: GridSpec): boolean {
+  const snapped = snapTokenCenter(p, sizeInCells, grid);
+  return Math.abs(snapped.x - p.x) < 1e-6 && Math.abs(snapped.y - p.y) < 1e-6;
+}
+
+/**
+ * Where a grid-aligned token goes when its size changes (KAN-74): it keeps its top-left cell,
+ * so a size-2 token set to size 1 lands in a cell instead of staying on an intersection.
+ */
+export function resizedTokenCenter(p: Point, fromSize: number, toSize: number, grid: GridSpec): Point {
+  const shift = ((toSize - fromSize) * grid.cellSize) / 2;
+  return { x: p.x + shift, y: p.y + shift };
+}
