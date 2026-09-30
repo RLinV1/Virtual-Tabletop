@@ -14,7 +14,7 @@ import { RulingButtons } from "./RulingButtons";
  */
 export function RulingsPanel({ connection, state }: { connection: RoomConnection; state: RoomState }) {
   const pending = pendingRulings(state);
-  const throwing = useThrowing(pending.map((item) => item.roll));
+  const throwing = useThrowing(state.rolls);
   // One request per roll at a time; the server refuses a second apply anyway.
   const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +61,10 @@ export function RulingsPanel({ connection, state }: { connection: RoomConnection
  * The rolls whose dice are still in the air, so the list doesn't give a total away before the
  * dice show it: a roll that arrives while the list is showing waits as long as its throw. Rolls
  * already here when the list mounts have landed, as in the Dice panel.
+ *
+ * Takes the room's whole roll log, not just the pending rulings: the log is capped, so what's
+ * tracked here stays bounded as rolls fall off it, and a roll whose ruling the GM clears comes
+ * back to the list without being thrown again.
  */
 function useThrowing(rolls: DiceRoll[]): ReadonlySet<string> {
   const initial = useRef<ReadonlySet<string> | null>(null);
@@ -72,10 +76,21 @@ function useThrowing(rolls: DiceRoll[]): ReadonlySet<string> {
   const throwing = new Set(rolls.filter((r) => !initial.current!.has(r.id) && !landed.has(r.id)).map((r) => r.id));
 
   useEffect(() => {
+    const inLog = new Set(rolls.map((r) => r.id));
+    for (const [id, timer] of timers.current) {
+      if (inLog.has(id)) continue;
+      clearTimeout(timer);
+      timers.current.delete(id);
+    }
+    if ([...landed].some((id) => !inLog.has(id))) setLanded(new Set([...landed].filter((id) => inLog.has(id))));
+
     const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
     for (const roll of rolls) {
       if (!throwing.has(roll.id) || timers.current.has(roll.id)) continue;
-      const land = () => setLanded((s) => new Set(s).add(roll.id));
+      const land = () => {
+        timers.current.delete(roll.id);
+        setLanded((s) => new Set(s).add(roll.id));
+      };
       timers.current.set(roll.id, setTimeout(land, reduced ? 0 : throwDuration(roll.dice.length)));
     }
   });
