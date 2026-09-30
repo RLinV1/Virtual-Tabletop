@@ -30,6 +30,15 @@ export function reduceCommitted(state: RoomState, committed: CommittedEvent): Ro
   return reduce(state, committed.event, eventMeta(committed));
 }
 
+/**
+ * `reduce` for an event as a client receives it. The GM's events carry `commandId` and keep the
+ * undo history in step with the server's; a player's carry none, so they get only the committed
+ * time (chat, ADR 0014) and keep no history (ADR 0013).
+ */
+export function reduceReceived(state: RoomState, committed: CommittedEvent): RoomState {
+  return committed.commandId ? reduceCommitted(state, committed) : reduce(state, committed.event, { at: committed.at });
+}
+
 /** The state change for one event, without the undo history (`reduce` adds that). */
 function apply(state: RoomState, event: DomainEvent, at: string | null): RoomState {
   switch (event.type) {
