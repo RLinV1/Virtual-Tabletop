@@ -3,6 +3,8 @@ import type { LibraryStore, NewRoomOptions } from "./libraryStore";
 
 export interface NewEvent {
   actorId: string | null;
+  /** Shared by every event of one command's batch, so undo reverses it as a unit (ADR 0013). */
+  commandId?: string;
   event: DomainEvent;
 }
 

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Token } from "@vtt/shared";
-import { startServer, type TestClient } from "./helpers";
+import { startServer, type TestClient, viewFor } from "./helpers";
 
 let server: Awaited<ReturnType<typeof startServer>>;
 const clients: TestClient[] = [];
@@ -45,7 +45,7 @@ describe("committed channel", () => {
     await Promise.all([alice, bob].map((c) => c.waitForSeq(gm.seq)));
     for (const client of [gm, alice, bob]) {
       expect(client.state.tokens[tokenId]).toMatchObject({ name: "Elder Ogre", size: 3, rotation: 90 });
-      expect(client.state).toEqual(gm.state);
+      expect(client.state).toEqual(viewFor(gm.state, client));
     }
     expect(await alice.command({ type: "token.setAppearance", tokenId, name: "Changed", size: 1, rotation: 0 }))
       .toMatchObject({ type: "rejected", code: "forbidden" });
@@ -71,7 +71,7 @@ describe("committed channel", () => {
     await Promise.all([gm, alice, bob].map((c) => c.waitForSeq(finalSeq)));
     for (const c of [gm, alice, bob]) {
       expect(c.state.tokens[tokenId]!.position).toEqual({ x: 105, y: 35 });
-      expect(c.state).toEqual(gm.state);
+      expect(c.state).toEqual(viewFor(gm.state, c));
     }
   });
 
@@ -107,8 +107,8 @@ describe("committed channel", () => {
 
     const last = seqs.at(-1)!;
     await Promise.all([gm, alice, bob].map((c) => c.waitForSeq(last)));
-    expect(alice.state).toEqual(gm.state);
-    expect(bob.state).toEqual(gm.state);
+    expect(alice.state).toEqual(viewFor(gm.state, alice));
+    expect(bob.state).toEqual(viewFor(gm.state, bob));
   });
 });
 

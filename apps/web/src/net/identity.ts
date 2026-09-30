@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { RoomCredentials } from "@vtt/shared";
 import type { KeyValueStorage } from "../ui/usePersistentState";
 
@@ -13,6 +14,8 @@ export interface StoredCredentials extends RoomCredentials {
   guestToken: string;
   /** Only known to the GM who created the room. */
   inviteCode?: string;
+  /** Last room name seen by the room page, for the home page's joined list (KAN-64). */
+  roomName?: string;
 }
 
 /**
@@ -84,6 +87,72 @@ export function guestRoomForInvite(inviteCode: string): string | null {
   } catch {
     return null;
   }
+}
+
+/** Records the room's current name on this browser's seat. Writes only on change, so every snapshot can call it. */
+export function rememberRoomName(roomId: string, roomName: string) {
+  const creds = loadCredentials(roomId);
+  if (creds && creds.roomName !== roomName) saveCredentials({ ...creds, roomName });
+}
+
+export interface JoinedRoom {
+  roomId: string;
+  /** Null until the room page has seen the room's state once. */
+  roomName: string | null;
+}
+
+type EnumerableStorage = Pick<Storage, "getItem" | "key" | "length">;
+
+/**
+ * What the joined list needs from a stored seat. localStorage is outside our control (older
+ * builds, extensions, hand edits), so entries are validated rather than cast. `roomName` is
+ * optional because seats stored before KAN-64 have none.
+ */
+const StoredSeat = z.object({
+  roomId: z.string().min(1),
+  guestToken: z.string().min(1),
+  inviteCode: z.string().optional(),
+  roomName: z.string().optional(),
+});
+
+function defaultStorage(): EnumerableStorage | null {
+  try {
+    return globalThis.localStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Rooms this browser joined as a guest (KAN-64), read from the stored seats. GM seats carry an
+ * invite code and are left to the GM dashboard. Named rooms first, by name. Empty if storage throws.
+ */
+export function listJoinedRooms(storage: EnumerableStorage | null = defaultStorage()): JoinedRoom[] {
+  if (!storage) return [];
+  const rooms: JoinedRoom[] = [];
+  try {
+    for (let i = 0; i < storage.length; i++) {
+      const key = storage.key(i);
+      if (!key?.startsWith(CRED_PREFIX)) continue;
+      // Outside the parse's try: a storage failure hides the whole list, not just this entry.
+      const raw = storage.getItem(key);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw ?? "null");
+      } catch {
+        continue;
+      }
+      const seat = StoredSeat.safeParse(parsed);
+      if (!seat.success || seat.data.inviteCode) continue;
+      rooms.push({ roomId: seat.data.roomId, roomName: seat.data.roomName || null });
+    }
+  } catch {
+    return [];
+  }
+  return rooms.sort((a, b) => {
+    if (a.roomName === null || b.roomName === null) return a.roomName === b.roomName ? 0 : a.roomName === null ? 1 : -1;
+    return a.roomName.localeCompare(b.roomName);
+  });
 }
 
 /** Room this browser created (as GM) with this invite code, if any. */

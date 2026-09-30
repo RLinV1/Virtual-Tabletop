@@ -60,6 +60,11 @@
 .activity-refresh:hover:not(:disabled) { filter: none; color: var(--text); border-color: var(--muted); }
 .activity-entries li { padding: var(--space-3) 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
 .activity-entries p { margin: 0 0 var(--space-1); }
+/* Undo sits on the entry it reverses (ADR 0013). */
+.activity-entry-head { display: flex; align-items: flex-start; gap: var(--space-2); }
+.activity-entry-head > p { flex: 1; min-width: 0; }
+.activity-undo { display: inline-flex; align-items: center; gap: 0.3rem; flex: none; }
+.activity-undone { flex: none; font-size: var(--fs-xs); color: var(--muted); border: 1px solid var(--border); border-radius: var(--radius); padding: 0 var(--space-1); }
 /* `hidden` must beat any display set by a class (.panel-body is flex); otherwise a
    collapsed panel stays rendered and spills out of its zero-width column. */
 [hidden] { display: none !important; }
@@ -1332,6 +1337,34 @@ dialog.modal.library-grid-modal { width: min(68rem, calc(100vw - 2rem)); }
 }
 .path-label svg { color: var(--accent); }
 .path-hint { margin: 0.2rem 0 0.6rem; font-size: 0.95rem; color: var(--muted); }
+
+/* Rooms this browser joined (KAN-64): one row per seat, above the invite field. */
+.joined-rooms { padding-bottom: 1.1rem; border-bottom: 1px solid var(--rule); }
+.joined-list { display: grid; gap: 0.35rem; }
+.joined-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 2.75rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.joined-row a.joined-name {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  align-self: stretch;
+  min-width: 0;
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.joined-row a.joined-name svg { flex: none; color: var(--accent); }
+.joined-row:has(a:hover) { border-color: var(--border-strong); }
 
 .join-form > label { margin-bottom: 0.3rem; }
 .join-row { display: flex; align-items: stretch; gap: 0.6rem; }

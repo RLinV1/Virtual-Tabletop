@@ -2,8 +2,10 @@ import type { Command, DepartureAction } from "./commands";
 import { MIN_HP } from "./conditions";
 import { formatExpression, parseDiceExpression, rollDice, type AttackContext } from "./dice";
 import type { DomainEvent } from "./events";
+import { isSnapped, resizedTokenCenter, snapTokenCenter, type GridSpec, type Point } from "./geometry";
 import { canRenderGrid } from "./gridRenderLimit";
 import type { SessionEndReason } from "./protocol";
+import { inverseOf, undoableAction, undoConflict } from "./undo";
 import { MAX_AREA_TEMPLATES, type AreaTemplate, type Initiative, type Participant, type RoomState, type Token } from "./state";
 
 export type RejectionCode = "forbidden" | "not_found" | "invalid";
@@ -42,6 +44,34 @@ export const can = {
 };
 
 /**
+ * Keeps grid-aligned tokens in a cell when the grid changes (KAN-74, FR-TAC-02): each token that
+ * sat snapped on the old grid moves to the nearest snapped spot on the new one, so it stays on
+ * the same part of the map. Tokens placed off the grid on purpose are left where they are.
+ */
+function resnapToGrid(state: RoomState, grid: GridSpec): DomainEvent[] {
+  const events: DomainEvent[] = [];
+  for (const token of Object.values(state.tokens)) {
+    if (!isSnapped(token.position, token.size, state.scene.grid)) continue;
+    const to = snapTokenCenter(token.position, token.size, grid);
+    if (to.x !== token.position.x || to.y !== token.position.y) {
+      events.push({ type: "TokenMoved", tokenId: token.id, from: token.position, to });
+    }
+  }
+  return events;
+}
+
+/**
+ * Where a token goes when its size changes (KAN-74): a grid-aligned token keeps its top-left
+ * cell and stays aligned for its new size. Off-grid tokens, unchanged sizes, and fractional
+ * sizes (a footprint that isn't whole cells has no top-left cell to keep) stay put.
+ */
+function resizedPosition(state: RoomState, token: Token, size: number): Point {
+  if (size === token.size || !Number.isInteger(size) || !Number.isInteger(token.size)) return token.position;
+  if (!isSnapped(token.position, token.size, state.scene.grid)) return token.position;
+  return resizedTokenCenter(token.position, token.size, size, state.scene.grid);
+}
+
+/**
  * Turns a validated command into events, or rejects it (FR-GM-15).
  * Pure: the server calls this inside its per-room ordered queue, then appends the events.
  */
@@ -67,6 +97,7 @@ export function decide(
               gridChange: { grid: command.grid, previous: state.scene.grid },
             }
           : { type: "MapSet", map: command.map, previous: state.scene.map },
+        ...(command.grid ? resnapToGrid(state, command.grid) : []),
       );
 
     case "scene.setGrid":
@@ -74,7 +105,10 @@ export function decide(
       if (!canRenderGrid(command.grid.cellSize, state.scene.map)) {
         return reject("invalid", "Grid cell size creates too many lines for this map.");
       }
-      return accept({ type: "GridSet", grid: command.grid, previous: state.scene.grid });
+      return accept(
+        { type: "GridSet", grid: command.grid, previous: state.scene.grid },
+        ...resnapToGrid(state, command.grid),
+      );
 
     case "token.create": {
       if (!can.administer(actor)) return forbidden();
@@ -158,8 +192,9 @@ export function decide(
         events.push({ type: "TokenAppearanceSet", tokenId: token.id, name, size, rotation,
           previous: { name: token.name, size: token.size, rotation: token.rotation } });
       }
-      if (changes.position && (changes.position.x !== token.position.x || changes.position.y !== token.position.y)) {
-        events.push({ type: "TokenMoved", tokenId: token.id, from: token.position, to: changes.position });
+      const position = changes.position ?? resizedPosition(state, token, size);
+      if (position.x !== token.position.x || position.y !== token.position.y) {
+        events.push({ type: "TokenMoved", tokenId: token.id, from: token.position, to: position });
       }
       if (imageUrl !== undefined && assetId !== undefined &&
         (imageUrl !== token.imageUrl || assetId !== (token.assetId ?? null))) {
@@ -193,14 +228,18 @@ export function decide(
       const name = uniqueTokenName(state, command.name, token.id);
       const rotation = normalizeRotation(command.rotation);
       if (name === token.name && command.size === token.size && rotation === token.rotation) return { ok: true, events: [] };
-      return accept({
-        type: "TokenAppearanceSet",
-        tokenId: token.id,
-        name,
-        size: command.size,
-        rotation,
-        previous: { name: token.name, size: token.size, rotation: token.rotation },
-      });
+      const position = resizedPosition(state, token, command.size);
+      return accept(
+        {
+          type: "TokenAppearanceSet",
+          tokenId: token.id,
+          name,
+          size: command.size,
+          rotation,
+          previous: { name: token.name, size: token.size, rotation: token.rotation },
+        },
+        ...(position === token.position ? [] : [{ type: "TokenMoved" as const, tokenId: token.id, from: token.position, to: position }]),
+      );
     }
 
     case "token.delete": {
@@ -444,6 +483,17 @@ export function decide(
     case "participant.resolveDeparture":
       if (!can.administer(actor)) return forbidden();
       return resolveDeparture(state, command.participantId, command.actions);
+
+    case "history.undo": {
+      if (!can.administer(actor)) return forbidden();
+      const entry = undoableAction(state.undo, command.commandId);
+      if (!entry) return reject("invalid", "That action can no longer be undone.");
+      // Never clobber a newer change: refuse unless every value the action set is still current.
+      const conflict = undoConflict(state, entry);
+      if (conflict) return reject("invalid", conflict);
+      // Reverse order, so an editor save's "hide first, reveal last" stays safe when undone (ADR 0013).
+      return accept(...entry.events.map(inverseOf).reverse(), { type: "ActionUndone", commandId: entry.commandId });
+    }
   }
 }
 

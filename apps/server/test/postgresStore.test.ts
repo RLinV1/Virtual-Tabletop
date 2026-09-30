@@ -36,6 +36,19 @@ describe.skipIf(!store)("PostgresRoomStore (docs/adr/0001-event-model.md)", () =
     expect(loaded.map((e) => e.seq)).toEqual([1, 2]);
   });
 
+  it("round-trips a batch's command id, and loads older rows without one (ADR 0013)", async () => {
+    const roomId = await newRoom();
+    const commandId = randomUUID();
+    await store!.append(roomId, 0, [{ actorId: null, event: { type: "RoomCreated", name: "Old" } }]);
+    const committed = await store!.append(roomId, 1, [
+      { actorId: null, commandId, event: { type: "RoomCreated", name: "One" } },
+      { actorId: null, commandId, event: { type: "RoomCreated", name: "Two" } },
+    ]);
+    expect(committed.map((c) => c.commandId)).toEqual([commandId, commandId]);
+    const loaded = await store!.loadEvents(roomId);
+    expect(loaded.map((e) => e.commandId)).toEqual([undefined, commandId, commandId]);
+  });
+
   it("rejects an append whose expected last seq is stale, writing nothing", async () => {
     const roomId = await newRoom();
     await store!.append(roomId, 0, [{ actorId: null, event: { type: "RoomCreated", name: "One" } }]);

@@ -4,6 +4,7 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import {
   SOCKET_EVENTS,
   reduce,
+  reduceCommitted,
   type ClientMessageInput,
   type CommandInput,
   type EphemeralPayload,
@@ -28,6 +29,11 @@ export interface RoomSnapshot {
   snapshots: number;
   /** Set with status `ended`: whether this seat left or was removed by the GM (ADR 0006). */
   endReason: SessionEndReason | null;
+  /**
+   * Set with status `unauthorized`: the server's code. `unauthorized` means the credential no
+   * longer exists (seat or room deleted); `not_found` can also mean the room failed to load.
+   */
+  refusal: "unauthorized" | "not_found" | null;
 }
 
 export type CommandResult =
@@ -67,6 +73,7 @@ export class RoomConnection {
     seq: 0,
     snapshots: 0,
     endReason: null,
+    refusal: null,
   }));
 
   constructor(
@@ -96,7 +103,7 @@ export class RoomConnection {
     socket.on("connect_error", (err: Error) => {
       if (err.message === "unauthorized" || err.message === "not_found") {
         socket.disconnect();
-        this.update({ status: "unauthorized" });
+        this.update({ status: "unauthorized", refusal: err.message });
       } else if (err.message === "left" || err.message === "revoked") {
         socket.disconnect();
         this.update({ status: "ended", endReason: err.message });
@@ -141,7 +148,9 @@ export class RoomConnection {
         const { state, seq } = this.snapshot;
         if (!state || msg.committed.seq !== seq + 1) return this.resync();
         try {
-          const next = reduce(state, msg.committed.event);
+          // Only the GM's events carry `commandId`; with it the undo history stays in step with
+          // the server's. Players get none, so they keep no history (ADR 0013).
+          const next = msg.committed.commandId ? reduceCommitted(state, msg.committed) : reduce(state, msg.committed.event);
           const you = this.snapshot.you ? (next.participants[this.snapshot.you.id] ?? null) : null;
           this.update({ state: next, seq: msg.committed.seq, you });
         } catch {
@@ -178,7 +187,7 @@ export class RoomConnection {
 
       case "error":
         if (msg.code === "unauthorized" || msg.code === "not_found") {
-          this.update({ status: "unauthorized" });
+          this.update({ status: "unauthorized", refusal: msg.code });
         }
         console.warn("Server error:", msg.message);
         return;
