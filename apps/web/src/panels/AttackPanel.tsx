@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Crosshair, HourglassMedium, Minus, PencilSimple, Plus, Sword, X } from "@phosphor-icons/react";
 import {
   attackLabel,
@@ -29,13 +29,14 @@ import {
   isSavedRecord,
   isSettingsRecord,
   kindOf,
+  LAST_USED_KEY,
+  latestAttackRoll,
   MAX_ATTACK_DICE,
   MAX_ATTACK_MODIFIER,
   MAX_PRESETS,
   migrateSaved,
   presetForRoll,
   presetRollLabel,
-  presetSummary,
   shouldPingTarget,
   targetsByDistance,
   type AttackDice,
@@ -43,6 +44,8 @@ import {
   type AttackSettings,
   type SavedAttack,
 } from "./attackRoll";
+import type { AttackReset } from "./attackSession";
+import { AttackPicker } from "./AttackPicker";
 import { trayRoll } from "./DicePanel";
 import { RulingButtons } from "./RulingButtons";
 
@@ -68,6 +71,7 @@ export function AttackPanel({
   you,
   pick,
   onPick,
+  reset,
   onPickOnBoard,
   onShowPing,
   visibility,
@@ -78,6 +82,8 @@ export function AttackPanel({
   you: Participant;
   pick: AttackPick;
   onPick: (pick: AttackPick) => void;
+  /** The last encounter end: the outcome card, custom settings and chosen attack start over. */
+  reset: AttackReset;
   /** Put the board into targeting mode for this attacker. */
   onPickOnBoard: (attackerId: string) => void;
   /** Show a ping on this viewer's own board; the relay doesn't echo it back. */
@@ -104,11 +110,20 @@ export function AttackPanel({
   }, [targetStale, pick, onPick]);
 
   // Browser-local conveniences, kept here so they outlive a change of attacker.
-  const [lastUsed, setLastUsed] = usePersistentState<Record<string, AttackSettings>>("vtt.attack.last", {}, isSettingsRecord);
+  const [lastUsed, setLastUsed] = usePersistentState<Record<string, AttackSettings>>(LAST_USED_KEY, {}, isSettingsRecord);
   const [stored, setStored] = usePersistentState<Record<string, AttackPreset[]>>("vtt.attack.presets", {}, isPresetRecord);
   // Saved attacks from before named attacks: read to migrate, never written or deleted.
   const [legacy] = usePersistentState<Record<string, SavedAttack[]>>("vtt.attack.saved", {}, isSavedRecord);
   const [customOpen, setCustomOpen] = usePersistentState("vtt.ui.customRoll", false, isBoolean);
+
+  // An encounter that ends while this is showing clears the custom settings kept in memory too
+  // (attack-panel-encounter-reset); the room page has already cleared them in storage.
+  const seenReset = useRef(reset.count);
+  useEffect(() => {
+    if (reset.count === seenReset.current) return;
+    seenReset.current = reset.count;
+    setLastUsed({});
+  }, [reset.count, setLastUsed]);
 
   const presetsFor = (tokenId: string, all: Record<string, AttackPreset[]>) => all[tokenId] ?? migrateSaved(legacy[tokenId] ?? []);
   const allPresets: Record<string, AttackPreset[]> = { ...Object.fromEntries(Object.keys(legacy).map((id) => [id, presetsFor(id, stored)])), ...stored };
@@ -131,7 +146,8 @@ export function AttackPanel({
       ) : (
         <AttackForm
           // A new attacker starts from the custom settings last used with it.
-          key={attacker.id}
+          // It also starts over when an encounter ends, dropping the chosen attack and any half-set roll.
+          key={`${attacker.id}:${reset.count}`}
           connection={connection}
           state={state}
           you={you}
@@ -139,6 +155,7 @@ export function AttackPanel({
           attackerId={attacker.id}
           activeId={activeId}
           targetId={target?.id ?? null}
+          clearedRollId={reset.clearedRollId}
           initial={lastUsed[attacker.id] ?? DEFAULT_ATTACK}
           presets={allPresets[attacker.id] ?? []}
           allPresets={allPresets}
@@ -166,6 +183,7 @@ function AttackForm({
   attackerId,
   activeId,
   targetId,
+  clearedRollId,
   initial,
   presets,
   allPresets,
@@ -187,6 +205,7 @@ function AttackForm({
   attackerId: string;
   activeId: string | null;
   targetId: string | null;
+  clearedRollId: string | null;
   initial: AttackSettings;
   presets: AttackPreset[];
   allPresets: Record<string, AttackPreset[]>;
@@ -208,7 +227,11 @@ function AttackForm({
   const [error, setError] = useState<string | null>(null);
   /** The named attack being edited: its index, "new" while adding, or null. */
   const [editing, setEditing] = useState<number | "new" | null>(null);
+  /** The named attack the Roll button rolls, picked from the list (attack-panel-encounter-reset). */
+  const [selected, setSelected] = useState(0);
   const isGm = you.role === "gm";
+  const chosen = presets.length > 0 ? presets[Math.min(selected, presets.length - 1)] : undefined;
+  const chosenIndex = chosen ? presets.indexOf(chosen) : -1;
 
   const attacker = state.tokens[attackerId]!;
   const targets = targetsByDistance(state, attackerId);
@@ -251,7 +274,7 @@ function AttackForm({
     return true;
   };
 
-  /** One tap: the to-hit roll, or the damage for an attack that has no to-hit (attack-ux-polish). */
+  /** The chosen attack's to-hit roll, or its damage when it has no to-hit (attack-ux-polish). */
   const rollPreset = (preset: AttackPreset) => {
     if (!target) return;
     const [dice, rollKind]: [AttackDice, AttackKind] = preset.toHit ? [preset.toHit, "toHit"] : [preset.damage!, "damage"];
@@ -314,6 +337,7 @@ function AttackForm({
         state={state}
         you={you}
         attackerId={attackerId}
+        clearedRollId={clearedRollId}
         allPresets={allPresets}
         busy={busy}
         onRollDamage={rollDamage}
@@ -374,53 +398,59 @@ function AttackForm({
         {presets.length === 0 && editing === null && (
           <p className="muted small-print">Add the attacks {attacker.name} makes, like a sword, a spell or claws. Saved in this browser.</p>
         )}
-        {presets.length > 0 && (
-          <ul className="plain attack-presets">
-            {presets.map((preset, i) =>
-              editing === i ? (
-                <li key={`edit:${i}`}>
-                  <PresetEditor
-                    initial={preset}
-                    taken={presets.filter((_, j) => j !== i).map((p) => p.name)}
-                    onSave={(next) => {
-                      onPresets((list) => list.map((p, j) => (j === i ? next : p)));
-                      setEditing(null);
-                    }}
-                    onRemove={() => {
-                      onPresets((list) => list.filter((_, j) => j !== i));
-                      setEditing(null);
-                    }}
-                    onCancel={() => setEditing(null)}
-                  />
-                </li>
-              ) : (
-                <li key={`${i}:${preset.name}`} className="attack-preset">
-                  <button
-                    type="button"
-                    className="attack-preset-roll"
-                    disabled={!target || busy}
-                    onClick={() => rollPreset(preset)}
-                    aria-label={`${preset.name}: roll ${preset.toHit ? "to hit" : "damage"}${target ? ` at ${target.token.name}` : ""}`}
-                  >
-                    <Sword size={16} aria-hidden="true" />
-                    <span className="attack-preset-name">{preset.name}</span>
-                    <span className="attack-preset-dice">{presetSummary(preset)}</span>
-                  </button>
-                  <button type="button" className="icon-button" onClick={() => setEditing(i)} aria-label={`Edit ${preset.name}`} title="Edit">
-                    <PencilSimple size={14} aria-hidden="true" />
-                  </button>
-                </li>
-              ),
-            )}
-          </ul>
+        {/* One row however many attacks a token has (attack-panel-encounter-reset). */}
+        {chosen && typeof editing === "number" ? (
+          <PresetEditor
+            initial={chosen}
+            taken={presets.filter((_, j) => j !== chosenIndex).map((p) => p.name)}
+            onSave={(next) => {
+              onPresets((list) => list.map((p, j) => (j === chosenIndex ? next : p)));
+              setEditing(null);
+            }}
+            onRemove={() => {
+              onPresets((list) => list.filter((_, j) => j !== chosenIndex));
+              setSelected(0);
+              setEditing(null);
+            }}
+            onCancel={() => setEditing(null)}
+          />
+        ) : (
+          chosen && (
+            <div className="attack-preset">
+              <AttackPicker presets={presets} selected={chosenIndex} onSelect={setSelected} label={`${attacker.name}'s attack`} disabled={editing !== null} />
+              <button
+                type="button"
+                className="icon-button"
+                disabled={editing !== null}
+                onClick={() => setEditing(chosenIndex)}
+                aria-label={`Edit ${chosen.name}`}
+                title="Edit"
+              >
+                <PencilSimple size={14} aria-hidden="true" />
+              </button>
+            </div>
+          )
         )}
-        {presets.length > 0 && !target && <p className="muted small-print">Choose a target, then tap an attack to roll.</p>}
+        {chosen && (
+          <button type="button" className="attack-roll" disabled={!target || busy || editing !== null} onClick={() => rollPreset(chosen)}>
+            <Sword size={16} aria-hidden="true" />
+            {busy
+              ? "Rolling…"
+              : !target
+                ? "Choose a target to roll"
+                : chosen.toHit
+                  ? `Roll ${chosen.name} to hit ${target.token.name}`
+                  : `Roll ${chosen.name} damage to ${target.token.name}`}
+          </button>
+        )}
         {editing === "new" ? (
           <PresetEditor
             initial={null}
             taken={presets.map((p) => p.name)}
             onSave={(next) => {
               onPresets((list) => [...list, next]);
+              // A new attack is usually the one about to be used.
+              setSelected(presets.length);
               setEditing(null);
             }}
             onCancel={() => setEditing(null)}
@@ -645,6 +675,7 @@ function LatestAttack({
   state,
   you,
   attackerId,
+  clearedRollId,
   allPresets,
   busy,
   onRollDamage,
@@ -654,6 +685,7 @@ function LatestAttack({
   state: RoomState;
   you: Participant;
   attackerId: string;
+  clearedRollId: string | null;
   allPresets: Record<string, AttackPreset[]>;
   busy: boolean;
   onRollDamage: (roll: DiceRoll) => void;
@@ -662,7 +694,7 @@ function LatestAttack({
   /** GM only: apply their own damage roll. */
   onApply?: (rollId: string) => void;
 }) {
-  const latest = [...state.rolls].reverse().find((r) => r.attack && r.byParticipantId === you.id);
+  const latest = latestAttackRoll(state.rolls, you.id, clearedRollId);
   const [landed, setLanded] = useState<string | undefined>(latest?.id);
   if (!latest?.attack) return null;
   const throwing = latest.id !== landed;

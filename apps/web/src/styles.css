@@ -670,11 +670,33 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 /* Attack section layout (attack-ux-polish). */
 .attack-attacker { margin: 0; display: flex; align-items: center; gap: 0.4rem; font-size: 1.05rem; }
 .attack-latest { padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius); }
-.attack-presets { display: flex; flex-direction: column; gap: 0.35rem; }
 .attack-preset { display: flex; align-items: stretch; gap: 0.3rem; }
-.attack-preset-roll { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.45rem; text-align: left; min-height: 40px; }
-.attack-preset-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.attack-preset-dice { margin-left: auto; font-weight: 500; font-variant-numeric: tabular-nums; opacity: 0.85; }
+/* The named-attack picker: a closed row like the old attack buttons, opening a popover-style list. */
+.attack-picker { position: relative; flex: 1; min-width: 0; }
+.attack-picker-button {
+  width: 100%; min-height: 40px; display: flex; align-items: center; gap: 0.45rem; text-align: left;
+  background: var(--raised); color: var(--text); border: 1px solid var(--border);
+}
+.attack-picker-button:hover:not(:disabled) { border-color: var(--border-strong); filter: none; }
+.attack-picker-button[aria-expanded="true"] { border-color: var(--accent); }
+.attack-picker-name { font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attack-picker-dice { margin-left: auto; font-weight: 500; font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
+.attack-picker-caret { flex: none; color: var(--muted); }
+.attack-picker-button[aria-expanded="true"] .attack-picker-caret { transform: rotate(180deg); }
+.attack-picker-list {
+  position: absolute; top: calc(100% + var(--space-1)); left: 0; right: 0; z-index: 10;
+  margin: 0; padding: var(--space-1); list-style: none;
+  max-height: 16rem; overflow-y: auto;
+  background: var(--raised); border: 1px solid var(--border-strong); border-radius: var(--radius);
+  box-shadow: 0 10px 28px var(--shadow);
+}
+.attack-picker-option {
+  display: flex; align-items: center; gap: 0.45rem; min-height: 36px; padding: 0 var(--space-2);
+  border-radius: var(--radius); cursor: pointer;
+}
+.attack-picker-option.active { background: var(--accent-soft); }
+.attack-picker-check { flex: none; visibility: hidden; color: var(--accent); }
+.attack-picker-option[aria-selected="true"] .attack-picker-check { visibility: visible; }
 .attack-add { align-self: flex-start; display: inline-flex; align-items: center; gap: 0.3rem; }
 .attack-follow-up { display: inline-flex; align-items: center; gap: 0.35rem; align-self: flex-start; }
 .attack-editor { padding: var(--space-2); border: 1px dashed var(--border-strong); border-radius: var(--radius); gap: var(--space-2); }
@@ -1851,6 +1873,7 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
   font-size: var(--fs-sm);
 }
 .board-notice p { margin: 0; }
+.turn-notice { border-left-color: var(--accent); }
 @media (prefers-reduced-motion: no-preference) {
   .board-notice { animation: modal-in 0.16s ease-out; }
 }
@@ -1926,6 +1949,8 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 /* Library creatures (library-creatures): a creature without art is a plain disc, as on the board. */
 .creature-disc { display: block; width: 70%; aspect-ratio: 1; border-radius: 50%; }
 .add-token-creature { flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.add-token-advanced summary { cursor: pointer; font-size: var(--fs-sm); color: var(--muted); padding: 0.2rem 0; }
+.add-token-advanced[open] summary { margin-bottom: var(--space-2); color: var(--text); }
 .picker-item .creature-disc { width: 100%; }
 .creature-image-choose { flex-wrap: wrap; gap: var(--space-2); align-items: center; }
 .creature-image-choose button { white-space: nowrap; }

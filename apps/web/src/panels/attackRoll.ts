@@ -237,3 +237,16 @@ export function attackSectionChange(previous: EncounterView, next: EncounterView
   if (next.inEncounter && !previous.yourTurn && next.yourTurn && !toggledThisEncounter) return "open";
   return null;
 }
+
+/** Where the custom roll settings last used per token are kept (attack-targeting). */
+export const LAST_USED_KEY = "vtt.attack.last";
+
+/**
+ * The participant's latest attack roll, for the Attack section's outcome card. Nothing once an
+ * encounter has ended on it: `clearedRollId` is the roll that was latest when the encounter
+ * ended, so only a later roll brings the card back (attack-panel-encounter-reset).
+ */
+export function latestAttackRoll(rolls: readonly DiceRoll[], participantId: string, clearedRollId: string | null): DiceRoll | undefined {
+  const latest = [...rolls].reverse().find((r) => r.attack && r.byParticipantId === participantId);
+  return latest && latest.id !== clearedRollId ? latest : undefined;
+}

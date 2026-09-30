@@ -9,6 +9,7 @@ import { CreaturePicker } from "../pages/LibraryCreatures";
 import { LibraryPicker } from "../pages/LibraryPicker";
 import { Modal } from "../ui/Modal";
 import { TokenPreview } from "../ui/TokenPreview";
+import { DEFAULT_AC, DEFAULT_HP, statsWithDefaults } from "./tokenDefaults";
 
 const TOKEN_COLORS = ["#c0392b", "#2980b9", "#27ae60", "#8e44ad", "#d35400", "#16a085"];
 
@@ -114,7 +115,7 @@ function AddToken(props: {
           props.onAdd({
             type: "token.create", name, hidden, ownerIds: ownerId ? [ownerId] : [],
             size: Number(size), rotation: Number(rotation),
-            stats: { hp: optionalNumber(hp), maxHp: optionalNumber(maxHp), ac: optionalNumber(ac) },
+            stats: statsWithDefaults({ hp: optionalNumber(hp), maxHp: optionalNumber(maxHp), ac: optionalNumber(ac) }),
             imageUrl: image?.url ?? null, assetId: image?.assetId ?? null,
           });
         }}
@@ -142,16 +143,13 @@ function AddToken(props: {
             Duplicate names are numbered automatically, e.g. Goblin 2.
           </span>
         </label>
-        {/* No position fields: the GM points at the square on the board next (place-token-on-board). */}
+        {/* Blank HP and AC fall back to the defaults shown as placeholders (token-stat-defaults). */}
         <div className="token-setup-grid">
-          <label>Size (cells)<input type="number" value={size} onChange={(e) => setSize(e.target.value)} required min="0.25" max="10" step="any" /></label>
-          <label>Rotation (°)<input type="number" value={rotation} onChange={(e) => setRotation(e.target.value)} required step="any" /></label>
+          <label>HP<input type="number" value={hp} onChange={(e) => setHp(e.target.value)} min="-999" max="9999" step="1" placeholder={maxHp.trim() || String(DEFAULT_HP)} /></label>
+          <label>Max HP<input type="number" value={maxHp} onChange={(e) => setMaxHp(e.target.value)} min="1" max="9999" step="1" placeholder={String(DEFAULT_HP)} /></label>
+          <label>AC<input type="number" value={ac} onChange={(e) => setAc(e.target.value)} min="0" max="99" step="1" placeholder={String(DEFAULT_AC)} /></label>
         </div>
-        <div className="token-setup-grid">
-          <label>HP<input type="number" value={hp} onChange={(e) => setHp(e.target.value)} min="-999" max="9999" step="1" /></label>
-          <label>Max HP<input type="number" value={maxHp} onChange={(e) => setMaxHp(e.target.value)} min="1" max="9999" step="1" /></label>
-          <label>AC<input type="number" value={ac} onChange={(e) => setAc(e.target.value)} min="0" max="99" step="1" /></label>
-        </div>
+        <span className="muted small-print">Left blank, HP is {DEFAULT_HP} and AC is {DEFAULT_AC}.</span>
         <label>
           Owner
           <select value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
@@ -193,10 +191,21 @@ function AddToken(props: {
             </div>
           )}
         </div>
-        <label className="inline">
-          <input type="checkbox" checked={hidden} onChange={(e) => setHidden(e.target.checked)} />
-          Hidden from players
-        </label>
+        {/* Rarely changed from their defaults, so tucked away (token-stat-defaults). No position
+            fields: the GM points at the square on the board next (place-token-on-board). */}
+        <details className="add-token-advanced">
+          <summary>Advanced settings</summary>
+          <div className="stack">
+            <div className="token-setup-grid">
+              <label>Size (cells)<input type="number" value={size} onChange={(e) => setSize(e.target.value)} required min="0.25" max="10" step="any" /></label>
+              <label>Rotation (°)<input type="number" value={rotation} onChange={(e) => setRotation(e.target.value)} required step="any" /></label>
+            </div>
+            <label className="inline">
+              <input type="checkbox" checked={hidden} onChange={(e) => setHidden(e.target.checked)} />
+              Hidden from players
+            </label>
+          </div>
+        </details>
         {error && <p role="alert" className="error">{error}</p>}
         <button type="submit" disabled={uploading}>Choose a square</button>
         <p className="muted">Next, click the square on the map where it should go.</p>

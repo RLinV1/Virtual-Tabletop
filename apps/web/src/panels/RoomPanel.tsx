@@ -8,6 +8,7 @@ import type { GridDraft } from "../pages/gridDraft";
 import { DicePanel } from "./DicePanel";
 import { InitiativeTracker } from "./InitiativeTracker";
 import { AttackPanel, type AttackPick } from "./AttackPanel";
+import type { AttackReset } from "./attackSession";
 import { attackSectionChange, type EncounterView } from "./attackRoll";
 import { MyTokens } from "./MyTokens";
 import { RulingsPanel } from "./RulingsPanel";
@@ -136,6 +137,8 @@ interface Props {
   /** Who attacks whom, shared with the board's Pick on board (attack-targeting). */
   attackPick: AttackPick;
   onAttackPick: (pick: AttackPick) => void;
+  /** The last encounter end, which clears the Attack section (attack-panel-encounter-reset). */
+  attackReset: AttackReset;
   onPickOnBoard: (attackerId: string) => void;
   onShowPing: (at: Point) => void;
   attackVisibility: DiceVisibility;
@@ -165,7 +168,7 @@ interface Props {
  */
 export function RoomPanel({
   connection, state, you, token, onFocusToken, onPlaceToken,
-  attackPick, onAttackPick, onPickOnBoard, onShowPing, attackVisibility, onAttackVisibility,
+  attackPick, onAttackPick, attackReset, onPickOnBoard, onShowPing, attackVisibility, onAttackVisibility,
   gridDraft, hasGridDraft, onGridDraftChange, onGridDraftCancel, onGridApply, gridApplying, gridError,
   compact, tab, onTab, onReviewDeparture, tabBadges,
 }: Props) {
@@ -183,18 +186,20 @@ export function RoomPanel({
       <>
         {isGm && <RulingsPanel connection={connection} state={state} />}
         <MyTokens connection={connection} state={state} you={you} onFocusToken={onFocusToken} />
+        {/* The encounter first: whose turn it is decides who attacks. */}
+        <InitiativeTracker connection={connection} state={state} you={you} onFocusToken={onFocusToken} />
         <AttackPanel
           connection={connection}
           state={state}
           you={you}
           pick={attackPick}
           onPick={onAttackPick}
+          reset={attackReset}
           onPickOnBoard={onPickOnBoard}
           onShowPing={onShowPing}
           visibility={attackVisibility}
           onVisibility={onAttackVisibility}
         />
-        <InitiativeTracker connection={connection} state={state} you={you} onFocusToken={onFocusToken} />
       </>
     ),
     tokens: (

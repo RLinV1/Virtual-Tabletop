@@ -11,10 +11,12 @@ import { PanelTabs, RoomPanel, isTabId, type TabBadges, type TabId } from "../pa
 import { outcomeKey, pendingRulings } from "../panels/attackRoll";
 import { ActivityLog } from "../panels/ActivityLog";
 import type { AttackPick } from "../panels/AttackPanel";
+import { useEncounterReset } from "../panels/attackSession";
 import { gridsEqual, parseGridDraft, toGridDraft, type GridDraft } from "./gridDraft";
 import { LeaveTable } from "../panels/LeaveTable";
 import { ResolveDepartureModal } from "../panels/ResolveDeparture";
 import { DepartureNotices } from "../ui/DepartureNotice";
+import { TurnNotice } from "../ui/TurnNotice";
 import { SectionCollapseProvider } from "../ui/PanelSection";
 import { ParticipantsButton } from "../ui/ParticipantsButton";
 import { ShareButton } from "../ui/ShareButton";
@@ -126,6 +128,8 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
   const [attackPick, setAttackPick] = useState<AttackPick>({ attackerId: null, targetId: null });
   const pickOnBoard = useCallback((attackerId: string) => boardRef.current?.startAttack(attackerId), []);
   const pickTarget = useCallback((attackerId: string, targetId: string) => setAttackPick({ attackerId, targetId }), []);
+  // Ending the encounter clears the target and the last roll, but keeps the attacker and named attacks (attack-panel-encounter-reset).
+  const attackReset = useEncounterReset(roomId, state, you?.id ?? null, () => setAttackPick((p) => ({ ...p, targetId: null })));
   const showPing = useCallback((at: Point) => boardRef.current?.showPing(at), []);
   // The GM's "Roll privately" for attacks: here, so leaving the Play tab doesn't reset it.
   const [attackVisibility, setAttackVisibility] = useState<DiceVisibility>("public");
@@ -327,7 +331,13 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
         you={you}
         gridPreview={you.role === "gm" ? gridPreview : null}
         onPickTarget={pickTarget}
-        notices={you.role === "gm" ? <DepartureNotices state={state} onReview={setReviewing} /> : undefined}
+        notices={
+          // Always mounted, so screen readers register the live region before a notice lands in it.
+          <div className="board-notices" role="status" aria-live="polite">
+            {you.role === "gm" && <DepartureNotices state={state} onReview={setReviewing} />}
+            <TurnNotice state={state} you={you} onFocusToken={focusToken} />
+          </div>
+        }
       />
       <aside className="panel" id="room-panel" tabIndex={-1} aria-label="Room controls">
         {!compact && (
@@ -382,6 +392,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
               onFocusToken={focusToken}
               attackPick={attackPick}
               onAttackPick={setAttackPick}
+              attackReset={attackReset}
               onPickOnBoard={pickOnBoard}
               onShowPing={showPing}
               attackVisibility={attackVisibility}

@@ -9,6 +9,7 @@ import {
   isSavedRecord,
   isSettingsRecord,
   kindOf,
+  latestAttackRoll,
   pendingRulings,
   migrateSaved,
   outcomeKey,
@@ -206,5 +207,26 @@ describe("attack section outside combat (attack-ux-polish)", () => {
     expect(attackSectionChange(view(true, true), view(true, false), false)).toBeNull();
     expect(attackSectionChange(view(true, true), view(true, true), false)).toBeNull();
     expect(attackSectionChange(view(false), view(false), false)).toBeNull();
+  });
+});
+
+describe("outcome card after an encounter ends (attack-panel-encounter-reset)", () => {
+  const side = (id: string, name: string) => ({ tokenId: id, name, hidden: false });
+  const roll = (id: string, by: string, attack = true): DiceRoll => ({
+    id, expression: "1d20", byParticipantId: by, dice: [10], modifier: 0, total: 10, visibility: "public",
+    ...(attack && { attack: { actor: side("aria", "Aria"), target: side("goblin", "Goblin"), label: null, kind: "toHit" as const } }),
+  });
+
+  it("shows the participant's latest attack roll", () => {
+    const rolls = [roll("r1", "p"), roll("r2", "p"), roll("r3", "q"), roll("r4", "p", false)];
+    expect(latestAttackRoll(rolls, "p", null)?.id).toBe("r2");
+  });
+
+  it("hides the roll that was latest when the encounter ended", () => {
+    expect(latestAttackRoll([roll("r1", "p"), roll("r2", "p")], "p", "r2")).toBeUndefined();
+  });
+
+  it("shows a roll made after the encounter ended", () => {
+    expect(latestAttackRoll([roll("r1", "p"), roll("r2", "p"), roll("r5", "p")], "p", "r2")?.id).toBe("r5");
   });
 });
