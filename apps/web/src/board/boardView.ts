@@ -26,6 +26,7 @@ import {
 } from "@vtt/shared";
 import { footprint, placementPoint, type PlacementGhost } from "./placement";
 import { recenterOnResize } from "./recenter";
+import { exceedsPanThreshold, pinchIsManual, resizeAction, zoomChangesScale } from "./viewFit";
 import { conditionRowY, tokenLabelFontSize, tokenLabelStroke } from "./tokenLabel";
 import { canRenderGrid, DEFAULT_BOARD_SIZE } from "./gridRenderLimit";
 import { gridLines } from "./gridLines";
@@ -293,9 +294,11 @@ export class BoardView {
     // looking at. Without this a panned board stays pinned to the top-left and drifts.
     let lastSize = { width: this.app.screen.width, height: this.app.screen.height };
     this.app.renderer.on("resize", () => {
+      if (!this.initialized) return;
       const size = { width: this.app.screen.width, height: this.app.screen.height };
-      if (this.autoFit) this.fitToScreen();
-      else {
+      const action = resizeAction(this.autoFit, lastSize, size);
+      if (action === "refit") this.fitToScreen();
+      else if (action === "recenter") {
         const to = recenterOnResize(this.world.position, lastSize, size);
         this.world.position.set(to.x, to.y);
       }
@@ -1228,7 +1231,8 @@ export class BoardView {
       }
       this.invalidate();
     } else if (this.pan) {
-      this.autoFit = false;
+      // A press that hardly moves is a tap, not a deliberate pan (KAN-54).
+      if (exceedsPanThreshold(this.pan.start, e.global)) this.autoFit = false;
       this.world.position.set(
         this.pan.origin.x + e.global.x - this.pan.start.x,
         this.pan.origin.y + e.global.y - this.pan.start.y,
@@ -1283,7 +1287,7 @@ export class BoardView {
    * which is what makes a pinch feel like it is grabbing the map rather than scaling it
    * around some arbitrary centre.
    */
-  private pinch: { distance: number; midpoint: Point; scale: number } | null = null;
+  private pinch: { distance: number; midpoint: Point; scale: number; start: Point } | null = null;
   private lastTap = { at: 0, x: 0, y: 0 };
 
   private touchInfo(touches: TouchList) {
@@ -1318,13 +1322,12 @@ export class BoardView {
       this.invalidate();
     }
     const { distance, midpoint } = this.touchInfo(e.touches);
-    this.pinch = { distance, midpoint, scale: this.world.scale.x };
+    this.pinch = { distance, midpoint, scale: this.world.scale.x, start: midpoint };
   };
 
   private onTouchMove = (e: TouchEvent) => {
     if (!this.pinch || e.touches.length !== 2) return;
     e.preventDefault();
-    this.autoFit = false;
     const { distance, midpoint } = this.touchInfo(e.touches);
     if (this.pinch.distance === 0) return;
 
@@ -1337,9 +1340,10 @@ export class BoardView {
       x: (this.pinch.midpoint.x - this.world.x) / this.world.scale.x,
       y: (this.pinch.midpoint.y - this.world.y) / this.world.scale.y,
     };
+    if (pinchIsManual(this.pinch.start, midpoint, this.world.scale.x, scale)) this.autoFit = false;
     this.world.scale.set(scale);
     this.world.position.set(midpoint.x - anchor.x * scale, midpoint.y - anchor.y * scale);
-    this.pinch = { distance, midpoint, scale };
+    this.pinch = { ...this.pinch, distance, midpoint, scale };
     this.invalidate();
   };
 
@@ -1372,12 +1376,12 @@ export class BoardView {
 
   private onWheel = (e: WheelEvent) => {
     e.preventDefault();
-    this.autoFit = false;
     const rect = this.app.canvas.getBoundingClientRect();
     const screenPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     const before = this.toBoard(screenPoint);
     const factor = Math.exp(-e.deltaY * 0.0015);
     const scale = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, this.world.scale.x * factor));
+    if (zoomChangesScale(this.world.scale.x, scale)) this.autoFit = false;
     this.world.scale.set(scale);
     this.world.position.set(screenPoint.x - before.x * scale, screenPoint.y - before.y * scale);
     this.invalidate();
