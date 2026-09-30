@@ -2,6 +2,7 @@
 
 - [x] 1.1 Add `tokenLabelFontSize(radius)` in `apps/web/src/board/tokenLabel.ts` with a floor and ceiling; verify with `apps/web/test/tokenLabel.test.ts`
 - [x] 1.2 Use it in `BoardView.drawToken` so the label resizes with token size and cell size
+- [x] 1.3 Place condition markers below the label's rendered bottom with `conditionRowY` (CodeRabbit on #53); verify with `apps/web/test/tokenLabel.test.ts` and in the Playwright MCP
 
 ## 2. Token editor
 

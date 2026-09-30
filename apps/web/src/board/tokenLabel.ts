@@ -18,3 +18,15 @@ export function tokenLabelFontSize(radius: number): number {
 export function tokenLabelStroke(fontSize: number): number {
   return Math.max(3, Math.round(fontSize * 0.2));
 }
+
+/** Space between the bottom of the name label and the top of the condition markers. */
+const MARKER_GAP = 4;
+
+/**
+ * Vertical centre of the condition-marker row, below the name label's rendered bottom. The
+ * label grows with the token, so a fixed offset from the radius would let the name cover the
+ * markers on large tokens. `markerSize` is the marker's half-height.
+ */
+export function conditionRowY(labelTop: number, labelHeight: number, markerSize: number): number {
+  return labelTop + labelHeight + MARKER_GAP + markerSize;
+}

@@ -26,7 +26,7 @@ import {
 } from "@vtt/shared";
 import { footprint, placementPoint, type PlacementGhost } from "./placement";
 import { recenterOnResize } from "./recenter";
-import { tokenLabelFontSize, tokenLabelStroke } from "./tokenLabel";
+import { conditionRowY, tokenLabelFontSize, tokenLabelStroke } from "./tokenLabel";
 import { canRenderGrid, DEFAULT_BOARD_SIZE } from "./gridRenderLimit";
 import { gridLines } from "./gridLines";
 import { areaOrigin, areaShape, areaSizeFromDrag, formatDistance, hitMark, measure, sweepPoints, templateMark, type BoardTool, type Mark } from "./tools";
@@ -1101,6 +1101,8 @@ export class BoardView {
     if (conditions.length === 0) return;
 
     const size = Math.max(11, r * 0.34);
+    // Below the name label, which scales with the token, so the name never covers the markers.
+    const y = conditionRowY(view.label.position.y, view.label.height, size);
     const step = size * 2.1;
     const startX = -((conditions.length - 1) * step) / 2;
 
@@ -1123,7 +1125,7 @@ export class BoardView {
       });
       text.anchor.set(0.5);
       marker.addChild(shape, text);
-      marker.position.set(startX + i * step, r + 22);
+      marker.position.set(startX + i * step, y);
       view.markers.addChild(marker);
     });
   }
