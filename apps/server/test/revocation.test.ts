@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { LiveRoom } from "../src/domain/liveRoom";
 import { MemoryRoomStore } from "../src/store/memoryRoomStore";
-import { startServer, type TestClient } from "./helpers";
+import { startServer, type TestClient, viewFor } from "./helpers";
 
 let server: Awaited<ReturnType<typeof startServer>>;
 const servers: Awaited<ReturnType<typeof startServer>>[] = [];
@@ -54,7 +54,7 @@ describe("guest revocation (FR-GM-20)", () => {
     }
     await alex.waitForSeq(gm.seq);
     expect(alex.state.participants[samId]).toMatchObject({ displayName: "Sam", revoked: true });
-    expect(alex.state).toEqual(gm.state);
+    expect(alex.state).toEqual(viewFor(gm.state, alex));
 
     // Tokens still name Sam; the GM and the co-owner can act, and Sam's credential cannot.
     expect(gm.state.tokens[tokenId("Rogue")]!.ownerIds).toEqual([samId]);

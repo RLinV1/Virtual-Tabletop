@@ -60,6 +60,11 @@
 .activity-refresh:hover:not(:disabled) { filter: none; color: var(--text); border-color: var(--muted); }
 .activity-entries li { padding: var(--space-3) 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
 .activity-entries p { margin: 0 0 var(--space-1); }
+/* Undo sits on the entry it reverses (ADR 0013). */
+.activity-entry-head { display: flex; align-items: flex-start; gap: var(--space-2); }
+.activity-entry-head > p { flex: 1; min-width: 0; }
+.activity-undo { display: inline-flex; align-items: center; gap: 0.3rem; flex: none; }
+.activity-undone { flex: none; font-size: var(--fs-xs); color: var(--muted); border: 1px solid var(--border); border-radius: var(--radius); padding: 0 var(--space-1); }
 /* `hidden` must beat any display set by a class (.panel-body is flex); otherwise a
    collapsed panel stays rendered and spills out of its zero-width column. */
 [hidden] { display: none !important; }

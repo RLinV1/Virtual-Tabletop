@@ -5,6 +5,7 @@ import type { DomainEvent } from "./events";
 import { isSnapped, resizedTokenCenter, snapTokenCenter, type GridSpec, type Point } from "./geometry";
 import { canRenderGrid } from "./gridRenderLimit";
 import type { SessionEndReason } from "./protocol";
+import { inverseOf, undoableAction, undoConflict } from "./undo";
 import { MAX_AREA_TEMPLATES, type AreaTemplate, type Initiative, type Participant, type RoomState, type Token } from "./state";
 
 export type RejectionCode = "forbidden" | "not_found" | "invalid";
@@ -482,6 +483,17 @@ export function decide(
     case "participant.resolveDeparture":
       if (!can.administer(actor)) return forbidden();
       return resolveDeparture(state, command.participantId, command.actions);
+
+    case "history.undo": {
+      if (!can.administer(actor)) return forbidden();
+      const entry = undoableAction(state.undo, command.commandId);
+      if (!entry) return reject("invalid", "That action can no longer be undone.");
+      // Never clobber a newer change: refuse unless every value the action set is still current.
+      const conflict = undoConflict(state, entry);
+      if (conflict) return reject("invalid", conflict);
+      // Reverse order, so an editor save's "hide first, reveal last" stays safe when undone (ADR 0013).
+      return accept(...entry.events.map(inverseOf).reverse(), { type: "ActionUndone", commandId: entry.commandId });
+    }
   }
 }
 
