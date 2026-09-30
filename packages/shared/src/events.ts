@@ -144,7 +144,7 @@ export const DomainEvent = z.discriminatedUnion("type", [
   }),
   /**
    * Undo of a damage apply (ADR 0013): the roll no longer reads Applied. Only undo emits it,
-   * right after the `TokenStatsSet` that put the HP back. The inverse of `RollDamageApplied`,
+   * just before the `TokenStatsSet` that puts the HP back. The inverse of `RollDamageApplied`,
    * which carries no `previous` because it always replaces `false` (ADR 0011).
    */
   z.object({

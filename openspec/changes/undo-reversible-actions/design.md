@@ -29,7 +29,7 @@ Current state that shapes the approach:
 
 `LiveRoom.commit` generates one id (`randomUUID`) per batch and stores it on every event in the batch. It is pipeline metadata, like `seq` and `at`, so `decide` stays unaware of it. `NewEvent` and `CommittedEvent` gain an optional `commandId`. Postgres gets a nullable `command_id` column; the memory store keeps it on the stored object. System batches (room creation, joins) get an id too.
 
-Events committed before this change have no `commandId`. They are keyed as `seq:<seq>`, so each is its own action.
+Events committed before this change have no `commandId`. They are keyed as `seq:<seq>` and are never undoable: their batch boundaries are unknown, so undoing one event could split an old Apply or editor save (sync review).
 
 This is unrelated to the client's `clientCommandId`, which only matches acks to requests and never reaches the log.
 
@@ -48,7 +48,7 @@ Alternatives considered:
 For each event with `meta`:
 1. If the last entry has the same `commandId`, extend it. A reversible event is appended while `undoable` is true. Any other event sets `undoable = false` and clears `events`.
 2. Otherwise a new batch starts. A trailing entry with `undoable = false` is dropped first, since its batch is over. Then a new entry is pushed, `undoable` only if this event is reversible.
-3. Trim from the front to keep at most 20 undoable entries, plus the open one.
+3. When a new batch starts, keep the newest 20 closed entries, all of which can be undone, plus the new open one. Trimming never happens while an entry is open, so an undo's own brief entry never evicts a real action (sync review).
 
 Whether an action can be undone is decided per whole action (`canUndo`), since an Apply commits its `TokenStatsSet` before its `RollDamageApplied`. An action containing `TokenStatsSet` is undoable only if it also contains `RollDamageApplied`. A manual HP/AC edit is therefore recorded but never offered, and it is dropped once the next batch starts.
 
@@ -60,7 +60,7 @@ Alternatives considered:
 
 ### D3. `history.undo` in `decide`: inverses plus one `ActionUndone`
 
-`history.undo` takes no arguments. `decide`:
+`history.undo { commandId }` names the action to undo. `decide`:
 1. Refuses non-GM actors as `forbidden`.
 2. Finds the entry named by `command.commandId` that can still be undone. If there is none (already undone, trimmed, never existed, or a manual stats edit), it rejects as `invalid` with "That action can no longer be undone."
 3. Checks each event against the current state (spec: refuse when state has changed since). For token events, the token must exist and its `position`, `hidden`, `conditions` (compared as sets) or `stats` must equal what the event set. For roll events, the roll must still be in the 30-roll window, with the ruling the event set, or still `damageApplied`. The first mismatch rejects as `invalid` with, for example, "Can't undo: Goblin has changed since.", "Can't undo: Orc no longer exists." or "Can't undo: Aria → Goblin is no longer in the roll log."

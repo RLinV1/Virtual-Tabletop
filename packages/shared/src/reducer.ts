@@ -29,6 +29,7 @@ export function reduceCommitted(state: RoomState, committed: CommittedEvent): Ro
   return reduce(state, committed.event, eventMeta(committed));
 }
 
+/** The state change for one event, without the undo history (`reduce` adds that). */
 function apply(state: RoomState, event: DomainEvent): RoomState {
   switch (event.type) {
     case "RoomCreated":

@@ -36,10 +36,12 @@ function newest(state: RoomState) {
   return [...state.undo].reverse().find((e) => undoableAction(state.undo, e.commandId))?.commandId ?? "none";
 }
 
+/** Decides an undo without applying it, so a test can inspect a refusal. */
 function attemptUndo(state: RoomState, actor: Participant = gm, commandId = newest(state)) {
   return decide(state, actor, Command.parse({ type: "history.undo", commandId }), ctx);
 }
 
+/** A room with Goblin, owned by Alice, at (35, 35). */
 function setup() {
   const { state, token } = withToken(baseRoom(), { name: "Goblin", ownerIds: [alice.id] });
   return { state, id: token.id };
@@ -88,9 +90,35 @@ describe("undo history in reduce (FR-REC-02)", () => {
     for (let i = 1; i <= UNDO_HISTORY_LIMIT + 5; i++) {
       state = act(state, gm, { type: "token.move", tokenId: id, to: { x: i, y: 0 } }).state;
     }
-    expect(state.undo).toHaveLength(UNDO_HISTORY_LIMIT);
-    expect(state.undo.at(0)!.events[0]).toMatchObject({ to: { x: 6, y: 0 } });
+    // The newest UNDO_HISTORY_LIMIT closed actions, plus the one still open.
+    expect(state.undo).toHaveLength(UNDO_HISTORY_LIMIT + 1);
+    expect(state.undo.at(0)!.events[0]).toMatchObject({ to: { x: 5, y: 0 } });
     expect(state.undo.at(-1)!.events[0]).toMatchObject({ to: { x: UNDO_HISTORY_LIMIT + 5, y: 0 } });
+  });
+
+  it("does not count a standalone stats edit toward the limit", () => {
+    const { state: start, id } = setup();
+    let state = start;
+    for (let i = 1; i <= UNDO_HISTORY_LIMIT; i++) {
+      state = act(state, gm, { type: "token.move", tokenId: id, to: { x: i, y: 0 } }).state;
+    }
+    state = act(state, gm, { type: "token.setStats", tokenId: id, stats: { hp: 5, maxHp: 10, ac: 12 } }).state;
+    state = act(state, gm, { type: "token.move", tokenId: id, to: { x: 99, y: 0 } }).state;
+    // The first move is still kept: the stats edit took no slot.
+    expect(state.undo.at(0)!.events[0]).toMatchObject({ to: { x: 1, y: 0 } });
+    expect(state.undo.some((e) => e.events.some((ev) => ev.type === "TokenStatsSet"))).toBe(false);
+  });
+
+  it("does not evict an unrelated action when undoing with a full history", () => {
+    const { state: start, id } = setup();
+    let state = start;
+    for (let i = 1; i <= UNDO_HISTORY_LIMIT + 5; i++) {
+      state = act(state, gm, { type: "token.move", tokenId: id, to: { x: i, y: 0 } }).state;
+    }
+    state = act(state, gm, { type: "history.undo", commandId: newest(state) }).state;
+    // The 20 newest actions minus the one undone. The undo's own brief entry costs no slot.
+    expect(state.undo).toHaveLength(UNDO_HISTORY_LIMIT - 1);
+    expect(state.undo.at(0)!.events[0]).toMatchObject({ to: { x: 6, y: 0 } });
   });
 
   it("passes over a non-undoable action without losing earlier ones", () => {
@@ -110,7 +138,7 @@ describe("undo history in reduce (FR-REC-02)", () => {
     expect(next.undo).toEqual([]);
   });
 
-  it("treats each event from before undo existed as its own action", () => {
+  it("never offers events from before undo existed", () => {
     const events: DomainEvent[] = [
       { type: "RoomCreated", name: "Old room" },
       { type: "ParticipantJoined", participant: gm },
@@ -120,8 +148,10 @@ describe("undo history in reduce (FR-REC-02)", () => {
     ];
     const legacy: CommittedEvent[] = events.map((event, i) => ({ seq: i + 1, at: "2026-01-01T00:00:00.000Z", actorId: gm.id, event }));
     const state = legacy.reduce(reduceCommitted, emptyRoomState("old"));
-    expect(state.undo.map((e) => e.commandId)).toEqual(["seq:4", "seq:5"]);
-    expect(eventMeta(legacy[0]!).commandId).toBe("seq:1");
+    // Their batch boundaries are unknown, so undoing one could split an old Apply or editor save.
+    expect(newest(state)).toBe("none");
+    expect(attemptUndo(state, gm, "seq:4")).toMatchObject({ ok: false, message: "That action can no longer be undone." });
+    expect(eventMeta(legacy[0]!)).toMatchObject({ commandId: "seq:1", legacy: true });
   });
 });
 
@@ -396,5 +426,69 @@ describe("combat undo visibility (FR-GM-22, FR-GM-23)", () => {
     state = act(rolled.state, gm, { type: "roll.applyDamage", rollId }).state;
     const unapplied: DomainEvent = { type: "RollDamageUnapplied", rollId, amount: 3 };
     expect(filterEventForViewer({ seq: 50, at: "2026-09-30T00:00:00.000Z", actorId: gm.id, event: unapplied }, state, alice).kind).toBe("redacted");
+  });
+});
+
+describe("combat undo visibility with a hidden target (FR-GM-23, ADR 0011)", () => {
+  /** Aria (Alice's) attacks the hidden Shadow (20 HP) with a public roll. */
+  function hiddenTarget() {
+    const aria = withToken(baseRoom(), { name: "Aria", ownerIds: [alice.id] });
+    const shadow = withToken(aria.state, { name: "Shadow", hidden: true });
+    const state = act(shadow.state, gm, { type: "token.setStats", tokenId: shadow.token.id, stats: { hp: 20, maxHp: 20, ac: 12 } }).state;
+    const roll = (s: RoomState, kind: "toHit" | "damage") => {
+      const result = act(s, gm, {
+        type: "dice.roll", expression: kind === "toHit" ? "1d20" : "1d8",
+        attack: { actorTokenId: aria.token.id, targetTokenId: shadow.token.id, label: "Bow", kind },
+      });
+      const event = result.events[0];
+      if (event?.type !== "DiceRolled") throw new Error("expected DiceRolled");
+      return { state: result.state, rollId: event.roll.id };
+    };
+    return { state, roll };
+  }
+  const deliver = (events: DomainEvent[], before: RoomState) => {
+    let state = before;
+    return events.map((event, i) => {
+      const filtered = filterEventForViewer({ seq: 100 + i, at: "2026-09-30T00:00:00.000Z", actorId: gm.id, commandId: "cmd-u", event }, state, alice);
+      state = reduce(state, event);
+      return filtered;
+    });
+  };
+
+  it("withholds every event of an undone Apply against a hidden target", () => {
+    const { state: start, roll } = hiddenTarget();
+    const damage = roll(start, "damage");
+    const applied = act(damage.state, gm, { type: "roll.applyDamage", rollId: damage.rollId });
+    const undo = decide(applied.state, gm, Command.parse({ type: "history.undo", commandId: applied.commandId }), ctx);
+    if (!undo.ok) throw new Error(undo.message);
+    expect(deliver(undo.events, applied.state).map((f) => f.kind)).toEqual(["redacted", "redacted", "redacted"]);
+  });
+
+  it("passes an undone ruling on a public roll without its token names", () => {
+    const { state: start, roll } = hiddenTarget();
+    const hit = roll(start, "toHit");
+    const ruled = act(hit.state, gm, { type: "roll.rule", rollId: hit.rollId, verdict: "hit" });
+    const undo = decide(ruled.state, gm, Command.parse({ type: "history.undo", commandId: ruled.commandId }), ctx);
+    if (!undo.ok) throw new Error(undo.message);
+    const [ruling, marker] = deliver(undo.events, ruled.state);
+    // The original ruling passed the same way; it carries only the roll id and the verdict.
+    expect(ruling).toMatchObject({ kind: "event", committed: { event: { type: "RollRuled", verdict: null } } });
+    expect(JSON.stringify(ruling)).not.toContain("Shadow");
+    expect(marker!.kind).toBe("redacted");
+  });
+
+  it("withholds an undone ruling on a GM-only roll", () => {
+    const { state: start } = hiddenTarget();
+    const aria = Object.values(start.tokens).find((t) => t.name === "Aria")!;
+    const shadow = Object.values(start.tokens).find((t) => t.name === "Shadow")!;
+    const rolled = act(start, gm, {
+      type: "dice.roll", expression: "1d20", visibility: "gm",
+      attack: { actorTokenId: shadow.id, targetTokenId: aria.id, label: "Claw", kind: "toHit" },
+    });
+    const rollId = rolled.events[0]!.type === "DiceRolled" ? rolled.events[0]!.roll.id : "";
+    const ruled = act(rolled.state, gm, { type: "roll.rule", rollId, verdict: "miss" });
+    const undo = decide(ruled.state, gm, Command.parse({ type: "history.undo", commandId: ruled.commandId }), ctx);
+    if (!undo.ok) throw new Error(undo.message);
+    expect(deliver(undo.events, ruled.state).map((f) => f.kind)).toEqual(["redacted", "redacted"]);
   });
 });

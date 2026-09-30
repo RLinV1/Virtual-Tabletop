@@ -31,6 +31,7 @@ export function ActivityLog({ roomId, token, seq, state, connection }: Props) {
   </>;
 }
 
+/** The log itself: search, paging, and an Undo button on each action that can still be undone. */
 function History({ roomId, token, seq, state, connection }: Props) {
   const [search, setSearch] = useState("");
   const [refresh, setRefresh] = useState(0);
@@ -44,6 +45,7 @@ function History({ roomId, token, seq, state, connection }: Props) {
   const [undoing, setUndoing] = useState<string | null>(null);
   const [undoError, setUndoError] = useState<{ commandId: string; message: string } | null>(null);
 
+  /** Undoes one action, then refreshes so the undo's own entry and the Undone mark appear. */
   const undo = async (commandId: string) => {
     if (undoing) return;
     setUndoing(commandId);

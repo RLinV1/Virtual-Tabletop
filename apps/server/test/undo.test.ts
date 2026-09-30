@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { LiveRoom } from "../src/domain/liveRoom";
 import { MemoryRoomStore } from "../src/store/memoryRoomStore";
-import { startServer, type TestClient } from "./helpers";
+import { startServer, type TestClient, viewFor } from "./helpers";
 
 let store: MemoryRoomStore;
 let server: Awaited<ReturnType<typeof startServer>>;
@@ -50,6 +50,8 @@ describe("undo across the wire (FR-REC-02, FR-REC-03)", () => {
       await c.waitForSeq(gm.seq);
       expect(c.state.tokens[rogue]!.position).toEqual({ x: 100, y: 100 });
     }
+    // Every client holds exactly the server's filtered view for them (FR-SYNC-01/02).
+    for (const c of [alice, bob]) expect(c.state).toEqual(viewFor(gm.state, c));
     // The GM client's history matches the server's; players keep none.
     expect(gm.state.undo).toEqual([]);
     expect(alice.state.undo).toEqual([]);

@@ -47,15 +47,26 @@ export interface UndoEntry {
 export interface EventMeta {
   commandId: string;
   actorId: string | null;
+  /**
+   * Committed before undo existed, so its batch boundaries are unknown. Never undoable: undoing
+   * one event of an old Apply would restore the roll but not the HP (sync review).
+   */
+  legacy?: boolean;
 }
 
+/** Whether an event type can take part in an undoable action. */
 export function isReversible(event: DomainEvent): event is ReversibleEvent {
   return (REVERSIBLE_EVENT_TYPES as readonly string[]).includes(event.type);
 }
 
-/** Grouping metadata for a committed event. Events from before undo existed are each their own action. */
+/**
+ * Grouping metadata for a committed event. Events from before undo existed have no
+ * `commandId`: each is its own action, and none can be undone.
+ */
 export function eventMeta(committed: CommittedEvent): EventMeta {
-  return { commandId: committed.commandId ?? `seq:${committed.seq}`, actorId: committed.actorId };
+  return committed.commandId
+    ? { commandId: committed.commandId, actorId: committed.actorId }
+    : { commandId: `seq:${committed.seq}`, actorId: committed.actorId, legacy: true };
 }
 
 /**
@@ -64,27 +75,32 @@ export function eventMeta(committed: CommittedEvent): EventMeta {
  * first event, so a batch that mixes in any non-reversible event is never undoable, in
  * whichever order its events came. A closed non-undoable entry is dropped when the next
  * batch starts; it only existed to track its own batch.
+ *
+ * The history bound is applied to closed entries only, when the next batch starts. An undo's
+ * own inverse events open an entry that its `ActionUndone` removes again, so trimming while
+ * that entry is open would evict an unrelated action (sync review).
  */
 export function recordUndo(state: RoomState, event: DomainEvent, meta: EventMeta): UndoEntry[] {
   const history = state.undo;
   const last = history.at(-1);
+  const reversible = !meta.legacy && isReversible(event);
   if (last && last.commandId === meta.commandId) {
     if (!last.undoable) return history;
-    const updated: UndoEntry = isReversible(event)
+    const updated: UndoEntry = reversible && isReversible(event)
       ? { ...last, events: [...last.events, event], ...withLabels(last, state, event) }
       : { ...last, undoable: false, events: [], tokenNames: {}, rollLabels: {} };
     return [...history.slice(0, -1), updated];
   }
-  const kept = last && !canUndo(last) ? history.slice(0, -1) : history;
+  // Every closed entry left can be undone; keep the newest UNDO_HISTORY_LIMIT of them.
+  const closed = (last && !canUndo(last) ? history.slice(0, -1) : history).slice(-UNDO_HISTORY_LIMIT);
   const empty = { tokenNames: {}, rollLabels: {} };
-  const entry: UndoEntry = isReversible(event)
+  const entry: UndoEntry = reversible && isReversible(event)
     ? { commandId: meta.commandId, actorId: meta.actorId, undoable: true, events: [event], ...withLabels(empty, state, event) }
     : { commandId: meta.commandId, actorId: meta.actorId, undoable: false, events: [], ...empty };
-  // Only the last entry can be one that cannot be undone, so the cap counts it separately.
-  const next = [...kept, entry];
-  return next.slice(-(entry.undoable ? UNDO_HISTORY_LIMIT : UNDO_HISTORY_LIMIT + 1));
+  return [...closed, entry];
 }
 
+/** Records the name of the token, or the label of the roll, that `event` touches. */
 function withLabels(
   labels: Pick<UndoEntry, "tokenNames" | "rollLabels">,
   state: RoomState,
@@ -164,11 +180,13 @@ export function undoConflict(state: RoomState, entry: UndoEntry): string | null 
   return null;
 }
 
+/** Order-insensitive equality for condition lists. */
 function sameSet(a: readonly string[], b: readonly string[]) {
   return a.length === b.length && a.every((x) => b.includes(x));
 }
 
 type Stats = RoomState["tokens"][string]["stats"];
+/** Whether two stat blocks hold the same HP, Max HP and AC. */
 function sameStats(a: Stats, b: Stats) {
   return a.hp === b.hp && a.maxHp === b.maxHp && a.ac === b.ac;
 }

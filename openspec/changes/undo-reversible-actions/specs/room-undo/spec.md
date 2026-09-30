@@ -84,7 +84,11 @@ The system SHALL keep at least the 20 most recent undoable actions per room avai
 
 #### Scenario: Events from before this feature
 - **WHEN** a room's log contains events committed before undo existed
-- **THEN** the room loads normally, and each such undoable event can be undone on its own
+- **THEN** the room loads normally, and none of those older actions can be undone, because which events belonged to one action was not recorded
+
+#### Scenario: Undoing keeps the rest of a full history
+- **WHEN** the room has more than 20 undoable actions and the GM undoes one of them
+- **THEN** the 19 other newest actions stay undoable
 
 ### Requirement: Undo respects player visibility
 Players SHALL receive the effects of an undo only as their filtered view allows. Undoing a change to a hidden token, or to a GM-only roll, SHALL NOT reveal it to players. The undo history itself, and which events belong to one action, SHALL NOT be sent to players.
