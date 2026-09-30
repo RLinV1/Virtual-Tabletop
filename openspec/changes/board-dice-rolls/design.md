@@ -2,7 +2,7 @@
 
 ## Decisions
 
-1. **One throw state, in the room page.** `RoomPage` holds the table's latest roll and the id of the last roll that landed. A roll is "thrown" while it is newer than that id. The board overlay, the Attack card and the Dice section all read the same `rollThrow`, so they agree on when the total may be shown. On load, the landed id is set to the current latest roll, so joining or reconnecting doesn't replay old rolls. This replaces the Dice section's own landed state.
+1. **One throw state, in the room page.** `RoomPage` holds the table's latest roll and the id of the last roll that landed. A roll is "thrown" while it is newer than that id. The board overlay, the Attack card and the Dice section all read the same `rollThrow`, so they agree on when the total may be shown. Every full snapshot (`welcome`: load, reconnect or resync) resets the landed id to that snapshot's latest roll, so joining, reconnecting or resyncing doesn't replay old rolls, including ones made while this viewer was offline. `RoomSnapshot.snapshots` counts welcomes, which tells a replaced state apart from one moved on by events. This replaces the Dice section's own landed state.
 2. **Where it lands.**
    - A public roll: the board (`BoardDice`), for every viewer.
    - A private roll: the GM's panel tray. The Attack card's tray is used for the GM's own attack while Play is showing, and the Dice section's tray while Dice is showing.

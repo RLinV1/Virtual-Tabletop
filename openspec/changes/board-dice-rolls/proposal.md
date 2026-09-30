@@ -10,7 +10,7 @@ Dice are thrown in small trays in the side panel: the Attack section's and the D
   - a plain roll: "19", then "Pat · 1d20".
 - **Private rolls stay in the panel.** A GM-only roll is thrown in the GM's panel tray: the Attack section's card for their own attack, otherwise the Dice section's tray. The GM also gets the popup, marked GM only. Players never receive GM-only rolls, so they see nothing.
 - The Dice section's row for the latest roll still waits for the dice to land before showing the total.
-- Rolls already on the table when the room loads aren't thrown again.
+- Rolls already on the table when the room loads, or when a viewer reconnects, aren't thrown again.
 
 **Unchanged:** commands, events, schemas, server rules and visibility filters. Everything shown comes from each viewer's already-filtered room state, so hidden tokens stay "Unknown" and GM-only rolls never reach players.
 
@@ -30,6 +30,7 @@ Dice are thrown in small trays in the side panel: the Attack section's and the D
   - `panels/AttackPanel.tsx`: tray only for private rolls.
   - `panels/RoomPanel.tsx`: passes the throw state.
   - `panels/attackRoll.ts`: `rollHeadline`.
+  - `net/roomConnection.ts`: `snapshots`, a count of full snapshots received.
   - `styles.css`.
 - **Tests:** `apps/web/test/attackRoll.test.ts` (`rollHeadline`).
 - **No change** to `packages/shared`, `apps/server`, or any ADR.

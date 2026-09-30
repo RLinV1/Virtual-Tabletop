@@ -5,7 +5,7 @@ When a public roll is made, every connected participant SHALL see its dice throw
 - for an attack roll, the total as damage or to hit, and the attack's label, dice and parties;
 - for any other roll, the total, and who rolled which dice.
 
-The popup SHALL disappear after 4 seconds. The overlay SHALL NOT take pointer input. Rolls already made when the room loads SHALL NOT be thrown.
+The popup SHALL disappear after 4 seconds. The overlay SHALL NOT take pointer input. Rolls already made when the room loads, or when a viewer reconnects, SHALL NOT be thrown.
 
 #### Scenario: GM's attack, seen by a player
 - **WHEN** the GM rolls Firebomb (damage `2d6`) for 5 from Goblin against Aria, publicly

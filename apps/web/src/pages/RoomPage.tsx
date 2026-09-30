@@ -117,7 +117,7 @@ function SessionEnded({ roomName, reason }: { roomName: string | null; reason: S
 
 /** The room once a credential exists: board, side panel, and the connection's terminal screens. */
 function Room({ roomId, connection, token }: { roomId: string; connection: RoomConnection; token: string }) {
-  const { status, state, you, seq, endReason } = useRoomSnapshot(connection);
+  const { status, state, you, seq, snapshots, endReason } = useRoomSnapshot(connection);
   const [reviewing, setReviewing] = useState<string | null>(null);
 
   // The seat is gone for good, on every tab that shared it: forget it, so the invite link
@@ -235,13 +235,18 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
   // Every roll is thrown once, for everyone who can see it (attack-section-compact): a public roll
   // over the board with a popup of the result, a private (GM-only) roll in the GM's panel tray. Kept
   // here, not in a panel, so the board and the panels agree on when the dice have landed. Undefined
-  // until the room loads: rolls already on the table then aren't thrown again.
+  // until the room loads. Every full snapshot (load, reconnect, resync) resets it to that snapshot's
+  // latest roll: rolls already on the table then, including ones made while offline, aren't thrown.
   const latestRoll = state?.rolls[state.rolls.length - 1];
   const [landed, setLanded] = useState<{ id: string | null; live: boolean } | undefined>(undefined);
   const [popupRollId, setPopupRollId] = useState<string | null>(null);
+  const seenSnapshots = useRef(0);
   useEffect(() => {
-    if (landed === undefined && state) setLanded({ id: latestRoll?.id ?? null, live: false });
-  }, [landed, state, latestRoll]);
+    if (!state || seenSnapshots.current === snapshots) return;
+    seenSnapshots.current = snapshots;
+    setLanded({ id: latestRoll?.id ?? null, live: false });
+    setPopupRollId(null);
+  }, [state, latestRoll, snapshots]);
   const throwingRoll = latestRoll && landed !== undefined && latestRoll.id !== landed.id ? latestRoll : undefined;
   const landRoll = useCallback((rollId: string) => {
     setLanded({ id: rollId, live: true });

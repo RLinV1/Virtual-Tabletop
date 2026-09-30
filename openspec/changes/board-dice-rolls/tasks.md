@@ -3,6 +3,7 @@
 ## 1. Throw state
 
 - [x] 1.1 In `RoomPage`, track the table's latest roll, the last landed roll and the popup roll; land a private roll at once when neither panel tray is in view; pass `rollThrow` to the panels.
+- [x] 1.1a Reset the landed roll on every full snapshot (`RoomSnapshot.snapshots`), not only the first. Found in review: a reconnect replayed a roll made while offline. Verified in Playwright by dropping the player's socket while the GM rolled: nothing replays on reconnect, and the next live roll still throws.
 - [x] 1.2 Add `rollHeadline` to `panels/attackRoll.ts`; test attack and plain rolls in `apps/web/test/attackRoll.test.ts`.
 
 ## 2. Board and panels

@@ -21,6 +21,11 @@ export interface RoomSnapshot {
   state: RoomState | null;
   you: Participant | null;
   seq: number;
+  /**
+   * Counts full snapshots (`welcome`) received: on connect, reconnect and resync. A new value
+   * means `state` was replaced wholesale rather than moved on by events (board-dice-rolls).
+   */
+  snapshots: number;
   /** Set with status `ended`: whether this seat left or was removed by the GM (ADR 0006). */
   endReason: SessionEndReason | null;
 }
@@ -60,6 +65,7 @@ export class RoomConnection {
     state: null,
     you: null,
     seq: 0,
+    snapshots: 0,
     endReason: null,
   }));
 
@@ -128,7 +134,7 @@ export class RoomConnection {
   private handle(msg: ServerMessage) {
     switch (msg.type) {
       case "welcome":
-        this.update({ status: "open", state: msg.state, you: msg.you, seq: msg.seq });
+        this.update({ status: "open", state: msg.state, you: msg.you, seq: msg.seq, snapshots: this.snapshot.snapshots + 1 });
         return;
 
       case "event": {
