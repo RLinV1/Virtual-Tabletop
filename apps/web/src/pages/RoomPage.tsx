@@ -381,6 +381,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
         you={you}
         gridPreview={you.role === "gm" ? gridPreview : null}
         onPickTarget={pickTarget}
+        landedRollId={landed?.live ? landed.id : null}
         notices={
           // Always mounted, so screen readers register the live region before a notice lands in it.
           <div className="board-notices" role="status" aria-live="polite">

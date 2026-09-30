@@ -4,6 +4,7 @@ import { DEFAULT_TOKEN_COLOR, EMPTY_STATS, type GridSpec, type Participant, type
 import type { RoomConnection } from "../net/roomConnection";
 import { DEFAULT_TOOL_OPTIONS, ToolRail, toolFor, type ToolOptions } from "../ui/ToolRail";
 import { BoardView } from "./boardView";
+import { attackEffectFor, type AttackEffect } from "./effects";
 import { autoPlacementPoint, type PlacementGhost, type TokenDraft } from "./placement";
 import type { BoardTool } from "./tools";
 
@@ -18,6 +19,8 @@ interface Props {
   notices?: ReactNode;
   /** Drawn over the map, under the toolbar and notices; never takes pointer input. */
   overlay?: ReactNode;
+  /** The roll whose dice have just landed; an attack's strike plays then, not while they are in the air (KAN-76). */
+  landedRollId?: string | null;
   /** The viewer clicked the token `attackerId` attacks, in Pick on board (attack-targeting). */
   onPickTarget?: (attackerId: string, targetId: string) => void;
 }
@@ -47,15 +50,20 @@ const HINTS: Record<BoardTool["kind"], string> = {
 /** With GM only ticked, the areas are the GM's alone; saying "everyone sees them" would mislead. */
 const GM_ONLY_AREA_HINT = "Drag to size and aim · click to place the chosen size · GM only: players won't see these areas";
 
+/** A strike waits for its dice at most this long, in case their landing is never reported. */
+const STRIKE_WAIT_MS = 5000;
+
 /** Keys typed into a field belong to that field, not to the board. */
 function isTyping(target: EventTarget | null) {
   return target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
 }
 
 /** The PixiJS board plus its React toolbar and notices; Pixi objects stay inside `BoardView`. */
-export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, toolbar, notices, overlay, onPickTarget }, ref) {
+export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, toolbar, notices, overlay, landedRollId, onPickTarget }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<BoardView | null>(null);
+  /** Strikes waiting for their thrown dice to land, by roll id, oldest first (KAN-76). */
+  const waitingStrikes = useRef(new Map<string, { effect: AttackEffect; timer: number }>());
   const latest = useRef({ state, you, gridPreview, onPickTarget });
   latest.current = { state, you, gridPreview, onPickTarget };
   const [tool, setTool] = useState<BoardTool>({ kind: "select" });
@@ -142,9 +150,31 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       else if (payload.type === "tokenDragPreview") view.showDragPreview(payload.tokenId, payload.at);
     });
 
+    // Live events only, already filtered for this viewer; a snapshot never gets here (KAN-76).
+    const stopCommitted = connection.onCommitted((committed, _before, after) => {
+      const viewer = latest.current.you;
+      const effect = attackEffectFor(committed.event, after, viewer);
+      if (!effect) return;
+      // Every public roll is thrown over the board first: the strike leaves when the dice land.
+      // Rulings and damage have no dice and play at once.
+      if (effect.kind === "strike" && committed.event.type === "DiceRolled") {
+        const rollId = committed.event.roll.id;
+        const timer = window.setTimeout(() => {
+          waitingStrikes.current.delete(rollId);
+          viewRef.current?.playAttackEffect(effect);
+        }, STRIKE_WAIT_MS);
+        waitingStrikes.current.set(rollId, { effect, timer });
+      } else {
+        viewRef.current?.playAttackEffect(effect);
+      }
+    });
+
     return () => {
       disposed = true;
       stopEphemeral();
+      stopCommitted();
+      waitingStrikes.current.forEach((waiting) => window.clearTimeout(waiting.timer));
+      waitingStrikes.current.clear();
       if (viewRef.current === view) {
         view.destroy();
         viewRef.current = null;
@@ -155,6 +185,18 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   useEffect(() => {
     viewRef.current?.update(state, you);
   }, [state, you]);
+
+  // Landing a roll releases its strike, and any earlier one whose dice were replaced mid-air.
+  useEffect(() => {
+    const waiting = waitingStrikes.current;
+    if (!landedRollId || !waiting.has(landedRollId)) return;
+    for (const [rollId, strike] of [...waiting]) {
+      waiting.delete(rollId);
+      window.clearTimeout(strike.timer);
+      viewRef.current?.playAttackEffect(strike.effect);
+      if (rollId === landedRollId) break;
+    }
+  }, [landedRollId]);
 
   useEffect(() => {
     viewRef.current?.setGridPreview(gridPreview);

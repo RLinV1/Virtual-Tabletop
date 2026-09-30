@@ -7,6 +7,7 @@ import {
   reduceCommitted,
   type ClientMessageInput,
   type CommandInput,
+  type CommittedEvent,
   type EphemeralPayload,
   type Participant,
   type RoomState,
@@ -41,6 +42,8 @@ export type CommandResult =
   | { ok: false; code: string; message: string };
 
 type EphemeralListener = (from: string, payload: EphemeralPayload) => void;
+/** Called with a live event and the viewer's state before and after it (KAN-76). */
+type CommittedListener = (committed: CommittedEvent, before: RoomState, after: RoomState) => void;
 
 /**
  * Client side of the sync protocol (docs/adr/0001-event-model.md, docs/adr/0002).
@@ -65,6 +68,7 @@ export class RoomConnection {
   private nextCommandId = 0;
   private pending = new Map<string, (r: CommandResult) => void>();
   private ephemeralListeners = new Set<EphemeralListener>();
+  private committedListeners = new Set<CommittedListener>();
 
   readonly store: StoreApi<RoomSnapshot> = createStore<RoomSnapshot>(() => ({
     status: "connecting",
@@ -122,6 +126,15 @@ export class RoomConnection {
     return () => this.ephemeralListeners.delete(fn);
   }
 
+  /**
+   * Live events only: called after an in-order `event` message has been applied, never for a
+   * snapshot, a redacted event or a failed reduce, so nothing replays on load or resync.
+   */
+  onCommitted(fn: CommittedListener) {
+    this.committedListeners.add(fn);
+    return () => this.committedListeners.delete(fn);
+  }
+
   command(command: CommandInput): Promise<CommandResult> {
     if (this.snapshot.status !== "open") {
       return Promise.resolve({ ok: false, code: "offline", message: "Not connected" });
@@ -153,6 +166,7 @@ export class RoomConnection {
           const next = msg.committed.commandId ? reduceCommitted(state, msg.committed) : reduce(state, msg.committed.event);
           const you = this.snapshot.you ? (next.participants[this.snapshot.you.id] ?? null) : null;
           this.update({ state: next, seq: msg.committed.seq, you });
+          this.emitCommitted(msg.committed, state, next);
         } catch {
           this.resync();
         }
@@ -191,6 +205,17 @@ export class RoomConnection {
         }
         console.warn("Server error:", msg.message);
         return;
+    }
+  }
+
+  /** A listener that throws must not look like a bad event and trigger a resync. */
+  private emitCommitted(committed: CommittedEvent, before: RoomState, after: RoomState) {
+    for (const fn of this.committedListeners) {
+      try {
+        fn(committed, before, after);
+      } catch (err) {
+        console.warn("Committed listener failed:", err);
+      }
     }
   }
 
