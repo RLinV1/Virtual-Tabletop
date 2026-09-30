@@ -48,6 +48,8 @@ describe("joined rooms list (KAN-64, FR-PL-02)", () => {
       "vtt.credentials.bad": "{not json",
       "vtt.credentials.empty": "null",
       "vtt.credentials.partial": JSON.stringify({ roomId: "partial" }),
+      "vtt.credentials.blank": JSON.stringify({ roomId: "", guestToken: "t" }),
+      "vtt.credentials.typed": JSON.stringify({ roomId: "typed", guestToken: "t", roomName: 42 }),
       "vtt.credentials.ok": seat("ok"),
     });
     expect(listJoinedRooms(storage).map((r) => r.roomId)).toEqual(["ok"]);
@@ -62,6 +64,13 @@ describe("joined rooms list (KAN-64, FR-PL-02)", () => {
       getItem: () => null,
     };
     expect(listJoinedRooms(throwing)).toEqual([]);
+    // A read that fails partway hides the whole list rather than showing some rooms.
+    const failingRead = memoryStorage({ "vtt.credentials.a": seat("a"), "vtt.credentials.b": seat("b") });
+    const flaky = { ...failingRead, length: 2, getItem: (k: string) => {
+      if (k === "vtt.credentials.b") throw new Error("SecurityError");
+      return failingRead.getItem(k);
+    } };
+    expect(listJoinedRooms(flaky)).toEqual([]);
     expect(listJoinedRooms(null)).toEqual([]);
   });
 });

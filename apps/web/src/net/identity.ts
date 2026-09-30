@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { RoomCredentials } from "@vtt/shared";
 import type { KeyValueStorage } from "../ui/usePersistentState";
 
@@ -102,6 +103,18 @@ export interface JoinedRoom {
 
 type EnumerableStorage = Pick<Storage, "getItem" | "key" | "length">;
 
+/**
+ * What the joined list needs from a stored seat. localStorage is outside our control (older
+ * builds, extensions, hand edits), so entries are validated rather than cast. `roomName` is
+ * optional because seats stored before KAN-64 have none.
+ */
+const StoredSeat = z.object({
+  roomId: z.string().min(1),
+  guestToken: z.string().min(1),
+  inviteCode: z.string().optional(),
+  roomName: z.string().optional(),
+});
+
 function defaultStorage(): EnumerableStorage | null {
   try {
     return globalThis.localStorage ?? null;
@@ -121,18 +134,17 @@ export function listJoinedRooms(storage: EnumerableStorage | null = defaultStora
     for (let i = 0; i < storage.length; i++) {
       const key = storage.key(i);
       if (!key?.startsWith(CRED_PREFIX)) continue;
-      let creds: Partial<StoredCredentials> | null;
+      // Outside the parse's try: a storage failure hides the whole list, not just this entry.
+      const raw = storage.getItem(key);
+      let parsed: unknown;
       try {
-        creds = JSON.parse(storage.getItem(key) ?? "null") as Partial<StoredCredentials> | null;
+        parsed = JSON.parse(raw ?? "null");
       } catch {
         continue;
       }
-      if (!creds || typeof creds.roomId !== "string" || typeof creds.guestToken !== "string") continue;
-      if (creds.inviteCode) continue;
-      rooms.push({
-        roomId: creds.roomId,
-        roomName: typeof creds.roomName === "string" && creds.roomName ? creds.roomName : null,
-      });
+      const seat = StoredSeat.safeParse(parsed);
+      if (!seat.success || seat.data.inviteCode) continue;
+      rooms.push({ roomId: seat.data.roomId, roomName: seat.data.roomName || null });
     }
   } catch {
     return [];
