@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { emptyRoomState, type DiceRoll, type RoomState, type Token } from "@vtt/shared";
 import {
   attackExpression,
+  attackHeadline,
   attackSectionChange,
   clampCount,
   clampModifier,
@@ -228,5 +229,20 @@ describe("outcome card after an encounter ends (attack-panel-encounter-reset)", 
 
   it("shows a roll made after the encounter ended", () => {
     expect(latestAttackRoll([roll("r1", "p"), roll("r2", "p"), roll("r5", "p")], "p", "r2")?.id).toBe("r5");
+  });
+});
+
+describe("attack result text (attack-section-compact, FR-TAC-09)", () => {
+  const side = (id: string, name: string) => ({ tokenId: id, name, hidden: false });
+  const base = { id: "r1", byParticipantId: "p", dice: [4, 3], modifier: 0, total: 7, visibility: "public" as const };
+
+  it("reads a damage roll as damage, with its label and parties", () => {
+    const roll: DiceRoll = { ...base, expression: "2d6", attack: { actor: side("g", "Goblin"), target: side("a", "Aria"), label: "Firebomb damage", kind: "damage" } };
+    expect(attackHeadline(roll)).toEqual({ title: "7 damage", meta: "Firebomb damage · 2d6 · Goblin → Aria" });
+  });
+
+  it("reads a to-hit roll as to hit", () => {
+    const roll: DiceRoll = { ...base, expression: "1d20+5", total: 17, attack: { actor: side("a", "Aria"), target: side("g", "Goblin"), label: "Longsword", kind: "toHit" } };
+    expect(attackHeadline(roll).title).toBe("17 to hit");
   });
 });

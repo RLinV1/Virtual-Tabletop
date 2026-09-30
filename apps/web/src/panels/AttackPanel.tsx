@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Crosshair, HourglassMedium, Minus, PencilSimple, Plus, Sword, X } from "@phosphor-icons/react";
+import { Crosshair, DiceFive, DotsThree, Eye, EyeSlash, HourglassMedium, Minus, PencilSimple, Plus, SlidersHorizontal, Sword, Target, X } from "@phosphor-icons/react";
 import {
   attackLabel,
   can,
   formatAttackParties,
-  formatAttackRoll,
+  formatAttackOutcome,
   MAX_ATTACK_LABEL,
   type AttackKind,
   type DiceRoll,
@@ -17,9 +17,12 @@ import {
 import type { RoomConnection } from "../net/roomConnection";
 import { DiceTray } from "../ui/DiceTray";
 import { PanelSection } from "../ui/PanelSection";
+import { Picker } from "../ui/Picker";
+import { PopoverButton } from "../ui/Popover";
 import { isBoolean, usePersistentState } from "../ui/usePersistentState";
 import {
   attackExpression,
+  attackHeadline,
   clampCount,
   clampModifier,
   damageAmount,
@@ -37,6 +40,7 @@ import {
   migrateSaved,
   presetForRoll,
   presetRollLabel,
+  presetSummary,
   shouldPingTarget,
   targetsByDistance,
   type AttackDice,
@@ -45,7 +49,6 @@ import {
   type SavedAttack,
 } from "./attackRoll";
 import type { AttackReset } from "./attackSession";
-import { AttackPicker } from "./AttackPicker";
 import { trayRoll } from "./DicePanel";
 import { RulingButtons } from "./RulingButtons";
 
@@ -311,28 +314,244 @@ function AttackForm({
     setError(result.ok ? null : result.message);
   };
 
+  const privateToggle = isGm && (
+    <button
+      type="button"
+      className={visibility === "gm" ? "icon-button attack-private on" : "icon-button attack-private"}
+      aria-pressed={visibility === "gm"}
+      aria-label="Roll privately (players won't see it)"
+      title={visibility === "gm" ? "Private roll: players won't see it" : "Public roll: click to roll privately"}
+      onClick={() => onVisibility(visibility === "gm" ? "public" : "gm")}
+    >
+      {visibility === "gm" ? <EyeSlash size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
+    </button>
+  );
+
   return (
     <div className="stack attack-panel">
-      {attackers.length === 1 ? (
-        <p className="attack-attacker">
-          <Sword size={16} aria-hidden="true" /> <strong>{attacker.name}</strong>
-          {attacker.id === activeId && <span className="badge active-badge">your turn</span>}
+      {/* Who attacks whom: the attacker, then the target (attack-section-compact). */}
+      <div className="attack-who">
+        {attackers.length === 1 ? (
+          <p className="attack-attacker">
+            <Sword size={16} aria-hidden="true" /> <strong>{attacker.name}</strong>
+            {attacker.id === activeId && <span className="badge active-badge">your turn</span>}
+          </p>
+        ) : (
+          <Picker
+            label="Attacker"
+            icon={<Sword size={16} aria-hidden="true" />}
+            value={attackerId}
+            onChange={onAttacker}
+            options={attackers.map((t) => ({
+              key: t.id,
+              label: `${t.name}${t.hidden ? " (hidden)" : ""}`,
+              ...(t.id === activeId && { detail: "turn" }),
+            }))}
+          />
+        )}
+        <Picker
+          label="Target"
+          icon={<Target size={16} aria-hidden="true" />}
+          placeholder={targets.length === 0 ? "No targets" : "Target"}
+          disabled={targets.length === 0}
+          value={target?.token.id ?? null}
+          onChange={onTarget}
+          options={targets.map((t) => ({ key: t.token.id, label: `${t.token.name}${t.token.hidden ? " (hidden)" : ""}`, detail: t.distance }))}
+        />
+        <button type="button" className="icon-button attack-board-pick" onClick={onPickOnBoard} aria-label="Pick target on board" title="Pick target on board">
+          <Crosshair size={18} aria-hidden="true" />
+        </button>
+      </div>
+
+      {isGm && visibility === "public" && (attacker.hidden || target?.token.hidden) && (
+        <p className="attack-warning" role="note">
+          {attacker.hidden ? `${attacker.name} is hidden.` : `${target!.token.name} is hidden.`} Players will see this roll with the hidden token as Unknown, but they will see the attack's name.
         </p>
-      ) : (
-        <label>
-          Attacker
-          <select value={attackerId} onChange={(e) => onAttacker(e.target.value)}>
-            {attackers.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-                {t.id === activeId ? " (turn)" : ""}
-                {t.hidden ? " (hidden)" : ""}
-              </option>
-            ))}
-          </select>
-        </label>
       )}
 
+      {editing !== null ? (
+        <PresetEditor
+          initial={typeof editing === "number" ? (presets[editing] ?? null) : null}
+          taken={presets.filter((_, j) => j !== editing).map((p) => p.name)}
+          onSave={(next) => {
+            if (typeof editing === "number") onPresets((list) => list.map((p, j) => (j === editing ? next : p)));
+            else {
+              onPresets((list) => [...list, next]);
+              // A new attack is usually the one about to be used.
+              setSelected(presets.length);
+            }
+            setEditing(null);
+          }}
+          {...(typeof editing === "number" && {
+            onRemove: () => {
+              onPresets((list) => list.filter((_, j) => j !== editing));
+              setSelected(0);
+              setEditing(null);
+            },
+          })}
+          onCancel={() => setEditing(null)}
+        />
+      ) : (
+        <>
+          {/* What to roll: one row however many attacks a token has, the rest in a menu. */}
+          <div className="attack-row">
+            {chosen ? (
+              <Picker
+                label={`${attacker.name}'s attack`}
+                icon={<Sword size={16} aria-hidden="true" />}
+                value={String(chosenIndex)}
+                onChange={(key) => setSelected(Number(key))}
+                options={presets.map((p, i) => ({ key: String(i), label: p.name, detail: presetSummary(p) }))}
+              />
+            ) : (
+              <button type="button" className="secondary attack-add-first" onClick={() => setEditing("new")}>
+                <Plus size={14} aria-hidden="true" /> Add an attack
+              </button>
+            )}
+            <PopoverButton
+              label="Attack options"
+              title="Attack options"
+              align="right"
+              className="icon-button attack-more"
+              buttonContent={<DotsThree size={20} weight="bold" aria-hidden="true" />}
+            >
+              {(close) => (
+                <div className="menu-list">
+                  {chosen && (
+                    <button
+                      type="button"
+                      className="menu-item"
+                      onClick={() => {
+                        close();
+                        setEditing(chosenIndex);
+                      }}
+                    >
+                      <PencilSimple size={14} aria-hidden="true" /> Edit {chosen.name}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="menu-item"
+                    disabled={presets.length >= MAX_PRESETS}
+                    title={presets.length >= MAX_PRESETS ? `At most ${MAX_PRESETS} per token; remove one first` : undefined}
+                    onClick={() => {
+                      close();
+                      setEditing("new");
+                    }}
+                  >
+                    <Plus size={14} aria-hidden="true" /> Add attack
+                  </button>
+                  <button
+                    type="button"
+                    className="menu-item"
+                    onClick={() => {
+                      close();
+                      onCustomOpen(!customOpen);
+                    }}
+                  >
+                    <SlidersHorizontal size={14} aria-hidden="true" /> {customOpen ? "Hide custom roll" : "Custom roll"}
+                  </button>
+                </div>
+              )}
+            </PopoverButton>
+          </div>
+          {!chosen && <p className="muted small-print">Attacks are saved in this browser, per token.</p>}
+          {chosen && (
+            <div className="attack-roll-row">
+              <button
+                type="button"
+                className="attack-roll"
+                disabled={!target || busy}
+                onClick={() => rollPreset(chosen)}
+                aria-label={target ? `Roll ${chosen.name} ${chosen.toHit ? "to hit" : "damage to"} ${target.token.name}` : undefined}
+              >
+                <DiceFive size={18} aria-hidden="true" />
+                {busy ? "Rolling…" : !target ? "Choose a target" : chosen.toHit ? "Roll to hit" : "Roll damage"}
+              </button>
+              {privateToggle}
+            </div>
+          )}
+        </>
+      )}
+
+      {customOpen && (
+        <section className="attack-custom" aria-label="Custom roll">
+          <div className="attack-custom-head">
+            <span className="field-label">Custom roll</span>
+            <button type="button" className="icon-button" onClick={() => onCustomOpen(false)} aria-label="Close custom roll" title="Close">
+              <X size={14} aria-hidden="true" />
+            </button>
+          </div>
+          <form className="stack" onSubmit={rollCustom}>
+            <div className="attack-kind" role="group" aria-label="Roll type">
+              <button type="button" className="chip" aria-pressed={kind === "toHit"} onClick={() => update({ kind: "toHit" })}>
+                To hit
+              </button>
+              <button type="button" className="chip" aria-pressed={kind === "damage"} onClick={() => update({ kind: "damage" })}>
+                Damage
+              </button>
+            </div>
+
+            <fieldset className="attack-dice">
+              <legend className="sr-only">Dice</legend>
+              <div className="attack-die-types" role="group" aria-label="Die type">
+                {DIE_SIDES.map((sides) => (
+                  <button key={sides} type="button" className="chip" aria-pressed={settings.sides === sides} onClick={() => update({ sides })}>
+                    d{sides}
+                  </button>
+                ))}
+              </div>
+              <div className="attack-dice-row">
+                <span className="attack-stepper" role="group" aria-label="Number of dice">
+                  <button type="button" className="icon-button" onClick={() => update({ count: clampCount(settings.count - 1) })} disabled={settings.count <= 1} aria-label="One die fewer">
+                    <Minus size={12} aria-hidden="true" />
+                  </button>
+                  <output aria-live="polite">{settings.count}</output>
+                  <button type="button" className="icon-button" onClick={() => update({ count: clampCount(settings.count + 1) })} disabled={settings.count >= MAX_ATTACK_DICE} aria-label="One die more">
+                    <Plus size={12} aria-hidden="true" />
+                  </button>
+                </span>
+                <span className="muted">d{settings.sides}</span>
+                <label className="attack-modifier">
+                  <span className="muted">+</span>
+                  <span className="sr-only">Modifier</span>
+                  <input
+                    type="number"
+                    value={modifierText}
+                    min={-MAX_ATTACK_MODIFIER}
+                    max={MAX_ATTACK_MODIFIER}
+                    step={1}
+                    onChange={(e) => {
+                      setModifierText(e.target.value);
+                      setSettings((s) => ({ ...s, modifier: clampModifier(Number(e.target.value)) }));
+                      setError(null);
+                    }}
+                    onBlur={() => setModifierText(String(settings.modifier))}
+                  />
+                </label>
+              </div>
+              <input
+                className="attack-custom-label"
+                aria-label="Label"
+                value={settings.label}
+                onChange={(e) => update({ label: e.target.value })}
+                maxLength={MAX_ATTACK_LABEL}
+                placeholder="Label (optional)"
+              />
+            </fieldset>
+
+            <div className="attack-roll-row">
+              <button type="submit" className="attack-roll" disabled={busy || !target}>
+                <DiceFive size={18} aria-hidden="true" />
+                {busy ? "Rolling…" : !target ? "Choose a target" : kind === "damage" ? `Roll ${expression} damage` : `Roll ${expression} to hit`}
+              </button>
+              {privateToggle}
+            </div>
+          </form>
+        </section>
+      )}
+
+      {/* The result after the controls: it is read after rolling (attack-section-compact). */}
       <LatestAttack
         state={state}
         you={you}
@@ -344,202 +563,6 @@ function AttackForm({
         onRule={isGm ? (rollId, verdict) => void gm({ type: "roll.rule", rollId, verdict }) : undefined}
         onApply={isGm ? (rollId) => void gm({ type: "roll.applyDamage", rollId }) : undefined}
       />
-
-      <div className="attack-field">
-        <span className="field-label" id="attack-target-label">Target</span>
-        <div className="attack-target-row">
-          {target ? (
-            <span className="attack-target" aria-labelledby="attack-target-label">
-              <Crosshair size={16} aria-hidden="true" />
-              <strong>{target.token.name}</strong>
-              <span className="muted">· {target.distance}</span>
-              <button type="button" className="icon-button" onClick={() => onTarget(null)} aria-label={`Clear target ${target.token.name}`} title="Clear target">
-                <X size={14} aria-hidden="true" />
-              </button>
-            </span>
-          ) : (
-            <span className="muted">None yet</span>
-          )}
-          <button type="button" className="secondary small" onClick={onPickOnBoard}>
-            <Crosshair size={14} aria-hidden="true" /> Pick on board
-          </button>
-        </div>
-        {targets.length === 0 ? (
-          <p className="muted">No other tokens on the board.</p>
-        ) : (
-          <ul className="plain attack-targets" aria-label="Targets, nearest first">
-            {targets.map((t) => (
-              <li key={t.token.id}>
-                <button type="button" className="chip" aria-pressed={t.token.id === targetId} onClick={() => onTarget(t.token.id)}>
-                  {t.token.name}
-                  {t.token.hidden && " (hidden)"} <span className="muted">· {t.distance}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      {/* Before the attacks, not after: a tap rolls at once, so privacy is decided first. */}
-      {isGm && (
-        <label className="checkbox">
-          <input type="checkbox" checked={visibility === "gm"} onChange={(e) => onVisibility(e.target.checked ? "gm" : "public")} />
-          Roll privately (players won't see it)
-        </label>
-      )}
-      {isGm && visibility === "public" && (attacker.hidden || target?.token.hidden) && (
-        <p className="attack-warning" role="note">
-          {attacker.hidden ? `${attacker.name} is hidden.` : `${target!.token.name} is hidden.`} Players will see this roll with the hidden token as Unknown, but they will see the attack's name.
-        </p>
-      )}
-
-      <div className="attack-field">
-        <span className="field-label">Attacks</span>
-        {presets.length === 0 && editing === null && (
-          <p className="muted small-print">Add the attacks {attacker.name} makes, like a sword, a spell or claws. Saved in this browser.</p>
-        )}
-        {/* One row however many attacks a token has (attack-panel-encounter-reset). */}
-        {chosen && typeof editing === "number" ? (
-          <PresetEditor
-            initial={chosen}
-            taken={presets.filter((_, j) => j !== chosenIndex).map((p) => p.name)}
-            onSave={(next) => {
-              onPresets((list) => list.map((p, j) => (j === chosenIndex ? next : p)));
-              setEditing(null);
-            }}
-            onRemove={() => {
-              onPresets((list) => list.filter((_, j) => j !== chosenIndex));
-              setSelected(0);
-              setEditing(null);
-            }}
-            onCancel={() => setEditing(null)}
-          />
-        ) : (
-          chosen && (
-            <div className="attack-preset">
-              <AttackPicker presets={presets} selected={chosenIndex} onSelect={setSelected} label={`${attacker.name}'s attack`} disabled={editing !== null} />
-              <button
-                type="button"
-                className="icon-button"
-                disabled={editing !== null}
-                onClick={() => setEditing(chosenIndex)}
-                aria-label={`Edit ${chosen.name}`}
-                title="Edit"
-              >
-                <PencilSimple size={14} aria-hidden="true" />
-              </button>
-            </div>
-          )
-        )}
-        {chosen && (
-          <button type="button" className="attack-roll" disabled={!target || busy || editing !== null} onClick={() => rollPreset(chosen)}>
-            <Sword size={16} aria-hidden="true" />
-            {busy
-              ? "Rolling…"
-              : !target
-                ? "Choose a target to roll"
-                : chosen.toHit
-                  ? `Roll ${chosen.name} to hit ${target.token.name}`
-                  : `Roll ${chosen.name} damage to ${target.token.name}`}
-          </button>
-        )}
-        {editing === "new" ? (
-          <PresetEditor
-            initial={null}
-            taken={presets.map((p) => p.name)}
-            onSave={(next) => {
-              onPresets((list) => [...list, next]);
-              // A new attack is usually the one about to be used.
-              setSelected(presets.length);
-              setEditing(null);
-            }}
-            onCancel={() => setEditing(null)}
-          />
-        ) : (
-          <button
-            type="button"
-            className="secondary small attack-add"
-            disabled={presets.length >= MAX_PRESETS || editing !== null}
-            title={presets.length >= MAX_PRESETS ? `At most ${MAX_PRESETS} per token; remove one first` : undefined}
-            onClick={() => setEditing("new")}
-          >
-            <Plus size={14} aria-hidden="true" /> Add attack
-          </button>
-        )}
-      </div>
-
-      <details className="attack-custom" open={customOpen} onToggle={(e) => onCustomOpen(e.currentTarget.open)}>
-        <summary>Custom roll</summary>
-        <form className="stack" onSubmit={rollCustom}>
-          <div className="attack-field">
-            <span className="field-label" id="attack-kind-label">Roll type</span>
-            <div className="attack-kind" role="group" aria-labelledby="attack-kind-label">
-              <button type="button" className="chip" aria-pressed={kind === "toHit"} onClick={() => update({ kind: "toHit" })}>
-                To hit
-              </button>
-              <button type="button" className="chip" aria-pressed={kind === "damage"} onClick={() => update({ kind: "damage" })}>
-                Damage
-              </button>
-            </div>
-          </div>
-
-          <fieldset className="attack-dice">
-            <legend className="field-label">Dice</legend>
-            <div className="attack-die-types" role="group" aria-label="Die type">
-              {DIE_SIDES.map((sides) => (
-                <button key={sides} type="button" className="chip" aria-pressed={settings.sides === sides} onClick={() => update({ sides })}>
-                  d{sides}
-                </button>
-              ))}
-            </div>
-            <div className="attack-dice-row">
-              <span className="attack-stepper" role="group" aria-label="Number of dice">
-                <button type="button" className="icon-button" onClick={() => update({ count: clampCount(settings.count - 1) })} disabled={settings.count <= 1} aria-label="One die fewer">
-                  <Minus size={12} aria-hidden="true" />
-                </button>
-                <output aria-live="polite">{settings.count}</output>
-                <button type="button" className="icon-button" onClick={() => update({ count: clampCount(settings.count + 1) })} disabled={settings.count >= MAX_ATTACK_DICE} aria-label="One die more">
-                  <Plus size={12} aria-hidden="true" />
-                </button>
-              </span>
-              <span className="muted">d{settings.sides}</span>
-              <label className="attack-modifier">
-                <span className="muted">+</span>
-                <span className="sr-only">Modifier</span>
-                <input
-                  type="number"
-                  value={modifierText}
-                  min={-MAX_ATTACK_MODIFIER}
-                  max={MAX_ATTACK_MODIFIER}
-                  step={1}
-                  onChange={(e) => {
-                    setModifierText(e.target.value);
-                    setSettings((s) => ({ ...s, modifier: clampModifier(Number(e.target.value)) }));
-                    setError(null);
-                  }}
-                  onBlur={() => setModifierText(String(settings.modifier))}
-                />
-              </label>
-            </div>
-          </fieldset>
-
-          <label>
-            Label
-            <input value={settings.label} onChange={(e) => update({ label: e.target.value })} maxLength={MAX_ATTACK_LABEL} placeholder="Optional" />
-          </label>
-
-          <button type="submit" className="attack-roll" disabled={busy || !target}>
-            <Sword size={16} aria-hidden="true" />
-            {busy
-              ? "Rolling…"
-              : !target
-                ? "Choose a target to roll"
-                : kind === "damage"
-                  ? `Roll ${expression} damage to ${target.token.name}`
-                  : `Roll ${expression} to hit ${target.token.name}`}
-          </button>
-        </form>
-      </details>
 
       {error && (
         <p role="alert" className="error">
@@ -667,9 +690,9 @@ function DiceField({
 }
 
 /**
- * The viewer's latest attack roll, at the top of the section: thrown in the tray, then its line
- * once the dice land, with what the GM has made of it so far (ADR 0011). After a Hit, Roll damage;
- * for the GM, the ruling controls on their own roll. The GM decides; this only shows it.
+ * The viewer's latest attack roll, below the attack controls (attack-section-compact): thrown
+ * in the tray, then the result once the dice land, with what the GM has made of it (ADR 0011). After a Hit,
+ * Roll damage; for the GM, the ruling controls on their own roll. The GM decides; this only shows it.
  */
 function LatestAttack({
   state,
@@ -699,33 +722,43 @@ function LatestAttack({
   if (!latest?.attack) return null;
   const throwing = latest.id !== landed;
   const attack = latest.attack;
+  const isPrivate = latest.visibility === "gm";
   const target = attack.target ? state.tokens[attack.target.tokenId] : undefined;
   const waiting = !throwing && attack.kind === "toHit" && !latest.verdict;
   const canFollowUp = !throwing && latest.verdict === "hit" && attack.actor?.tokenId === attackerId;
   const preset = canFollowUp ? presetForRoll(allPresets, latest) : null;
   const label = attackLabel(attack);
   const description = `${formatAttackParties(attack)}${label ? ` · ${label}` : ""}, ${latest.total}`;
+  const { title, meta } = attackHeadline(latest);
+  const outcome = formatAttackOutcome(latest);
   // The GM's own roll gets the same controls as the Rulings list.
   const gmToHit = onRule && waiting;
   const gmDamage = onApply && !throwing && attack.kind === "damage" && !latest.damageApplied && target && target.stats.hp !== null;
 
   return (
-    <div className="attack-latest" aria-live="polite">
-      <DiceTray key={latest.id} roll={trayRoll(latest)} throwing={throwing} onLanded={() => setLanded(latest.id)} />
-      <p className={latest.visibility === "gm" ? "attack-result private" : "attack-result"}>
-        {throwing ? "Rolling…" : formatAttackRoll(latest)}
-        {latest.visibility === "gm" && <em className="badge">GM only</em>}
-      </p>
-      {gmToHit ? (
-        <RulingButtons item={{ kind: "toHit" }} description={description} busy={busy} onRule={(v) => onRule(latest.id, v)} onApply={() => {}} />
-      ) : gmDamage ? (
-        <RulingButtons item={{ kind: "damage", amount: damageAmount(latest) }} description={description} busy={busy} onRule={() => {}} onApply={() => onApply(latest.id)} />
-      ) : (
-        waiting && (
-          <p className="muted attack-waiting">
-            <HourglassMedium size={14} aria-hidden="true" /> Waiting for the GM
+    <div className={isPrivate ? "attack-latest private" : "attack-latest"} aria-live="polite">
+      <DiceTray key={latest.id} roll={trayRoll(latest)} throwing={throwing} onLanded={() => setLanded(latest.id)} scale={0.8} />
+      <div className="attack-latest-main">
+        <div className="attack-latest-text">
+          <p className="attack-result">
+            <strong>{throwing ? "Rolling…" : title}</strong>
+            {!throwing && outcome && <span className={`badge outcome-${outcome.toLowerCase()}`}>{outcome}</span>}
+            {isPrivate && <em className="badge">GM only</em>}
           </p>
-        )
+          <p className="muted attack-latest-meta">{meta}</p>
+        </div>
+        {gmToHit ? (
+          <RulingButtons item={{ kind: "toHit" }} description={description} busy={busy} onRule={(v) => onRule(latest.id, v)} onApply={() => {}} />
+        ) : (
+          gmDamage && (
+            <RulingButtons item={{ kind: "damage", amount: damageAmount(latest) }} description={description} busy={busy} onRule={() => {}} onApply={() => onApply(latest.id)} />
+          )
+        )}
+      </div>
+      {waiting && !gmToHit && (
+        <p className="muted attack-waiting">
+          <HourglassMedium size={14} aria-hidden="true" /> Waiting for the GM
+        </p>
       )}
       {canFollowUp && (
         <button type="button" className="attack-follow-up" disabled={busy} onClick={() => onRollDamage(latest)}>

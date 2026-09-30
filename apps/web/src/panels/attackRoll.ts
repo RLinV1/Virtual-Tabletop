@@ -1,4 +1,4 @@
-import { MAX_ATTACK_LABEL, type AttackKind, type DiceRoll, type RoomState, type Token } from "@vtt/shared";
+import { attackLabel, formatAttackParties, MAX_ATTACK_LABEL, type AttackKind, type DiceRoll, type RoomState, type Token } from "@vtt/shared";
 import { measure } from "../board/tools";
 
 /**
@@ -249,4 +249,16 @@ export const LAST_USED_KEY = "vtt.attack.last";
 export function latestAttackRoll(rolls: readonly DiceRoll[], participantId: string, clearedRollId: string | null): DiceRoll | undefined {
   const latest = [...rolls].reverse().find((r) => r.attack && r.byParticipantId === participantId);
   return latest && latest.id !== clearedRollId ? latest : undefined;
+}
+
+/**
+ * The two lines that describe an attack roll in the result card
+ * (attack-section-compact): "7 damage" or "17 to hit", then "Firebomb · 2d6 · Goblin → Aria".
+ */
+export function attackHeadline(roll: Pick<DiceRoll, "expression" | "total" | "attack">): { title: string; meta: string } {
+  const attack = roll.attack;
+  const title = `${roll.total} ${attack?.kind === "damage" ? "damage" : "to hit"}`;
+  if (!attack) return { title, meta: roll.expression };
+  const label = attackLabel(attack);
+  return { title, meta: [label, roll.expression, formatAttackParties(attack)].filter(Boolean).join(" · ") };
 }
