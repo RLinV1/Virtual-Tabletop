@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PAN_THRESHOLD_PX, exceedsPanThreshold, resizeAction, zoomChangesScale } from "../src/board/viewFit";
+import { PAN_THRESHOLD_PX, exceedsPanThreshold, pinchIsManual, resizeAction, zoomChangesScale } from "../src/board/viewFit";
 
 const portrait = { width: 390, height: 700 };
 const landscape = { width: 844, height: 300 };
@@ -52,5 +52,24 @@ describe("what counts as a manual zoom (FR-TAC-01, KAN-54)", () => {
   it("is not a change when the scale clamps to the same value", () => {
     expect(zoomChangesScale(8, 8)).toBe(false);
     expect(zoomChangesScale(0.1, 0.1 + 1e-12)).toBe(false);
+  });
+});
+
+describe("what counts as a manual two-finger gesture (FR-TAC-01, KAN-54)", () => {
+  const start = { x: 200, y: 300 };
+
+  it("treats a two-finger pan at constant spread as manual, so a later resize keeps the camera", () => {
+    // Same finger distance, so the scale is unchanged, but the midpoint moved past the threshold.
+    const autoFit = !pinchIsManual(start, { x: 200 + PAN_THRESHOLD_PX + 6, y: 300 }, 1.5, 1.5);
+    expect(autoFit).toBe(false);
+    expect(resizeAction(autoFit, portrait, landscape)).toBe("recenter");
+  });
+
+  it("treats a zoom as manual even when the midpoint stayed put", () => {
+    expect(pinchIsManual(start, start, 1, 1.2)).toBe(true);
+  });
+
+  it("treats two resting fingers with jitter as not manual", () => {
+    expect(pinchIsManual(start, { x: 201, y: 301 }, 1.5, 1.5)).toBe(false);
   });
 });

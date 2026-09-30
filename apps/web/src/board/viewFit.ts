@@ -30,3 +30,12 @@ export function resizeAction(autoFit: boolean, old: Size, next: Size): "refit" |
 export function zoomChangesScale(before: number, after: number): boolean {
   return Math.abs(after - before) > 1e-9;
 }
+
+/**
+ * Whether a two-finger gesture moved the camera on purpose: it zoomed, or its midpoint
+ * travelled past the pan threshold from where the fingers came down (a two-finger pan
+ * at constant spread keeps the scale but still moves the map).
+ */
+export function pinchIsManual(start: Point, midpoint: Point, scaleBefore: number, scaleAfter: number): boolean {
+  return zoomChangesScale(scaleBefore, scaleAfter) || exceedsPanThreshold(start, midpoint);
+}

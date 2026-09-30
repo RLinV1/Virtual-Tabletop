@@ -26,7 +26,7 @@ import {
 } from "@vtt/shared";
 import { footprint, placementPoint, type PlacementGhost } from "./placement";
 import { recenterOnResize } from "./recenter";
-import { exceedsPanThreshold, resizeAction, zoomChangesScale } from "./viewFit";
+import { exceedsPanThreshold, pinchIsManual, resizeAction, zoomChangesScale } from "./viewFit";
 import { canRenderGrid, DEFAULT_BOARD_SIZE } from "./gridRenderLimit";
 import { gridLines } from "./gridLines";
 import { areaOrigin, areaShape, areaSizeFromDrag, formatDistance, hitMark, measure, sweepPoints, templateMark, type BoardTool, type Mark } from "./tools";
@@ -1281,7 +1281,7 @@ export class BoardView {
    * which is what makes a pinch feel like it is grabbing the map rather than scaling it
    * around some arbitrary centre.
    */
-  private pinch: { distance: number; midpoint: Point; scale: number } | null = null;
+  private pinch: { distance: number; midpoint: Point; scale: number; start: Point } | null = null;
   private lastTap = { at: 0, x: 0, y: 0 };
 
   private touchInfo(touches: TouchList) {
@@ -1316,7 +1316,7 @@ export class BoardView {
       this.invalidate();
     }
     const { distance, midpoint } = this.touchInfo(e.touches);
-    this.pinch = { distance, midpoint, scale: this.world.scale.x };
+    this.pinch = { distance, midpoint, scale: this.world.scale.x, start: midpoint };
   };
 
   private onTouchMove = (e: TouchEvent) => {
@@ -1334,10 +1334,10 @@ export class BoardView {
       x: (this.pinch.midpoint.x - this.world.x) / this.world.scale.x,
       y: (this.pinch.midpoint.y - this.world.y) / this.world.scale.y,
     };
-    if (zoomChangesScale(this.world.scale.x, scale)) this.autoFit = false;
+    if (pinchIsManual(this.pinch.start, midpoint, this.world.scale.x, scale)) this.autoFit = false;
     this.world.scale.set(scale);
     this.world.position.set(midpoint.x - anchor.x * scale, midpoint.y - anchor.y * scale);
-    this.pinch = { distance, midpoint, scale };
+    this.pinch = { ...this.pinch, distance, midpoint, scale };
     this.invalidate();
   };
 

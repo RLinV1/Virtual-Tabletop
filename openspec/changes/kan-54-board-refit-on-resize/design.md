@@ -41,6 +41,7 @@ A camera is manual when the viewer changed it on purpose:
 
 - Pan: cumulative screen movement of a drag reaches a threshold (`PAN_THRESHOLD_PX`, 4 CSS pixels, above touch jitter and below a deliberate drag). Movement below the threshold does not clear `autoFit`. Once past the threshold the pan behaves as today: the world position is set from the full delta, so there is no visible dead zone. Only the auto-fit flag waits.
 - Zoom: a wheel or pinch step clears `autoFit` only if it changes the clamped scale. A wheel event at the zoom limit that changes nothing keeps auto-fit.
+- Two-finger pan: a two-finger gesture also clears `autoFit` once its midpoint moves past `PAN_THRESHOLD_PX` from where the fingers came down, even at constant spread (unchanged scale), via `pinchIsManual`. Otherwise a deliberate two-finger pan would be undone by the next resize.
 - Focus: `focusToken` still clears `autoFit`, since it deliberately moves the camera.
 - Not manual: taps, double-click ping, placement clicks, attack picks, tool gestures on the map, hover.
 

@@ -22,7 +22,7 @@ When the board's canvas changes size and the viewer has not manually panned or z
 - **THEN** the map is refit to the new canvas size
 
 ### Requirement: Manual pan or zoom is preserved across resize
-When the viewer has manually panned or zoomed, a canvas resize SHALL NOT refit the board or change its zoom. The board SHALL keep the same map point at the centre of the canvas. Dragging the map beyond a small movement threshold, or a wheel or pinch action that changes the zoom level, SHALL count as manual. Centring the view on a token SHALL also count as manual.
+When the viewer has manually panned or zoomed, a canvas resize SHALL NOT refit the board or change its zoom. The board SHALL keep the same map point at the centre of the canvas. Dragging the map beyond a small movement threshold, a two-finger gesture whose midpoint moves beyond that threshold, or a wheel or pinch action that changes the zoom level, SHALL count as manual. Centring the view on a token SHALL also count as manual.
 
 #### Scenario: Rotate after zooming
 - **WHEN** a viewer has zoomed the board and then rotates their device
