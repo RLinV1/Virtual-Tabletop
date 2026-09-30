@@ -26,6 +26,7 @@ import {
 } from "@vtt/shared";
 import { footprint, placementPoint, type PlacementGhost } from "./placement";
 import { recenterOnResize } from "./recenter";
+import { tokenLabelFontSize, tokenLabelStroke } from "./tokenLabel";
 import { canRenderGrid, DEFAULT_BOARD_SIZE } from "./gridRenderLimit";
 import { gridLines } from "./gridLines";
 import { areaOrigin, areaShape, areaSizeFromDrag, formatDistance, hitMark, measure, sweepPoints, templateMark, type BoardTool, type Mark } from "./tools";
@@ -1022,6 +1023,9 @@ export class BoardView {
     view.image.rotation = token.rotation * Math.PI / 180;
     view.container.alpha = token.hidden ? 0.45 : 1;
     view.label.text = token.hidden ? `${token.name} (hidden)` : token.name;
+    const fontSize = tokenLabelFontSize(r);
+    view.label.style.fontSize = fontSize;
+    view.label.style.stroke = { color: 0x000000, width: tokenLabelStroke(fontSize) };
     view.label.position.set(0, r + 2);
 
     this.drawDecor(view, token, r, focused, active, owned);

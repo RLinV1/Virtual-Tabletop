@@ -1003,11 +1003,28 @@ dialog.modal.library-grid-modal { width: min(68rem, calc(100vw - 2rem)); }
 .token-setup-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
 .token-setup-grid label { min-width: 0; }
 .token-setup-grid input { width: 100%; }
-.token-editor .stats-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.35rem; align-items: end; }
-.token-editor-gm {
-  display: flex; flex-direction: column; gap: var(--space-2);
-  padding-top: var(--space-3); border-top: 1px solid var(--border);
+.token-editor .stats-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); align-items: end; }
+/* Rarely used fields sit in sections that start closed; the header summarises the value. */
+.token-editor-section { border-top: 1px solid var(--border); padding-top: var(--space-3); }
+.token-editor-section > summary {
+  display: flex; align-items: baseline; gap: var(--space-2);
+  cursor: pointer; font-size: var(--fs-sm); color: var(--muted); padding: 0.35rem 0;
 }
+.token-editor-section > summary::-webkit-details-marker { display: none; }
+.token-editor-section > summary::before { content: "▸"; transition: transform 0.12s; }
+.token-editor-section[open] > summary::before { transform: rotate(90deg); }
+.token-editor-section > summary:hover,
+.token-editor-section[open] > summary { color: var(--text); }
+.token-editor-summary { margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.token-editor-section[open] { padding-bottom: var(--space-2); }
+.token-editor-section[open] > summary { margin-bottom: var(--space-3); }
+.token-editor-section > :not(summary) + :not(summary) { margin-top: var(--space-3); }
+/* One gutter for the whole section, so the image buttons line up with the field columns. */
+.token-editor-section .token-setup-grid { gap: var(--space-3); }
+.token-editor-section .token-image-field .row { gap: var(--space-3); }
+/* Same two columns as the fields above, not flex widths that follow the button text. */
+.token-editor-section .token-image-field .row:not(.token-image-chosen) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.token-editor-section .token-image-field .row:not(.token-image-chosen) > :only-child { grid-column: 1 / -1; }
 /* Delete on the left, Save in the bottom-right corner where a dialog's primary action sits. */
 .token-editor-actions { display: flex; align-items: center; gap: var(--space-2); padding-top: var(--space-3); border-top: 1px solid var(--border); }
 .token-editor-actions .token-save { margin-left: auto; }
