@@ -150,7 +150,7 @@ export class RoomConnection {
         try {
           // Only the GM's events carry `commandId`; with it the undo history stays in step with
           // the server's. Players get none, so they keep no history (ADR 0013).
-          const next = msg.committed.commandId ? reduceCommitted(state, msg.committed) : reduce(state, msg.committed.event);
+          const next = msg.committed.commandId ? reduceCommitted(state, msg.committed) : reduce(state, msg.committed.event, { at: msg.committed.at });
           const you = this.snapshot.you ? (next.participants[this.snapshot.you.id] ?? null) : null;
           this.update({ state: next, seq: msg.committed.seq, you });
         } catch {

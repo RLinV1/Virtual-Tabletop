@@ -45,8 +45,14 @@ export interface UndoEntry {
 
 /** What `reduce` needs to group an event into an action. */
 export interface EventMeta {
-  commandId: string;
-  actorId: string | null;
+  /**
+   * Groups the event into an action for undo. Absent for player clients, whose events carry no
+   * `commandId` (ADR 0013): they pass only `at` and keep no history.
+   */
+  commandId?: string;
+  actorId?: string | null;
+  /** The committed ISO timestamp, so `reduce` can stamp it without reading a clock (ADR 0014). */
+  at?: string | null;
   /**
    * Committed before undo existed, so its batch boundaries are unknown. Never undoable: undoing
    * one event of an old Apply would restore the roll but not the HP (sync review).
@@ -65,8 +71,8 @@ export function isReversible(event: DomainEvent): event is ReversibleEvent {
  */
 export function eventMeta(committed: CommittedEvent): EventMeta {
   return committed.commandId
-    ? { commandId: committed.commandId, actorId: committed.actorId }
-    : { commandId: `seq:${committed.seq}`, actorId: committed.actorId, legacy: true };
+    ? { commandId: committed.commandId, actorId: committed.actorId, at: committed.at }
+    : { commandId: `seq:${committed.seq}`, actorId: committed.actorId, at: committed.at, legacy: true };
 }
 
 /**
@@ -80,7 +86,7 @@ export function eventMeta(committed: CommittedEvent): EventMeta {
  * own inverse events open an entry that its `ActionUndone` removes again, so trimming while
  * that entry is open would evict an unrelated action (sync review).
  */
-export function recordUndo(state: RoomState, event: DomainEvent, meta: EventMeta): UndoEntry[] {
+export function recordUndo(state: RoomState, event: DomainEvent, meta: EventMeta & { commandId: string }): UndoEntry[] {
   const history = state.undo;
   const last = history.at(-1);
   const reversible = !meta.legacy && isReversible(event);
@@ -95,8 +101,8 @@ export function recordUndo(state: RoomState, event: DomainEvent, meta: EventMeta
   const closed = (last && !canUndo(last) ? history.slice(0, -1) : history).slice(-UNDO_HISTORY_LIMIT);
   const empty = { tokenNames: {}, rollLabels: {} };
   const entry: UndoEntry = reversible && isReversible(event)
-    ? { commandId: meta.commandId, actorId: meta.actorId, undoable: true, events: [event], ...withLabels(empty, state, event) }
-    : { commandId: meta.commandId, actorId: meta.actorId, undoable: false, events: [], ...empty };
+    ? { commandId: meta.commandId, actorId: meta.actorId ?? null, undoable: true, events: [event], ...withLabels(empty, state, event) }
+    : { commandId: meta.commandId, actorId: meta.actorId ?? null, undoable: false, events: [], ...empty };
   return [...closed, entry];
 }
 

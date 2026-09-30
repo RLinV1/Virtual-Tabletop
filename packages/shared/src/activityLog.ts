@@ -89,6 +89,10 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
       const roll = rolledEarlier(event.rollId);
       return `${actorName} took back ${event.amount} damage from ${rollLabel(roll)}${roll?.visibility === "gm" ? " (GM only)" : ""}`;
     }
+    case "ChatMessageSent": {
+      const { text } = event.message;
+      return `${actorName} said: ${text.length > 80 ? `${text.slice(0, 79)}…` : text}`;
+    }
     case "TemplatePlaced": return `${actorName} placed a ${templateLabel(event.template)}${event.template.gmOnly ? " (GM only)" : ""}`;
     case "TemplateRemoved": return `${actorName} removed a ${templateLabel(event.template)}${event.template.gmOnly ? " (GM only)" : ""}`;
     case "ActionUndone": {

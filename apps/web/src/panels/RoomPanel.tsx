@@ -5,6 +5,7 @@ import type { TokenDraft } from "../board/placement";
 import type { RoomConnection } from "../net/roomConnection";
 import { GmPanel } from "../pages/GmPanel";
 import type { GridDraft } from "../pages/gridDraft";
+import { ChatPanel } from "./ChatPanel";
 import { DicePanel } from "./DicePanel";
 import { InitiativeTracker } from "./InitiativeTracker";
 import { AttackPanel, type AttackPick } from "./AttackPanel";
@@ -205,6 +206,7 @@ export function RoomPanel({
           visibility={attackVisibility}
           onVisibility={onAttackVisibility}
         />
+        <ChatPanel connection={connection} state={state} />
       </>
     ),
     tokens: (

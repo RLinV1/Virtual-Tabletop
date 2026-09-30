@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ConditionId, EMPTY_STATS, TokenStats } from "./conditions";
 import { AttackKind, DiceVisibility, MAX_ATTACK_LABEL, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
-import { AreaShape, Id, MapImage } from "./state";
+import { AreaShape, Id, MapImage, MAX_CHAT_LENGTH } from "./state";
 
 /**
  * Commands are REQUESTS from a client. The server validates and authorizes them,
@@ -24,6 +24,18 @@ export const DepartureAction = z.discriminatedUnion("action", [
   z.object({ tokenId: Id, action: z.literal("delete") }),
 ]);
 export type DepartureAction = z.infer<typeof DepartureAction>;
+
+/**
+ * Chat text (KAN-75, ADR 0014): trimmed, 1 to MAX_CHAT_LENGTH characters, and no control
+ * characters (\p{Cc}, so no line breaks) or invisible formatting characters (\p{Cf}, so no
+ * right-to-left overrides or zero-width spoofing).
+ */
+export const ChatText = z
+  .string()
+  .trim()
+  .min(1)
+  .max(MAX_CHAT_LENGTH)
+  .refine((text) => !/[\p{Cc}\p{Cf}]/u.test(text), "Messages can't contain control or invisible formatting characters.");
 
 /** Fields a token editor may change in one validated, atomic room command. */
 export const TokenUpdate = z.object({
@@ -188,6 +200,11 @@ export const Command = z.discriminatedUnion("type", [
     participantId: Id,
     actions: z.array(DepartureAction).min(1).max(MAX_DEPARTURE_ACTIONS),
   }),
+  /** Send a chat message to the room (KAN-75, ADR 0014). Strict: a client can't name the sender. */
+  z.object({
+    type: z.literal("chat.send"),
+    text: ChatText,
+  }).strict(),
   /** GM reverses one recent action, picked from the activity log by its `commandId` (FR-REC-02, ADR 0013). */
   z.object({
     type: z.literal("history.undo"),

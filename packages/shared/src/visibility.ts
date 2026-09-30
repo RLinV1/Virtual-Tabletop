@@ -23,6 +23,7 @@ export function filterStateForViewer(state: RoomState, viewer: Participant): Roo
   const templates = Object.fromEntries(
     Object.entries(state.templates).filter(([, t]) => !t.gmOnly),
   );
+  // Chat is public, so `chat` stays as it is in the spread below (ADR 0014).
   // Undo is GM-only, and its entries name hidden tokens and their old values (ADR 0013).
   return { ...state, tokens, rolls, initiative, templates, undo: [] };
 }
@@ -102,6 +103,9 @@ export function filterEventForViewer(
       // Players have no undo or activity log; the compensating events before it already
       // delivered whatever they may see (ADR 0013).
       return redacted;
+    case "ChatMessageSent":
+      // Chat is public to the whole room; it names no hidden token or roll (ADR 0014).
+      return pass;
     case "RoomCreated":
     case "ParticipantJoined":
     case "ParticipantRenamed":
