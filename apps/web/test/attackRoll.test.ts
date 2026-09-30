@@ -3,6 +3,7 @@ import { emptyRoomState, type DiceRoll, type RoomState, type Token } from "@vtt/
 import {
   attackExpression,
   attackHeadline,
+  rollHeadline,
   attackSectionChange,
   clampCount,
   clampModifier,
@@ -232,7 +233,7 @@ describe("outcome card after an encounter ends (attack-panel-encounter-reset)", 
   });
 });
 
-describe("attack result text (attack-section-compact, FR-TAC-09)", () => {
+describe("roll popup text (attack-section-compact, FR-TAC-09)", () => {
   const side = (id: string, name: string) => ({ tokenId: id, name, hidden: false });
   const base = { id: "r1", byParticipantId: "p", dice: [4, 3], modifier: 0, total: 7, visibility: "public" as const };
 
@@ -244,5 +245,9 @@ describe("attack result text (attack-section-compact, FR-TAC-09)", () => {
   it("reads a to-hit roll as to hit", () => {
     const roll: DiceRoll = { ...base, expression: "1d20+5", total: 17, attack: { actor: side("a", "Aria"), target: side("g", "Goblin"), label: "Longsword", kind: "toHit" } };
     expect(attackHeadline(roll).title).toBe("17 to hit");
+  });
+
+  it("reads a plain roll as its total and who rolled it", () => {
+    expect(rollHeadline({ ...base, expression: "2d6" }, "Pat")).toEqual({ title: "7", meta: "Pat · 2d6" });
   });
 });

@@ -252,9 +252,14 @@ export function latestAttackRoll(rolls: readonly DiceRoll[], participantId: stri
 }
 
 /**
- * The two lines that describe an attack roll in the result card
- * (attack-section-compact): "7 damage" or "17 to hit", then "Firebomb · 2d6 · Goblin → Aria".
+ * The two lines that describe an attack roll in the result card and the board popup
+ * (attack-section-compact, board-dice-rolls): "7 damage" or "17 to hit", then "Firebomb · 2d6 · Goblin → Aria".
  */
+export function rollHeadline(roll: Pick<DiceRoll, "expression" | "total" | "attack">, rollerName: string): { title: string; meta: string } {
+  return roll.attack ? attackHeadline(roll) : { title: String(roll.total), meta: `${rollerName} · ${roll.expression}` };
+}
+
+/** Attack rolls read as what they did; see `rollHeadline` for any roll. */
 export function attackHeadline(roll: Pick<DiceRoll, "expression" | "total" | "attack">): { title: string; meta: string } {
   const attack = roll.attack;
   const title = `${roll.total} ${attack?.kind === "damage" ? "damage" : "to hit"}`;

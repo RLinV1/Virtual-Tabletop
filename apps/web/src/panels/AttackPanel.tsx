@@ -75,6 +75,8 @@ export function AttackPanel({
   pick,
   onPick,
   reset,
+  throwingRollId,
+  onLanded,
   onPickOnBoard,
   onShowPing,
   visibility,
@@ -87,6 +89,10 @@ export function AttackPanel({
   onPick: (pick: AttackPick) => void;
   /** The last encounter end: the outcome card, custom settings and chosen attack start over. */
   reset: AttackReset;
+  /** The viewer's attack roll whose dice are still in the air, if any (attack-section-compact). */
+  throwingRollId: string | null;
+  /** Its dice have landed, on the board or in the private tray. */
+  onLanded: (rollId: string) => void;
   /** Put the board into targeting mode for this attacker. */
   onPickOnBoard: (attackerId: string) => void;
   /** Show a ping on this viewer's own board; the relay doesn't echo it back. */
@@ -159,6 +165,8 @@ export function AttackPanel({
           activeId={activeId}
           targetId={target?.id ?? null}
           clearedRollId={reset.clearedRollId}
+          throwingRollId={throwingRollId}
+          onLanded={onLanded}
           initial={lastUsed[attacker.id] ?? DEFAULT_ATTACK}
           presets={allPresets[attacker.id] ?? []}
           allPresets={allPresets}
@@ -187,6 +195,8 @@ function AttackForm({
   activeId,
   targetId,
   clearedRollId,
+  throwingRollId,
+  onLanded,
   initial,
   presets,
   allPresets,
@@ -209,6 +219,8 @@ function AttackForm({
   activeId: string | null;
   targetId: string | null;
   clearedRollId: string | null;
+  throwingRollId: string | null;
+  onLanded: (rollId: string) => void;
   initial: AttackSettings;
   presets: AttackPreset[];
   allPresets: Record<string, AttackPreset[]>;
@@ -557,6 +569,8 @@ function AttackForm({
         you={you}
         attackerId={attackerId}
         clearedRollId={clearedRollId}
+        throwingRollId={throwingRollId}
+        onLanded={onLanded}
         allPresets={allPresets}
         busy={busy}
         onRollDamage={rollDamage}
@@ -690,8 +704,9 @@ function DiceField({
 }
 
 /**
- * The viewer's latest attack roll, below the attack controls (attack-section-compact): thrown
- * in the tray, then the result once the dice land, with what the GM has made of it (ADR 0011). After a Hit,
+ * The viewer's latest attack roll, below the attack controls (attack-section-compact): the
+ * result once the dice land, with what the GM has made of it (ADR 0011). A public roll's dice
+ * are thrown over the board; a private one is thrown here, off the shared view. After a Hit,
  * Roll damage; for the GM, the ruling controls on their own roll. The GM decides; this only shows it.
  */
 function LatestAttack({
@@ -699,6 +714,8 @@ function LatestAttack({
   you,
   attackerId,
   clearedRollId,
+  throwingRollId,
+  onLanded,
   allPresets,
   busy,
   onRollDamage,
@@ -709,6 +726,9 @@ function LatestAttack({
   you: Participant;
   attackerId: string;
   clearedRollId: string | null;
+  /** The roll whose dice are still in the air, on the board or in this card. */
+  throwingRollId: string | null;
+  onLanded: (rollId: string) => void;
   allPresets: Record<string, AttackPreset[]>;
   busy: boolean;
   onRollDamage: (roll: DiceRoll) => void;
@@ -718,9 +738,8 @@ function LatestAttack({
   onApply?: (rollId: string) => void;
 }) {
   const latest = latestAttackRoll(state.rolls, you.id, clearedRollId);
-  const [landed, setLanded] = useState<string | undefined>(latest?.id);
   if (!latest?.attack) return null;
-  const throwing = latest.id !== landed;
+  const throwing = latest.id === throwingRollId;
   const attack = latest.attack;
   const isPrivate = latest.visibility === "gm";
   const target = attack.target ? state.tokens[attack.target.tokenId] : undefined;
@@ -737,7 +756,7 @@ function LatestAttack({
 
   return (
     <div className={isPrivate ? "attack-latest private" : "attack-latest"} aria-live="polite">
-      <DiceTray key={latest.id} roll={trayRoll(latest)} throwing={throwing} onLanded={() => setLanded(latest.id)} scale={0.8} />
+      {isPrivate && <DiceTray key={latest.id} roll={trayRoll(latest)} throwing={throwing} onLanded={() => onLanded(latest.id)} scale={0.8} />}
       <div className="attack-latest-main">
         <div className="attack-latest-text">
           <p className="attack-result">

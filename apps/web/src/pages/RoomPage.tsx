@@ -17,11 +17,15 @@ import { LeaveTable } from "../panels/LeaveTable";
 import { ResolveDepartureModal } from "../panels/ResolveDeparture";
 import { DepartureNotices } from "../ui/DepartureNotice";
 import { TurnNotice } from "../ui/TurnNotice";
+import { BoardDice } from "../ui/BoardDice";
 import { SectionCollapseProvider } from "../ui/PanelSection";
 import { ParticipantsButton } from "../ui/ParticipantsButton";
 import { ShareButton } from "../ui/ShareButton";
 import { GuideIcon, GuideTour } from "../ui/GuideTour";
 import { isBoolean, usePersistentState } from "../ui/usePersistentState";
+
+/** How long the board says what was just rolled (attack-section-compact). */
+const ROLL_POPUP_MS = 4000;
 
 /** Below this the panel becomes tabs and sits under the board (FR-PL-03). */
 const COMPACT_WIDTH = 720;
@@ -228,6 +232,39 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
       ? { play: { label: "new ruling" } }
       : {};
 
+  // Every roll is thrown once, for everyone who can see it (attack-section-compact): a public roll
+  // over the board with a popup of the result, a private (GM-only) roll in the GM's panel tray. Kept
+  // here, not in a panel, so the board and the panels agree on when the dice have landed. Undefined
+  // until the room loads: rolls already on the table then aren't thrown again.
+  const latestRoll = state?.rolls[state.rolls.length - 1];
+  const [landed, setLanded] = useState<{ id: string | null; live: boolean } | undefined>(undefined);
+  const [popupRollId, setPopupRollId] = useState<string | null>(null);
+  useEffect(() => {
+    if (landed === undefined && state) setLanded({ id: latestRoll?.id ?? null, live: false });
+  }, [landed, state, latestRoll]);
+  const throwingRoll = latestRoll && landed !== undefined && latestRoll.id !== landed.id ? latestRoll : undefined;
+  const landRoll = useCallback((rollId: string) => {
+    setLanded({ id: rollId, live: true });
+    setPopupRollId(rollId);
+  }, []);
+  // A private roll lands in a panel tray: the Attack section's for your own attack, else the Dice
+  // section's. With that tray out of view there is nothing to watch, so it lands at once.
+  const diceVisible = tab === "dice" && !(sidebarCollapsed && !compact);
+  const privateTrayShown =
+    throwingRoll?.visibility === "gm" &&
+    (diceVisible || (playVisible && !!throwingRoll.attack && throwingRoll.byParticipantId === you?.id));
+  const privateUnseen = throwingRoll?.visibility === "gm" && !privateTrayShown;
+  useEffect(() => {
+    if (privateUnseen && throwingRoll) landRoll(throwingRoll.id);
+  }, [privateUnseen, throwingRoll, landRoll]);
+  useEffect(() => {
+    if (!popupRollId) return;
+    const timer = window.setTimeout(() => setPopupRollId(null), ROLL_POPUP_MS);
+    return () => window.clearTimeout(timer);
+  }, [popupRollId]);
+  const popupRoll = popupRollId ? state?.rolls.find((r) => r.id === popupRollId) : undefined;
+  const rollThrow = { rollId: throwingRoll?.id ?? null, justLandedId: landed?.live ? landed.id : null, onLanded: landRoll };
+
   if (status === "ended") return <SessionEnded roomName={state?.name ?? null} reason={endReason} />;
 
   if (status === "unauthorized") {
@@ -338,6 +375,14 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
             <TurnNotice state={state} you={you} onFocusToken={focusToken} />
           </div>
         }
+        overlay={
+          <BoardDice
+            throwing={throwingRoll?.visibility === "gm" ? undefined : throwingRoll}
+            popup={popupRoll}
+            rollerName={(roll) => state.participants[roll.byParticipantId]?.displayName ?? "Someone"}
+            onLanded={landRoll}
+          />
+        }
       />
       <aside className="panel" id="room-panel" tabIndex={-1} aria-label="Room controls">
         {!compact && (
@@ -393,6 +438,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
               attackPick={attackPick}
               onAttackPick={setAttackPick}
               attackReset={attackReset}
+              rollThrow={rollThrow}
               onPickOnBoard={pickOnBoard}
               onShowPing={showPing}
               attackVisibility={attackVisibility}
