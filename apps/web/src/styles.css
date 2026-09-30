@@ -524,10 +524,12 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 
 /* The tray the latest roll lands in. Rust dice for the table; a GM-only roll is thrown in
    slate with amber numerals, and its row still carries the "GM only" badge. */
-.dice-tray {
+.dice-tray, .board-dice-roll, .dice-ghost, .dice-throw-handle {
   --die-body: var(--accent);
   --die-ink: var(--accent-ink);
   --die-shadow: rgba(0, 0, 0, 0.6);
+}
+.dice-tray {
   display: flex; flex-wrap: wrap; justify-content: center; gap: 0.3rem 0.55rem;
   padding: 0.7rem 0.5rem 0.8rem;
   border: 1px solid var(--border); border-radius: var(--radius);
@@ -535,7 +537,10 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
   /* The dice are thrown in from outside the tray; clip them until they arrive. */
   overflow: hidden;
 }
-.dice-tray.private { --die-body: #39404b; --die-ink: var(--warn); }
+.dice-tray.private, .board-dice-roll.private, .dice-ghost.private, .dice-throw-handle[data-private] { --die-body: #39404b; --die-ink: var(--warn); }
+/* The roll's dice are flying on the board (throw-dice-on-board): keep the tray's room, but
+   don't show the result before they land there. */
+.dice-tray.waiting .die3d-slot { visibility: hidden; }
 .die3d-slot { position: relative; width: var(--die); height: var(--die); }
 .die3d-shadow {
   position: absolute; left: 14%; right: 14%; bottom: -4%; height: 22%;
@@ -560,6 +565,43 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
   text-anchor: middle; dominant-baseline: central;
 }
 .die3d-face line { stroke: var(--die-ink); stroke-linecap: round; }
+
+/* Dice thrown onto the map (throw-dice-on-board). The world layer follows the board's pan and
+   zoom; the dice are placed in it in board pixels. Nothing here takes the pointer. */
+.board-dice { position: absolute; inset: 0; z-index: 1; overflow: hidden; pointer-events: none; }
+.board-dice-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.board-dice-roll { --die-shadow: rgba(0, 0, 0, 0.55); }
+.board-dice-roll .die3d-slot { position: absolute; }
+
+/* The die to pick up in the Dice panel, and the one held under the pointer. */
+.dice-throw { display: flex; align-items: center; gap: var(--space-2); }
+.dice-throw p { margin: 0; }
+.dice-throw-handle {
+  flex: none; display: grid; place-items: center;
+  width: calc(var(--die) + 14px); height: calc(var(--die) + 14px);
+  border: 1px dashed var(--border); border-radius: var(--radius);
+  background: var(--field);
+  cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none;
+}
+.dice-throw-handle:active { cursor: grabbing; }
+.dice-throw-handle.disabled { opacity: 0.45; cursor: not-allowed; }
+.dice-ghost {
+  /* Placed by a transform written on each frame (DiceThrowHandle), so following the pointer
+     never costs a layout. */
+  position: fixed; left: 0; top: 0; z-index: 1000; width: var(--die); height: var(--die);
+  pointer-events: none; will-change: transform;
+  transition: opacity 150ms;
+}
+/* Not over the map: letting go here puts the die back. */
+.dice-ghost.off-map { opacity: 0.55; }
+.dice-ghost.fading { opacity: 0; transition: opacity 400ms; }
+@media (prefers-reduced-motion: no-preference) {
+  .dice-ghost .die3d { animation: dice-ghost-spin 900ms linear infinite; }
+}
+@keyframes dice-ghost-spin {
+  from { transform: rotateX(0deg) rotateY(0deg) rotateZ(0deg); }
+  to { transform: rotateX(360deg) rotateY(720deg) rotateZ(180deg); }
+}
 
 @media (prefers-reduced-motion: no-preference) {
   /* The total arrives with the dice. */

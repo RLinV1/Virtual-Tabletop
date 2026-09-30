@@ -25,6 +25,7 @@ import {
   type AreaTemplate,
 } from "@vtt/shared";
 import { footprint, placementPoint, type PlacementGhost } from "./placement";
+import { clientToBoard, type BoardTransform } from "./diceThrow";
 import { recenterOnResize } from "./recenter";
 import { exceedsPanThreshold, pinchIsManual, resizeAction, zoomChangesScale } from "./viewFit";
 import { conditionRowY, tokenLabelFontSize, tokenLabelStroke } from "./tokenLabel";
@@ -242,6 +243,9 @@ export class BoardView {
   private pendingSize: { width: number; height: number } | null = null;
   /** Per-frame animation steps; each returns false once it has finished. */
   private animations = new Set<(now: number) => boolean>();
+  /** Told the world transform whenever a frame draws it changed (throw-dice-on-board). */
+  private viewListeners = new Set<(view: BoardTransform) => void>();
+  private lastView: BoardTransform | null = null;
 
   constructor(
     private host: HTMLElement,
@@ -343,12 +347,45 @@ export class BoardView {
       }
     }
     if (this.dirty && this.marksScale !== this.world.scale.x) this.redrawMarks();
-    if (this.dirty) this.app.render();
+    if (this.dirty) {
+      this.app.render();
+      this.notifyView();
+    }
     this.dirty = false;
     // Cleared only now, so changes made while drawing this frame don't queue another.
     this.frame = 0;
     if (this.animations.size > 0 || this.ghosts.size > 0 || this.pendingSize) this.schedule();
   };
+
+  /** In the frame that draws it, so DOM layered over the canvas moves with the picture. */
+  private notifyView() {
+    const view = this.transform;
+    const last = this.lastView;
+    if (last && last.scale === view.scale && last.x === view.x && last.y === view.y) return;
+    this.lastView = view;
+    for (const fn of this.viewListeners) fn(view);
+  }
+
+  /**
+   * Follow the board's world transform: called now with the current one, then once per drawn
+   * frame in which it changed. Returns the unsubscribe.
+   */
+  onViewChange(fn: (view: BoardTransform) => void): () => void {
+    this.viewListeners.add(fn);
+    if (this.initialized) fn(this.transform);
+    return () => this.viewListeners.delete(fn);
+  }
+
+  /** The board's world transform right now. */
+  get transform(): BoardTransform {
+    return { scale: this.world.scale.x, x: this.world.x, y: this.world.y };
+  }
+
+  /** A page point (clientX/Y) in board coordinates, or null when it is not over the canvas. */
+  clientToBoard(clientX: number, clientY: number): Point | null {
+    if (!this.initialized) return null;
+    return clientToBoard({ x: clientX, y: clientY }, this.app.canvas.getBoundingClientRect(), this.transform);
+  }
 
   /** Resize the canvas once the host has held the same size for a whole frame. */
   private settleResize() {
@@ -370,6 +407,7 @@ export class BoardView {
     cancelAnimationFrame(this.frame);
     this.frame = 0;
     this.animations.clear();
+    this.viewListeners.clear();
     this.hostObserver?.disconnect();
     this.app.canvas.removeEventListener("wheel", this.onWheel);
     this.app.canvas.removeEventListener("touchstart", this.onTouchStart);

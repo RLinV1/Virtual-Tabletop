@@ -12,6 +12,7 @@ import {
   type ServerMessage,
   type SessionEndReason,
 } from "@vtt/shared";
+import { RollsBySeq } from "./rollsBySeq";
 
 /** `ended`: this seat left the room (ADR 0006). Terminal, like `unauthorized`: never reconnects. */
 export type ConnectionStatus = "connecting" | "open" | "reconnecting" | "unauthorized" | "ended";
@@ -59,6 +60,7 @@ export class RoomConnection {
   private nextCommandId = 0;
   private pending = new Map<string, (r: CommandResult) => void>();
   private ephemeralListeners = new Set<EphemeralListener>();
+  private rolls = new RollsBySeq();
 
   readonly store: StoreApi<RoomSnapshot> = createStore<RoomSnapshot>(() => ({
     status: "connecting",
@@ -108,6 +110,7 @@ export class RoomConnection {
     this.socket?.disconnect();
     this.socket = null;
     this.failPending("Disconnected");
+    this.rolls.reset();
   }
 
   onEphemeral(fn: EphemeralListener) {
@@ -126,6 +129,14 @@ export class RoomConnection {
     });
   }
 
+  /**
+   * The id of the roll the event at `seq` made, e.g. from a `dice.roll` ack, or null when that
+   * event made no roll or can no longer be told (throw-dice-on-board).
+   */
+  rollForSeq(seq: number | null): Promise<string | null> {
+    return this.rolls.find(seq, this.snapshot.seq);
+  }
+
   ephemeral(payload: EphemeralPayload) {
     if (this.snapshot.status === "open") this.send({ type: "ephemeral", payload });
   }
@@ -134,6 +145,7 @@ export class RoomConnection {
   private handle(msg: ServerMessage) {
     switch (msg.type) {
       case "welcome":
+        this.rolls.reset();
         this.update({ status: "open", state: msg.state, you: msg.you, seq: msg.seq });
         return;
 
@@ -144,6 +156,7 @@ export class RoomConnection {
           const next = reduce(state, msg.committed.event);
           const you = this.snapshot.you ? (next.participants[this.snapshot.you.id] ?? null) : null;
           this.update({ state: next, seq: msg.committed.seq, you });
+          if (msg.committed.event.type === "DiceRolled") this.rolls.record(msg.committed.seq, msg.committed.event.roll.id);
         } catch {
           this.resync();
         }

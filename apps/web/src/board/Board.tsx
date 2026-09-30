@@ -1,9 +1,12 @@
 import { CornersOut } from "@phosphor-icons/react";
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
 import { DEFAULT_TOKEN_COLOR, EMPTY_STATS, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { DEFAULT_TOOL_OPTIONS, ToolRail, toolFor, type ToolOptions } from "../ui/ToolRail";
+import { canAnimateDice, type TrayRoll } from "../ui/Die3D";
+import { BoardDice, type ActiveThrow } from "./BoardDice";
 import { BoardView } from "./boardView";
+import { boardDieSize, onMap, throwLanding, type BoardThrow, type BoardTransform } from "./diceThrow";
 import { autoPlacementPoint, type PlacementGhost, type TokenDraft } from "./placement";
 import type { BoardTool } from "./tools";
 
@@ -29,7 +32,23 @@ export interface BoardHandle {
   startAttack(tokenId: string): void;
   /** Show a ping on this viewer's board only, e.g. the one an attack roll just sent. */
   showPing(at: Point): void;
+  /**
+   * Where dice released at this page point with this velocity (page px/ms) would fly, in board
+   * coordinates, or null when the point is not over the map (throw-dice-on-board).
+   */
+  aimThrow(client: Point, velocity: Point): { from: Point; to: Point } | null;
+  /**
+   * Throw a roll's dice on this viewer's board. False when they can't be animated here (reduced
+   * motion, no Web Animations, no map yet); then `onLanded` is never called.
+   */
+  throwDice(t: BoardThrow, roll: TrayRoll, onLanded: () => void): boolean;
 }
+
+/** What the Dice panel needs from the board to throw dice onto it (throw-dice-on-board). */
+export type DiceBoard = Pick<BoardHandle, "aimThrow" | "throwDice">;
+
+/** Rolls on the board at once; a fourth throw clears the oldest away. */
+const MAX_BOARD_THROWS = 3;
 
 const PLACING_HINT = "Click a square to place the token · drag to pan · hold Alt to place freely · Esc to cancel";
 
@@ -84,6 +103,17 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   const ghostRef = useRef(ghost);
   ghostRef.current = ghost;
   const placeAutomaticallyRef = useRef<HTMLButtonElement>(null);
+  /** Dice thrown on this board (throw-dice-on-board); a ref too, so evictions are side-effect free. */
+  const [throws, setThrows] = useState<ActiveThrow[]>([]);
+  const throwsRef = useRef(throws);
+  const setBoardThrows = (next: ActiveThrow[]) => {
+    throwsRef.current = next;
+    setThrows(next);
+  };
+  const followView = useCallback((fn: (view: BoardTransform) => void) => viewRef.current?.onViewChange(fn) ?? (() => {}), []);
+  const throwDone = useCallback((rollId: string) => setBoardThrows(throwsRef.current.filter((t) => t.throw.rollId !== rollId)), []);
+  // Don't leave the Dice panel waiting on dice that are no longer drawn.
+  useEffect(() => () => throwsRef.current.forEach((t) => t.onLanded()), []);
 
   /** Create the token at `at`. One at a time: a second click while the first is in flight does nothing. */
   const place = async (at: Point) => {
@@ -218,11 +248,36 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       setTool({ kind: "attack", attackerId: tokenId });
     },
     showPing: (at: Point) => viewRef.current?.showPing(at),
+    aimThrow: (client: Point, velocity: Point) => {
+      const view = viewRef.current;
+      const { map, grid } = latest.current.state.scene;
+      if (!view || !map) return null;
+      const from = view.clientToBoard(client.x, client.y);
+      if (!from || !onMap(from, map)) return null;
+      return { from, to: throwLanding(from, velocity, view.transform, grid, map) };
+    },
+    throwDice: (t: BoardThrow, roll: TrayRoll, onLanded: () => void) => {
+      const view = viewRef.current;
+      const { map, grid } = latest.current.state.scene;
+      if (!view || !map || !canAnimateDice(hostRef.current)) return false;
+      let landed = false;
+      const once = () => {
+        if (landed) return;
+        landed = true;
+        onLanded();
+      };
+      const next = [...throwsRef.current, { throw: t, roll, size: boardDieSize(grid, view.transform), map, onLanded: once }];
+      const evicted = next.splice(0, Math.max(0, next.length - MAX_BOARD_THROWS));
+      setBoardThrows(next);
+      evicted.forEach((e) => e.onLanded());
+      return true;
+    },
   }), []);
 
   return (
     <div className="board" data-tour="board">
       <div ref={hostRef} className="board-canvas" />
+      {throws.length > 0 && <BoardDice throws={throws} subscribe={followView} onDone={throwDone} />}
       <div className="board-toolbar">
         {toolbar}
         <button type="button" className="tool-button" data-tour="fit" onClick={() => viewRef.current?.resetView()} title="Fit the map to the screen">

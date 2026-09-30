@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { House } from "@phosphor-icons/react";
 import { can, type DiceVisibility, type GridSpec, type Point } from "@vtt/shared";
-import { Board, type BoardHandle } from "../board/Board";
+import { Board, type BoardHandle, type DiceBoard } from "../board/Board";
 import type { TokenDraft } from "../board/placement";
 import { Link } from "../Link";
 import type { SessionEndReason } from "@vtt/shared";
@@ -135,6 +135,13 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
   const pickOnBoard = useCallback((attackerId: string) => boardRef.current?.startAttack(attackerId), []);
   const pickTarget = useCallback((attackerId: string, targetId: string) => setAttackPick({ attackerId, targetId }), []);
   const showPing = useCallback((at: Point) => boardRef.current?.showPing(at), []);
+  const diceBoard = useMemo<DiceBoard>(
+    () => ({
+      aimThrow: (client, velocity) => boardRef.current?.aimThrow(client, velocity) ?? null,
+      throwDice: (t, roll, onLanded) => boardRef.current?.throwDice(t, roll, onLanded) ?? false,
+    }),
+    [],
+  );
   // The GM's "Roll privately" for attacks: here, so leaving the Play tab doesn't reset it.
   const [attackVisibility, setAttackVisibility] = useState<DiceVisibility>("public");
   const [gridDraft, setGridDraft] = useState<GridDraft | null>(null);
@@ -392,6 +399,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
               onAttackPick={setAttackPick}
               onPickOnBoard={pickOnBoard}
               onShowPing={showPing}
+              diceBoard={diceBoard}
               attackVisibility={attackVisibility}
               onAttackVisibility={setAttackVisibility}
               gridDraft={gridDraft ?? toGridDraft(state.scene.grid)}

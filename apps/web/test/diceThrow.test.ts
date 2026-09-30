@@ -1,0 +1,140 @@
+import { describe, expect, it } from "vitest";
+import { BOARD_THROW_MAX_DICE, boardDiePaths, boardDieSize, clientToBoard, holdEvent, releaseVelocity, throwBlocker, throwLanding } from "../src/board/diceThrow";
+
+const canvas = { left: 100, top: 50, width: 800, height: 600 };
+const map = { width: 1400, height: 1000 };
+const grid = { cellSize: 70 };
+
+describe("throwing dice onto the board (throw-dice-on-board, FR-TAC-09)", () => {
+  describe("clientToBoard", () => {
+    it("undoes the world transform", () => {
+      const view = { scale: 2, x: -300, y: 40 };
+      const board = { x: 250, y: 130 };
+      // Where that board point is drawn on the page.
+      const client = { x: canvas.left + view.x + board.x * view.scale, y: canvas.top + view.y + board.y * view.scale };
+      const back = clientToBoard(client, canvas, view)!;
+      expect(back.x).toBeCloseTo(board.x);
+      expect(back.y).toBeCloseTo(board.y);
+    });
+
+    it("is null off the canvas", () => {
+      expect(clientToBoard({ x: 99, y: 300 }, canvas, { scale: 1, x: 0, y: 0 })).toBeNull();
+      expect(clientToBoard({ x: 500, y: 651 }, canvas, { scale: 1, x: 0, y: 0 })).toBeNull();
+    });
+  });
+
+  describe("throwBlocker", () => {
+    it(`allows up to ${BOARD_THROW_MAX_DICE} dice and no more`, () => {
+      expect(throwBlocker("10d6", true)).toBeNull();
+      expect(throwBlocker("1d20+5", true)).toBeNull();
+      expect(throwBlocker("11d6", true)).toMatch(/At most 10 dice/);
+      expect(throwBlocker("12d6", true)).toMatch(/At most 10 dice/);
+    });
+
+    it("needs a valid expression and a map", () => {
+      expect(throwBlocker("banana", true)).toMatch(/valid expression/);
+      expect(throwBlocker("2d6", false)).toMatch(/needs a map/);
+    });
+  });
+
+  describe("releaseVelocity", () => {
+    it("measures the last 80 ms only", () => {
+      const samples = [
+        { x: 0, y: 0, t: 0 },
+        { x: 10, y: 0, t: 930 },
+        { x: 50, y: 20, t: 990 },
+      ];
+      const v = releaseVelocity(samples, 1000);
+      expect(v.x).toBeCloseTo(40 / 70);
+      expect(v.y).toBeCloseTo(20 / 70);
+    });
+
+    it("is still for a die held still before release", () => {
+      expect(releaseVelocity([{ x: 5, y: 5, t: 0 }, { x: 6, y: 5, t: 10 }], 1000)).toEqual({ x: 0, y: 0 });
+    });
+  });
+
+  describe("throwLanding", () => {
+    const from = { x: 700, y: 500 };
+    const view = { scale: 1 };
+
+    it("goes the way it was flicked, further for a faster flick", () => {
+      const slow = throwLanding(from, { x: 0.2, y: 0 }, view, grid, map);
+      const fast = throwLanding(from, { x: 1, y: 0 }, view, grid, map);
+      expect(slow.x).toBeGreaterThan(from.x);
+      expect(fast.x).toBeGreaterThan(slow.x);
+      expect(slow.y).toBeCloseTo(from.y);
+    });
+
+    it("lands near the release when dropped, and at most 3 cells away", () => {
+      const dropped = throwLanding(from, { x: 0, y: 0 }, view, grid, map);
+      expect(Math.hypot(dropped.x - from.x, dropped.y - from.y)).toBeCloseTo(0.6 * grid.cellSize);
+      const hard = throwLanding(from, { x: 50, y: 0 }, view, grid, map);
+      expect(hard.x - from.x).toBeCloseTo(3 * grid.cellSize);
+    });
+
+    it("stays inside the map when flicked at the edge", () => {
+      const edge = throwLanding({ x: 1380, y: 20 }, { x: 5, y: -5 }, view, grid, map);
+      expect(edge.x).toBeLessThanOrEqual(map.width);
+      expect(edge.y).toBeGreaterThanOrEqual(0);
+      expect(edge.x).toBeGreaterThan(1380);
+    });
+  });
+});
+
+describe("board throw paths (throw-dice-on-board, FR-TAC-09)", () => {
+  const t = { rollId: "roll-1", from: { x: 300, y: 300 }, to: { x: 500, y: 360 } };
+  const size = 42;
+
+  it("leaves from the release point and rests around the landing point, inside the map", () => {
+    const paths = boardDiePaths(t, 10, size, map);
+    expect(paths[0]!.landing).toEqual(t.to);
+    for (const { landing, path } of paths) {
+      expect(Math.hypot(landing.x - t.to.x, landing.y - t.to.y)).toBeLessThanOrEqual(size * 1.1 * 3 + 1e-9);
+      expect(Math.abs(landing.x + path.offset.x - t.from.x)).toBeLessThanOrEqual(size * 0.15);
+      expect(Math.abs(landing.y + path.offset.y - t.from.y)).toBeLessThanOrEqual(size * 0.15);
+    }
+  });
+
+  it("keeps dice thrown into a corner on the map", () => {
+    for (const { landing } of boardDiePaths({ ...t, to: { x: 1, y: 1 } }, 10, size, map)) {
+      expect(landing.x).toBeGreaterThanOrEqual(size / 2);
+      expect(landing.y).toBeGreaterThanOrEqual(size / 2);
+    }
+  });
+
+  it("plays the same throw the same way", () => {
+    expect(boardDiePaths(t, 4, size, map)).toEqual(boardDiePaths(t, 4, size, map));
+    expect(boardDiePaths(t, 4, size, map)).not.toEqual(boardDiePaths({ ...t, rollId: "roll-2" }, 4, size, map));
+  });
+
+  it("sizes dice to the grid, never smaller on screen than the held die", () => {
+    expect(boardDieSize({ cellSize: 70 }, { scale: 1 })).toBeCloseTo(63);
+    // Zoomed out, 0.9 cells would be 16 px on screen; the die stays 44 px.
+    expect(boardDieSize({ cellSize: 70 }, { scale: 0.25 })).toBeCloseTo(176);
+  });
+});
+
+describe("holding the die (throw-dice-on-board, FR-TAC-09)", () => {
+  const e = (type: string, buttons = 1, pointerId = 1) => ({ type, pointerId, buttons });
+
+  it("follows the held pointer and throws on its release", () => {
+    expect(holdEvent(1, e("pointermove"))).toBe("move");
+    expect(holdEvent(1, e("pointerup", 0))).toBe("release");
+  });
+
+  it("ends the hold when its release can no longer arrive, so the die can't stick to the pointer", () => {
+    // The button came up somewhere the handle never heard about (a context menu, another window).
+    expect(holdEvent(1, e("pointermove", 0))).toBe("end");
+    expect(holdEvent(1, e("lostpointercapture", 0))).toBe("end");
+    expect(holdEvent(1, e("pointercancel", 0))).toBe("end");
+  });
+
+  it("ignores other pointers, and everything when nothing is held", () => {
+    expect(holdEvent(1, e("pointerup", 0, 2))).toBe("ignore");
+    expect(holdEvent(1, e("pointermove", 1, 2))).toBe("ignore");
+    expect(holdEvent(null, e("pointermove"))).toBe("ignore");
+    // Capture is released right after a release too; by then nothing is held.
+    expect(holdEvent(null, e("lostpointercapture", 0))).toBe("ignore");
+  });
+});

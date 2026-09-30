@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { DiceFive, MapTrifold, Sword, UserList } from "@phosphor-icons/react";
 import { can, type DiceVisibility, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
+import type { DiceBoard } from "../board/Board";
 import type { TokenDraft } from "../board/placement";
 import type { RoomConnection } from "../net/roomConnection";
 import { GmPanel } from "../pages/GmPanel";
@@ -138,6 +139,8 @@ interface Props {
   onAttackPick: (pick: AttackPick) => void;
   onPickOnBoard: (attackerId: string) => void;
   onShowPing: (at: Point) => void;
+  /** The board, for dice thrown onto it from the Dice panel (throw-dice-on-board). */
+  diceBoard?: DiceBoard;
   attackVisibility: DiceVisibility;
   onAttackVisibility: (visibility: DiceVisibility) => void;
   gridDraft: GridDraft;
@@ -165,7 +168,7 @@ interface Props {
  */
 export function RoomPanel({
   connection, state, you, token, onFocusToken, onPlaceToken,
-  attackPick, onAttackPick, onPickOnBoard, onShowPing, attackVisibility, onAttackVisibility,
+  attackPick, onAttackPick, onPickOnBoard, onShowPing, diceBoard, attackVisibility, onAttackVisibility,
   gridDraft, hasGridDraft, onGridDraftChange, onGridDraftCancel, onGridApply, gridApplying, gridError,
   compact, tab, onTab, onReviewDeparture, tabBadges,
 }: Props) {
@@ -200,7 +203,7 @@ export function RoomPanel({
     tokens: (
       <TokenRoster connection={connection} state={state} you={you} token={token} onFocusToken={onFocusToken} onPlaceToken={onPlaceToken} />
     ),
-    dice: <DicePanel connection={connection} state={state} isGm={isGm} />,
+    dice: <DicePanel connection={connection} state={state} isGm={isGm} board={diceBoard} />,
     gm: isGm ? (
       <GmPanel
         connection={connection}
