@@ -736,11 +736,6 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
     grid-template-rows: auto 46dvh 1fr;
     height: auto; min-height: 100dvh;
   }
-  /* Landscape has almost no height; give the board less and let the panel take over. */
-  @media (orientation: landscape) {
-    .room, .room.sidebar-collapsed { grid-template-rows: auto 62dvh 1fr; }
-  }
-
   .panel { border-left: none; border-top: 1px solid var(--border); }
   .room > .panel { grid-row: 3; }
   /* Too narrow for three columns: title and people on the first row, the controls (Share
@@ -767,6 +762,23 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
   /* These scroll with the panel on a phone rather than trapping a nested scroll area. */
   .roster, .roll-log { max-height: none; }
   .board-hint { display: none; }
+
+  /* Landscape has spare width, not height (KAN-55): put the panel beside the board, fill
+     the viewport, and let the panel scroll on its own instead of the page. Placed last so
+     it overrides the stacked rules above. */
+  @media (orientation: landscape) {
+    .room, .room.sidebar-collapsed {
+      grid-template-columns: minmax(0, 1fr) clamp(15rem, 42vw, 20rem);
+      grid-template-rows: auto minmax(0, 1fr);
+      height: 100dvh; min-height: 0;
+    }
+    .room > .panel { grid-row: 2; }
+    .panel { border-top: none; border-left: 1px solid var(--border); }
+    .panel-body { height: 100%; overflow-y: auto; }
+    /* The column is too narrow for icon and label side by side on every tab; stack them
+       on all four so the row does not mix one-line and two-line tabs. */
+    .tabbar .tab { display: flex; flex-direction: column; align-items: center; gap: 0.1rem; }
+  }
 }
 
 /* Coarse pointers get generous targets regardless of width (tablets). */
