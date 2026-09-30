@@ -23,6 +23,11 @@ export interface RoomSnapshot {
   seq: number;
   /** Set with status `ended`: whether this seat left or was removed by the GM (ADR 0006). */
   endReason: SessionEndReason | null;
+  /**
+   * Set with status `unauthorized`: the server's code. `unauthorized` means the credential no
+   * longer exists (seat or room deleted); `not_found` can also mean the room failed to load.
+   */
+  refusal: "unauthorized" | "not_found" | null;
 }
 
 export type CommandResult =
@@ -61,6 +66,7 @@ export class RoomConnection {
     you: null,
     seq: 0,
     endReason: null,
+    refusal: null,
   }));
 
   constructor(
@@ -90,7 +96,7 @@ export class RoomConnection {
     socket.on("connect_error", (err: Error) => {
       if (err.message === "unauthorized" || err.message === "not_found") {
         socket.disconnect();
-        this.update({ status: "unauthorized" });
+        this.update({ status: "unauthorized", refusal: err.message });
       } else if (err.message === "left" || err.message === "revoked") {
         socket.disconnect();
         this.update({ status: "ended", endReason: err.message });
@@ -172,7 +178,7 @@ export class RoomConnection {
 
       case "error":
         if (msg.code === "unauthorized" || msg.code === "not_found") {
-          this.update({ status: "unauthorized" });
+          this.update({ status: "unauthorized", refusal: msg.code });
         }
         console.warn("Server error:", msg.message);
         return;

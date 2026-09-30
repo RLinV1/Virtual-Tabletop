@@ -5,7 +5,7 @@ import { Board, type BoardHandle } from "../board/Board";
 import type { TokenDraft } from "../board/placement";
 import { Link } from "../Link";
 import type { SessionEndReason } from "@vtt/shared";
-import { forgetCredentials, loadCredentials } from "../net/identity";
+import { forgetCredentials, loadCredentials, rememberRoomName } from "../net/identity";
 import { RoomConnection, useRoomSnapshot, type ConnectionStatus } from "../net/roomConnection";
 import { PanelTabs, RoomPanel, isTabId, type TabBadges, type TabId } from "../panels/RoomPanel";
 import { outcomeKey, pendingRulings } from "../panels/attackRoll";
@@ -111,14 +111,22 @@ function SessionEnded({ roomName, reason }: { roomName: string | null; reason: S
 
 /** The room once a credential exists: board, side panel, and the connection's terminal screens. */
 function Room({ roomId, connection, token }: { roomId: string; connection: RoomConnection; token: string }) {
-  const { status, state, you, seq, endReason } = useRoomSnapshot(connection);
+  const { status, state, you, seq, endReason, refusal } = useRoomSnapshot(connection);
   const [reviewing, setReviewing] = useState<string | null>(null);
 
   // The seat is gone for good, on every tab that shared it: forget it, so the invite link
   // offers the join form rather than bouncing back to a room that refuses us (ADR 0006).
+  // Also when the server no longer knows the credential (room deleted, seat gone), so the
+  // home page's joined list drops it (KAN-64). Not on `not_found`: a room that failed to load
+  // may come back, and forgetting the seat would lose it for good.
   useEffect(() => {
-    if (status === "ended") forgetCredentials(roomId);
-  }, [status, roomId]);
+    if (status === "ended" || refusal === "unauthorized") forgetCredentials(roomId);
+  }, [status, refusal, roomId]);
+  // So the home page's joined list names this room (KAN-64).
+  const roomName = state?.name;
+  useEffect(() => {
+    if (roomName) rememberRoomName(roomId, roomName);
+  }, [roomId, roomName]);
   const boardRef = useRef<BoardHandle>(null);
   const compact = useCompactLayout();
   const focusToken = useCallback((tokenId: string) => boardRef.current?.focusToken(tokenId), []);
