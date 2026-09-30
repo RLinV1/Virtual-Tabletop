@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { apply, body, bodyFor, dot, faceLayout, labelDie, type BodyName, type Vec3 } from "../src/ui/diceGeometry";
+import { apply, body, bodyFor, dot, faceLayout, labelDie, THROW_MS, throwDuration, type BodyName, type Vec3 } from "../src/ui/diceGeometry";
 
 const STANDARD: [BodyName, number, number][] = [
   // name, faces, corners per face
@@ -121,5 +121,18 @@ describe("3D dice geometry (FR-TAC-09)", () => {
     const at = (x: number, y: number) => [0, 1, 2].map((k) => m[k]! * x + m[4 + k]! * y + m[12 + k]!);
     // The CSS is printed to six decimals, so compare to a thousandth of a pixel.
     close(at(layout.labelX, layout.labelY), [face.c[0] * r, face.c[1] * r, face.c[2] * r], 3);
+  });
+});
+
+describe("throw timing (FR-TAC-09)", () => {
+  it("lasts one throw for a single die", () => {
+    expect(throwDuration(1)).toBe(THROW_MS);
+  });
+
+  it("waits for the last die of a handful, staggered no more than 420 ms in all", () => {
+    expect(throwDuration(2)).toBe(THROW_MS + 60);
+    expect(throwDuration(4)).toBe(THROW_MS + 3 * 60);
+    expect(throwDuration(20)).toBe(THROW_MS + 19 * 21);
+    expect(throwDuration(20)).toBeLessThan(THROW_MS + 420);
   });
 });
