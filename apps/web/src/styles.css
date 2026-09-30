@@ -1016,8 +1016,8 @@ dialog.modal.library-grid-modal { width: min(68rem, calc(100vw - 2rem)); }
 .small-print { font-size: var(--fs-sm); }
 
 /* Image choice: two equal, quiet options side by side. */
-.token-image-field .row > button,
-.token-image-field .row > label { flex: 1; }
+.token-image-field .row:not(.token-image-chosen) > button,
+.token-image-field .row:not(.token-image-chosen) > label { flex: 1; }
 .field-label { font-size: var(--fs-sm); color: var(--muted); }
 
 .button-row > .upload-button { flex: 1; }
