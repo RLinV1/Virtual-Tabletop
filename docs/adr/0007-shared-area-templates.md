@@ -1,6 +1,6 @@
 # ADR 0007 — Shared area templates
 
-**Status:** Proposed — awaiting review by the Real-Time Architecture owner · **Extends:** `docs/adr/0001-event-model.md`, `docs/adr/0003-tactical-state.md`
+**Status:** Accepted — reviewed by the Real-Time Architecture owner (Raymond), 2026-09-27 · **Extends:** `docs/adr/0001-event-model.md`, `docs/adr/0003-tactical-state.md`
 **Change:** `openspec/changes/shared-aoe-templates` · **Tickets:** KAN-35 (FR-TAC-06), KAN-69
 
 ## Context

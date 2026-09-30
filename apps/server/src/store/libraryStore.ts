@@ -14,7 +14,7 @@ export interface LibraryAssetRecord {
   createdAt: string;
 }
 
-/** A reusable creature (ADR 0010). `imageUrl` is read from the linked token art, never stored. */
+/** A reusable creature (ADR 0012). `imageUrl` is read from the linked token art, never stored. */
 export interface LibraryCreatureRecord {
   id: string;
   ownerGmId: string;

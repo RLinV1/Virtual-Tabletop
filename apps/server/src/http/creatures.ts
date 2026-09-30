@@ -10,7 +10,7 @@ const CreatureIdParam = z.uuid();
 type WithGm = (req: Request, res: Response, handler: (gmId: string) => Promise<void>) => Promise<void>;
 
 /**
- * Reusable creatures (ADR 0010), beside the asset library and under the same rules: GM-only,
+ * Reusable creatures (ADR 0012), beside the asset library and under the same rules: GM-only,
  * and another GM's creature answers 404, the same as one that does not exist.
  */
 export function registerCreatureRoutes(app: Express, deps: { store: RoomStore; withGm: WithGm }) {

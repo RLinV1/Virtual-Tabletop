@@ -1,6 +1,6 @@
 # ADR 0011 — GM rulings on attack rolls
 
-**Status:** Proposed — awaiting review by the Real-Time Architecture owner · **Extends:** `docs/adr/0010-attack-roll-context.md`, `docs/adr/0001-event-model.md`
+**Status:** Accepted — reviewed by the Real-Time Architecture owner (Raymond), 2026-09-27 · **Extends:** `docs/adr/0010-attack-roll-context.md`, `docs/adr/0001-event-model.md`
 **Change:** `openspec/changes/attack-rulings` · **Requirements:** FR-TAC-07, FR-TAC-09, FR-GM-22, FR-GM-23
 
 ## Context

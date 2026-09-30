@@ -40,7 +40,7 @@ The library tab now called "Tokens" holds only images, so with creatures added t
   - `LibraryPage.tsx`: Creatures tab, creature form, tab rename, and the delete warning text.
   - `panels/AddToken.tsx`: From creature.
   - `net/api.ts`: creature calls.
-- **Docs:** `docs/adr/0010-library-creatures.md`. Changing `LibraryUsageResponse` needs review by the Real-Time Architecture owner.
+- **Docs:** `docs/adr/0012-library-creatures.md`. Changing `LibraryUsageResponse` needs review by the Real-Time Architecture owner.
 - **Out of scope:**
   - hiding creature or token stats from players
   - storing a current HP separate from Max HP

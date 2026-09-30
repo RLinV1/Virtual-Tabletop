@@ -208,7 +208,7 @@ function AddToken(props: {
           <CreaturePicker
             gmToken={props.gmToken}
             onPick={(creature) => {
-              // A creature's name is entered as its board name, so it may prefill the token's (ADR 0010).
+              // A creature's name is entered as its board name, so it may prefill the token's (ADR 0012).
               // Owner, Hidden and rotation stay as the GM set them.
               const draft = creatureDraft(creature);
               setName(draft.name);

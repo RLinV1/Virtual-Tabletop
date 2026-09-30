@@ -1,6 +1,6 @@
 # ADR 0010 — Attack context on dice rolls
 
-**Status:** Proposed — awaiting review by the Real-Time Architecture owner · **Extends:** `docs/adr/0001-event-model.md`, `docs/adr/0003-tactical-state.md`
+**Status:** Accepted — reviewed by the Real-Time Architecture owner (Raymond), 2026-09-27 · **Extends:** `docs/adr/0001-event-model.md`, `docs/adr/0003-tactical-state.md`
 **Change:** `openspec/changes/attack-targeting` · **Requirements:** FR-TAC-05, FR-TAC-09, FR-GM-22, FR-GM-23
 
 ## Context

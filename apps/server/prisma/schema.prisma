@@ -72,7 +72,7 @@ model LibraryAsset {
   @@map("library_assets")
 }
 
-/// A reusable creature the GM places from Add Token (docs/adr/0010-library-creatures.md).
+/// A reusable creature the GM places from Add Token (docs/adr/0012-library-creatures.md).
 /// Deleting its token art clears `imageAssetId`; the creature itself stays.
 model LibraryCreature {
   id           String   @id @db.Uuid
