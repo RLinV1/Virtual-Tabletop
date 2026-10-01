@@ -21,7 +21,6 @@ export function DiceTray({
   throwing,
   onLanded,
   scale = 1,
-  waiting = false,
 }: {
   roll: TrayRoll;
   /** Throw the dice in; otherwise they are drawn at rest. */
@@ -30,8 +29,6 @@ export function DiceTray({
   onLanded: () => void;
   /** Multiplies the die size, for roomier surfaces than the side panel. */
   scale?: number;
-  /** The dice are being thrown somewhere else (on the board): keep the tray's room, show nothing yet. */
-  waiting?: boolean;
 }) {
   const root = useRef<HTMLDivElement>(null);
   const landed = useRef(onLanded);
@@ -65,7 +62,7 @@ export function DiceTray({
     // The tray is keyed by roll, so a throw starts at most once per roll.
   }, [throwing]);
 
-  const className = ["dice-tray", roll.gmOnly && "private", waiting && "waiting"].filter(Boolean).join(" ");
+  const className = roll.gmOnly ? "dice-tray private" : "dice-tray";
   return (
     <div ref={root} className={className} aria-hidden="true" style={{ "--die": `${size}px` } as CSSProperties}>
       {dice.map((die, i) => (

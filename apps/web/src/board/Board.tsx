@@ -4,7 +4,7 @@ import { DEFAULT_TOKEN_COLOR, EMPTY_STATS, type GridSpec, type Participant, type
 import type { RoomConnection } from "../net/roomConnection";
 import { DEFAULT_TOOL_OPTIONS, ToolRail, toolFor, type ToolOptions } from "../ui/ToolRail";
 import { canAnimateDice, type TrayRoll } from "../ui/Die3D";
-import { BoardDice, type ActiveThrow } from "./BoardDice";
+import { ThrownDice, type ActiveThrow } from "./ThrownDice";
 import { BoardView } from "./boardView";
 import { boardDieSize, onMap, throwLanding, type BoardThrow, type BoardTransform } from "./diceThrow";
 import { autoPlacementPoint, type PlacementGhost, type TokenDraft } from "./placement";
@@ -19,6 +19,8 @@ interface Props {
   toolbar?: ReactNode;
   /** Notices pinned to the top right of the board, e.g. the GM's "Sam left the table". */
   notices?: ReactNode;
+  /** Drawn over the map, under the toolbar and notices; never takes pointer input. */
+  overlay?: ReactNode;
   /** The viewer clicked the token `attackerId` attacks, in Pick on board (attack-targeting). */
   onPickTarget?: (attackerId: string, targetId: string) => void;
 }
@@ -70,7 +72,7 @@ function isTyping(target: EventTarget | null) {
 }
 
 /** The PixiJS board plus its React toolbar and notices; Pixi objects stay inside `BoardView`. */
-export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, toolbar, notices, onPickTarget }, ref) {
+export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, toolbar, notices, overlay, onPickTarget }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<BoardView | null>(null);
   const latest = useRef({ state, you, gridPreview, onPickTarget });
@@ -277,7 +279,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   return (
     <div className="board" data-tour="board">
       <div ref={hostRef} className="board-canvas" />
-      {throws.length > 0 && <BoardDice throws={throws} subscribe={followView} onDone={throwDone} />}
+      {throws.length > 0 && <ThrownDice throws={throws} subscribe={followView} onDone={throwDone} />}
       <div className="board-toolbar">
         {toolbar}
         <button type="button" className="tool-button" data-tour="fit" onClick={() => viewRef.current?.resetView()} title="Fit the map to the screen">
@@ -301,6 +303,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
         }}
         onClear={() => viewRef.current?.clearMarks()}
       />
+      {overlay}
       {notices}
       {placing && (
         <div className="placement-bar">

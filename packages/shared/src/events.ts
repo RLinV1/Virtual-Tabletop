@@ -142,6 +142,16 @@ export const DomainEvent = z.discriminatedUnion("type", [
     rollId: Id,
     amount: z.number().int().min(0),
   }),
+  /**
+   * Undo of a damage apply (ADR 0013): the roll no longer reads Applied. Only undo emits it,
+   * just before the `TokenStatsSet` that puts the HP back. The inverse of `RollDamageApplied`,
+   * which carries no `previous` because it always replaces `false` (ADR 0011).
+   */
+  z.object({
+    type: z.literal("RollDamageUnapplied"),
+    rollId: Id,
+    amount: z.number().int().min(0),
+  }),
   z.object({
     type: z.literal("TemplatePlaced"),
     template: AreaTemplate,
@@ -150,6 +160,15 @@ export const DomainEvent = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("TemplateRemoved"),
     template: AreaTemplate,
+  }),
+  /**
+   * The GM undid one earlier action (FR-REC-02, ADR 0013). Comes last in its batch, after the
+   * compensating events that restored the old values. `commandId` names the undone action; its
+   * details are in the undo history of the state just before this event.
+   */
+  z.object({
+    type: z.literal("ActionUndone"),
+    commandId: Id,
   }),
 ]);
 export type DomainEvent = z.infer<typeof DomainEvent>;
@@ -163,6 +182,12 @@ export const CommittedEvent = z.object({
   at: z.string(),
   /** Participant who caused it; null for system events. */
   actorId: Id.nullable(),
+  /**
+   * The server's id for the command (or system batch) that produced this event, shared by every
+   * event of that batch, so undo reverses a command as one unit (ADR 0013). Absent on events
+   * committed before undo existed, and on events sent to players.
+   */
+  commandId: Id.optional(),
   event: DomainEvent,
 });
 export type CommittedEvent = z.infer<typeof CommittedEvent>;

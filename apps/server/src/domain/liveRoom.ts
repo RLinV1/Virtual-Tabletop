@@ -8,8 +8,7 @@ import {
   endReason,
   filterStateForViewer,
   isActive,
-  reduce,
-  reduceAll,
+  reduceCommitted,
   referencedAssetIds,
   type Command,
   type CommittedEvent,
@@ -73,7 +72,8 @@ export class LiveRoom {
     private store: RoomStore,
     events: CommittedEvent[],
   ) {
-    this.state = reduceAll(emptyRoomState(roomId), events.map((e) => e.event));
+    // With each event's `commandId`, so the undo history is rebuilt too (ADR 0013).
+    this.state = events.reduce(reduceCommitted, emptyRoomState(roomId));
     this.seq = events.at(-1)?.seq ?? 0;
   }
 
@@ -217,14 +217,16 @@ export class LiveRoom {
   /** Appends events atomically, then reduces, broadcasts and ends any seats they close, in seq order. */
   private async commit(actorId: string | null, events: DomainEvent[]) {
     if (events.length === 0) return [];
+    // One id for the whole batch: undo reverses a command as a unit (ADR 0013).
+    const commandId = randomUUID();
     const committed = await this.store.append(
       this.roomId,
       this.seq,
-      events.map((event) => ({ actorId, event })),
+      events.map((event) => ({ actorId, commandId, event })),
     );
     for (const c of committed) {
       const before = this.state;
-      this.state = reduce(this.state, c.event);
+      this.state = reduceCommitted(this.state, c);
       this.seq = c.seq;
       this.broadcast(c, before);
       if (c.event.type === "ParticipantLeft") this.endSession(c.event.participant.id, "left");

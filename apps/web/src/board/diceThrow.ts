@@ -36,11 +36,15 @@ export function onMap(p: Point, map: Pick<MapImage, "width" | "height">): boolea
   return p.x >= 0 && p.y >= 0 && p.x <= map.width && p.y <= map.height;
 }
 
-/** Why the Dice panel's die can't be thrown right now, or null when it can. */
-export function throwBlocker(expression: string, hasMap: boolean): string | null {
+/**
+ * Why the Dice panel's die can't be thrown right now, or null when it can. A private roll never
+ * goes on the board (board-dice-rolls), so it's rolled with Roll and stays in the panel's tray.
+ */
+export function throwBlocker(expression: string, hasMap: boolean, privateRoll = false): string | null {
   const parsed = parseDiceExpression(expression);
   if (!parsed.ok) return "Enter a valid expression to throw it";
   if (!hasMap) return "Throwing needs a map on the board";
+  if (privateRoll) return "Private rolls stay off the board; use Roll";
   if (parsed.expression.count > BOARD_THROW_MAX_DICE) return `At most ${BOARD_THROW_MAX_DICE} dice can be thrown on the map; use Roll`;
   return null;
 }

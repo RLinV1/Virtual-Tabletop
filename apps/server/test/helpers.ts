@@ -6,7 +6,9 @@ import { io, type Socket } from "socket.io-client";
 import {
   SOCKET_EVENTS,
   emptyRoomState,
+  filterStateForViewer,
   reduce,
+  reduceCommitted,
   type ClientMessageInput,
   type CreateRoomResponse,
   type JoinRoomResponse,
@@ -185,7 +187,8 @@ export class TestClient {
         break;
       case "event":
         if (msg.committed.seq !== this.seq + 1) throw new Error(`Gap: have ${this.seq}, got ${msg.committed.seq}`);
-        this.state = reduce(this.state, msg.committed.event);
+        // As the browser does: only the GM's events carry `commandId` (ADR 0013).
+        this.state = msg.committed.commandId ? reduceCommitted(this.state, msg.committed) : reduce(this.state, msg.committed.event);
         this.seq = msg.committed.seq;
         break;
       case "redacted":
@@ -194,4 +197,14 @@ export class TestClient {
         break;
     }
   }
+}
+
+/**
+ * What `client` should hold when it has caught up with `state`: the server's filtered view for
+ * that participant. Players never get GM-only data such as the undo history (ADR 0013).
+ */
+export function viewFor(state: RoomState, client: TestClient): RoomState {
+  const viewer = state.participants[client.participantId];
+  if (!viewer) throw new Error(`No participant ${client.participantId}`);
+  return filterStateForViewer(state, viewer);
 }

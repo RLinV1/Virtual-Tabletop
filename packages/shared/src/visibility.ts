@@ -23,7 +23,8 @@ export function filterStateForViewer(state: RoomState, viewer: Participant): Roo
   const templates = Object.fromEntries(
     Object.entries(state.templates).filter(([, t]) => !t.gmOnly),
   );
-  return { ...state, tokens, rolls, initiative, templates };
+  // Undo is GM-only, and its entries name hidden tokens and their old values (ADR 0013).
+  return { ...state, tokens, rolls, initiative, templates, undo: [] };
 }
 
 export type FilteredEvent =
@@ -44,7 +45,10 @@ export function filterEventForViewer(
 
   const e = committed.event;
   const redacted: FilteredEvent = { kind: "redacted", seq: committed.seq };
-  const pass: FilteredEvent = { kind: "event", committed };
+  // No `commandId` for players: an id shared with a redacted event would say a hidden change
+  // was part of the same action (ADR 0013).
+  const { commandId: _commandId, ...withoutCommandId } = committed;
+  const pass: FilteredEvent = { kind: "event", committed: withoutCommandId };
   /** Whether the viewer could not see this token before the event; unknown tokens count as hidden. */
   const hiddenBefore = (tokenId: string) => before.tokens[tokenId]?.hidden ?? true;
 
@@ -69,14 +73,15 @@ export function filterEventForViewer(
         ? { kind: "resync" }
         : pass;
     case "RollRuled":
-    case "RollDamageApplied": {
+    case "RollDamageApplied":
+    case "RollDamageUnapplied": {
       // Neither names a token; they are as secret as the roll they concern (ADR 0011).
       const roll = before.rolls.find((r) => r.id === e.rollId);
       if (!roll || roll.visibility === "gm") return redacted;
       // "Applied" on a roll whose target the player sees as Unknown would say that token still
       // exists and has HP, and line it up with the HP change just before it. Withhold it.
       const target = roll.attack?.target;
-      if (e.type === "RollDamageApplied" && target && (target.hidden || hiddenBefore(target.tokenId))) return redacted;
+      if (e.type !== "RollRuled" && target && (target.hidden || hiddenBefore(target.tokenId))) return redacted;
       return pass;
     }
     case "InitiativeStarted":
@@ -93,6 +98,10 @@ export function filterEventForViewer(
     case "TokenHiddenSet":
       // A reveal must deliver the whole token; a hide must remove it. A snapshot does both.
       return { kind: "resync" };
+    case "ActionUndone":
+      // Players have no undo or activity log; the compensating events before it already
+      // delivered whatever they may see (ADR 0013).
+      return redacted;
     case "RoomCreated":
     case "ParticipantJoined":
     case "ParticipantRenamed":
