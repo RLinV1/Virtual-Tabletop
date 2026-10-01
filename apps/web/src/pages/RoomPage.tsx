@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { House } from "@phosphor-icons/react";
-import { can, type DiceVisibility, type GridSpec, type Point } from "@vtt/shared";
+import { can, type DiceRoll, type DiceVisibility, type GridSpec, type Point } from "@vtt/shared";
 import { Board, type BoardHandle, type DiceBoard } from "../board/Board";
 import type { TokenDraft } from "../board/placement";
 import { Link } from "../Link";
@@ -8,6 +8,7 @@ import type { SessionEndReason } from "@vtt/shared";
 import { forgetCredentials, loadCredentials, rememberRoomName } from "../net/identity";
 import { RoomConnection, useRoomSnapshot, type ConnectionStatus } from "../net/roomConnection";
 import { PanelTabs, RoomPanel, isTabId, type TabBadges, type TabId } from "../panels/RoomPanel";
+import { trayRoll } from "../panels/DicePanel";
 import { outcomeKey, pendingRulings } from "../panels/attackRoll";
 import { ActivityLog } from "../panels/ActivityLog";
 import type { AttackPick } from "../panels/AttackPanel";
@@ -23,6 +24,15 @@ import { ParticipantsButton } from "../ui/ParticipantsButton";
 import { ShareButton } from "../ui/ShareButton";
 import { GuideIcon, GuideTour } from "../ui/GuideTour";
 import { isBoolean, usePersistentState } from "../ui/usePersistentState";
+
+/** How long a dice drop from another viewer waits for its roll (ADR 0014). */
+const DROP_WAIT_MS = 5000;
+
+/** The waiting drop that belongs to this roll: the same person, the same dice, not too long ago. */
+function dropFor(drops: Map<string, { expression: string; from: Point; to: Point; at: number }>, roll: DiceRoll) {
+  const drop = drops.get(roll.byParticipantId);
+  return drop && drop.expression === roll.expression && performance.now() - drop.at <= DROP_WAIT_MS ? drop : undefined;
+}
 
 /** How long the board says what was just rolled (attack-section-compact). */
 const ROLL_POPUP_MS = 4000;
@@ -284,11 +294,36 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
     setDropHold(null);
     setDropped(rollId);
   }, []);
+  // Dice drops from other viewers (ADR 0014): where someone let a die go, kept briefly until their
+  // roll arrives, so the throw replays at the same spot here instead of in the centre.
+  const pendingDrops = useRef(new Map<string, { expression: string; from: Point; to: Point; at: number }>());
+  useEffect(() => {
+    const stop = connection.onEphemeral((from, payload) => {
+      if (payload.type === "diceDrop") pendingDrops.current.set(from, { ...payload, at: performance.now() });
+    });
+    return () => {
+      stop();
+    };
+  }, [connection]);
+  const [replayed, setReplayed] = useState<string | null>(null);
+  const replayDrop =
+    throwingRoll && throwingRoll.visibility !== "gm" && throwingRoll.id !== replayed ? dropFor(pendingDrops.current, throwingRoll) : undefined;
+  useEffect(() => {
+    if (!throwingRoll || !replayDrop) return;
+    const roll = throwingRoll;
+    pendingDrops.current.delete(roll.byParticipantId);
+    setReplayed(roll.id);
+    // The same throw as on the thrower's board: its path is seeded by the roll and the two points.
+    const shown = boardRef.current?.throwDice({ rollId: roll.id, from: replayDrop.from, to: replayDrop.to }, trayRoll(roll), () => landRoll(roll.id));
+    // Where it can't be animated here (reduced motion, say), it's thrown as any other roll.
+    if (shown) setDropped(roll.id);
+  }, [throwingRoll, replayDrop, landRoll]);
   /** The public roll the centred board throw shows: not one dropped on the map, nor one a drop is waiting for. */
   const centredRoll =
     throwingRoll &&
     throwingRoll.visibility !== "gm" &&
     throwingRoll.id !== dropped &&
+    !replayDrop &&
     !(dropHold && throwingRoll.id !== dropHold.after)
       ? throwingRoll
       : undefined;

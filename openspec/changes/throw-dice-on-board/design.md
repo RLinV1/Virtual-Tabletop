@@ -16,11 +16,11 @@ See proposal.md for why. What exists today and constrains the approach:
 **Goals:**
 - Reuse the tray's dice exactly (geometry, numbering, colours, seeded rest pose) on the board.
 - Keep the shared contract untouched: the drag produces the same `dice.roll` as the Roll button.
-- Leave the throw in a shape the broadcast follow-up can send unchanged.
+- Everyone sees the same throw at the same spot, with no change to commands, events or state.
 - No change to Pixi rendering cost when no dice are on the board.
 
 **Non-Goals:**
-- Showing anyone but the thrower where the dice were thrown (the follow-up covers this). Everyone sees the roll itself through `board-dice-rolls`.
+- Changing how rolls made with the Roll button are thrown (`board-dice-rolls`' centred dice).
 - Physics: dice do not collide with tokens, walls or each other, and do not bounce off the map edge. The landing point is clamped instead.
 - Showing the held die to others while it is being dragged.
 - Dice that stay on the map as persistent objects.
@@ -28,12 +28,17 @@ See proposal.md for why. What exists today and constrains the approach:
 
 ## Decisions
 
-### The throw is presentation on the thrower's client
-The drag ends in the same `connection.command({ type: "dice.roll", expression, visibility })` as the Roll button. The release and landing points stay in the thrower's browser as a `BoardThrow { rollId, from, to }` value in board coordinates. Invariants 1–4 are untouched: nothing new is persisted, broadcast or filtered.
+### The roll is unchanged; the drop point travels on the ephemeral channel
+The drag ends in the same `dice.roll` the Roll button sends. Just before it, the thrower's browser sends `diceDrop { expression, from, to }` on the ephemeral channel (ADR 0014), on the same socket.
+- The server relays ephemeral messages as soon as it handles them, while commands go through the room's queue, so the drop reaches everyone else before the `DiceRolled` event.
+- The server relays a drop only when both points are on the map.
+- Receivers keep the latest drop per sender for 5 seconds (`RoomPage`). When that sender's next roll with the same expression arrives, they replay the throw at those points through `ThrownDice`, as the thrower does, and the centred throw skips it.
+- The throw's path is a pure function of the roll id and the two points, so it lands the same way everywhere.
+- A lost or late drop falls back to the centred throw.
 
 Alternatives:
-- **A `throw` field on `dice.roll` / `DiceRoll`.** Everyone would get the throw with the roll. This changes shared schemas (ADR, review), and it plays the throw for others at the same time as for the thrower, not after the thrower's dice land. Deferred to the follow-up, which should decide between this and the relay below.
-- **An ephemeral relay of the throw.** Today the relay goes to the whole room, so a GM-only throw would leak unless the relay learned to filter. Deferred to the follow-up for the same reason.
+- **A `throw` field on `dice.roll` / `DiceRoll`.** Every viewer would get the throw with the roll, reliably, but it would persist presentation data in the event log and change the command and event schemas. Rejected for a purely visual detail.
+- **Sending the drop after the ack, with the roll id.** Exact pairing, but it reaches viewers after the roll does, so they would already have started the centred throw. Rejected: pairing by sender and expression within a few seconds is enough, and the drop arrives first.
 
 ### Matching the throw to its roll by the ack's seq
 The thrower needs the new roll's id to hand the throw to the overlay. The client does not know that id until the server makes it.
@@ -93,13 +98,17 @@ This replaces this change's earlier landing reducer (`panels/diceLanding.ts`), w
 ### Private rolls stay off the board
 `board-dice-rolls` keeps GM-only rolls out of the board and in the GM's panel tray, so a shared screen never shows them. Dropping a private roll on the map would break that, so the drag die is disabled while "Roll privately" is ticked, with a hint to use Roll.
 
+### The result card slides into the corner
+`board-dice-rolls` showed the result under its dice, over the middle of the map. The card (`ui/BoardDice.tsx`) now sits in the board's bottom-right corner, which the notices (top right) and the hint (bottom left) leave free. Its accent bar is on its left edge, like the board's notices. One 4-second CSS animation slides it in from the right, holds it, and slides it back out, matching the room page's 4 seconds; with reduced motion it doesn't move. It is keyed by roll, so the next result slides in afresh.
+
 ### Fading off the board
 Landed dice stay 3 s, then fade over 400 ms and are removed. A newer throw does not cancel an earlier one still in the air. The overlay caps itself at 3 rolls on screen and drops the oldest.
 
 ## Risks / Trade-offs
 
-- **Others don't see where the dice landed** → They see the roll thrown in the centre of their board (`board-dice-rolls`), at about the same moment. Showing the drop point is the planned follow-up.
-- **The thrower's other tabs show the centred throw, not the drop** → Accepted: only the tab that threw knows the drop point.
+- **The relay is volatile,** so under backpressure a drop can be lost → That viewer sees the centred throw; the roll itself is never affected.
+- **Pairing by sender and expression** could swap two identical rolls made within 5 seconds → Both are replayed, at swapped spots; accepted for presentation.
+- **Die size on the board follows each viewer's zoom** (with a 44 px floor) → The dice land at the same spot everywhere, spread slightly differently at different zooms.
 - **The overlay drifts from the canvas during pan/zoom** (the transform is read at a different moment than Pixi renders) → Update the overlay from the same frame callback that renders the world. If drift is still visible on low-end devices, hide board dice during an active pan and show them again when it ends.
 - **CSS 3D cost**: 10 d20s is 200 faces under a scaled container → Throwing on the map is limited to 10 dice; the handle is disabled above that. On low-end devices, skip per-face lighting and numerals on faces turned away.
 - **Touch drag from panel to board fights page scroll on phones** → Set `touch-action: none` on the handle only. If it is still unreliable in testing, add a "Throw on map" tap on the handle that throws from the centre of the visible map with a seeded direction (fallback 5).
@@ -108,7 +117,7 @@ Landed dice stay 3 s, then fade over 400 ms and are removed. A newer throw does 
 
 ## Migration Plan
 
-Client-only. There is no data, schema or protocol change. Rolling back means reverting the web changes; rolls made by dragging are ordinary rolls and stay in the log.
+No data or event change. The `diceDrop` ephemeral payload is additive: an older client ignores it (the zod union rejects it on an older server, so an older server simply doesn't relay it). Rolling back means reverting the change; rolls made by dragging are ordinary rolls and stay in the log.
 
 ## Open Questions
 

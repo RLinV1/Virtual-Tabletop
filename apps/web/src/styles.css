@@ -1977,16 +1977,28 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 }
 .board-dice .dice-tray { background: none; border: none; overflow: visible; }
 .board-roll-popup {
-  display: flex; flex-direction: column; align-items: center; gap: 0.15rem; text-align: center;
-  padding: var(--space-2) var(--space-4);
-  background: var(--raised); border: 1px solid var(--border-strong); border-top: 3px solid var(--accent);
-  border-radius: 0; box-shadow: 0 10px 28px var(--shadow);
+  /* Bottom right, clear of the notices (top right) and the hint (bottom left). */
+  position: absolute; right: var(--space-3); bottom: var(--space-3); z-index: 6;
+  display: flex; align-items: center; gap: var(--space-3);
+  max-width: min(22rem, calc(100% - 2 * var(--space-3)));
+  padding: var(--space-2) var(--space-3);
+  background: var(--raised); border: 1px solid var(--border-strong); border-left: 3px solid var(--accent);
+  border-radius: var(--radius); box-shadow: 0 10px 28px var(--shadow);
+  pointer-events: none;
 }
-.board-roll-popup strong { font-size: 1.6rem; font-variant-numeric: tabular-nums; }
-.board-roll-popup.private { border-top-color: var(--warn); }
-.board-roll-popup .muted { font-size: var(--fs-sm); }
+.board-roll-popup strong { font-size: 1.4rem; line-height: 1; font-variant-numeric: tabular-nums; }
+.board-roll-popup.private { border-left-color: var(--warn); }
+.board-roll-meta { display: flex; flex-direction: column; align-items: flex-start; gap: 0.15rem; min-width: 0; }
+.board-roll-meta .muted { font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 @media (prefers-reduced-motion: no-preference) {
-  .board-roll-popup { animation: modal-in 0.16s ease-out; }
+  /* In from the right, a pause to read, and back out: the same 4 s the room page shows it for. */
+  .board-roll-popup { animation: roll-card 4s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  @keyframes roll-card {
+    0% { opacity: 0; transform: translateX(calc(100% + var(--space-3))); }
+    9% { opacity: 1; transform: none; }
+    90% { opacity: 1; transform: none; }
+    100% { opacity: 0; transform: translateX(calc(100% + var(--space-3))); }
+  }
 }
 .turn-notice { border-left-color: var(--accent); }
 @media (prefers-reduced-motion: no-preference) {

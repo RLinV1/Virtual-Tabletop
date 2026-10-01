@@ -385,3 +385,35 @@ describe("unique token names (KAN-62)", () => {
     expect(tokens(gm)).toEqual([]);
   });
 });
+
+describe("dice drops (ADR 0014, FR-TAC-09)", () => {
+  async function withMap() {
+    const room = await setup();
+    await room.gm.command({ type: "scene.setMap", map: { url: "/uploads/m.png", width: 1000, height: 800 } });
+    await room.alice.waitForSeq(room.gm.seq);
+    await room.bob.waitForSeq(room.gm.seq);
+    return room;
+  }
+  const drop = { type: "diceDrop" as const, expression: "2d6", from: { x: 100, y: 120 }, to: { x: 300, y: 160 } };
+
+  it("relays a drop to everyone else, unsequenced and unpersisted", async () => {
+    const { alice, bob, gm } = await withMap();
+    const seqBefore = alice.seq;
+    alice.send({ type: "ephemeral", payload: drop });
+    const got = await bob.waitFor((m) => m.type === "ephemeral");
+    expect(got).toEqual({ type: "ephemeral", from: alice.participantId, payload: drop });
+    await gm.waitFor((m) => m.type === "ephemeral");
+    // No seq, nothing in room state: the next command still gets the very next seq.
+    const ack = await alice.command({ type: "dice.roll", expression: "2d6" });
+    expect(ack.type === "ack" && ack.seq).toBe(seqBefore + 1);
+  });
+
+  it("drops a drop that is off the map", async () => {
+    const { alice, bob } = await withMap();
+    alice.send({ type: "ephemeral", payload: { ...drop, to: { x: 5000, y: 160 } } });
+    alice.send({ type: "ephemeral", payload: { type: "ping", at: { x: 1, y: 1 } } });
+    // The ping sent after it arrives; the forged drop never does.
+    const first = await bob.waitFor((m) => m.type === "ephemeral");
+    expect(first.type === "ephemeral" && first.payload.type).toBe("ping");
+  });
+});

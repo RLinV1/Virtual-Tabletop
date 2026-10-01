@@ -29,19 +29,26 @@ export function BoardDice({
 }) {
   const shown = throwing ?? popup;
   if (!shown) return null;
-  const { title, meta } = rollHeadline(shown, rollerName(shown));
+  const headline = !throwing && popup ? rollHeadline(popup, rollerName(popup)) : null;
   return (
-    <div className="board-dice">
+    <>
       {shown.visibility !== "gm" && shown.id !== droppedId && (
-        <DiceTray key={shown.id} roll={trayRoll(shown)} throwing={shown === throwing} onLanded={() => onLanded(shown.id)} scale={1.8} />
-      )}
-      {!throwing && popup && (
-        <div className={popup.visibility === "gm" ? "board-roll-popup private" : "board-roll-popup"} role="status">
-          <strong>{title}</strong>
-          {popup.visibility === "gm" && <em className="badge">GM only</em>}
-          <span className="muted">{meta}</span>
+        <div className="board-dice">
+          <DiceTray key={shown.id} roll={trayRoll(shown)} throwing={shown === throwing} onLanded={() => onLanded(shown.id)} scale={1.8} />
         </div>
       )}
-    </div>
+      {/* The result, as a card that slides into the board's bottom-right corner and back out, so
+          it doesn't sit over the middle of the map (throw-dice-on-board). Keyed by roll, so a new
+          result slides in afresh. */}
+      {headline && popup && (
+        <div key={popup.id} className={popup.visibility === "gm" ? "board-roll-popup private" : "board-roll-popup"} role="status">
+          <strong>{headline.title}</strong>
+          <span className="board-roll-meta">
+            <span className="muted">{headline.meta}</span>
+            {popup.visibility === "gm" && <em className="badge">GM only</em>}
+          </span>
+        </div>
+      )}
+    </>
   );
 }
