@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1536" height="1024" viewBox="0 0 1536 1024">
+  <rect width="1536" height="1024" fill="#d9d4c9"/>
+  <g>
+    <rect x="1" y="1" width="510" height="510" fill="#e7e3da" stroke="#b8b2a6" stroke-width="2" stroke-dasharray="10 8"/>
+    <polygon points="480.0,480.0 32.0,480.0 32.0,32.0 480.0,32.0" fill="#ffffff" stroke="#1b1f24" stroke-width="4" stroke-linejoin="round"/>
+    <rect x="164.7" y="154.0" width="182.6" height="204.0" rx="25.8" fill="none" stroke="#b9582f" stroke-width="3" stroke-dasharray="10 7"/>
+    <text x="256" y="256" font-size="214.8" font-weight="700" fill="#cfc9bd" text-anchor="middle" dominant-baseline="central" font-family="Helvetica, Arial, sans-serif">1</text>
+    <path d="M 256 122.8 l 13.0 17.3 h -26.0 z" fill="#1b1f24"/>
+    <text x="10" y="22" font-size="16" fill="#6d675c" font-family="Helvetica, Arial, sans-serif">d6 · face 1</text>
+  </g>
+  <g>
+    <rect x="513" y="1" width="510" height="510" fill="#e7e3da" stroke="#b8b2a6" stroke-width="2" stroke-dasharray="10 8"/>
+    <polygon points="992.0,480.0 544.0,480.0 544.0,32.0 992.0,32.0" fill="#ffffff" stroke="#1b1f24" stroke-width="4" stroke-linejoin="round"/>
+    <rect x="676.7" y="154.0" width="182.6" height="204.0" rx="25.8" fill="none" stroke="#b9582f" stroke-width="3" stroke-dasharray="10 7"/>
+    <text x="768" y="256" font-size="214.8" font-weight="700" fill="#cfc9bd" text-anchor="middle" dominant-baseline="central" font-family="Helvetica, Arial, sans-serif">2</text>
+    <path d="M 768 122.8 l 13.0 17.3 h -26.0 z" fill="#1b1f24"/>
+    <text x="522" y="22" font-size="16" fill="#6d675c" font-family="Helvetica, Arial, sans-serif">d6 · face 2</text>
+  </g>
+  <g>
+    <rect x="1025" y="1" width="510" height="510" fill="#e7e3da" stroke="#b8b2a6" stroke-width="2" stroke-dasharray="10 8"/>
+    <polygon points="1504.0,480.0 1056.0,480.0 1056.0,32.0 1504.0,32.0" fill="#ffffff" stroke="#1b1f24" stroke-width="4" stroke-linejoin="round"/>
+    <rect x="1188.7" y="154.0" width="182.6" height="204.0" rx="25.8" fill="none" stroke="#b9582f" stroke-width="3" stroke-dasharray="10 7"/>
+    <text x="1280" y="256" font-size="214.8" font-weight="700" fill="#cfc9bd" text-anchor="middle" dominant-baseline="central" font-family="Helvetica, Arial, sans-serif">3</text>
+    <path d="M 1280 122.8 l 13.0 17.3 h -26.0 z" fill="#1b1f24"/>
+    <text x="1034" y="22" font-size="16" fill="#6d675c" font-family="Helvetica, Arial, sans-serif">d6 · face 3</text>
+  </g>
+  <g>
+    <rect x="1" y="513" width="510" height="510" fill="#e7e3da" stroke="#b8b2a6" stroke-width="2" stroke-dasharray="10 8"/>
+    <polygon points="480.0,992.0 32.0,992.0 32.0,544.0 480.0,544.0" fill="#ffffff" stroke="#1b1f24" stroke-width="4" stroke-linejoin="round"/>
+    <rect x="164.7" y="666.0" width="182.6" height="204.0" rx="25.8" fill="none" stroke="#b9582f" stroke-width="3" stroke-dasharray="10 7"/>
+    <text x="256" y="768" font-size="214.8" font-weight="700" fill="#cfc9bd" text-anchor="middle" dominant-baseline="central" font-family="Helvetica, Arial, sans-serif">4</text>
+    <path d="M 256 634.8 l 13.0 17.3 h -26.0 z" fill="#1b1f24"/>
+    <text x="10" y="534" font-size="16" fill="#6d675c" font-family="Helvetica, Arial, sans-serif">d6 · face 4</text>
+  </g>
+  <g>
+    <rect x="513" y="513" width="510" height="510" fill="#e7e3da" stroke="#b8b2a6" stroke-width="2" stroke-dasharray="10 8"/>
+    <polygon points="992.0,992.0 544.0,992.0 544.0,544.0 992.0,544.0" fill="#ffffff" stroke="#1b1f24" stroke-width="4" stroke-linejoin="round"/>
+    <rect x="676.7" y="666.0" width="182.6" height="204.0" rx="25.8" fill="none" stroke="#b9582f" stroke-width="3" stroke-dasharray="10 7"/>
+    <text x="768" y="768" font-size="214.8" font-weight="700" fill="#cfc9bd" text-anchor="middle" dominant-baseline="central" font-family="Helvetica, Arial, sans-serif">5</text>
+    <path d="M 768 634.8 l 13.0 17.3 h -26.0 z" fill="#1b1f24"/>
+    <text x="522" y="534" font-size="16" fill="#6d675c" font-family="Helvetica, Arial, sans-serif">d6 · face 5</text>
+  </g>
+  <g>
+    <rect x="1025" y="513" width="510" height="510" fill="#e7e3da" stroke="#b8b2a6" stroke-width="2" stroke-dasharray="10 8"/>
+    <polygon points="1504.0,992.0 1056.0,992.0 1056.0,544.0 1504.0,544.0" fill="#ffffff" stroke="#1b1f24" stroke-width="4" stroke-linejoin="round"/>
+    <rect x="1188.7" y="666.0" width="182.6" height="204.0" rx="25.8" fill="none" stroke="#b9582f" stroke-width="3" stroke-dasharray="10 7"/>
+    <text x="1280" y="768" font-size="214.8" font-weight="700" fill="#cfc9bd" text-anchor="middle" dominant-baseline="central" font-family="Helvetica, Arial, sans-serif">6</text>
+    <path d="M 1280 634.8 l 13.0 17.3 h -26.0 z" fill="#1b1f24"/>
+    <text x="1034" y="534" font-size="16" fill="#6d675c" font-family="Helvetica, Arial, sans-serif">d6 · face 6</text>
+  </g>
+</svg>

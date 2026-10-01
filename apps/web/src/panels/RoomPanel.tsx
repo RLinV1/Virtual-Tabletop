@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { DiceFive, MapTrifold, Sword, UserList } from "@phosphor-icons/react";
 import { can, type DiceVisibility, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
+import type { DiceBoard } from "../board/Board";
 import type { TokenDraft } from "../board/placement";
 import type { RoomConnection } from "../net/roomConnection";
 import { GmPanel } from "../pages/GmPanel";
@@ -141,10 +142,12 @@ interface Props {
   onAttackPick: (pick: AttackPick) => void;
   /** The last encounter end, which clears the Attack section (attack-panel-encounter-reset). */
   attackReset: AttackReset;
-  /** The roll still being thrown, the one that just landed, and how to say it landed (attack-section-compact). */
+  /** Which rolls are still being thrown, the one that just landed, and how to say it landed (throw-dice-on-board). */
   rollThrow: RollThrow;
   onPickOnBoard: (attackerId: string) => void;
   onShowPing: (at: Point) => void;
+  /** The board, for dice thrown onto it from the Dice panel (throw-dice-on-board). */
+  diceBoard?: DiceBoard;
   attackVisibility: DiceVisibility;
   onAttackVisibility: (visibility: DiceVisibility) => void;
   gridDraft: GridDraft;
@@ -172,7 +175,7 @@ interface Props {
  */
 export function RoomPanel({
   connection, state, you, token, onFocusToken, onPlaceToken,
-  attackPick, onAttackPick, attackReset, rollThrow, onPickOnBoard, onShowPing, attackVisibility, onAttackVisibility,
+  attackPick, onAttackPick, attackReset, rollThrow, onPickOnBoard, onShowPing, diceBoard, attackVisibility, onAttackVisibility,
   gridDraft, hasGridDraft, onGridDraftChange, onGridDraftCancel, onGridApply, gridApplying, gridError,
   compact, tab, onTab, onReviewDeparture, tabBadges,
 }: Props) {
@@ -188,7 +191,7 @@ export function RoomPanel({
   const sections: Record<TabId, ReactNode> = {
     play: (
       <>
-        {isGm && <RulingsPanel connection={connection} state={state} />}
+        {isGm && <RulingsPanel connection={connection} state={state} airborne={rollThrow.airborne} />}
         <MyTokens connection={connection} state={state} you={you} onFocusToken={onFocusToken} />
         {/* The encounter first: whose turn it is decides who attacks. */}
         <InitiativeTracker connection={connection} state={state} you={you} onFocusToken={onFocusToken} />
@@ -199,7 +202,8 @@ export function RoomPanel({
           pick={attackPick}
           onPick={onAttackPick}
           reset={attackReset}
-          throwingRollId={rollThrow.rollId}
+          airborne={rollThrow.airborne}
+          rolling={rollThrow.rolling}
           onLanded={rollThrow.onLanded}
           onPickOnBoard={onPickOnBoard}
           onShowPing={onShowPing}
@@ -212,7 +216,7 @@ export function RoomPanel({
     tokens: (
       <TokenRoster connection={connection} state={state} you={you} token={token} onFocusToken={onFocusToken} onPlaceToken={onPlaceToken} />
     ),
-    dice: <DicePanel connection={connection} state={state} isGm={isGm} rollThrow={rollThrow} />,
+    dice: <DicePanel connection={connection} state={state} isGm={isGm} rollThrow={rollThrow} board={diceBoard} />,
     gm: isGm ? (
       <GmPanel
         connection={connection}

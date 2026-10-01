@@ -25,7 +25,8 @@ const CHAT_WINDOW_MS = 10_000;
  * automatic reconnect, so a dropped client rebinds to the same participant without a
  * round trip (FR-PL-05). Ephemeral traffic is relayed with `volatile.emit` in
  * `LiveRoom`, so pointer and drag chatter drops under backpressure rather than
- * queueing ahead of committed events (FR-SYNC-03).
+ * queueing ahead of committed events (FR-SYNC-03). Dice drops, one per throw, are the
+ * exception: they are sent reliably (ADR 0014).
  */
 export function registerSocket(
   io: SocketIOServer,

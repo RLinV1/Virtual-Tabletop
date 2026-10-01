@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { apply, body, bodyFor, dot, faceLayout, labelDie, type BodyName, type Vec3 } from "../src/ui/diceGeometry";
+import { apply, body, bodyFor, dot, faceLayout, labelDie, seed, throwKeyframes, throwStagger, throwTurns, type BodyName, type Vec3 } from "../src/ui/diceGeometry";
 
 const STANDARD: [BodyName, number, number][] = [
   // name, faces, corners per face
@@ -121,5 +121,41 @@ describe("3D dice geometry (FR-TAC-09)", () => {
     const at = (x: number, y: number) => [0, 1, 2].map((k) => m[k]! * x + m[4 + k]! * y + m[12 + k]!);
     // The CSS is printed to six decimals, so compare to a thousandth of a pixel.
     close(at(layout.labelX, layout.labelY), [face.c[0] * r, face.c[1] * r, face.c[2] * r], 3);
+  });
+});
+
+describe("throw timing (FR-TAC-09)", () => {
+  it("staggers a handful of dice, no more than 420 ms in all", () => {
+    expect(throwStagger(2)).toBe(60);
+    expect(throwStagger(4)).toBe(60);
+    expect(throwStagger(20)).toBe(21);
+    expect(19 * throwStagger(20)).toBeLessThan(420);
+  });
+});
+
+describe("throw keyframes (FR-TAC-09, throw-dice-on-board)", () => {
+  const rest = "matrix3d(1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1)";
+  const path = { offset: { x: -120, y: 80 }, drop: 50, turns: throwTurns(seed("roll")) };
+
+  it("ends exactly on the rest pose, where the die was laid out", () => {
+    const { spin, flight, shadow } = throwKeyframes(rest, path);
+    expect(spin.at(-1)!.transform).toBe(`rotateX(0deg) rotateY(0deg) rotateZ(0deg) ${rest}`);
+    expect(flight.at(-1)!.transform).toBe("translate3d(0px, 0px, 0) scale(1)");
+    expect(shadow.at(-1)!.transform).toBe("translate(0px, 0px) scale(1)");
+  });
+
+  it("starts at the offset, a drop above the surface", () => {
+    const { flight, shadow } = throwKeyframes(rest, path);
+    expect(shadow[0]!.transform).toBe("translate(-120px, 80px) scale(0.55)");
+    expect(flight[0]!.transform).toBe("translate3d(-120px, 30px, 0) scale(1.18)");
+  });
+
+  it("keeps one function list in every spin frame, so turns unwind instead of snapping", () => {
+    for (const frame of throwKeyframes(rest, path).spin) expect(String(frame.transform)).toMatch(/^rotateX\(.+\) rotateY\(.+\) rotateZ\(.+\) matrix3d/);
+  });
+
+  it("is the same for the same inputs", () => {
+    expect(throwKeyframes(rest, path)).toEqual(throwKeyframes(rest, path));
+    expect(throwTurns(seed("a"))).toEqual(throwTurns(seed("a")));
   });
 });

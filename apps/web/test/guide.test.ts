@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { guideSteps, placeCard } from "../src/ui/guide";
 
-const GM_ONLY = ["share", "gm-map", "gm-grid", "gm-add-token", "tab-gm", "activity-log"];
+const GM_ONLY = ["share", "rulings", "gm-map", "gm-grid", "gm-add-token", "tab-gm", "activity-log"];
 
 describe("guided tour on demand (room-sidebar-layout)", () => {
   it("gives the GM the setup steps", () => {
@@ -26,6 +26,21 @@ describe("guided tour on demand (room-sidebar-layout)", () => {
     expect(targets).toContain("my-tokens");
     expect(targets).toContain("dice");
     expect(steps.find((s) => s.target === "dice")!.body).not.toMatch(/privately/);
+  });
+
+  it("explains attacking to everyone and ruling to the GM, in Play tab order (FR-TAC-09, FR-GM-22)", () => {
+    const order = (role: "gm" | "player") =>
+      guideSteps(role).map((s) => s.target).filter((t) => ["rulings", "my-tokens", "attack", "initiative"].includes(t));
+    expect(order("gm")).toEqual(["rulings", "attack", "initiative"]);
+    expect(order("player")).toEqual(["my-tokens", "attack", "initiative"]);
+    expect(guideSteps("player").find((s) => s.target === "attack")!.body).toMatch(/GM calls Hit or Miss/);
+  });
+
+  it("explains the board tools to both roles, right after Fit", () => {
+    for (const role of ["gm", "player"] as const) {
+      const targets = guideSteps(role).map((s) => s.target);
+      expect(targets.indexOf("tools")).toBe(targets.indexOf("fit") + 1);
+    }
   });
 
   it("lets only the step that asks for a click through to its target (room-ui-refinements)", () => {
