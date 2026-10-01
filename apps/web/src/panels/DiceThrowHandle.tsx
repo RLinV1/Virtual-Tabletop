@@ -4,6 +4,7 @@ import type { Point } from "@vtt/shared";
 import type { DiceBoard } from "../board/Board";
 import { holdEvent, releaseVelocity, type PointerSample } from "../board/diceThrow";
 import { Die3D, layoutDice } from "../ui/Die3D";
+import { useActiveDiceLook } from "../ui/diceSkinStore";
 
 /** How long a die that didn't make it onto the board takes to fade where it was let go. */
 const FADE_MS = 400;
@@ -52,6 +53,9 @@ export function DiceThrowHandle({
   const samples = useRef<PointerSample[]>([]);
   const ghostRef = useRef<HTMLDivElement>(null);
   const frame = useRef(0);
+  // Your die, in your skin; a GM-only roll keeps the private look.
+  const skin = useActiveDiceLook();
+  const dieSkin = gmOnly ? null : skin;
   const fadeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(
     () => () => {
@@ -168,7 +172,7 @@ export function DiceThrowHandle({
         onContextMenu={(e) => e.preventDefault()}
         style={{ "--die": "34px" } as CSSProperties}
       >
-        <Die3D die={handleDie} />
+        <Die3D die={handleDie} skin={dieSkin} />
       </div>
       <p className="muted small-print" id="dice-throw-hint">
         {blocker ?? "Or drag the die onto the map to throw it"}
@@ -176,7 +180,7 @@ export function DiceThrowHandle({
       {ghostAt &&
         createPortal(
           <div ref={ghostRef} className={ghostClass} aria-hidden="true" style={{ transform: ghostTransform(ghostAt), "--die": "44px" } as CSSProperties}>
-            <Die3D die={ghostDie} />
+            <Die3D die={ghostDie} skin={dieSkin} />
           </div>,
           document.body,
         )}

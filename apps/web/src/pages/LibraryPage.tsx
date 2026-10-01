@@ -11,31 +11,69 @@ import { Modal } from "../ui/Modal";
 import { AccountMenu } from "./AccountPages";
 import { GridForm } from "./GridForm";
 import { CreatureCard, CreatureForm } from "./LibraryCreatures";
+import { DiceLookCards, DiceLookModal } from "./DiceLooks";
+import { createDiceLook } from "../ui/diceSkinStore";
 import { parseGridDraft, toGridDraft } from "./gridDraft";
 import { MapGridPreview } from "./MapGridPreview";
 
-/** Maps and token art are uploaded assets; creatures are reusable token setups (library-creatures). */
-type Tab = AssetKind | "creature";
+/**
+ * Maps and token art are uploaded assets; creatures are reusable token setups (library-creatures);
+ * dice are your dice looks, kept in this browser (dice-image-skins).
+ */
+type Tab = AssetKind | "creature" | "dice";
 
 const TABS: { tab: Tab; label: string }[] = [
   { tab: "map", label: "Maps" },
   { tab: "token", label: "Token Art" },
   { tab: "creature", label: "Creatures" },
+  { tab: "dice", label: "Dice" },
 ];
+
+/** `/library?tab=dice` opens on the Dice tab: the room's Dice panel links there. */
+const wantsDice = () => new URLSearchParams(location.search).get("tab") === "dice";
 
 /**
  * The library is a GM surface, so it follows the dashboard's entry rule (gm-dashboard): a
  * browser that is not recognised goes to sign-in first. Replace, not push, so Back from
  * sign-in does not land on this redirect again.
+ *
+ * Dice looks are the exception: every player has dice, and looks live in the browser with no
+ * GM data involved, so the Dice tab opens for anyone, on its own.
  */
 export function LibraryPage() {
   const [recognised] = useState(isRecognised);
+  const [diceOnly] = useState(() => !recognised && wantsDice());
 
   useEffect(() => {
-    if (!recognised) navigate("/signin", { replace: true });
-  }, [recognised]);
+    if (!recognised && !diceOnly) navigate("/signin", { replace: true });
+  }, [recognised, diceOnly]);
 
+  if (diceOnly) return <DiceLibrary />;
   return recognised ? <Library /> : null;
+}
+
+/** The Dice tab alone, for a player who isn't a GM here: the same toolbar, grid and editor. */
+function DiceLibrary() {
+  const [query, setQuery] = useState("");
+  const [editing, setEditing] = useState<string | null>(null);
+  return (
+    <main className="home gm-page">
+      <header className="home-header">
+        <Link href="/" className="brand">
+          Virtual Tabletop
+        </Link>
+      </header>
+      <h1>Dice looks</h1>
+      <div className="library-toolbar">
+        <input type="search" aria-label="Search by name" placeholder="Search by name" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <button type="button" onClick={() => void createDiceLook().then(setEditing)}>
+          New dice look
+        </button>
+      </div>
+      <DiceLookCards query={query} onEdit={setEditing} />
+      <DiceLookModal lookId={editing} onClose={() => setEditing(null)} />
+    </main>
+  );
 }
 
 /** The GM's maps, token art and creatures, managed before a session (asset-library, library-creatures). */
@@ -44,12 +82,14 @@ function Library() {
   // No GM identity yet means nothing uploaded yet: an empty library, with nothing to fetch.
   const [assets, setAssets] = useState<LibraryAsset[] | null>(gmToken ? null : []);
   const [creatures, setCreatures] = useState<LibraryCreature[] | null>(gmToken ? null : []);
-  const [tab, setTab] = useState<Tab>("map");
-  const kind: AssetKind = tab === "creature" ? "token" : tab;
+  const [tab, setTab] = useState<Tab>(() => (wantsDice() ? "dice" : "map"));
+  const kind: AssetKind = tab === "map" ? "map" : "token";
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   /** The creature open in the New/Edit form. */
   const [creatureTarget, setCreatureTarget] = useState<LibraryCreature | "new" | null>(null);
+  /** The dice look open in its editor (dice-image-skins). */
+  const [diceTarget, setDiceTarget] = useState<string | null>(null);
   /** The owned map whose grid is open in the editor. */
   const [gridTarget, setGridTarget] = useState<LibraryAsset | null>(null);
 
@@ -76,7 +116,7 @@ function Library() {
     return (assets ?? []).filter((a) => a.kind === kind && (!q || a.name.toLowerCase().includes(q)));
   }, [assets, kind, query]);
 
-  const builtins = useMemo(() => (tab === "creature" ? [] : builtinsMatching(kind, query)), [tab, kind, query]);
+  const builtins = useMemo(() => (tab === "creature" || tab === "dice" ? [] : builtinsMatching(kind, query)), [tab, kind, query]);
 
   const shownCreatures = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -108,7 +148,11 @@ function Library() {
               role="tab"
               aria-selected={tab === t.tab}
               className={tab === t.tab ? "tab active" : "tab"}
-              onClick={() => setTab(t.tab)}
+              onClick={() => {
+                setTab(t.tab);
+                // Keep the Dice tab in the address, so reloading or sharing lands back on it.
+                history.replaceState(null, "", t.tab === "dice" ? "/library?tab=dice" : "/library");
+              }}
             >
               {t.label}
             </button>
@@ -121,7 +165,9 @@ function Library() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        {tab === "creature" ? (
+        {tab === "dice" ? (
+          <button type="button" onClick={() => void createDiceLook().then(setDiceTarget)}>New dice look</button>
+        ) : tab === "creature" ? (
           <button type="button" onClick={() => setCreatureTarget("new")}>New creature</button>
         ) : (
           <UploadButton
@@ -135,7 +181,9 @@ function Library() {
         )}
       </div>
 
-      {tab === "creature" ? (
+      {tab === "dice" ? (
+        <DiceLookCards query={query} onEdit={setDiceTarget} />
+      ) : tab === "creature" ? (
         <>
           {!creatures && !error && <p className="muted" aria-busy="true">Loading…</p>}
           {creatures && shownCreatures.length === 0 && (
@@ -219,6 +267,8 @@ function Library() {
           />
         )}
       </Modal>
+
+      <DiceLookModal lookId={diceTarget} onClose={() => setDiceTarget(null)} />
 
       <Modal open={gridTarget !== null} title="Edit grid" className="library-grid-modal" onClose={() => setGridTarget(null)}>
         {gmToken && gridTarget && (

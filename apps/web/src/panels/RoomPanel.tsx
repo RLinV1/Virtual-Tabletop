@@ -203,7 +203,7 @@ export function RoomPanel({
     tokens: (
       <TokenRoster connection={connection} state={state} you={you} token={token} onFocusToken={onFocusToken} onPlaceToken={onPlaceToken} />
     ),
-    dice: <DicePanel connection={connection} state={state} isGm={isGm} board={diceBoard} />,
+    dice: <DicePanel connection={connection} state={state} isGm={isGm} board={diceBoard} youId={you.id} />,
     gm: isGm ? (
       <GmPanel
         connection={connection}

@@ -1,5 +1,6 @@
-import type { CSSProperties } from "react";
-import { apply, dot, faceLayout, labelDie, mul, rotateX, rotateY, rotateZ, rotationCss, seed, type Vec3 } from "./diceGeometry";
+import { useId, type CSSProperties } from "react";
+import { apply, dot, faceLayout, labelDie, mul, rotateX, rotateY, rotateZ, rotationCss, seed, type BodyName, type Vec3 } from "./diceGeometry";
+import { faceArt, faceImageTransform, type DiceSkin } from "./diceSkin";
 
 /** What the dice need to know about a roll that has already been made. */
 export interface TrayRoll {
@@ -10,6 +11,8 @@ export interface TrayRoll {
   dice: number[];
   /** Thrown in the GM's private colours. */
   gmOnly?: boolean;
+  /** The viewer's own public roll: drawn in their skin, if they have one (dice-image-skins). */
+  skinned?: boolean;
 }
 
 /** Light from over the viewer's left shoulder, so the face turned to them is the brightest. */
@@ -19,6 +22,10 @@ const LIGHT = ((l: Vec3) => {
 })([-0.3, -0.5, 1]);
 
 export interface DieLayout {
+  /** The body it is drawn as, which picks its picture in a dice look. */
+  body: BodyName;
+  /** Half the die's size in px, the unit its faces are laid out in. */
+  radius: number;
   /** CSS transform of the die at rest: tilted toward the viewer, result face forward. */
   rest: string;
   faces: {
@@ -26,6 +33,9 @@ export interface DieLayout {
     height: number;
     transform: string;
     points: string;
+    /** The face's centre in its own pixels. */
+    labelX: number;
+    labelY: number;
     /** Reads the result head-on. */
     front: boolean;
     numerals: { x: number; y: number; angle: number; value: number; fontSize: number; underline: boolean }[];
@@ -50,6 +60,8 @@ export function layoutDice(roll: TrayRoll, size: number): DieLayout[] {
     const rest = mul(mul(mul(rotateX(tilt.x), rotateY(tilt.y)), rotateZ(tilt.z)), die.rest);
 
     return {
+      body: die.body.name,
+      radius,
       rest: `rotateX(${tilt.x}deg) rotateY(${tilt.y}deg) rotateZ(${tilt.z}deg) ${rotationCss(die.rest)}`,
       faces: die.body.faces.map((face, j) => {
         const layout = faceLayout(face, radius);
@@ -83,12 +95,17 @@ export function layoutDice(roll: TrayRoll, size: number): DieLayout[] {
  * and the element that tumbles (`data-part="spin"`), resting on its result until animated.
  * Sized by the `--die` custom property of an ancestor.
  */
-export function Die3D({ die, style }: { die: DieLayout; style?: CSSProperties }) {
+export function Die3D({ die, style, skin }: { die: DieLayout; style?: CSSProperties; skin?: DiceSkin | null }) {
+  // Clip paths are looked up by id across the whole page, so each die needs its own.
+  const clipId = `die-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  // The look's picture for this die type covers each face; the painted shading and the
+  // numerals go over it. A look without one leaves this die classic.
+  const art = skin?.images[die.body] ?? null;
   return (
     <div className="die3d-slot" data-die style={style}>
       <div className="die3d-shadow" data-part="shadow" />
       <div className="die3d-flight" data-part="flight">
-        <div className="die3d" data-part="spin" style={{ transform: die.rest }}>
+        <div className={art ? "die3d skinned" : "die3d"} data-part="spin" style={{ transform: die.rest }}>
           {die.faces.map((f, j) => (
             <div
               key={j}
@@ -96,6 +113,27 @@ export function Die3D({ die, style }: { die: DieLayout; style?: CSSProperties })
               style={{ width: f.width, height: f.height, transform: f.transform, "--shade": f.shade } as CSSProperties}
             >
               <svg width={f.width} height={f.height}>
+                {art && (
+                  <>
+                    <clipPath id={`${clipId}-${j}`}>
+                      <polygon points={f.points} />
+                    </clipPath>
+                    {/* Clipped as a group: a clip path on the image itself would move with its transform. */}
+                    <g clipPath={`url(#${clipId}-${j})`}>
+                      <image
+                        href={art.href}
+                        width={art.width}
+                        height={art.height}
+                        preserveAspectRatio="none"
+                        transform={faceImageTransform(faceArt(art, die.body, j), {
+                          cx: f.labelX,
+                          cy: f.labelY,
+                          radius: die.radius,
+                        })}
+                      />
+                    </g>
+                  </>
+                )}
                 <polygon points={f.points} />
                 {f.numerals.map((m, k) => (
                   <g key={k} transform={`translate(${m.x} ${m.y}) rotate(${m.angle})`}>

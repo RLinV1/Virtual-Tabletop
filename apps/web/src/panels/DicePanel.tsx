@@ -8,6 +8,7 @@ import type { DiceBoard } from "../board/Board";
 import { throwBlocker } from "../board/diceThrow";
 import { initialLanding, landingPhase, landingReducer } from "./diceLanding";
 import { DiceThrowHandle } from "./DiceThrowHandle";
+import { DiceLookPicker } from "./DiceLookPicker";
 
 const QUICK = ["1d20", "1d20+5", "2d6", "1d8+3", "4d6"];
 
@@ -35,10 +36,13 @@ export function DicePanel({
   state,
   isGm,
   board,
+  youId,
 }: {
   connection: RoomConnection;
   state: RoomState;
   isGm: boolean;
+  /** Your own public rolls are drawn in your dice skin (dice-image-skins). */
+  youId?: string;
   /** The room's board, to throw dice onto; absent where there is none. */
   board?: DiceBoard;
 }) {
@@ -106,7 +110,7 @@ export function DicePanel({
     const made = rollId ? connection.snapshot.state?.rolls.find((r) => r.id === rollId) : undefined;
     const onBoard =
       made !== undefined &&
-      board.throwDice({ rollId: made.id, ...aim }, trayRoll(made), () =>
+      board.throwDice({ rollId: made.id, ...aim }, { ...trayRoll(made), skinned: made.visibility === "public" }, () =>
         dispatch({ type: "landed", rollId: made.id, latestId: current.current.latestId }),
       );
     dispatch({ type: "matched", rollId: made?.id ?? null, onBoard, latestId: current.current.latestId });
@@ -153,6 +157,7 @@ export function DicePanel({
             onThrow={throwOnBoard}
           />
         )}
+        {board && <DiceLookPicker />}
 
         {isGm && (
           <label className="checkbox">
@@ -179,7 +184,7 @@ export function DicePanel({
         <>
           <DiceTray
             key={latest.id}
-            roll={trayRoll(latest)}
+            roll={{ ...trayRoll(latest), skinned: latest.byParticipantId === youId && latest.visibility === "public" }}
             throwing={phase === "tray"}
             waiting={phase === "board" || phase === "held"}
             onLanded={() => dispatch({ type: "landed", rollId: latest.id, latestId: latest.id })}

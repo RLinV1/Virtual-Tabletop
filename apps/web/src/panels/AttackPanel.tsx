@@ -679,7 +679,13 @@ function LatestAttack({
 
   return (
     <div className="attack-latest" aria-live="polite">
-      <DiceTray key={latest.id} roll={trayRoll(latest)} throwing={throwing} onLanded={() => setLanded(latest.id)} />
+      <DiceTray
+        key={latest.id}
+        // Always the viewer's own roll here: drawn in their skin unless it's GM-only.
+        roll={{ ...trayRoll(latest), skinned: latest.visibility === "public" }}
+        throwing={throwing}
+        onLanded={() => setLanded(latest.id)}
+      />
       <p className={latest.visibility === "gm" ? "attack-result private" : "attack-result"}>
         {throwing ? "Rolling…" : formatAttackRoll(latest)}
         {latest.visibility === "gm" && <em className="badge">GM only</em>}
