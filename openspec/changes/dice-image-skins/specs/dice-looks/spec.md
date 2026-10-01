@@ -85,7 +85,7 @@ The room's Dice panel SHALL offer a Dice look choice of Classic or any saved loo
 ### Requirement: A look dresses only the viewer's own public rolls
 The look in use SHALL draw the viewer's own public rolls:
 - when they are thrown in the centre of the board (`board-dice-rolls`);
-- when the viewer drops a die on the map (`throw-dice-on-board`);
+- when the viewer drops a die on the map (`throw-dice-on-board`), including that throw replayed in the viewer's other tabs;
 - on the die they drag.
 
 Each face SHALL show its part of the die's picture under the die's shading. The app SHALL still print every number, so a look never changes what a die reads. A die type without a picture SHALL keep the classic look. GM-only rolls SHALL keep the private look, and other participants' rolls SHALL keep the classic look.

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Lets a participant pick up the dice from the Dice panel and throw them onto the map. On the thrower's own board, the same 3D dice tumble across the map and land where they were let go, on the values the server rolled. Everyone else sees the roll as any public roll (`board-dice-rolls`).
+Lets a participant pick up the dice from the Dice panel and throw them onto the map. The same 3D dice tumble across the map and land where they were let go, on the values the server rolled, on the thrower's board and, replayed, on everyone else's. The result then slides in as a small card in the board's corner.
 
 ## ADDED Requirements
 
@@ -55,23 +55,33 @@ The throw SHALL start at the release point and land at a point derived from the 
 - **WHEN** the die is flicked hard toward the map's edge
 - **THEN** it lands inside the map, at or near the edge
 
-### Requirement: Only the thrower sees where the die was let go
-Throwing a die SHALL send exactly the same roll command as pressing Roll with the same expression. The release point, landing point and flick SHALL NOT be sent to the server or to any other participant. Every other participant, including the thrower's other open tabs, SHALL see the roll exactly as one made with the Roll button: thrown in the centre of their board, then its result popup (`board-dice-rolls`).
+### Requirement: Everyone sees the throw where the die was let go
+Throwing a die SHALL send exactly the same roll command as pressing Roll with the same expression. Just before it, the thrower's browser SHALL send a dice drop: the release and landing points and the expression, on the ephemeral channel (ADR 0014). The dice drop SHALL be relayed to the room's other clients and SHALL NOT be persisted or sequenced. The server SHALL NOT relay a dice drop whose points are not on the current map.
 
-#### Scenario: Another player sees an ordinary roll
-- **WHEN** player A throws a die onto the map
-- **THEN** player B sees A's roll thrown in the centre of B's board, then its popup, as for any public roll
+Every other viewer that receives the dice drop SHALL replay the throw at the same points when the thrower's matching roll arrives (same participant, same expression, within 5 seconds). The replay SHALL be instead of the centred board throw, landing the same way as on the thrower's board. A viewer that missed the dice drop SHALL see the roll as any public roll (`board-dice-rolls`).
 
-#### Scenario: Nothing extra crosses the wire
+#### Scenario: Another player sees the same throw
+- **WHEN** player A throws a `2d6` onto the map
+- **THEN** player B sees the same two dice tumble from A's release point and land at the same spot, showing the rolled values, and no dice in the centre of the board
+
+#### Scenario: Only the drop crosses the wire
 - **WHEN** a die is thrown onto the map
-- **THEN** the only message sent is the `dice.roll` command, with no position data
+- **THEN** the thrower sends one dice drop and the plain `dice.roll` command, and nothing about the drop is persisted
+
+#### Scenario: Forged drop
+- **WHEN** a client sends a dice drop with a point off the map
+- **THEN** the server does not relay it
+
+#### Scenario: Drop missed
+- **WHEN** a viewer's connection drops the dice drop
+- **THEN** that viewer sees the roll thrown in the centre of their board, as any public roll
 
 ### Requirement: The thrower sees their dice roll across the map
-On the thrower's board, the roll's dice SHALL land where the die was let go, in place of the centred board throw: they SHALL tumble from the release point toward the landing point, bounce, and come to rest showing the rolled values. They SHALL be drawn as the same polyhedra and numbering as every other die. Each die's path and resting attitude SHALL depend only on the roll and the two points. The dice SHALL stay at their board position while the viewer pans or zooms, SHALL remain visible for a few seconds after landing, and SHALL then fade away. The dice SHALL NOT block board input. When they land, the board's result popup SHALL show the roll, without a second set of dice in the centre.
+On the thrower's board, and on every board that replays the throw, the roll's dice SHALL land where the die was let go, in place of the centred board throw: they SHALL tumble from the release point toward the landing point, bounce, and come to rest showing the rolled values. They SHALL be drawn as the same polyhedra and numbering as every other die. Each die's path and resting attitude SHALL depend only on the roll and the two points. The dice SHALL stay at their board position while the viewer pans or zooms, SHALL remain visible for a few seconds after landing, and SHALL then fade away. The dice SHALL NOT block board input. When they land, the board's result card SHALL show the roll, without a second set of dice in the centre.
 
 #### Scenario: Dice land on the map
 - **WHEN** a player throws a `2d6` onto the map
-- **THEN** two d6 tumble from the release point and come to rest near the landing point, showing the rolled values, and then the result popup appears
+- **THEN** two d6 tumble from the release point and come to rest near the landing point, showing the rolled values, and then the result card slides in
 
 #### Scenario: No second throw
 - **WHEN** a player throws a die onto the map
@@ -86,7 +96,7 @@ On the thrower's board, the roll's dice SHALL land where the die was let go, in 
 - **THEN** the dice fade out and the board is clear
 
 ### Requirement: The result waits for dice thrown on the board
-On the thrower's screen, from the moment the die is let go until its dice land, the Dice panel's latest-roll row SHALL read as rolling and the board's result popup SHALL wait. Both SHALL show the result when the dice land. While the die waits to learn which roll it made, newer rolls SHALL NOT be thrown in the centre of the thrower's board.
+On the thrower's screen, from the moment the die is let go until its dice land, the Dice panel's latest-roll row SHALL read as rolling and the board's result card SHALL wait. Both SHALL show the result when the dice land. While the die waits to learn which roll it made, newer rolls SHALL NOT be thrown in the centre of the thrower's board.
 
 #### Scenario: Total appears on landing
 - **WHEN** a roll is thrown onto the map
@@ -118,3 +128,11 @@ In those cases the roll SHALL be shown as any other public roll (`board-dice-rol
 #### Scenario: Rejected throw
 - **WHEN** a thrown roll is rejected by the server
 - **THEN** the held die fades out where it was released and the Dice panel shows the rejection message
+
+### Requirement: The result slides into the corner
+When a roll's dice land, the board's result card (`board-dice-rolls`) SHALL slide in from the right into the board's bottom-right corner, stay for 4 seconds and slide back out, instead of sitting over the middle of the map. It SHALL show the total, who rolled what (or the attack's summary), and a GM-only badge for a private roll. It SHALL NOT take pointer input. With reduced motion it SHALL appear and disappear without sliding.
+
+#### Scenario: Corner card
+- **WHEN** any roll's dice land
+- **THEN** a card with its result slides into the bottom-right corner of the board, clear of the map's middle, and leaves after 4 seconds
+

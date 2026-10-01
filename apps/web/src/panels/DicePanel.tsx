@@ -1,5 +1,5 @@
 import { useRef, useState, type FormEvent } from "react";
-import { attackLabel, formatAttackParties, formatAttackRoll, type Verdict, parseDiceExpression, type DiceVisibility, type Point, type RoomState } from "@vtt/shared";
+import { attackLabel, formatAttackParties, formatAttackRoll, formatExpression, type Verdict, parseDiceExpression, type DiceVisibility, type Point, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
 import { PanelSection } from "../ui/PanelSection";
@@ -50,8 +50,9 @@ export interface RollThrow {
  * replay them.
  *
  * The die beside the form can be dragged onto the map (throw-dice-on-board). That rolls exactly
- * as Roll does; on the thrower's board the dice land where the die was let go instead of in the
- * centre, then the usual popup says what was rolled. Everyone else sees the roll as any other.
+ * as Roll does; the dice land where the die was let go instead of in the centre, on the thrower's
+ * board and, replayed from a dice drop (ADR 0014), on everyone else's, then the result card says
+ * what was rolled.
  */
 export function DicePanel({
   connection,
@@ -115,7 +116,9 @@ export function DicePanel({
     if (!board || !parsed.ok) return false;
     rollThrow.hold(current.current.latestId ?? null);
     setBusy(true);
-    // Exactly what Roll sends: where the die was let go never leaves this browser.
+    // Where the die was let go, for everyone else to replay the throw there (ADR 0014). Sent first,
+    // so it reaches them before the roll it belongs to; the roll itself is exactly what Roll sends.
+    connection.ephemeral({ type: "diceDrop", expression: formatExpression(parsed.expression), from: aim.from, to: aim.to });
     const result = await withTimeout(connection.command(rollCommand(expression, visibility)), THROW_ANSWER_MS);
     setBusy(false);
     if (!result?.ok) {

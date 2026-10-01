@@ -40,3 +40,10 @@
 - [x] 7.2 Disable the drag die for private rolls (`throwBlocker`), since `board-dice-rolls` keeps them off the board. Verify: a unit test, and the hint in the browser.
 - [x] 7.3 Rename the overlay to `ThrownDice` / `thrown-dice` so it no longer shares #61's `BoardDice` / `board-dice` names, and drop the tray's unused waiting state. Verify: no `board-dice` rules apply to the dropped dice.
 
+## 8. Replay for everyone, and the corner card
+
+- [x] 8.1 Add the `diceDrop` ephemeral payload (`packages/shared/src/protocol.ts`) and ADR 0014. The server relays it only when both points are on the map. Verify: `apps/server/test/sync.test.ts` checks a drop is relayed to everyone else unsequenced, and a drop off the map is not relayed.
+- [x] 8.2 Send the drop just before the roll (`DicePanel`). Receivers keep the latest drop per sender for 5 s and replay the throw at those points when that sender's matching roll arrives, instead of the centred throw (`RoomPage`). Verify: in two browser tabs, the other tab's dice land at the same board positions as the thrower's, with no centred dice.
+- [x] 8.3 Move the result card to the board's bottom-right corner, sliding in from the right and back out over 4 s (`ui/BoardDice.tsx`, `styles.css`), still under reduced motion. Verify: in the browser, the card sits 12 px from the board's right and bottom edges, after both a dropped roll and a Roll.
+- [ ] 8.4 Review of ADR 0014 by the Real-Time Architecture owner.
+
