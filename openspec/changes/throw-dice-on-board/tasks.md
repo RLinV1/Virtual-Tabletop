@@ -45,5 +45,12 @@
 - [x] 8.1 Add the `diceDrop` ephemeral payload (`packages/shared/src/protocol.ts`) and ADR 0014. The server relays it only when both points are on the map. Verify: `apps/server/test/sync.test.ts` checks a drop is relayed to everyone else unsequenced, and a drop off the map is not relayed.
 - [x] 8.2 Send the drop just before the roll (`DicePanel`). Receivers keep the latest drop per sender for 5 s and replay the throw at those points when that sender's matching roll arrives, instead of the centred throw (`RoomPage`). Verify: in two browser tabs, the other tab's dice land at the same board positions as the thrower's, with no centred dice.
 - [x] 8.3 Move the result card to the board's bottom-right corner, sliding in from the right and back out over 4 s (`ui/BoardDice.tsx`, `styles.css`), still under reduced motion. Verify: in the browser, the card sits 12 px from the board's right and bottom edges, after both a dropped roll and a Roll.
-- [ ] 8.4 Review of ADR 0014 by the Real-Time Architecture owner.
+- [ ] 8.4 Review of ADR 0014 by the Real-Time Architecture owner (with section 9's changes).
 
+
+## 9. Each roll on its own, no centred broadcast
+
+- [x] 9.1 Replace the room page's single roll in the air (`rollThrow` with hold and release, the stale-landing guard, `net/rollsBySeq.ts`) with one decision per roll as it arrives (`RoomConnection.onRolled`, `RoomPage`): at its drop, in the middle of the roller's own board, in the GM's panel tray, or card only. Rolls in the air are a set (`airborne`) read by the Dice panel, the Attack card and the Rulings list, which drops its own timer. Verify: in the browser, three drags with a Roll in between each land at their own spot (release (192,320) → dice (200,323), (384,486) → (392,489), Roll → board centre (376,410), (614,294) → (622,297)), with no centred dice.
+- [x] 9.2 Keep dice drops in order per thrower, the thrower's own included (`board/diceDrops.ts`); a refused throw forgets its drop. Verify: `apps/web/test/diceDrops.test.ts`.
+- [x] 9.3 Throw a roll made with Roll into the middle of the roller's visible board (`BoardHandle.centreAim`, `centreThrow`), also with no map; others get only the card. Remove `board-dice-rolls`' centred overlay (`ui/BoardDice.tsx` becomes `ui/RollCard.tsx`). Verify: `diceThrow.test.ts`; in the browser, a second participant's Roll shows only the card on the GM's board.
+- [x] 9.4 Relay dice drops reliably instead of volatile (`liveRoom.ts`, ADR 0014 updated). Verify: `sync.test.ts` checks two drops sent back to back both arrive; it fails with the volatile relay. In the browser, a second participant's two back-to-back drops replay at their own spots.

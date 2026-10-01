@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BOARD_THROW_MAX_DICE, boardDiePaths, boardDieSize, clientToBoard, holdEvent, releaseVelocity, throwBlocker, throwLanding } from "../src/board/diceThrow";
+import { BOARD_THROW_MAX_DICE, boardDiePaths, boardDieSize, centreThrow, clientToBoard, holdEvent, releaseVelocity, throwBlocker, throwLanding } from "../src/board/diceThrow";
 
 const canvas = { left: 100, top: 50, width: 800, height: 600 };
 const map = { width: 1400, height: 1000 };
@@ -84,6 +84,22 @@ describe("throwing dice onto the board (throw-dice-on-board, FR-TAC-09)", () => 
       expect(edge.x).toBeGreaterThan(1380);
     });
   });
+
+  describe("centreThrow", () => {
+    const view = { scale: 1 };
+
+    it("lands a Roll in the middle of the visible board, tossed in from up and to the left", () => {
+      const aim = centreThrow({ x: 700, y: 500 }, view, grid, map);
+      expect(aim.to).toEqual({ x: 700, y: 500 });
+      expect(aim.from.x).toBeLessThan(aim.to.x);
+      expect(aim.from.y).toBeLessThan(aim.to.y);
+    });
+
+    it("keeps it on the map when the middle of the view is off it, and anywhere with no map", () => {
+      expect(centreThrow({ x: -300, y: 500 }, view, grid, map).to.x).toBeGreaterThanOrEqual(0);
+      expect(centreThrow({ x: -300, y: 500 }, view, grid, null).to).toEqual({ x: -300, y: 500 });
+    });
+  });
 });
 
 describe("board throw paths (throw-dice-on-board, FR-TAC-09)", () => {
@@ -105,6 +121,10 @@ describe("board throw paths (throw-dice-on-board, FR-TAC-09)", () => {
       expect(landing.x).toBeGreaterThanOrEqual(size / 2);
       expect(landing.y).toBeGreaterThanOrEqual(size / 2);
     }
+  });
+
+  it("doesn't hold dice in when there is no map", () => {
+    expect(boardDiePaths({ ...t, to: { x: -50, y: -50 } }, 1, size, null)[0]!.landing).toEqual({ x: -50, y: -50 });
   });
 
   it("plays the same throw the same way", () => {

@@ -25,7 +25,7 @@ Each face is a flat `<div>` placed in 3D with `matrix3d`. It holds one SVG `<pol
 
 ```css
 /* styles.css, today's look */
-.dice-tray, .board-dice-roll, .dice-ghost, .dice-throw-handle {
+.dice-tray, .thrown-dice-roll, .dice-ghost, .dice-throw-handle, .dice-look-preview {
   --die-body: var(--accent);        /* #b9582f rust */
   --die-ink: var(--accent-ink);     /* #fff8f3 */
   --die-shadow: rgba(0, 0, 0, 0.6);
@@ -45,7 +45,7 @@ GM-only rolls are repainted in slate and amber (`--die-body: #39404b; --die-ink:
 
 | To change | Edit |
 |---|---|
-| Die and numeral colour | `--die-body` / `--die-ink` in `styles.css`, the rule for `.dice-tray, .board-dice-roll, …` |
+| Die and numeral colour | `--die-body` / `--die-ink` in `styles.css`, the rule for `.dice-tray, .thrown-dice-roll, …` |
 | GM-only colours | The `.dice-tray.private, …` rule right below it |
 | Edge line | `.die3d-face polygon` stroke |
 | How dark the side faces get | `62` in `Die3D.tsx` (`shade: …(1 - lit) * 62`) and `#05070a` in the polygon fill |

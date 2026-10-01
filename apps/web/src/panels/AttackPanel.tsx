@@ -75,7 +75,7 @@ export function AttackPanel({
   pick,
   onPick,
   reset,
-  throwingRollId,
+  airborne,
   onLanded,
   onPickOnBoard,
   onShowPing,
@@ -89,8 +89,8 @@ export function AttackPanel({
   onPick: (pick: AttackPick) => void;
   /** The last encounter end: the outcome card, custom settings and chosen attack start over. */
   reset: AttackReset;
-  /** The viewer's attack roll whose dice are still in the air, if any (attack-section-compact). */
-  throwingRollId: string | null;
+  /** Rolls whose dice are still in the air on this viewer's screen (throw-dice-on-board). */
+  airborne: ReadonlySet<string>;
   /** Its dice have landed, on the board or in the private tray. */
   onLanded: (rollId: string) => void;
   /** Put the board into targeting mode for this attacker. */
@@ -165,7 +165,7 @@ export function AttackPanel({
           activeId={activeId}
           targetId={target?.id ?? null}
           clearedRollId={reset.clearedRollId}
-          throwingRollId={throwingRollId}
+          airborne={airborne}
           onLanded={onLanded}
           initial={lastUsed[attacker.id] ?? DEFAULT_ATTACK}
           presets={allPresets[attacker.id] ?? []}
@@ -195,7 +195,7 @@ function AttackForm({
   activeId,
   targetId,
   clearedRollId,
-  throwingRollId,
+  airborne,
   onLanded,
   initial,
   presets,
@@ -219,7 +219,7 @@ function AttackForm({
   activeId: string | null;
   targetId: string | null;
   clearedRollId: string | null;
-  throwingRollId: string | null;
+  airborne: ReadonlySet<string>;
   onLanded: (rollId: string) => void;
   initial: AttackSettings;
   presets: AttackPreset[];
@@ -569,7 +569,7 @@ function AttackForm({
         you={you}
         attackerId={attackerId}
         clearedRollId={clearedRollId}
-        throwingRollId={throwingRollId}
+        airborne={airborne}
         onLanded={onLanded}
         allPresets={allPresets}
         busy={busy}
@@ -714,7 +714,7 @@ function LatestAttack({
   you,
   attackerId,
   clearedRollId,
-  throwingRollId,
+  airborne,
   onLanded,
   allPresets,
   busy,
@@ -726,8 +726,8 @@ function LatestAttack({
   you: Participant;
   attackerId: string;
   clearedRollId: string | null;
-  /** The roll whose dice are still in the air, on the board or in this card. */
-  throwingRollId: string | null;
+  /** Rolls whose dice are still in the air, on the board or in this card. */
+  airborne: ReadonlySet<string>;
   onLanded: (rollId: string) => void;
   allPresets: Record<string, AttackPreset[]>;
   busy: boolean;
@@ -739,7 +739,7 @@ function LatestAttack({
 }) {
   const latest = latestAttackRoll(state.rolls, you.id, clearedRollId);
   if (!latest?.attack) return null;
-  const throwing = latest.id === throwingRollId;
+  const throwing = airborne.has(latest.id);
   const attack = latest.attack;
   const isPrivate = latest.visibility === "gm";
   const target = attack.target ? state.tokens[attack.target.tokenId] : undefined;

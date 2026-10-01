@@ -387,6 +387,13 @@ export class BoardView {
     return clientToBoard({ x: clientX, y: clientY }, this.app.canvas.getBoundingClientRect(), this.transform);
   }
 
+  /** The board point in the middle of the canvas, or null before the board is ready. */
+  visibleCentre(): Point | null {
+    if (!this.initialized) return null;
+    const canvas = this.app.canvas.getBoundingClientRect();
+    return this.clientToBoard(canvas.left + canvas.width / 2, canvas.top + canvas.height / 2);
+  }
+
   /** Resize the canvas once the host has held the same size for a whole frame. */
   private settleResize() {
     const size = { width: this.host.clientWidth, height: this.host.clientHeight };

@@ -77,8 +77,7 @@ The prototype's d6 picture is moved into a look once. The old key is removed bef
 
 ### Drawn for the viewer's own public rolls
 Each renderer reads the look in use (`useActiveDiceLook`) and passes it to `Die3D` only for a roll marked `skinned`:
-- the viewer's own public roll, in the centred board throw (`ui/BoardDice.tsx` gets `youId`);
-- their roll dropped on the map (`board/ThrownDice.tsx`);
+- the viewer's own public roll on the board, rolled with Roll or dropped on the map, in this tab or another of theirs (`board/ThrownDice.tsx`; `RoomPage` marks it `skinned` when the roll is theirs);
 - the held die, unless it's GM-only.
 
 The panel trays and the attack card only show GM-only rolls since `board-dice-rolls`, so they never wear a look.

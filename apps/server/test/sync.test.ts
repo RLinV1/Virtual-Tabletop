@@ -408,6 +408,17 @@ describe("dice drops (ADR 0014, FR-TAC-09)", () => {
     expect(ack.type === "ack" && ack.seq).toBe(seqBefore + 1);
   });
 
+  it("delivers drops sent back to back, which a volatile relay would lose", async () => {
+    const { alice, bob } = await withMap();
+    const second = { ...drop, from: { x: 500, y: 500 }, to: { x: 520, y: 510 } };
+    alice.send({ type: "ephemeral", payload: drop });
+    alice.send({ type: "ephemeral", payload: second });
+    // Each wait takes the next ephemeral message off bob's inbox.
+    const first = await bob.waitFor((m) => m.type === "ephemeral");
+    const next = await bob.waitFor((m) => m.type === "ephemeral");
+    expect([first, next].map((m) => m.type === "ephemeral" && m.payload)).toEqual([drop, second]);
+  });
+
   it("drops a drop that is off the map", async () => {
     const { alice, bob } = await withMap();
     alice.send({ type: "ephemeral", payload: { ...drop, to: { x: 5000, y: 160 } } });

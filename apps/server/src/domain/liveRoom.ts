@@ -212,7 +212,9 @@ export class LiveRoom {
       const viewer = this.state.participants[client.participantId];
       if (!viewer || !isActive(viewer)) continue;
       if (token?.hidden && viewer.role !== "gm") continue;
-      const deliver = client.sendVolatile ?? client.send;
+      // A dice drop is one message per throw, not pointer chatter, and a lost one shows the throw
+      // in the wrong place: it is delivered reliably, still unsequenced (ADR 0014).
+      const deliver = payload.type === "diceDrop" ? client.send : (client.sendVolatile ?? client.send);
       deliver.call(client, { type: "ephemeral", from: sender.id, payload });
     }
   }

@@ -50,7 +50,7 @@ This change records the feature as built on branch `feat/dice-image-skins`.
   - `test/diceSkin.test.ts`.
 - **apps/web, changed files:**
   - `ui/Die3D.tsx`: draws a face's picture, clipped, under the shading;
-  - `ui/DiceTray.tsx`, `board/BoardDice.tsx`, `panels/DiceThrowHandle.tsx`, `panels/AttackPanel.tsx`, `panels/DicePanel.tsx`: pass your look for your own rolls;
+  - `ui/DiceTray.tsx`, `board/ThrownDice.tsx`, `pages/RoomPage.tsx`, `panels/DiceThrowHandle.tsx`, `panels/AttackPanel.tsx`, `panels/DicePanel.tsx`: pass your look for your own rolls;
   - `pages/LibraryPage.tsx`, `panels/RoomPanel.tsx`, `ui/diceGeometry.ts` (exports the standard numbering), `styles.css`.
 - **docs:** `docs/DICE-SKINS.md` (how the dice look is built, the image-look format, the prompt), `docs/dice-templates/` (snapshots of the six templates).
 - **packages/shared, apps/server:** none.

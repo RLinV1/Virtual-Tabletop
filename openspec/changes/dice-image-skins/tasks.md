@@ -60,4 +60,4 @@
 ## 6. Combine with board-dice-rolls
 
 - [x] 6.1 Merge the updated `throw-dice-on-board` branch (now built on `board-dice-rolls`, #61). Take #61's compact Attack section whole: its tray only shows GM-only rolls, so it needs no look. Give `ui/BoardDice.tsx` the viewer's id so their own centred throws wear their look. Verify: lint, typecheck and all tests pass; the browser checks in 3.2.
-
+- [x] 6.2 Merge `throw-dice-on-board`'s "each roll on its own" (its section 9): `board-dice-rolls`' centred overlay is gone, so `ui/BoardDice.tsx` and its `youId` go with it. `RoomPage` marks a roll `skinned` when it's the viewer's own, whether rolled with Roll (thrown in the middle of their board) or dropped. Verify: lint, typecheck and all tests pass; in the browser, a Roll and a drop both land in the look in use.

@@ -7,13 +7,13 @@ import {
   reduceCommitted,
   type ClientMessageInput,
   type CommandInput,
+  type DiceRoll,
   type EphemeralPayload,
   type Participant,
   type RoomState,
   type ServerMessage,
   type SessionEndReason,
 } from "@vtt/shared";
-import { RollsBySeq } from "./rollsBySeq";
 
 /** `ended`: this seat left the room (ADR 0006). Terminal, like `unauthorized`: never reconnects. */
 export type ConnectionStatus = "connecting" | "open" | "reconnecting" | "unauthorized" | "ended";
@@ -42,6 +42,7 @@ export type CommandResult =
   | { ok: false; code: string; message: string };
 
 type EphemeralListener = (from: string, payload: EphemeralPayload) => void;
+type RollListener = (roll: DiceRoll) => void;
 
 /**
  * Client side of the sync protocol (docs/adr/0001-event-model.md, docs/adr/0002).
@@ -66,7 +67,7 @@ export class RoomConnection {
   private nextCommandId = 0;
   private pending = new Map<string, (r: CommandResult) => void>();
   private ephemeralListeners = new Set<EphemeralListener>();
-  private rolls = new RollsBySeq();
+  private rollListeners = new Set<RollListener>();
 
   readonly store: StoreApi<RoomSnapshot> = createStore<RoomSnapshot>(() => ({
     status: "connecting",
@@ -117,7 +118,6 @@ export class RoomConnection {
     this.socket?.disconnect();
     this.socket = null;
     this.failPending("Disconnected");
-    this.rolls.reset();
   }
 
   onEphemeral(fn: EphemeralListener) {
@@ -137,11 +137,12 @@ export class RoomConnection {
   }
 
   /**
-   * The id of the roll the event at `seq` made, e.g. from a `dice.roll` ack, or null when that
-   * event made no roll or can no longer be told (throw-dice-on-board).
+   * Called for each roll made while connected, once its event is applied (throw-dice-on-board).
+   * Never for rolls that arrive in a snapshot: those are already on the table.
    */
-  rollForSeq(seq: number | null): Promise<string | null> {
-    return this.rolls.find(seq, this.snapshot.seq);
+  onRolled(fn: RollListener) {
+    this.rollListeners.add(fn);
+    return () => this.rollListeners.delete(fn);
   }
 
   ephemeral(payload: EphemeralPayload) {
@@ -152,7 +153,6 @@ export class RoomConnection {
   private handle(msg: ServerMessage) {
     switch (msg.type) {
       case "welcome":
-        this.rolls.reset();
         this.update({ status: "open", state: msg.state, you: msg.you, seq: msg.seq, snapshots: this.snapshot.snapshots + 1 });
         return;
 
@@ -165,10 +165,12 @@ export class RoomConnection {
           const next = msg.committed.commandId ? reduceCommitted(state, msg.committed) : reduce(state, msg.committed.event);
           const you = this.snapshot.you ? (next.participants[this.snapshot.you.id] ?? null) : null;
           this.update({ state: next, seq: msg.committed.seq, you });
-          if (msg.committed.event.type === "DiceRolled") this.rolls.record(msg.committed.seq, msg.committed.event.roll.id);
         } catch {
-          this.resync();
+          return this.resync();
         }
+        // After the try: a listener's mistake must not read as a broken event stream.
+        const { event } = msg.committed;
+        if (event.type === "DiceRolled") this.rollListeners.forEach((fn) => fn(event.roll));
         return;
       }
 

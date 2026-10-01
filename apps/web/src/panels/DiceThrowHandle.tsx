@@ -41,7 +41,7 @@ export function DiceThrowHandle({
   blocker: string | null;
   busy: boolean;
   board: DiceBoard;
-  /** Roll, for dice aimed from `from` to `to`. True when its dice are now on the board. */
+  /** Roll, for dice aimed from `from` to `to`. True once the roll is made: its dice have taken over. */
   onThrow: (aim: { from: Point; to: Point }) => Promise<boolean>;
 }) {
   /** Only whether the held die is over the map re-renders; its position is written directly. */
