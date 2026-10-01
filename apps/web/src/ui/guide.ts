@@ -36,6 +36,14 @@ const STEPS: StepSpec[] = [
   },
   { target: "fit", title: "Fit", body: "Lost your place? Fit brings the whole map back into view." },
   {
+    target: "tools",
+    title: "Board tools",
+    body: {
+      gm: "Select moves tokens. Measure and Draw leave marks only you see. AoE places a spell area everyone sees, unless you tick GM only. Hold Alt to place off the grid. Drag the Eraser over marks and areas to remove them, anyone's areas included. Clear removes all of yours.",
+      player: "Select moves tokens. Measure and Draw leave marks only you see. AoE places a spell area everyone sees. Hold Alt to place off the grid. Drag the Eraser over your marks and areas to remove them, or Clear to remove them all.",
+    },
+  },
+  {
     target: "participants",
     title: "Who's here",
     body: {
@@ -54,8 +62,8 @@ const STEPS: StepSpec[] = [
     target: "tab-play",
     title: "Play tab",
     body: {
-      gm: "Your table at a glance: tokens you control and the initiative tracker, where you start and run encounters.",
-      player: "Your characters and the turn order. Most of a session happens here.",
+      gm: "Your table at a glance: rulings waiting on you, tokens you control, attacks and the initiative tracker, where you start and run encounters.",
+      player: "Your characters, your attacks and the turn order. Most of a session happens here.",
     },
   },
   {
@@ -66,7 +74,14 @@ const STEPS: StepSpec[] = [
       player: "Every token you can see. Search, find one on the map, and edit your own.",
     },
   },
-  { target: "tab-dice", title: "Dice tab", body: "Roll dice and see what everyone has rolled." },
+  {
+    target: "tab-dice",
+    title: "Dice tab",
+    body: {
+      gm: "Roll dice and see what everyone has rolled. Change or clear a Hit or Miss here after it leaves the Rulings list.",
+      player: "Roll dice and see what everyone has rolled, including the GM's Hit or Miss on your attacks.",
+    },
+  },
   { target: "tab-gm", title: "Manage tab", body: { gm: "Room setup: the battle map, the grid, and players who have left." } },
   {
     target: "activity-log",
@@ -76,9 +91,24 @@ const STEPS: StepSpec[] = [
   { target: "gm-map", title: "Battle map", body: { gm: "Upload a map image, or place one from your library." } },
   { target: "gm-grid", title: "Grid", body: { gm: "Line the grid up with the squares drawn on your map, so tokens snap to the right cells." } },
   {
+    target: "rulings",
+    title: "Rulings",
+    body: {
+      gm: "Attack rolls waiting on you. Mark a to-hit roll Hit or Miss, and press Apply on a damage roll to take that HP off the target. The app never decides a hit for you.",
+    },
+  },
+  {
     target: "my-tokens",
     title: "My tokens",
     body: { player: "Your characters. Click a name to find it on the map, and use the buttons to take damage or heal." },
+  },
+  {
+    target: "attack",
+    title: "Attack",
+    body: {
+      gm: "Attack with any token. Choose a target from the list or Pick on board, then tap a saved attack to roll it, or open Custom roll. Rule on your own rolls right here.",
+      player: "Choose your target from the list or Pick on board, then tap a saved attack to roll it, or open Custom roll. The GM calls Hit or Miss and applies the damage; you see it here.",
+    },
   },
   {
     target: "initiative",

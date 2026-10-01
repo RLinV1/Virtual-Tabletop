@@ -84,9 +84,10 @@ export function ToolRail({
     </button>
   );
   // Hidden, the rail is just its toggle; the active tool keeps working on the board.
+  // Untagged while hidden, so the guide skips its Board tools step rather than spotlight the toggle.
   if (collapsed) return <div className="tool-rail-wrap"><div className="tool-rail">{toggle}</div></div>;
   return (
-    <div className="tool-rail-wrap">
+    <div className="tool-rail-wrap" data-tour="tools">
       <div className="tool-rail" role="toolbar" aria-label="Board tools" aria-orientation="vertical">
         {toggle}
         {TOOLS.map((t) => (
