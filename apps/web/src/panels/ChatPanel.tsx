@@ -10,7 +10,7 @@ function timeLabel(at: string | null): string {
 }
 
 /**
- * Room chat (KAN-75, ADR 0014): the most recent messages, oldest first, and a box to add one.
+ * Room chat (KAN-75, ADR 0015): the most recent messages, oldest first, and a box to add one.
  *
  * Message text is rendered as plain React children, never as markup. The input's `maxLength`
  * is only a hint; the server validates the text and sets the sender, so nothing here decides

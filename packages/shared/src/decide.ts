@@ -487,7 +487,7 @@ export function decide(
     case "chat.send": {
       // Any active participant may talk. The socket layer already refuses ended seats; this is the authority.
       if (!isActive(actor)) return forbidden();
-      // The sender comes from the actor, never from the payload (the command is strict) (ADR 0014).
+      // The sender comes from the actor, never from the payload (the command is strict) (ADR 0015).
       return accept({
         type: "ChatMessageSent",
         message: { id: ctx.newId(), senderId: actor.id, senderName: actor.displayName, text: command.text },

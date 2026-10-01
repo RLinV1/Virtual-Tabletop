@@ -10,7 +10,7 @@ Players and the GM have no way to talk inside a room, so every table leans on a 
 - **Visibility:** chat is public to everyone in the room. Both filters pass it through unchanged; the per-room broadcast keeps it out of other rooms.
 - **Activity log:** a sentence for `ChatMessageSent` ("Aria said: …"). Not undoable.
 - **Chat panel** in `apps/web`: messages oldest-first with sender and time, auto-scroll to the newest, and an input that sends on Enter and shows server rejections.
-- **Contract change**, recorded in ADR 0014 for review by the Real-Time Architecture owner: the new command, event, `RoomState.chat`, and `EventMeta.at` so `reduce` can stamp the committed time without reading a clock.
+- **Contract change**, recorded in ADR 0015 for review by the Real-Time Architecture owner: the new command, event, `RoomState.chat`, and `EventMeta.at` so `reduce` can stamp the committed time without reading a clock.
 
 ## Non-goals
 
@@ -31,5 +31,5 @@ Players and the GM have no way to talk inside a room, so every table leans on a 
 - **`packages/shared`:** `commands.ts` (`chat.send`), `events.ts` (`ChatMessageSent`), `state.ts` (`ChatMessage`, `RoomState.chat`, `CHAT_LOG_LIMIT`), `decide.ts`, `reducer.ts`, `undo.ts` (`EventMeta.at`), `visibility.ts` (explicit pass), `activityLog.ts`. Unit tests in `packages/shared/test/chat.test.ts`.
 - **`apps/server`:** no pipeline change; snapshots already carry state. Multi-client wire test `apps/server/test/chat.test.ts`. Stored snapshots/replays without `chat` must load (default `[]`).
 - **`apps/web`:** new `panels/ChatPanel.tsx`, wired into `RoomPanel.tsx`.
-- **Docs:** `docs/adr/0014-room-chat.md`.
+- **Docs:** `docs/adr/0015-room-chat.md`.
 - **Compatibility:** additive. Older event logs have no chat events and replay to `chat: []`.

@@ -153,7 +153,7 @@ export const DomainEvent = z.discriminatedUnion("type", [
     amount: z.number().int().min(0),
   }),
   /**
-   * Someone sent a chat message (KAN-75, ADR 0014). The sender is the acting participant, set by
+   * Someone sent a chat message (KAN-75, ADR 0015). The sender is the acting participant, set by
    * `decide`. Replaces nothing, so there is no `previous`; the time is the commit's `at`.
    */
   z.object({

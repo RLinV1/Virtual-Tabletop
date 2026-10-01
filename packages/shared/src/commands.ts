@@ -26,7 +26,7 @@ export const DepartureAction = z.discriminatedUnion("action", [
 export type DepartureAction = z.infer<typeof DepartureAction>;
 
 /**
- * Chat text (KAN-75, ADR 0014): trimmed, 1 to MAX_CHAT_LENGTH characters, and no control
+ * Chat text (KAN-75, ADR 0015): trimmed, 1 to MAX_CHAT_LENGTH characters, and no control
  * characters (\p{Cc}, so no line breaks), invisible formatting characters (\p{Cf}, so no
  * right-to-left overrides or zero-width spoofing) or lone surrogates (\p{Cs}, which Postgres
  * `jsonb` refuses). The zero-width joiner and non-joiner are allowed: emoji sequences and
@@ -210,7 +210,7 @@ export const Command = z.discriminatedUnion("type", [
     participantId: Id,
     actions: z.array(DepartureAction).min(1).max(MAX_DEPARTURE_ACTIONS),
   }),
-  /** Send a chat message to the room (KAN-75, ADR 0014). Strict: a client can't name the sender. */
+  /** Send a chat message to the room (KAN-75, ADR 0015). Strict: a client can't name the sender. */
   z.object({
     type: z.literal("chat.send"),
     text: ChatText,

@@ -51,7 +51,7 @@ export interface EventMeta {
    */
   commandId?: string;
   actorId?: string | null;
-  /** The committed ISO timestamp, so `reduce` can stamp it without reading a clock (ADR 0014). */
+  /** The committed ISO timestamp, so `reduce` can stamp it without reading a clock (ADR 0015). */
   at?: string | null;
   /**
    * Committed before undo existed, so its batch boundaries are unknown. Never undoable: undoing

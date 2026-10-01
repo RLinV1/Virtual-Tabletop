@@ -33,7 +33,7 @@ export function reduceCommitted(state: RoomState, committed: CommittedEvent): Ro
 /**
  * `reduce` for an event as a client receives it. The GM's events carry `commandId` and keep the
  * undo history in step with the server's; a player's carry none, so they get only the committed
- * time (chat, ADR 0014) and keep no history (ADR 0013).
+ * time (chat, ADR 0015) and keep no history (ADR 0013).
  */
 export function reduceReceived(state: RoomState, committed: CommittedEvent): RoomState {
   return committed.commandId ? reduceCommitted(state, committed) : reduce(state, committed.event, { at: committed.at });
@@ -160,7 +160,7 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
       });
 
     // Newest last, oldest dropped; the full history stays in the event log. The time comes from
-    // the commit metadata because `reduce` cannot read a clock (ADR 0014).
+    // the commit metadata because `reduce` cannot read a clock (ADR 0015).
     case "ChatMessageSent":
       return { ...state, chat: [...state.chat, { ...event.message, at }].slice(-CHAT_LOG_LIMIT) };
 

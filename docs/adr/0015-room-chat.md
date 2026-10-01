@@ -1,4 +1,4 @@
-# ADR 0014: Room chat
+# ADR 0015: Room chat
 
 **Status:** Proposed — needs review by the Real-Time Architecture owner · **Amends:** `docs/adr/0001-event-model.md` (new command and event, `reduce` metadata), `docs/adr/0013-undo.md` (`EventMeta` fields become optional)
 **Owner:** Real-Time Architecture (Raymond) · **Changes:** `openspec/changes/room-chat` · **Ticket:** KAN-75

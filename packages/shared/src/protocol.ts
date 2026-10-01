@@ -17,7 +17,7 @@ export const EphemeralPayload = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ping"), at: Point }),
   z.object({ type: z.literal("tokenDragPreview"), tokenId: Id, at: Point }),
   /**
-   * A die let go over the map (ADR 0014): where it leaves the hand and where it lands, in board
+   * A die let go over the map (ADR 0015): where it leaves the hand and where it lands, in board
    * coordinates. Sent just before the sender's `dice.roll`, so every other viewer can replay
    * the throw at the same spot when that roll arrives. Presentation only: never persisted, and
    * `expression` (as the server formats it) only pairs it with that roll.

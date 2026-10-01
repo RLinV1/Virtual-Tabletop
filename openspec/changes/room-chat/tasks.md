@@ -1,6 +1,6 @@
 ## 1. ADR
 
-- [x] 1.1 Write `docs/adr/0014-room-chat.md` (Proposed): the `chat.send` command and its validation, the `ChatMessageSent` event, `RoomState.chat` and `CHAT_LOG_LIMIT`, `EventMeta.at`, the public-visibility decision, and the deploy-together note. Verify the file exists and links this change.
+- [x] 1.1 Write `docs/adr/0015-room-chat.md` (Proposed): the `chat.send` command and its validation, the `ChatMessageSent` event, `RoomState.chat` and `CHAT_LOG_LIMIT`, `EventMeta.at`, the public-visibility decision, and the deploy-together note. Verify the file exists and links this change.
 
 ## 2. Contract (packages/shared)
 
