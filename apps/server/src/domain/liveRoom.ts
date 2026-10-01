@@ -16,6 +16,7 @@ import {
   type EphemeralPayload,
   type JoinDecision,
   type Participant,
+  type Point,
   type RejectionCode,
   type RoomState,
   type ServerMessage,
@@ -204,12 +205,16 @@ export class LiveRoom {
       token = this.state.tokens[payload.tokenId];
       if (!token || !can.moveToken(sender, token)) return;
     }
+    // A dice drop only makes sense on the map: one off it, or with no map, is a forged payload.
+    if (payload.type === "diceDrop" && !onMap(this.state.scene.map, payload.from, payload.to)) return;
     for (const client of this.clients) {
       if (client === from) continue;
       const viewer = this.state.participants[client.participantId];
       if (!viewer || !isActive(viewer)) continue;
       if (token?.hidden && viewer.role !== "gm") continue;
-      const deliver = client.sendVolatile ?? client.send;
+      // A dice drop is one message per throw, not pointer chatter, and a lost one shows the throw
+      // in the wrong place: it is delivered reliably, still unsequenced (ADR 0014).
+      const deliver = payload.type === "diceDrop" ? client.send : (client.sendVolatile ?? client.send);
       deliver.call(client, { type: "ephemeral", from: sender.id, payload });
     }
   }
@@ -308,4 +313,9 @@ export class LiveRoom {
     this.tail = result.catch(() => undefined);
     return result;
   }
+}
+
+/** Whether every point is on the map image (ADR 0014); false when the room has no map. */
+function onMap(map: RoomState["scene"]["map"], ...points: Point[]): boolean {
+  return !!map && points.every((p) => p.x >= 0 && p.y >= 0 && p.x <= map.width && p.y <= map.height);
 }

@@ -441,8 +441,89 @@ export const THROW_MS = 1150;
 /** The gap between dice leaving the hand, so a handful doesn't land as one. */
 export const throwStagger = (count: number) => Math.min(60, 420 / Math.max(1, count));
 
+/** Keyframe samples per throw; a bounce is sampled, not eased. */
+const THROW_SAMPLES = 36;
+
+/** Floor contacts after the drop: [start, end, bounce height as a fraction of the drop]. */
+const BOUNCES: [number, number, number][] = [
+  [0.34, 0.58, 0.3],
+  [0.58, 0.74, 0.1],
+  [0.74, 0.84, 0.03],
+];
+
+/** How one die travels to rest, in px of the surface it lands on. */
+export interface ThrowPath {
+  /** Where the die leaves the hand, relative to where it comes to rest. */
+  offset: { x: number; y: number };
+  /** How high above the surface it starts. */
+  drop: number;
+  /** Extra degrees about x, y and z, wound down to nothing by the time it rests. */
+  turns: readonly [number, number, number];
+}
+
+/** A throw's tumble: a turn and a half or so about each axis, in random directions. */
+export function throwTurns(rng: () => number): [number, number, number] {
+  const [x, y, z] = [0, 1, 2].map((axis) => (rng() < 0.5 ? -1 : 1) * (axis === 2 ? 200 : 460) + (rng() - 0.5) * 240);
+  return [x!, y!, z!];
+}
+
+/** Height above the surface at time t in [0, 1]: a drop, then three shrinking bounces. */
+function throwHeight(t: number, drop: number): number {
+  const [first] = BOUNCES[0]!;
+  if (t < first) return drop * (1 - (t / first) ** 2);
+  for (const [a, b, peak] of BOUNCES) {
+    if (t < b) {
+      const s = (t - a) / (b - a);
+      return 4 * peak * drop * s * (1 - s);
+    }
+  }
+  return 0;
+}
+
 /**
- * From the throw to the last die at rest, for a roll of `count` dice: how long the result is
- * held back anywhere it could otherwise be read before the dice show it.
+ * Keyframes for one die thrown along `path` onto a surface, for the three parts `Die3D` draws:
+ * the tumble (`spin`), the travel and height (`flight`) and the shadow on the surface.
+ *
+ * The tumble is extra rotations composed in front of the rest transform and wound down to
+ * zero, so the final frame is exactly the rest pose and the die lands on its result. Travel
+ * bleeds off speed as it goes, so the die slides the last stretch.
  */
-export const throwDuration = (count: number) => THROW_MS + Math.max(0, count - 1) * throwStagger(count);
+export function throwKeyframes(rest: string, path: ThrowPath): { spin: Keyframe[]; flight: Keyframe[]; shadow: Keyframe[] } {
+  const spin: Keyframe[] = [];
+  const flight: Keyframe[] = [];
+  const shadow: Keyframe[] = [];
+  for (let k = 0; k <= THROW_SAMPLES; k++) {
+    const t = k / THROW_SAMPLES;
+    const h = throwHeight(t, path.drop);
+    const travel = (1 - t) ** 2.4;
+    const x = path.offset.x * travel;
+    const y = path.offset.y * travel;
+    const unwind = (1 - t) ** 2.6;
+    const lift = path.drop > 0 ? h / path.drop : 0;
+    const [a, b, c] = path.turns;
+    spin.push({
+      offset: t,
+      // Same function list in every frame, so the angles interpolate turn by turn.
+      transform: `rotateX(${a * unwind}deg) rotateY(${b * unwind}deg) rotateZ(${c * unwind}deg) ${rest}`,
+    });
+    flight.push({ offset: t, transform: `translate3d(${x}px, ${y - h}px, 0) scale(${1 + 0.18 * lift})` });
+    shadow.push({ offset: t, transform: `translate(${x}px, ${y}px) scale(${1 - 0.45 * lift})`, opacity: 1 - 0.7 * lift });
+  }
+  return { spin, flight, shadow };
+}
+
+/**
+ * A small seeded generator (mulberry32), keyed by text such as a roll id. Decorative only: it
+ * picks resting angles and throw paths, and it is seeded so a re-render does not reshuffle a
+ * die that is already on the table.
+ */
+export function seed(text: string): () => number {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
+  return () => {
+    h = (h + 0x6d2b79f5) | 0;
+    let t = Math.imul(h ^ (h >>> 15), 1 | h);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}

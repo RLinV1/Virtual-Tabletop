@@ -7,6 +7,7 @@ import {
   reduceCommitted,
   type ClientMessageInput,
   type CommandInput,
+  type DiceRoll,
   type EphemeralPayload,
   type Participant,
   type RoomState,
@@ -41,6 +42,7 @@ export type CommandResult =
   | { ok: false; code: string; message: string };
 
 type EphemeralListener = (from: string, payload: EphemeralPayload) => void;
+type RollListener = (roll: DiceRoll) => void;
 
 /**
  * Client side of the sync protocol (docs/adr/0001-event-model.md, docs/adr/0002).
@@ -65,6 +67,7 @@ export class RoomConnection {
   private nextCommandId = 0;
   private pending = new Map<string, (r: CommandResult) => void>();
   private ephemeralListeners = new Set<EphemeralListener>();
+  private rollListeners = new Set<RollListener>();
 
   readonly store: StoreApi<RoomSnapshot> = createStore<RoomSnapshot>(() => ({
     status: "connecting",
@@ -133,6 +136,15 @@ export class RoomConnection {
     });
   }
 
+  /**
+   * Called for each roll made while connected, once its event is applied (throw-dice-on-board).
+   * Never for rolls that arrive in a snapshot: those are already on the table.
+   */
+  onRolled(fn: RollListener) {
+    this.rollListeners.add(fn);
+    return () => this.rollListeners.delete(fn);
+  }
+
   ephemeral(payload: EphemeralPayload) {
     if (this.snapshot.status === "open") this.send({ type: "ephemeral", payload });
   }
@@ -154,8 +166,11 @@ export class RoomConnection {
           const you = this.snapshot.you ? (next.participants[this.snapshot.you.id] ?? null) : null;
           this.update({ state: next, seq: msg.committed.seq, you });
         } catch {
-          this.resync();
+          return this.resync();
         }
+        // After the try: a listener's mistake must not read as a broken event stream.
+        const { event } = msg.committed;
+        if (event.type === "DiceRolled") this.rollListeners.forEach((fn) => fn(event.roll));
         return;
       }
 
