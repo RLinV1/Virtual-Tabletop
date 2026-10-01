@@ -33,8 +33,8 @@ export function DepartureNotices({ state, onReview }: { state: RoomState; onRevi
   const dismiss = (id: string) => setNotices((n) => n.filter((x) => x !== id));
 
   return (
-    // Always mounted, so screen readers register the live region before a notice lands in it.
-    <div className="board-notices" role="status" aria-live="polite">
+    // Cards only: the room page wraps every board notice in one live region (BoardNotices).
+    <>
       {notices.map((id) => {
         const name = state.participants[id]?.displayName ?? "A player";
         return (
@@ -63,6 +63,6 @@ export function DepartureNotices({ state, onReview }: { state: RoomState; onRevi
           </div>
         );
       })}
-    </div>
+    </>
   );
 }

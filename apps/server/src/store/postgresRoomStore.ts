@@ -133,12 +133,14 @@ export class PostgresRoomStore implements RoomStore {
               type: e.event.type,
               payload: e.event as unknown as Prisma.InputJsonValue,
               actorId: e.actorId,
+              commandId: e.commandId ?? null,
             },
           });
           committed.push({
             seq: row.seq,
             at: row.createdAt.toISOString(),
             actorId: row.actorId,
+            ...(row.commandId ? { commandId: row.commandId } : {}),
             event: e.event,
           });
         }
@@ -162,6 +164,8 @@ export class PostgresRoomStore implements RoomStore {
       seq: r.seq,
       at: r.createdAt.toISOString(),
       actorId: r.actorId,
+      // Null on events from before undo existed; `eventMeta` then groups them by seq (ADR 0013).
+      ...(r.commandId ? { commandId: r.commandId } : {}),
       event: r.payload as unknown as DomainEvent,
     }));
 

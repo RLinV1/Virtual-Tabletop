@@ -11,15 +11,21 @@ import { PanelTabs, RoomPanel, isTabId, type TabBadges, type TabId } from "../pa
 import { outcomeKey, pendingRulings } from "../panels/attackRoll";
 import { ActivityLog } from "../panels/ActivityLog";
 import type { AttackPick } from "../panels/AttackPanel";
+import { useEncounterReset } from "../panels/attackSession";
 import { gridsEqual, parseGridDraft, toGridDraft, type GridDraft } from "./gridDraft";
 import { LeaveTable } from "../panels/LeaveTable";
 import { ResolveDepartureModal } from "../panels/ResolveDeparture";
 import { DepartureNotices } from "../ui/DepartureNotice";
+import { TurnNotice } from "../ui/TurnNotice";
+import { BoardDice } from "../ui/BoardDice";
 import { SectionCollapseProvider } from "../ui/PanelSection";
 import { ParticipantsButton } from "../ui/ParticipantsButton";
 import { ShareButton } from "../ui/ShareButton";
 import { GuideIcon, GuideTour } from "../ui/GuideTour";
 import { isBoolean, usePersistentState } from "../ui/usePersistentState";
+
+/** How long the board says what was just rolled (attack-section-compact). */
+const ROLL_POPUP_MS = 4000;
 
 /** Below this the panel becomes tabs and sits under the board (FR-PL-03). */
 const COMPACT_WIDTH = 720;
@@ -111,7 +117,7 @@ function SessionEnded({ roomName, reason }: { roomName: string | null; reason: S
 
 /** The room once a credential exists: board, side panel, and the connection's terminal screens. */
 function Room({ roomId, connection, token }: { roomId: string; connection: RoomConnection; token: string }) {
-  const { status, state, you, seq, endReason, refusal } = useRoomSnapshot(connection);
+  const { status, state, you, seq, snapshots, endReason, refusal } = useRoomSnapshot(connection);
   const [reviewing, setReviewing] = useState<string | null>(null);
 
   // The seat is gone for good, on every tab that shared it: forget it, so the invite link
@@ -134,6 +140,8 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
   const [attackPick, setAttackPick] = useState<AttackPick>({ attackerId: null, targetId: null });
   const pickOnBoard = useCallback((attackerId: string) => boardRef.current?.startAttack(attackerId), []);
   const pickTarget = useCallback((attackerId: string, targetId: string) => setAttackPick({ attackerId, targetId }), []);
+  // Ending the encounter clears the target and the last roll, but keeps the attacker and named attacks (attack-panel-encounter-reset).
+  const attackReset = useEncounterReset(roomId, state, you?.id ?? null, () => setAttackPick((p) => ({ ...p, targetId: null })));
   const showPing = useCallback((at: Point) => boardRef.current?.showPing(at), []);
   // The GM's "Roll privately" for attacks: here, so leaving the Play tab doesn't reset it.
   const [attackVisibility, setAttackVisibility] = useState<DiceVisibility>("public");
@@ -232,6 +240,44 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
       ? { play: { label: "new ruling" } }
       : {};
 
+  // Every roll is thrown once, for everyone who can see it (attack-section-compact): a public roll
+  // over the board with a popup of the result, a private (GM-only) roll in the GM's panel tray. Kept
+  // here, not in a panel, so the board and the panels agree on when the dice have landed. Undefined
+  // until the room loads. Every full snapshot (load, reconnect, resync) resets it to that snapshot's
+  // latest roll: rolls already on the table then, including ones made while offline, aren't thrown.
+  const latestRoll = state?.rolls[state.rolls.length - 1];
+  const [landed, setLanded] = useState<{ id: string | null; live: boolean } | undefined>(undefined);
+  const [popupRollId, setPopupRollId] = useState<string | null>(null);
+  const seenSnapshots = useRef(0);
+  useEffect(() => {
+    if (!state || seenSnapshots.current === snapshots) return;
+    seenSnapshots.current = snapshots;
+    setLanded({ id: latestRoll?.id ?? null, live: false });
+    setPopupRollId(null);
+  }, [state, latestRoll, snapshots]);
+  const throwingRoll = latestRoll && landed !== undefined && latestRoll.id !== landed.id ? latestRoll : undefined;
+  const landRoll = useCallback((rollId: string) => {
+    setLanded({ id: rollId, live: true });
+    setPopupRollId(rollId);
+  }, []);
+  // A private roll lands in a panel tray: the Attack section's for your own attack, else the Dice
+  // section's. With that tray out of view there is nothing to watch, so it lands at once.
+  const diceVisible = tab === "dice" && !(sidebarCollapsed && !compact);
+  const privateTrayShown =
+    throwingRoll?.visibility === "gm" &&
+    (diceVisible || (playVisible && !!throwingRoll.attack && throwingRoll.byParticipantId === you?.id));
+  const privateUnseen = throwingRoll?.visibility === "gm" && !privateTrayShown;
+  useEffect(() => {
+    if (privateUnseen && throwingRoll) landRoll(throwingRoll.id);
+  }, [privateUnseen, throwingRoll, landRoll]);
+  useEffect(() => {
+    if (!popupRollId) return;
+    const timer = window.setTimeout(() => setPopupRollId(null), ROLL_POPUP_MS);
+    return () => window.clearTimeout(timer);
+  }, [popupRollId]);
+  const popupRoll = popupRollId ? state?.rolls.find((r) => r.id === popupRollId) : undefined;
+  const rollThrow = { rollId: throwingRoll?.id ?? null, justLandedId: landed?.live ? landed.id : null, onLanded: landRoll };
+
   if (status === "ended") return <SessionEnded roomName={state?.name ?? null} reason={endReason} />;
 
   if (status === "unauthorized") {
@@ -304,7 +350,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
               }}
             />
           )}
-          {you.role === "gm" && <ActivityLog roomId={state.roomId} token={token} seq={seq} />}
+          {you.role === "gm" && <ActivityLog roomId={state.roomId} token={token} seq={seq} state={state} connection={connection} />}
           <button
             ref={guideButtonRef}
             type="button"
@@ -335,7 +381,21 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
         you={you}
         gridPreview={you.role === "gm" ? gridPreview : null}
         onPickTarget={pickTarget}
-        notices={you.role === "gm" ? <DepartureNotices state={state} onReview={setReviewing} /> : undefined}
+        notices={
+          // Always mounted, so screen readers register the live region before a notice lands in it.
+          <div className="board-notices" role="status" aria-live="polite">
+            {you.role === "gm" && <DepartureNotices state={state} onReview={setReviewing} />}
+            <TurnNotice state={state} you={you} onFocusToken={focusToken} />
+          </div>
+        }
+        overlay={
+          <BoardDice
+            throwing={throwingRoll?.visibility === "gm" ? undefined : throwingRoll}
+            popup={popupRoll}
+            rollerName={(roll) => state.participants[roll.byParticipantId]?.displayName ?? "Someone"}
+            onLanded={landRoll}
+          />
+        }
       />
       <aside className="panel" id="room-panel" tabIndex={-1} aria-label="Room controls">
         {!compact && (
@@ -390,6 +450,8 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
               onFocusToken={focusToken}
               attackPick={attackPick}
               onAttackPick={setAttackPick}
+              attackReset={attackReset}
+              rollThrow={rollThrow}
               onPickOnBoard={pickOnBoard}
               onShowPing={showPing}
               attackVisibility={attackVisibility}

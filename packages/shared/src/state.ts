@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { UndoEntry } from "./undo";
 import { ConditionId, TokenStats } from "./conditions";
 import { DiceRoll } from "./dice";
 import { DEFAULT_GRID, GridSpec, Point } from "./geometry";
@@ -132,6 +133,11 @@ export interface RoomState {
   rolls: DiceRoll[];
   /** Placed area templates everyone at the table can see, bar GM-only ones (FR-TAC-06, ADR 0007). */
   templates: Record<Id, AreaTemplate>;
+  /**
+   * Recent undoable actions, oldest first (FR-REC-02, ADR 0013). Derived by `reduce` from
+   * committed events and their `commandId`s; GM-only (players always get an empty list).
+   */
+  undo: UndoEntry[];
 }
 
 export function emptyRoomState(roomId: Id): RoomState {
@@ -144,5 +150,6 @@ export function emptyRoomState(roomId: Id): RoomState {
     initiative: null,
     rolls: [],
     templates: {},
+    undo: [],
   };
 }

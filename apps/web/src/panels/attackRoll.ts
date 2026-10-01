@@ -1,4 +1,4 @@
-import { MAX_ATTACK_LABEL, type AttackKind, type DiceRoll, type RoomState, type Token } from "@vtt/shared";
+import { attackLabel, formatAttackParties, MAX_ATTACK_LABEL, type AttackKind, type DiceRoll, type RoomState, type Token } from "@vtt/shared";
 import { measure } from "../board/tools";
 
 /**
@@ -236,4 +236,34 @@ export function attackSectionChange(previous: EncounterView, next: EncounterView
   if (previous.inEncounter && !next.inEncounter) return "collapse";
   if (next.inEncounter && !previous.yourTurn && next.yourTurn && !toggledThisEncounter) return "open";
   return null;
+}
+
+/** Where the custom roll settings last used per token are kept (attack-targeting). */
+export const LAST_USED_KEY = "vtt.attack.last";
+
+/**
+ * The participant's latest attack roll, for the Attack section's outcome card. Nothing once an
+ * encounter has ended on it: `clearedRollId` is the roll that was latest when the encounter
+ * ended, so only a later roll brings the card back (attack-panel-encounter-reset).
+ */
+export function latestAttackRoll(rolls: readonly DiceRoll[], participantId: string, clearedRollId: string | null): DiceRoll | undefined {
+  const latest = [...rolls].reverse().find((r) => r.attack && r.byParticipantId === participantId);
+  return latest && latest.id !== clearedRollId ? latest : undefined;
+}
+
+/**
+ * The two lines that describe an attack roll in the result card and the board popup
+ * (attack-section-compact, board-dice-rolls): "7 damage" or "17 to hit", then "Firebomb · 2d6 · Goblin → Aria".
+ */
+export function rollHeadline(roll: Pick<DiceRoll, "expression" | "total" | "attack">, rollerName: string): { title: string; meta: string } {
+  return roll.attack ? attackHeadline(roll) : { title: String(roll.total), meta: `${rollerName} · ${roll.expression}` };
+}
+
+/** Attack rolls read as what they did; see `rollHeadline` for any roll. */
+export function attackHeadline(roll: Pick<DiceRoll, "expression" | "total" | "attack">): { title: string; meta: string } {
+  const attack = roll.attack;
+  const title = `${roll.total} ${attack?.kind === "damage" ? "damage" : "to hit"}`;
+  if (!attack) return { title, meta: roll.expression };
+  const label = attackLabel(attack);
+  return { title, meta: [label, roll.expression, formatAttackParties(attack)].filter(Boolean).join(" · ") };
 }

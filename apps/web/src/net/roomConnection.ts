@@ -4,6 +4,7 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import {
   SOCKET_EVENTS,
   reduce,
+  reduceCommitted,
   type ClientMessageInput,
   type CommandInput,
   type EphemeralPayload,
@@ -21,6 +22,11 @@ export interface RoomSnapshot {
   state: RoomState | null;
   you: Participant | null;
   seq: number;
+  /**
+   * Counts full snapshots (`welcome`) received: on connect, reconnect and resync. A new value
+   * means `state` was replaced wholesale rather than moved on by events (board-dice-rolls).
+   */
+  snapshots: number;
   /** Set with status `ended`: whether this seat left or was removed by the GM (ADR 0006). */
   endReason: SessionEndReason | null;
   /**
@@ -65,6 +71,7 @@ export class RoomConnection {
     state: null,
     you: null,
     seq: 0,
+    snapshots: 0,
     endReason: null,
     refusal: null,
   }));
@@ -134,14 +141,16 @@ export class RoomConnection {
   private handle(msg: ServerMessage) {
     switch (msg.type) {
       case "welcome":
-        this.update({ status: "open", state: msg.state, you: msg.you, seq: msg.seq });
+        this.update({ status: "open", state: msg.state, you: msg.you, seq: msg.seq, snapshots: this.snapshot.snapshots + 1 });
         return;
 
       case "event": {
         const { state, seq } = this.snapshot;
         if (!state || msg.committed.seq !== seq + 1) return this.resync();
         try {
-          const next = reduce(state, msg.committed.event);
+          // Only the GM's events carry `commandId`; with it the undo history stays in step with
+          // the server's. Players get none, so they keep no history (ADR 0013).
+          const next = msg.committed.commandId ? reduceCommitted(state, msg.committed) : reduce(state, msg.committed.event);
           const you = this.snapshot.you ? (next.participants[this.snapshot.you.id] ?? null) : null;
           this.update({ state: next, seq: msg.committed.seq, you });
         } catch {
