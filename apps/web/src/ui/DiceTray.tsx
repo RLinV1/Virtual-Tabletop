@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
-import { apply, dot, faceLayout, labelDie, mul, rotateX, rotateY, rotateZ, rotationCss, type Vec3 } from "./diceGeometry";
+import { apply, dot, faceLayout, labelDie, mul, rotateX, rotateY, rotateZ, rotationCss, THROW_MS, throwStagger, type Vec3 } from "./diceGeometry";
 
 /** What the tray needs to know about a roll that has already been made. */
 export interface TrayRoll {
@@ -186,7 +186,6 @@ function layoutDice(roll: TrayRoll, size: number): DieLayout[] {
   });
 }
 
-const THROW_MS = 1150;
 const SAMPLES = 36;
 
 /** Floor contacts after the drop: [start, end, bounce height as a fraction of the drop]. */
@@ -206,7 +205,7 @@ const BOUNCES: [number, number, number][] = [
  */
 function throwDice(tray: HTMLElement, dice: DieLayout[], size: number, rng: () => number): Animation[] {
   const from = rng() < 0.5 ? -1 : 1;
-  const stagger = Math.min(60, 420 / dice.length);
+  const stagger = throwStagger(dice.length);
   const out: Animation[] = [];
 
   tray.querySelectorAll<HTMLElement>("[data-die]").forEach((slot, i) => {
