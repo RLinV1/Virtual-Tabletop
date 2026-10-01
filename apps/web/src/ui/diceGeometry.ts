@@ -441,12 +441,6 @@ export const THROW_MS = 1150;
 /** The gap between dice leaving the hand, so a handful doesn't land as one. */
 export const throwStagger = (count: number) => Math.min(60, 420 / Math.max(1, count));
 
-/**
- * From the throw to the last die at rest, for a roll of `count` dice: how long the result is
- * held back anywhere it could otherwise be read before the dice show it.
- */
-export const throwDuration = (count: number) => THROW_MS + Math.max(0, count - 1) * throwStagger(count);
-
 /** Keyframe samples per throw; a bounce is sampled, not eased. */
 const THROW_SAMPLES = 36;
 

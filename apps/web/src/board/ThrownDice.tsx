@@ -14,19 +14,19 @@ export interface ActiveThrow {
   roll: TrayRoll;
   /** Die edge in board px, fixed when thrown. */
   size: number;
-  map: Pick<MapImage, "width" | "height">;
+  /** The dice stay on it; null in a room without a map. */
+  map: Pick<MapImage, "width" | "height"> | null;
   /** The dice are at rest. The board also calls it when it drops a throw early; it must be safe to call twice. */
   onLanded: () => void;
 }
 
 /**
- * Dice dropped onto the map (throw-dice-on-board): a DOM layer over the Pixi canvas, drawing the
- * same 3D dice as the Dice panel. Its one inner element follows the board's world transform, so
- * the dice sit in board coordinates and pan and zoom with the map. It takes no input: every
- * pointer event reaches the board underneath.
+ * Dice thrown on this viewer's board (throw-dice-on-board): a DOM layer over the Pixi canvas,
+ * drawing the same 3D dice as the Dice panel. Its one inner element follows the board's world
+ * transform, so the dice sit in board coordinates and pan and zoom with the map. It takes no
+ * input: every pointer event reaches the board underneath.
  *
- * Only the thrower sees these, in place of the centred board throw (board-dice-rolls) that
- * everyone else sees.
+ * Each throw is on its own: several can be in the air at once, and each lands on its own clock.
  */
 export function ThrownDice({
   throws,

@@ -6,7 +6,7 @@ import { DEFAULT_TOOL_OPTIONS, ToolRail, toolFor, type ToolOptions } from "../ui
 import { canAnimateDice, type TrayRoll } from "../ui/Die3D";
 import { ThrownDice, type ActiveThrow } from "./ThrownDice";
 import { BoardView } from "./boardView";
-import { boardDieSize, onMap, throwLanding, type BoardThrow, type BoardTransform } from "./diceThrow";
+import { boardDieSize, centreThrow, onMap, throwLanding, type BoardThrow, type BoardTransform } from "./diceThrow";
 import { autoPlacementPoint, type PlacementGhost, type TokenDraft } from "./placement";
 import type { BoardTool } from "./tools";
 
@@ -39,15 +39,17 @@ export interface BoardHandle {
    * coordinates, or null when the point is not over the map (throw-dice-on-board).
    */
   aimThrow(client: Point, velocity: Point): { from: Point; to: Point } | null;
+  /** Where a roll made with Roll is thrown: into the middle of the visible board, kept on the map. */
+  centreAim(): { from: Point; to: Point } | null;
   /**
    * Throw a roll's dice on this viewer's board. False when they can't be animated here (reduced
-   * motion, no Web Animations, no map yet); then `onLanded` is never called.
+   * motion, no Web Animations, the board not ready); then `onLanded` is never called.
    */
   throwDice(t: BoardThrow, roll: TrayRoll, onLanded: () => void): boolean;
 }
 
 /** What the Dice panel needs from the board to throw dice onto it (throw-dice-on-board). */
-export type DiceBoard = Pick<BoardHandle, "aimThrow" | "throwDice">;
+export type DiceBoard = Pick<BoardHandle, "aimThrow">;
 
 /** Rolls on the board at once; a fourth throw clears the oldest away. */
 const MAX_BOARD_THROWS = 3;
@@ -258,10 +260,17 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       if (!from || !onMap(from, map)) return null;
       return { from, to: throwLanding(from, velocity, view.transform, grid, map) };
     },
+    centreAim: () => {
+      const view = viewRef.current;
+      const centre = view?.visibleCentre();
+      if (!view || !centre) return null;
+      const { map, grid } = latest.current.state.scene;
+      return centreThrow(centre, view.transform, grid, map);
+    },
     throwDice: (t: BoardThrow, roll: TrayRoll, onLanded: () => void) => {
       const view = viewRef.current;
       const { map, grid } = latest.current.state.scene;
-      if (!view || !map || !canAnimateDice(hostRef.current)) return false;
+      if (!view || !canAnimateDice(hostRef.current)) return false;
       let landed = false;
       const once = () => {
         if (landed) return;

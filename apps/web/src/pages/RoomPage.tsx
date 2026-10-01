@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { House } from "@phosphor-icons/react";
-import { can, type DiceRoll, type DiceVisibility, type GridSpec, type Point } from "@vtt/shared";
+import { can, type DiceVisibility, type GridSpec, type Point } from "@vtt/shared";
 import { Board, type BoardHandle, type DiceBoard } from "../board/Board";
+import { PendingDrops, type DiceDrop } from "../board/diceDrops";
 import type { TokenDraft } from "../board/placement";
 import { Link } from "../Link";
 import type { SessionEndReason } from "@vtt/shared";
 import { forgetCredentials, loadCredentials, rememberRoomName } from "../net/identity";
 import { RoomConnection, useRoomSnapshot, type ConnectionStatus } from "../net/roomConnection";
 import { PanelTabs, RoomPanel, isTabId, type TabBadges, type TabId } from "../panels/RoomPanel";
-import { trayRoll } from "../panels/DicePanel";
+import { trayRoll, type RollThrow } from "../panels/DicePanel";
 import { outcomeKey, pendingRulings } from "../panels/attackRoll";
 import { ActivityLog } from "../panels/ActivityLog";
 import type { AttackPick } from "../panels/AttackPanel";
@@ -18,20 +19,19 @@ import { LeaveTable } from "../panels/LeaveTable";
 import { ResolveDepartureModal } from "../panels/ResolveDeparture";
 import { DepartureNotices } from "../ui/DepartureNotice";
 import { TurnNotice } from "../ui/TurnNotice";
-import { BoardDice } from "../ui/BoardDice";
+import { RollCard } from "../ui/RollCard";
 import { SectionCollapseProvider } from "../ui/PanelSection";
 import { ParticipantsButton } from "../ui/ParticipantsButton";
 import { ShareButton } from "../ui/ShareButton";
 import { GuideIcon, GuideTour } from "../ui/GuideTour";
 import { isBoolean, usePersistentState } from "../ui/usePersistentState";
 
-/** How long a dice drop from another viewer waits for its roll (ADR 0014). */
-const DROP_WAIT_MS = 5000;
-
-/** The waiting drop that belongs to this roll: the same person, the same dice, not too long ago. */
-function dropFor(drops: Map<string, { expression: string; from: Point; to: Point; at: number }>, roll: DiceRoll) {
-  const drop = drops.get(roll.byParticipantId);
-  return drop && drop.expression === roll.expression && performance.now() - drop.at <= DROP_WAIT_MS ? drop : undefined;
+/** The set without `id`; the same set when it wasn't there, so nothing re-renders. */
+function without(set: ReadonlySet<string>, id: string): ReadonlySet<string> {
+  if (!set.has(id)) return set;
+  const next = new Set(set);
+  next.delete(id);
+  return next;
 }
 
 /** How long the board says what was just rolled (attack-section-compact). */
@@ -127,7 +127,7 @@ function SessionEnded({ roomName, reason }: { roomName: string | null; reason: S
 
 /** The room once a credential exists: board, side panel, and the connection's terminal screens. */
 function Room({ roomId, connection, token }: { roomId: string; connection: RoomConnection; token: string }) {
-  const { status, state, you, seq, snapshots, endReason, refusal } = useRoomSnapshot(connection);
+  const { status, state, you, seq, endReason, refusal } = useRoomSnapshot(connection);
   const [reviewing, setReviewing] = useState<string | null>(null);
 
   // The seat is gone for good, on every tab that shared it: forget it, so the invite link
@@ -156,7 +156,6 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
   const diceBoard = useMemo<DiceBoard>(
     () => ({
       aimThrow: (client, velocity) => boardRef.current?.aimThrow(client, velocity) ?? null,
-      throwDice: (t, roll, onLanded) => boardRef.current?.throwDice(t, roll, onLanded) ?? false,
     }),
     [],
   );
@@ -257,99 +256,76 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
       ? { play: { label: "new ruling" } }
       : {};
 
-  // Every roll is thrown once, for everyone who can see it (attack-section-compact): a public roll
-  // over the board with a popup of the result, a private (GM-only) roll in the GM's panel tray. Kept
-  // here, not in a panel, so the board and the panels agree on when the dice have landed. Undefined
-  // until the room loads. Every full snapshot (load, reconnect, resync) resets it to that snapshot's
-  // latest roll: rolls already on the table then, including ones made while offline, aren't thrown.
-  const latestRoll = state?.rolls[state.rolls.length - 1];
-  const [landed, setLanded] = useState<{ id: string | null; live: boolean } | undefined>(undefined);
-  const [popupRollId, setPopupRollId] = useState<string | null>(null);
-  // A die dragged onto the map (throw-dice-on-board): while it waits to learn which roll it made,
-  // rolls newer than `after` are held off the centred board throw; once known, `dropped` is the
-  // roll whose dice land where it was let go, on this viewer's board, instead of in the centre.
-  const [dropHold, setDropHold] = useState<{ after: string | null } | null>(null);
-  const [dropped, setDropped] = useState<string | null>(null);
-  const seenSnapshots = useRef(0);
-  useEffect(() => {
-    if (!state || seenSnapshots.current === snapshots) return;
-    seenSnapshots.current = snapshots;
-    setLanded({ id: latestRoll?.id ?? null, live: false });
-    setPopupRollId(null);
-    setDropHold(null);
-    setDropped(null);
-  }, [state, latestRoll, snapshots]);
-  const throwingRoll = latestRoll && landed !== undefined && latestRoll.id !== landed.id ? latestRoll : undefined;
-  const latestRollId = useRef(latestRoll?.id);
-  latestRollId.current = latestRoll?.id;
-  const landRoll = useCallback((rollId: string) => {
-    // Dice dropped on the map land on their own clock; if a newer roll has arrived meanwhile, it is
-    // the one in the air now, and landing the older one must not mark it landed or replay it.
-    if (rollId !== latestRollId.current) return;
-    setLanded({ id: rollId, live: true });
-    setPopupRollId(rollId);
+  // Rolls on this viewer's screen (throw-dice-on-board). Each roll is on its own, so any number
+  // can be made in a row without one cutting into another:
+  // - yours lands on your board where you let the die go, or for Roll, in the middle of it;
+  // - someone else's lands where they let theirs go, replayed from their dice drop (ADR 0014);
+  //   one rolled with Roll only gets the result card;
+  // - a private (GM-only) roll is thrown in the GM's panel tray, off the board (board-dice-rolls).
+  // A roll is `airborne` until its dice land; then the card in the board's corner says what it
+  // was. Rolls that come in a snapshot (load, reconnect) are already on the table: never thrown.
+  const [airborne, setAirborne] = useState<ReadonlySet<string>>(() => new Set());
+  const [landedId, setLandedId] = useState<string | null>(null);
+  const [cardRollId, setCardRollId] = useState<string | null>(null);
+  const land = useCallback((rollId: string) => {
+    setAirborne((s) => without(s, rollId));
+    setLandedId(rollId);
+    setCardRollId(rollId);
   }, []);
-  const holdThrow = useCallback((after: string | null) => setDropHold({ after }), []);
-  const releaseThrow = useCallback((rollId: string | null) => {
-    setDropHold(null);
-    setDropped(rollId);
-  }, []);
-  // Dice drops from other viewers (ADR 0014): where someone let a die go, kept briefly until their
-  // roll arrives, so the throw replays at the same spot here instead of in the centre.
-  const pendingDrops = useRef(new Map<string, { expression: string; from: Point; to: Point; at: number }>());
+  const drops = useRef(new PendingDrops());
   useEffect(() => {
     const stop = connection.onEphemeral((from, payload) => {
-      if (payload.type === "diceDrop") pendingDrops.current.set(from, { ...payload, at: performance.now() });
+      if (payload.type === "diceDrop") drops.current.add(from, { expression: payload.expression, from: payload.from, to: payload.to }, performance.now());
     });
     return () => {
       stop();
     };
   }, [connection]);
-  const [replayed, setReplayed] = useState<string | null>(null);
-  const replayDrop =
-    throwingRoll && throwingRoll.visibility !== "gm" && throwingRoll.id !== replayed ? dropFor(pendingDrops.current, throwingRoll) : undefined;
-  useEffect(() => {
-    if (!throwingRoll || !replayDrop) return;
-    const roll = throwingRoll;
-    pendingDrops.current.delete(roll.byParticipantId);
-    setReplayed(roll.id);
-    // The same throw as on the thrower's board: its path is seeded by the roll and the two points.
-    const shown = boardRef.current?.throwDice({ rollId: roll.id, from: replayDrop.from, to: replayDrop.to }, trayRoll(roll), () => landRoll(roll.id));
-    // Where it can't be animated here (reduced motion, say), it's thrown as any other roll.
-    if (shown) setDropped(roll.id);
-  }, [throwingRoll, replayDrop, landRoll]);
-  /** The public roll the centred board throw shows: not one dropped on the map, nor one a drop is waiting for. */
-  const centredRoll =
-    throwingRoll &&
-    throwingRoll.visibility !== "gm" &&
-    throwingRoll.id !== dropped &&
-    !replayDrop &&
-    !(dropHold && throwingRoll.id !== dropHold.after)
-      ? throwingRoll
-      : undefined;
+  const expectDrop = useCallback(
+    (drop: DiceDrop) => drops.current.add(connection.snapshot.you?.id ?? "", drop, performance.now()),
+    [connection],
+  );
   // A private roll lands in a panel tray: the Attack section's for your own attack, else the Dice
   // section's. With that tray out of view there is nothing to watch, so it lands at once.
   const diceVisible = tab === "dice" && !(sidebarCollapsed && !compact);
-  const privateTrayShown =
-    throwingRoll?.visibility === "gm" &&
-    (diceVisible || (playVisible && !!throwingRoll.attack && throwingRoll.byParticipantId === you?.id));
-  const privateUnseen = throwingRoll?.visibility === "gm" && !privateTrayShown;
+  const trays = useRef({ diceVisible, playVisible });
+  trays.current = { diceVisible, playVisible };
   useEffect(() => {
-    if (privateUnseen && throwingRoll) landRoll(throwingRoll.id);
-  }, [privateUnseen, throwingRoll, landRoll]);
+    const stop = connection.onRolled((roll) => {
+      const mine = roll.byParticipantId === connection.snapshot.you?.id;
+      if (roll.visibility === "gm") {
+        const { diceVisible, playVisible } = trays.current;
+        if (diceVisible || (playVisible && mine && roll.attack)) setAirborne((s) => new Set(s).add(roll.id));
+        else land(roll.id);
+        return;
+      }
+      const board = boardRef.current;
+      const aim = drops.current.take(roll, performance.now()) ?? (mine ? board?.centreAim() : null);
+      // Not where it can't be animated (reduced motion, say): then it lands at once.
+      const thrown = !!aim && !!board?.throwDice({ rollId: roll.id, from: aim.from, to: aim.to }, trayRoll(roll), () => land(roll.id));
+      if (thrown) setAirborne((s) => new Set(s).add(roll.id));
+      else land(roll.id);
+    });
+    return () => {
+      stop();
+    };
+  }, [connection, land]);
+  // A private roll whose tray has gone (another tab, or a newer roll in its place) lands now.
+  const latestRollId = state?.rolls.at(-1)?.id;
   useEffect(() => {
-    if (!popupRollId) return;
-    const timer = window.setTimeout(() => setPopupRollId(null), ROLL_POPUP_MS);
+    for (const id of airborne) {
+      const roll = state?.rolls.find((r) => r.id === id);
+      const inTray = (diceVisible && id === latestRollId) || (playVisible && id === myLatest?.id);
+      if (!roll || (roll.visibility === "gm" && !inTray)) land(id);
+    }
+  }, [airborne, state, diceVisible, playVisible, latestRollId, myLatest, land]);
+  useEffect(() => {
+    if (!cardRollId) return;
+    const timer = window.setTimeout(() => setCardRollId(null), ROLL_POPUP_MS);
     return () => window.clearTimeout(timer);
-  }, [popupRollId]);
-  const popupRoll = popupRollId ? state?.rolls.find((r) => r.id === popupRollId) : undefined;
-  const rollThrow = {
-    rollId: throwingRoll?.id ?? null,
-    justLandedId: landed?.live ? landed.id : null,
-    onLanded: landRoll,
-    hold: holdThrow,
-    release: releaseThrow,
-  };
+  }, [cardRollId]);
+  const cardRoll = cardRollId ? state?.rolls.find((r) => r.id === cardRollId) : undefined;
+  const rollThrow: RollThrow = { airborne, justLandedId: landedId, onLanded: land, expectDrop };
 
   if (status === "ended") return <SessionEnded roomName={state?.name ?? null} reason={endReason} />;
 
@@ -461,15 +437,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
             <TurnNotice state={state} you={you} onFocusToken={focusToken} />
           </div>
         }
-        overlay={
-          <BoardDice
-            throwing={centredRoll}
-            droppedId={dropped}
-            popup={popupRoll}
-            rollerName={(roll) => state.participants[roll.byParticipantId]?.displayName ?? "Someone"}
-            onLanded={landRoll}
-          />
-        }
+        overlay={<RollCard roll={cardRoll} rollerName={(roll) => state.participants[roll.byParticipantId]?.displayName ?? "Someone"} />}
       />
       <aside className="panel" id="room-panel" tabIndex={-1} aria-label="Room controls">
         {!compact && (

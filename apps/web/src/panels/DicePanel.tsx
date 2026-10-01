@@ -1,35 +1,32 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { attackLabel, formatAttackParties, formatAttackRoll, formatExpression, type Verdict, parseDiceExpression, type DiceVisibility, type Point, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
 import { PanelSection } from "../ui/PanelSection";
 import { DiceTray, type TrayRoll } from "../ui/DiceTray";
 import type { DiceBoard } from "../board/Board";
+import type { DiceDrop } from "../board/diceDrops";
 import { throwBlocker } from "../board/diceThrow";
 import { DiceThrowHandle } from "./DiceThrowHandle";
 
 const QUICK = ["1d20", "1d20+5", "2d6", "1d8+3", "4d6"];
 
 /**
- * Where the table's latest roll is in its throw (attack-section-compact), held by the room page so
- * the board and the panels agree: the roll still in the air, the one that just landed, and how a
- * panel tray reports its landing.
+ * Which rolls are still being thrown on this viewer's screen (throw-dice-on-board), held by the
+ * room page so the board and the panels agree on when each roll's dice have landed.
  */
 export interface RollThrow {
-  rollId: string | null;
+  /** Rolls whose dice are still in the air: their totals wait. */
+  airborne: ReadonlySet<string>;
+  /** The roll whose dice landed last. */
   justLandedId: string | null;
+  /** A panel tray's dice have landed. */
   onLanded: (rollId: string) => void;
   /**
-   * A die was let go over the map (throw-dice-on-board): hold rolls newer than `after` off the
-   * centred board throw until it's known which roll the die made.
+   * Your die was let go over the map: your next roll of this expression lands there instead of
+   * in the middle of the board. Returns a function that forgets it, for a roll that didn't go through.
    */
-  hold: (after: string | null) => void;
-  /**
-   * The die's roll is known: `rollId` lands where it was let go, on this viewer's board, in
-   * place of the centred throw. Null when it doesn't (no roll, or it couldn't be thrown there),
-   * and the roll, if any, is shown as any other.
-   */
-  release: (rollId: string | null) => void;
+  expectDrop: (drop: DiceDrop) => () => void;
 }
 
 /**
@@ -42,16 +39,15 @@ export interface RollThrow {
  * server re-parses and rolls, and its result is the only one anyone sees. A GM-only roll
  * never reaches a player, so players have no "hidden roll" placeholder in their log.
  *
- * Each new public roll is thrown as 3D dice over everyone's board (attack-section-compact); a
+ * Your public roll is thrown as 3D dice in the middle of your board (throw-dice-on-board); a
  * private roll is thrown in this panel's tray instead, off the shared view. Its text row waits
  * until the dice land so the total is not read before the dice show it. Rolls already on the
  * table when the room loads have landed: joining, reconnecting or switching tabs does not
  * replay them.
  *
- * The die beside the form can be dragged onto the map (throw-dice-on-board). That rolls exactly
- * as Roll does; the dice land where the die was let go instead of in the centre, on the thrower's
- * board and, replayed from a dice drop (ADR 0014), on everyone else's, then the result card says
- * what was rolled.
+ * The die beside the form can be dragged onto the map. That rolls exactly as Roll does; the dice
+ * land where the die was let go instead, on the thrower's board and, replayed from a dice drop
+ * (ADR 0014), on everyone else's, then the result card says what was rolled.
  */
 export function DicePanel({
   connection,
@@ -105,33 +101,26 @@ export function DicePanel({
       }
     : undefined;
   const latest = rolls[0];
-  const throwing = latest !== undefined && latest.id === rollThrow.rollId;
-  // Read when an answer comes back, after renders the awaiting code can't see.
-  const current = useRef({ latestId: latest?.id });
-  current.current = { latestId: latest?.id };
+  const throwing = latest !== undefined && rollThrow.airborne.has(latest.id);
 
-  /** Roll for a die let go over the map; true once its dice are flying there. */
+  /** Roll for a die let go over the map; true once the roll is made, and its dice are on their way. */
   const throwOnBoard = async (aim: { from: Point; to: Point }): Promise<boolean> => {
-    if (!board || !parsed.ok) return false;
-    rollThrow.hold(current.current.latestId ?? null);
+    if (!parsed.ok) return false;
     setBusy(true);
-    // Where the die was let go, for everyone else to replay the throw there (ADR 0014). Sent first,
-    // so it reaches them before the roll it belongs to; the roll itself is exactly what Roll sends.
-    connection.ephemeral({ type: "diceDrop", expression: formatExpression(parsed.expression), from: aim.from, to: aim.to });
+    // Where the die was let go: kept here so the roll lands there when it arrives, and sent first
+    // for everyone else to replay the throw there (ADR 0014). The roll is exactly what Roll sends.
+    const drop = { expression: formatExpression(parsed.expression), from: aim.from, to: aim.to };
+    const forget = rollThrow.expectDrop(drop);
+    connection.ephemeral({ type: "diceDrop", ...drop });
     const result = await withTimeout(connection.command(rollCommand(expression, visibility)), THROW_ANSWER_MS);
     setBusy(false);
     if (!result?.ok) {
-      rollThrow.release(null);
+      forget();
       setError(result ? result.message : "The roll didn't go through. Try again.");
       return false;
     }
     setError(null);
-    const rollId = await connection.rollForSeq(result.seq);
-    // From the connection, not props: the ack can land before React re-renders with the roll.
-    const made = rollId ? connection.snapshot.state?.rolls.find((r) => r.id === rollId) : undefined;
-    const onBoard = made !== undefined && board.throwDice({ rollId: made.id, ...aim }, trayRoll(made), () => rollThrow.onLanded(made.id));
-    rollThrow.release(onBoard ? made.id : null);
-    return onBoard;
+    return true;
   };
 
   return (

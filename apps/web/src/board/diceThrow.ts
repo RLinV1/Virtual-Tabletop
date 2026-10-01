@@ -98,6 +98,21 @@ export function throwLanding(
   return clampToMap({ x: from.x + direction.x * distance, y: from.y + direction.y * distance }, map);
 }
 
+/**
+ * A roll made with Roll (no die let go): tossed in from up and to the left, landing at `centre`,
+ * the middle of the visible board, kept on the map when there is one.
+ */
+export function centreThrow(
+  centre: Point,
+  view: Pick<BoardTransform, "scale">,
+  grid: Pick<GridSpec, "cellSize">,
+  map: Pick<MapImage, "width" | "height"> | null,
+): { from: Point; to: Point } {
+  const to = map ? clampToMap(centre, map) : centre;
+  const reach = 2 * boardDieSize(grid, view);
+  return { from: { x: to.x - DROP_DIRECTION.x * reach, y: to.y - DROP_DIRECTION.y * reach }, to };
+}
+
 export function clampToMap(p: Point, map: Pick<MapImage, "width" | "height">): Point {
   const clamp = (v: number, max: number) => Math.min(max - EDGE_MARGIN, Math.max(EDGE_MARGIN, v));
   return { x: clamp(p.x, map.width), y: clamp(p.y, map.height) };
@@ -124,18 +139,18 @@ export interface BoardDiePath {
 
 /**
  * How each die of a throw travels, in board px. The first die rests on `to`, the others in a
- * loose seeded cluster around it, all inside the map; every die leaves the hand at `from`.
- * Depends only on its inputs, so the same throw always plays the same way.
+ * loose seeded cluster around it, all inside the map if there is one; every die leaves the hand
+ * at `from`. Depends only on its inputs, so the same throw always plays the same way.
  */
-export function boardDiePaths(t: BoardThrow, count: number, size: number, map: Pick<MapImage, "width" | "height">): BoardDiePath[] {
+export function boardDiePaths(t: BoardThrow, count: number, size: number, map: Pick<MapImage, "width" | "height"> | null): BoardDiePath[] {
   const rng = seed(`${t.rollId}:board`);
   const spin = rng() * Math.PI * 2;
-  const inside = (v: number, max: number) => Math.min(max - size / 2, Math.max(size / 2, v));
+  const inside = (v: number, max: number | undefined) => (max === undefined ? v : Math.min(max - size / 2, Math.max(size / 2, v)));
   return Array.from({ length: count }, (_, i) => {
     // Golden-angle spiral: each die takes the next free spot around the first.
     const angle = spin + i * 2.39996 + (rng() - 0.5) * 0.5;
     const reach = i === 0 ? 0 : size * (0.85 + rng() * 0.25) * Math.sqrt(i);
-    const landing = { x: inside(t.to.x + Math.cos(angle) * reach, map.width), y: inside(t.to.y + Math.sin(angle) * reach, map.height) };
+    const landing = { x: inside(t.to.x + Math.cos(angle) * reach, map?.width), y: inside(t.to.y + Math.sin(angle) * reach, map?.height) };
     const jitter = () => (rng() - 0.5) * size * 0.3;
     return {
       landing,

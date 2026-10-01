@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from "react";
-import { attackLabel, formatAttackParties, type DiceRoll, type RoomState } from "@vtt/shared";
+import { useState } from "react";
+import { attackLabel, formatAttackParties, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
-import { throwDuration } from "../ui/diceGeometry";
 import { PanelSection } from "../ui/PanelSection";
 import { pendingRulings, type PendingRuling } from "./attackRoll";
 import { RulingButtons } from "./RulingButtons";
@@ -12,9 +11,17 @@ import { RulingButtons } from "./RulingButtons";
  * afterwards, and the app never decides for them (README §7). Rendered for the GM only; the
  * server refuses these commands from anyone else regardless.
  */
-export function RulingsPanel({ connection, state }: { connection: RoomConnection; state: RoomState }) {
+export function RulingsPanel({
+  connection,
+  state,
+  airborne,
+}: {
+  connection: RoomConnection;
+  state: RoomState;
+  /** Rolls whose dice are still in the air on this screen: the total and the controls wait for them. */
+  airborne: ReadonlySet<string>;
+}) {
   const pending = pendingRulings(state);
-  const throwing = useThrowing(state.rolls);
   // One request per roll at a time; the server refuses a second apply anyway.
   const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
@@ -41,7 +48,7 @@ export function RulingsPanel({ connection, state }: { connection: RoomConnection
               key={item.roll.id}
               item={item}
               busy={busy.has(item.roll.id)}
-              rolling={throwing.has(item.roll.id)}
+              rolling={airborne.has(item.roll.id)}
               onRule={(verdict) => send(item.roll.id, { type: "roll.rule", rollId: item.roll.id, verdict })}
               onApply={() => send(item.roll.id, { type: "roll.applyDamage", rollId: item.roll.id })}
             />
@@ -55,51 +62,6 @@ export function RulingsPanel({ connection, state }: { connection: RoomConnection
       )}
     </PanelSection>
   );
-}
-
-/**
- * The rolls whose dice are still in the air, so the list doesn't give a total away before the
- * dice show it: a roll that arrives while the list is showing waits as long as its throw. Rolls
- * already here when the list mounts have landed, as in the Dice panel.
- *
- * Takes the room's whole roll log, not just the pending rulings: the log is capped, so what's
- * tracked here stays bounded as rolls fall off it, and a roll whose ruling the GM clears comes
- * back to the list without being thrown again.
- */
-function useThrowing(rolls: DiceRoll[]): ReadonlySet<string> {
-  const initial = useRef<ReadonlySet<string> | null>(null);
-  initial.current ??= new Set(rolls.map((r) => r.id));
-  const [landed, setLanded] = useState<ReadonlySet<string>>(new Set());
-  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-
-  // Worked out during render, so a new roll never shows its total for even one frame.
-  const throwing = new Set(rolls.filter((r) => !initial.current!.has(r.id) && !landed.has(r.id)).map((r) => r.id));
-
-  useEffect(() => {
-    const inLog = new Set(rolls.map((r) => r.id));
-    for (const [id, timer] of timers.current) {
-      if (inLog.has(id)) continue;
-      clearTimeout(timer);
-      timers.current.delete(id);
-    }
-    if ([...landed].some((id) => !inLog.has(id))) setLanded(new Set([...landed].filter((id) => inLog.has(id))));
-
-    const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-    for (const roll of rolls) {
-      if (!throwing.has(roll.id) || timers.current.has(roll.id)) continue;
-      const land = () => {
-        timers.current.delete(roll.id);
-        setLanded((s) => new Set(s).add(roll.id));
-      };
-      timers.current.set(roll.id, setTimeout(land, reduced ? 0 : throwDuration(roll.dice.length)));
-    }
-  });
-  useEffect(() => {
-    const pending = timers.current;
-    return () => pending.forEach(clearTimeout);
-  }, []);
-
-  return throwing;
 }
 
 function RulingRow({

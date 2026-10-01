@@ -1969,13 +1969,7 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 }
 .board-notice p { margin: 0; }
 
-/* The viewer's own attack roll over the board (attack-section-compact); never takes pointer input. */
-.board-dice {
-  position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 5;
-  display: flex; flex-direction: column; align-items: center; gap: var(--space-2);
-  pointer-events: none; max-width: calc(100% - 2rem);
-}
-.board-dice .dice-tray { background: none; border: none; overflow: visible; }
+/* What was just rolled (board-dice-rolls, throw-dice-on-board); never takes pointer input. */
 .board-roll-popup {
   /* Bottom right, clear of the notices (top right) and the hint (bottom left). */
   position: absolute; right: var(--space-3); bottom: var(--space-3); z-index: 6;
