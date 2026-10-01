@@ -9,6 +9,8 @@ import type { GridDraft } from "../pages/gridDraft";
 import { DicePanel } from "./DicePanel";
 import { InitiativeTracker } from "./InitiativeTracker";
 import { AttackPanel, type AttackPick } from "./AttackPanel";
+import type { AttackReset } from "./attackSession";
+import type { RollThrow } from "./DicePanel";
 import { attackSectionChange, type EncounterView } from "./attackRoll";
 import { MyTokens } from "./MyTokens";
 import { RulingsPanel } from "./RulingsPanel";
@@ -137,6 +139,10 @@ interface Props {
   /** Who attacks whom, shared with the board's Pick on board (attack-targeting). */
   attackPick: AttackPick;
   onAttackPick: (pick: AttackPick) => void;
+  /** The last encounter end, which clears the Attack section (attack-panel-encounter-reset). */
+  attackReset: AttackReset;
+  /** The roll still being thrown, the one that just landed, and how to say it landed (attack-section-compact). */
+  rollThrow: RollThrow;
   onPickOnBoard: (attackerId: string) => void;
   onShowPing: (at: Point) => void;
   /** The board, for dice thrown onto it from the Dice panel (throw-dice-on-board). */
@@ -168,7 +174,7 @@ interface Props {
  */
 export function RoomPanel({
   connection, state, you, token, onFocusToken, onPlaceToken,
-  attackPick, onAttackPick, onPickOnBoard, onShowPing, diceBoard, attackVisibility, onAttackVisibility,
+  attackPick, onAttackPick, attackReset, rollThrow, onPickOnBoard, onShowPing, diceBoard, attackVisibility, onAttackVisibility,
   gridDraft, hasGridDraft, onGridDraftChange, onGridDraftCancel, onGridApply, gridApplying, gridError,
   compact, tab, onTab, onReviewDeparture, tabBadges,
 }: Props) {
@@ -186,24 +192,28 @@ export function RoomPanel({
       <>
         {isGm && <RulingsPanel connection={connection} state={state} />}
         <MyTokens connection={connection} state={state} you={you} onFocusToken={onFocusToken} />
+        {/* The encounter first: whose turn it is decides who attacks. */}
+        <InitiativeTracker connection={connection} state={state} you={you} onFocusToken={onFocusToken} />
         <AttackPanel
           connection={connection}
           state={state}
           you={you}
           pick={attackPick}
           onPick={onAttackPick}
+          reset={attackReset}
+          throwingRollId={rollThrow.rollId}
+          onLanded={rollThrow.onLanded}
           onPickOnBoard={onPickOnBoard}
           onShowPing={onShowPing}
           visibility={attackVisibility}
           onVisibility={onAttackVisibility}
         />
-        <InitiativeTracker connection={connection} state={state} you={you} onFocusToken={onFocusToken} />
       </>
     ),
     tokens: (
       <TokenRoster connection={connection} state={state} you={you} token={token} onFocusToken={onFocusToken} onPlaceToken={onPlaceToken} />
     ),
-    dice: <DicePanel connection={connection} state={state} isGm={isGm} board={diceBoard} youId={you.id} />,
+    dice: <DicePanel connection={connection} state={state} isGm={isGm} rollThrow={rollThrow} board={diceBoard} />,
     gm: isGm ? (
       <GmPanel
         connection={connection}

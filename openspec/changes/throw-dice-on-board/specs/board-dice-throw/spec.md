@@ -2,12 +2,19 @@
 
 ## Purpose
 
-Lets a participant pick up the dice from the Dice panel and throw them onto the map. On the thrower's own board, the same 3D dice tumble across the map and land on the values the server rolled. The roll itself stays an ordinary roll for everyone else.
+Lets a participant pick up the dice from the Dice panel and throw them onto the map. On the thrower's own board, the same 3D dice tumble across the map and land where they were let go, on the values the server rolled. Everyone else sees the roll as any public roll (`board-dice-rolls`).
 
 ## ADDED Requirements
 
 ### Requirement: A die can be dragged from the Dice panel onto the map to roll
-The Dice panel SHALL offer a draggable 3D die alongside the existing expression input, Roll button and quick chips, which SHALL keep working unchanged. Releasing the die over the map SHALL roll the panel's current expression, with the panel's current visibility (public, or GM-only for the GM), exactly as the Roll button would. The drag SHALL work with a mouse and with touch. While held, the die SHALL follow the pointer in its 3D shape. The die SHALL NOT be draggable, and SHALL say why, when the room has no map or when the expression rolls more than 10 dice; the Roll button SHALL still roll such an expression.
+The Dice panel SHALL offer a draggable 3D die alongside the existing expression input, Roll button and quick chips, which SHALL keep working unchanged. Releasing the die over the map SHALL roll the panel's current expression publicly, exactly as the Roll button would. The drag SHALL work with a mouse and with touch. While held, the die SHALL follow the pointer in its 3D shape.
+
+The die SHALL NOT be draggable, and SHALL say why, in any of these cases:
+- the room has no map;
+- the expression rolls more than 10 dice;
+- the GM has ticked "Roll privately". Private rolls stay off the board (`board-dice-rolls`).
+
+The Roll button SHALL still roll in all of those cases.
 
 #### Scenario: Throwing rolls the typed expression
 - **WHEN** a player with `2d6+1` in the expression field drags the die over the map and releases it
@@ -33,6 +40,10 @@ The Dice panel SHALL offer a draggable 3D die alongside the existing expression 
 - **WHEN** the expression field holds `10d6` and the die is thrown onto the map
 - **THEN** all ten dice roll across the thrower's board
 
+#### Scenario: Private roll
+- **WHEN** the GM ticks "Roll privately"
+- **THEN** the die is disabled with a hint that private rolls stay off the board, and Roll still rolls privately
+
 ### Requirement: The throw's path is set by the release
 The throw SHALL start at the release point and land at a point derived from the pointer's velocity at release. A slow release SHALL land near the release point; a faster flick SHALL land further along its direction. The landing point SHALL be kept inside the map. Both points SHALL be board coordinates (map image pixels).
 
@@ -44,27 +55,27 @@ The throw SHALL start at the release point and land at a point derived from the 
 - **WHEN** the die is flicked hard toward the map's edge
 - **THEN** it lands inside the map, at or near the edge
 
-### Requirement: The throw stays on the thrower's screen
-Throwing a die SHALL send exactly the same roll command as pressing Roll with the same expression and visibility. The release point, landing point and flick SHALL NOT be sent to the server or to any other participant. Every other participant, including the thrower's other open tabs, SHALL see the roll exactly as a roll made with the Roll button: thrown in their Dice panel tray, with the result held until it lands.
+### Requirement: Only the thrower sees where the die was let go
+Throwing a die SHALL send exactly the same roll command as pressing Roll with the same expression. The release point, landing point and flick SHALL NOT be sent to the server or to any other participant. Every other participant, including the thrower's other open tabs, SHALL see the roll exactly as one made with the Roll button: thrown in the centre of their board, then its result popup (`board-dice-rolls`).
 
 #### Scenario: Another player sees an ordinary roll
 - **WHEN** player A throws a die onto the map
-- **THEN** player B sees no dice on their board, and sees A's roll thrown in B's Dice panel tray as for any roll
+- **THEN** player B sees A's roll thrown in the centre of B's board, then its popup, as for any public roll
 
 #### Scenario: Nothing extra crosses the wire
 - **WHEN** a die is thrown onto the map
 - **THEN** the only message sent is the `dice.roll` command, with no position data
 
 ### Requirement: The thrower sees their dice roll across the map
-On the thrower's board, the roll's dice SHALL tumble from the release point toward the landing point, bounce, and come to rest showing the rolled values. They SHALL be drawn as the same polyhedra and numbering as the Dice panel tray, in the GM's private colours for a GM-only roll. Each die's path and resting attitude SHALL depend only on the roll and the two points. The dice SHALL stay at their board position while the viewer pans or zooms, SHALL remain visible for a few seconds after landing, and SHALL then fade away. The dice SHALL NOT block board input.
+On the thrower's board, the roll's dice SHALL land where the die was let go, in place of the centred board throw: they SHALL tumble from the release point toward the landing point, bounce, and come to rest showing the rolled values. They SHALL be drawn as the same polyhedra and numbering as every other die. Each die's path and resting attitude SHALL depend only on the roll and the two points. The dice SHALL stay at their board position while the viewer pans or zooms, SHALL remain visible for a few seconds after landing, and SHALL then fade away. The dice SHALL NOT block board input. When they land, the board's result popup SHALL show the roll, without a second set of dice in the centre.
 
 #### Scenario: Dice land on the map
 - **WHEN** a player throws a `2d6` onto the map
-- **THEN** two d6 tumble from the release point and come to rest near the landing point, showing the rolled values
+- **THEN** two d6 tumble from the release point and come to rest near the landing point, showing the rolled values, and then the result popup appears
 
-#### Scenario: GM throws privately
-- **WHEN** the GM ticks "Roll privately" and throws the die onto the map
-- **THEN** the GM sees the dice land in the private colours, and no player's board or roll log shows anything
+#### Scenario: No second throw
+- **WHEN** a player throws a die onto the map
+- **THEN** their board shows no centred throw of that roll, before or after the dice land
 
 #### Scenario: Panning during a throw
 - **WHEN** the thrower pans or zooms while dice are on the board
@@ -75,30 +86,34 @@ On the thrower's board, the roll's dice SHALL tumble from the release point towa
 - **THEN** the dice fade out and the board is clear
 
 ### Requirement: The result waits for dice thrown on the board
-On the thrower's screen, while a roll's dice are in the air on the board, the Dice panel, the attack card and the GM's Rulings list SHALL hold its total as they do for a tray throw. They SHALL show it when the dice land. The thrower's Dice panel tray SHALL NOT throw a second set of dice for that roll; it SHALL show the dice at rest once they land.
+On the thrower's screen, from the moment the die is let go until its dice land, the Dice panel's latest-roll row SHALL read as rolling and the board's result popup SHALL wait. Both SHALL show the result when the dice land. While the die waits to learn which roll it made, newer rolls SHALL NOT be thrown in the centre of the thrower's board.
 
 #### Scenario: Total appears on landing
 - **WHEN** a roll is thrown onto the map
 - **THEN** the thrower's Dice panel row reads as rolling until the dice on the board come to rest, then shows the total
 
+#### Scenario: A newer roll arrives meanwhile
+- **WHEN** someone else rolls while the thrower's dice are still in the air on the map
+- **THEN** the newer roll is thrown in the centre of the thrower's board as usual, and the older dice landing does not throw it again
+
 ### Requirement: Board throws are not replayed
-A board throw SHALL only ever play for a roll the viewer has just thrown in the current page. Reloading, reconnecting or switching phone tabs SHALL NOT throw anything on the board; a roll whose throw was interrupted SHALL show at rest in the Dice panel.
+A board throw SHALL only ever play for a roll the viewer has just thrown in the current page. Reloading, reconnecting or switching phone tabs SHALL NOT throw anything on the board; a roll whose throw was interrupted SHALL count as already landed.
 
 #### Scenario: Reload mid-throw
 - **WHEN** the thrower reloads while their dice are in the air
-- **THEN** no dice are thrown on their board after the reload, and the roll appears at rest in the Dice panel
+- **THEN** no dice are thrown on their board after the reload, and the roll's total shows in the Dice panel
 
-### Requirement: Board throws degrade to the tray
-A thrown roll SHALL NOT animate on the board in any of these cases:
+### Requirement: Board throws degrade to the ordinary throw
+A dropped roll SHALL NOT animate at the drop point in any of these cases:
 - the viewer prefers reduced motion;
 - the browser cannot run the animation;
 - the roll cannot be matched to the throw.
 
-In those cases its dice SHALL be shown at rest in the Dice panel tray and its result shown at once. When the server rejects the roll or does not answer within 5 seconds, the held die SHALL fade out at the release point and the error SHALL be shown in the Dice panel.
+In those cases the roll SHALL be shown as any other public roll (`board-dice-rolls`). When the server rejects the roll or does not answer within 5 seconds, the held die SHALL fade out at the release point and the error SHALL be shown in the Dice panel.
 
 #### Scenario: Reduced motion
 - **WHEN** a viewer who prefers reduced motion throws a die onto the map
-- **THEN** no dice move on the board, and the result shows at once in the Dice panel
+- **THEN** no dice tumble across the map, and the result shows at once
 
 #### Scenario: Rejected throw
 - **WHEN** a thrown roll is rejected by the server

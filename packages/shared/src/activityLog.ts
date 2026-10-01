@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { formatAttackParties, type DiceRoll } from "./dice";
 import { CommittedEvent, type DomainEvent } from "./events";
-import { reduce } from "./reducer";
+import { reduceCommitted } from "./reducer";
+import { describeUndo } from "./undo";
 import { emptyRoomState, type Participant, type RoomState } from "./state";
 import { filterEventForViewer, filterStateForViewer } from "./visibility";
 
@@ -84,8 +85,17 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
       const roll = rolledEarlier(event.rollId);
       return `${actorName} applied ${event.amount} damage from ${rollLabel(roll)}${roll?.visibility === "gm" ? " (GM only)" : ""}`;
     }
+    case "RollDamageUnapplied": {
+      const roll = rolledEarlier(event.rollId);
+      return `${actorName} took back ${event.amount} damage from ${rollLabel(roll)}${roll?.visibility === "gm" ? " (GM only)" : ""}`;
+    }
     case "TemplatePlaced": return `${actorName} placed a ${templateLabel(event.template)}${event.template.gmOnly ? " (GM only)" : ""}`;
     case "TemplateRemoved": return `${actorName} removed a ${templateLabel(event.template)}${event.template.gmOnly ? " (GM only)" : ""}`;
+    case "ActionUndone": {
+      // The undone action is still in the history just before this event (ADR 0013).
+      const entry = before.undo.find((e) => e.commandId === event.commandId);
+      return entry ? `${actorName} undid ${describeUndo(entry, before.tokens).noun}` : `${actorName} undid an action`;
+    }
     default: {
       const exhaustive: never = event;
       return exhaustive;
@@ -129,7 +139,7 @@ export function activityHistory(
         });
       }
     }
-    state = reduce(state, committed.event);
+    state = reduceCommitted(state, committed);
   }
   entries.reverse();
   const page = entries.slice(0, query.limit);

@@ -21,14 +21,15 @@ export interface ActiveThrow {
 }
 
 /**
- * Dice thrown onto the map (throw-dice-on-board): a DOM layer over the Pixi canvas, drawing the
+ * Dice dropped onto the map (throw-dice-on-board): a DOM layer over the Pixi canvas, drawing the
  * same 3D dice as the Dice panel. Its one inner element follows the board's world transform, so
  * the dice sit in board coordinates and pan and zoom with the map. It takes no input: every
  * pointer event reaches the board underneath.
  *
- * Only the thrower sees these; everyone else sees the roll in their Dice panel tray.
+ * Only the thrower sees these, in place of the centred board throw (board-dice-rolls) that
+ * everyone else sees.
  */
-export function BoardDice({
+export function ThrownDice({
   throws,
   subscribe,
   onDone,
@@ -50,8 +51,8 @@ export function BoardDice({
   );
 
   return (
-    <div className="board-dice" aria-hidden="true">
-      <div ref={world} className="board-dice-world">
+    <div className="thrown-dice" aria-hidden="true">
+      <div ref={world} className="thrown-dice-world">
         {throws.map((t) => (
           <ThrownRoll key={t.throw.rollId} active={t} onDone={onDone} />
         ))}
@@ -115,7 +116,7 @@ function ThrownRoll({ active, onDone }: { active: ActiveThrow; onDone: (rollId: 
   }, []);
 
   return (
-    <div ref={root} className={roll.gmOnly ? "board-dice-roll private" : "board-dice-roll"} style={{ "--die": `${size}px` } as CSSProperties}>
+    <div ref={root} className={roll.gmOnly ? "thrown-dice-roll private" : "thrown-dice-roll"} style={{ "--die": `${size}px` } as CSSProperties}>
       {dice.map((die, i) => {
         const at = paths[i]!.landing;
         return <Die3D key={i} die={die} skin={roll.skinned ? skin : null} style={{ left: at.x - size / 2, top: at.y - size / 2 }} />;

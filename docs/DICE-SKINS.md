@@ -2,7 +2,13 @@
 
 **Status:** the "how it's built" section describes the code as it is. The colour skin format (v1) is a **proposal**: the app does not read it yet (see [What the app needs](#what-the-app-needs-to-read-skins)). **Image dice looks** work on branch `feat/dice-image-skins` for all six dice (see [Dice looks](#dice-looks-image-skins)): they're kept in the browser, and only the person who made one sees it.
 
-The same 3D dice appear in three places: the Dice panel tray, the dice thrown onto the map (throw-dice-on-board), and the home page demo. They all use one renderer, so one skin would change all of them.
+The same 3D dice appear everywhere:
+- the public rolls thrown in the centre of the board (board-dice-rolls);
+- dice dropped onto the map (throw-dice-on-board);
+- the GM-only rolls in the panel trays;
+- the home page demo.
+
+They all use one renderer, so one skin would change all of them.
 
 ## How a die's look is built today
 
@@ -244,7 +250,7 @@ This is not built yet:
 
 ## Dice looks (image skins)
 
-A **dice look** is a named set of pictures, one per die type. Your own public rolls are drawn in the look you pick: in the Dice panel tray, on the map, on the die you drag, and on the attack card. Die types without a picture keep the classic look, and GM-only rolls always keep the private slate look.
+A **dice look** is a named set of pictures, one per die type. Your own public rolls are drawn in the look you pick: when they're thrown in the centre of the board, when you drop a die on the map, and on the die you drag. Die types without a picture keep the classic look, and GM-only rolls always keep the private slate look.
 
 - **Make and edit looks** in the asset library's **Dice** tab (`/library?tab=dice`). This tab opens for players too, because looks involve no GM data.
 - **Pick the look in use** in a room: Dice panel → **Dice look**. **Edit looks** opens the library in a new tab, and changes there show up in the open room at once.

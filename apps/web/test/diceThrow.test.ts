@@ -35,6 +35,10 @@ describe("throwing dice onto the board (throw-dice-on-board, FR-TAC-09)", () => 
       expect(throwBlocker("banana", true)).toMatch(/valid expression/);
       expect(throwBlocker("2d6", false)).toMatch(/needs a map/);
     });
+
+    it("keeps private rolls off the board (board-dice-rolls)", () => {
+      expect(throwBlocker("2d6", true, true)).toMatch(/Private rolls stay off the board/);
+    });
   });
 
   describe("releaseVelocity", () => {

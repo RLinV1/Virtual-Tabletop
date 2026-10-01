@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ServerMessage } from "@vtt/shared";
 import { LiveRoom, type RoomClient } from "../src/domain/liveRoom";
 import { MemoryRoomStore } from "../src/store/memoryRoomStore";
-import { startServer, type TestClient } from "./helpers";
+import { startServer, type TestClient, viewFor } from "./helpers";
 
 let server: Awaited<ReturnType<typeof startServer>>;
 const clients: TestClient[] = [];
@@ -124,7 +124,7 @@ describe("leaving the table (KAN-58)", () => {
     expect(bob.state.tokens[aria]!.ownerIds).toEqual([bob.participantId]);
     // No hidden tokens here, so the GM and a player converge on identical state (FR-SYNC-02).
     await gm.waitForSeq(before + 2);
-    expect(bob.state).toEqual(gm.state);
+    expect(bob.state).toEqual(viewFor(gm.state, bob));
   });
 
   it("never sends a resolved hidden token to other players (FR-GM-23)", async () => {

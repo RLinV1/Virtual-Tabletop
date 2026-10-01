@@ -6,6 +6,7 @@ export * from "./state";
 export * from "./commands";
 export * from "./events";
 export * from "./reducer";
+export * from "./undo";
 export * from "./decide";
 export * from "./visibility";
 export * from "./assets";

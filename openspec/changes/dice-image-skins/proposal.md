@@ -25,7 +25,7 @@ This change records the feature as built on branch `feat/dice-image-skins`.
 - **One AI prompt** covers every die: give it with a die's template for a painted template, or alone for one square picture that goes on every face.
 - **Uploads:** PNG, JPEG or WebP up to 5 MB, either 3:2 (a painted template, any size) or 1:1 (one picture on every face). The picture is redrawn in the browser and kept as plain pixels.
 - **Picked in the room.** The Dice panel gains a **Dice look** selector (Classic or a saved look) and an **Edit looks** link that opens the library in a new tab. A look saved in the library shows up in an open room at once.
-- **Your own dice only.** The look draws your own public rolls in the Dice panel tray, on the map, on the die you drag and on the attack card.
+- **Your own dice only.** The look draws your own public rolls on the board, both when they're thrown in the centre (`board-dice-rolls`) and when you drop a die on the map (`throw-dice-on-board`), and on the die you drag. The Dice panel tray and the attack card now only show GM-only rolls, which keep the private look.
   - Each face shows its part of the picture under the die's shading, and the app still prints the numbers, so a look changes how a die looks, never what it reads.
   - GM-only rolls keep the private slate look.
   - Other people's rolls stay classic on your screen.

@@ -99,6 +99,7 @@ export class MemoryRoomStore implements RoomStore {
       seq: expectedLastSeq + i + 1,
       at,
       actorId: e.actorId,
+      ...(e.commandId ? { commandId: e.commandId } : {}),
       event: structuredClone(e.event),
     }));
     log.push(...committed);

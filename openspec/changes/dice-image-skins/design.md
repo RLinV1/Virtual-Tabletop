@@ -8,7 +8,7 @@ See proposal.md for why. What the design had to work with:
   - Each face is a flat element placed with `matrix3d`, holding an SVG outline and its numerals.
   - The face's outline is known exactly in its own axes (`Face.polygon` in `ui/diceGeometry.ts`), and its numeral is upright in those axes. The d4 is the exception: it prints three numbers turned toward its corners.
   - Faces are shaded once at rest by painting a darker fill.
-- The same `Die3D` draws every die: the Dice panel tray, the board (`board/BoardDice.tsx`), the held die (`panels/DiceThrowHandle.tsx`), the attack card and the home page demo.
+- The same `Die3D` draws every die: the centred board throw (`ui/BoardDice.tsx`, from `board-dice-rolls`), dice dropped on the map (`board/ThrownDice.tsx`), the held die (`panels/DiceThrowHandle.tsx`), the panel trays (GM-only rolls) and the home page demo.
 - The library page (`pages/LibraryPage.tsx`) is a GM surface behind the entry rule (`gm-dashboard`). Its assets are server-side and GM-owned.
 - The first prototype kept one d6 picture in `localStorage` (`vtt.diceSkin.d6`).
 
@@ -77,10 +77,11 @@ The prototype's d6 picture is moved into a look once. The old key is removed bef
 
 ### Drawn for the viewer's own public rolls
 Each renderer reads the look in use (`useActiveDiceLook`) and passes it to `Die3D` only for a roll marked `skinned`:
-- the viewer's own public roll, in the Dice panel;
-- their thrown roll, on the board;
-- their own attack roll, on the attack card;
+- the viewer's own public roll, in the centred board throw (`ui/BoardDice.tsx` gets `youId`);
+- their roll dropped on the map (`board/ThrownDice.tsx`);
 - the held die, unless it's GM-only.
+
+The panel trays and the attack card only show GM-only rolls since `board-dice-rolls`, so they never wear a look.
 
 GM-only rolls and other participants' rolls pass nothing and stay classic.
 

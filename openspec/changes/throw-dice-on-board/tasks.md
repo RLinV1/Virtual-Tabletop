@@ -16,13 +16,13 @@
 
 ## 4. Board overlay and drag
 
-- [x] 4.1 Create `board/BoardDice.tsx` (React, no Pixi objects): a `pointer-events: none` layer over the canvas whose container follows `onViewChange`. It plays a `BoardThrow { rollId, from, to }` for a roll's dice, holds them 3 s, fades them over 400 ms and removes them, with at most 3 rolls on screen. Verify: in the browser, dice stay on the same map spot while panning and zooming, and board clicks pass through.
-- [x] 4.2 Move the landing state out of `DicePanel` into a pure reducer (`panels/diceLanding.ts`) the panel owns; the board reports a landing through the callback handed over with the throw. Rolls present at mount count as landed. Verify: a unit test for the reducer's transitions; reloading mid-throw replays nothing.
-- [x] 4.3 Route a matched throw to the board, or to the tray at rest when a fallback applies: reduced motion, no `Element.animate`, or no board mounted. Verify: tests on the routing function, plus a manual check with reduced motion emulated.
-- [x] 4.4 Make the Dice panel row, the attack card and the Rulings list hold the total while a roll is throwing on the board. The tray draws a board-thrown roll at rest, with no second throw. Verify: in the browser, the total appears as the board dice land, and the tray does not throw.
+- [x] 4.1 Create `board/ThrownDice.tsx` (React, no Pixi objects; CSS `thrown-dice`): a `pointer-events: none` layer over the canvas whose container follows `onViewChange`. It plays a `BoardThrow { rollId, from, to }` for a roll's dice, holds them 3 s, fades them over 400 ms and removes them, with at most 3 rolls on screen. Verify: in the browser, dice stay on the same map spot while panning and zooming, and board clicks pass through.
+- [x] 4.2 Use the room page's throw state (`rollThrow`, from `board-dice-rolls`) for dropped dice: `hold` when the die is let go, `release` once its roll is matched, and `onLanded` when the dropped dice land. `landRoll` ignores a stale landing, and a full snapshot clears the hold and the drop. (Replaces this change's earlier `diceLanding` reducer.) Verify: in the browser, a drag shows no centred throw and the popup appears when the dropped dice land; a Roll right after is thrown in the centre as usual.
+- [x] 4.3 Route a matched throw to the drop point, or release it to the ordinary centred throw when a fallback applies: reduced motion, no `Element.animate`, or no board mounted. Verify: tests on the routing function, plus a manual check with reduced motion emulated.
+- [x] 4.4 The Dice panel row and the board popup hold the result until the dropped dice land; the centred overlay shows only the popup for a dropped roll (`droppedId`). Verify: in the browser, the total and the popup appear as the dropped dice land, with no centred dice.
 - [x] 4.5 Add the drag handle (`panels/DiceThrowHandle.tsx`) to `DicePanel`, using pointer capture and `touch-action: none`. It is disabled, with a hint saying why, on an invalid expression, with no map, or when the expression rolls more than `BOARD_THROW_MAX_DICE` (10) dice. Unit tests cover the enable rule: `10d6` is allowed, `11d6` and `12d6` are not. While held, a spinning ghost die follows the pointer, and Esc or a release off the canvas cancels. Verify: in the browser, with a mouse and with the mobile viewport preset.
 - [x] 4.6 On release, compute `from` and a clamped `to` from the last ~80 ms of pointer velocity, then send the plain `dice.roll`. Resolve the roll id via `rollForSeq(ack.seq)` and hand the `BoardThrow` to the overlay. The ghost spins at the release point until then. On a rejection, a 5 s timeout or a null match, it fades, and the panel shows the error or the roll at rest. Verify: tests on the velocity→landing function (clamping, slow vs fast); a manual check with the server stopped shows the timeout message.
-- [x] 4.7 Styles in `styles.css` for the handle, ghost, overlay and fade, including GM-only colours on the board (the room is dark-only, per `theme.ts`). Verify: screenshots of a public and a GM-only throw.
+- [x] 4.7 Styles in `styles.css` for the handle, ghost, overlay and fade (the room is dark-only, per `theme.ts`). Verify: screenshots of a throw.
 
 ## 5. Fallback
 
@@ -33,3 +33,10 @@
 - [x] 6.1 Confirm the throw adds nothing to the wire: a test that a drag-throw sends exactly one `dice.roll` command, equal to the Roll button's, and no ephemeral message. Verify: the test passes.
 - [ ] 6.2 Run the sync-reviewer agent on the diff (it touches `RoomConnection`) and address any findings. Verify: it reports no violations.
 - [x] 6.3 `npm run lint && npm run typecheck && npm test` pass, and a two-viewer run (GM + player) matches every scenario in `specs/board-dice-throw/spec.md`: the thrower sees the board throw, and the other viewer receives only the usual roll. (The second viewer was a socket client: the Playwright browser was shared with another session.)
+
+## 7. Combine with board-dice-rolls
+
+- [x] 7.1 Merge `main` (with `board-dice-rolls`, #61) and resolve `roomConnection.ts` (keep both the snapshot count and the roll-by-seq record), `RoomPanel.tsx` and `DicePanel.tsx` (#61's version plus the drag die). Verify: lint, typecheck and all tests pass.
+- [x] 7.2 Disable the drag die for private rolls (`throwBlocker`), since `board-dice-rolls` keeps them off the board. Verify: a unit test, and the hint in the browser.
+- [x] 7.3 Rename the overlay to `ThrownDice` / `thrown-dice` so it no longer shares #61's `BoardDice` / `board-dice` names, and drop the tray's unused waiting state. Verify: no `board-dice` rules apply to the dropped dice.
+

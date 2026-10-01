@@ -29,7 +29,7 @@
 ## 3. Drawing
 
 - [x] 3.1 `Die3D` draws the look's picture for its die type: clipped to each face on a wrapping group, with the shading and result highlight as tints over it and outlined numerals. Verify: in the browser, a per-cell colour test sheet put each cell on its own face, with the up mark above the numeral, on the d6 and the d20.
-- [x] 3.2 Pass the look only for the viewer's own public rolls in the tray, on the board, on the held die and on the attack card. Verify: in the browser, a GM-only roll stays slate, and dice without a picture stay classic.
+- [x] 3.2 Pass the look only for the viewer's own public rolls: the centred board throw (`board-dice-rolls`), dice dropped on the map, and the held die. Verify: in the browser, a Roll of 1d20 is thrown in the centre in the look, a dropped 2d6 lands in the look, a GM-only roll stays slate, and dice without a picture stay classic.
 
 ## 4. Library and room UI
 
@@ -56,3 +56,8 @@
 - [x] 5.2 `npm run lint && npm run typecheck && npm test` pass.
 - [ ] 5.3 In a browser that has never been a GM here, open `/library?tab=dice` from a room's Edit looks link. Verify: the Dice tab opens with no sign-in and no GM tabs.
 - [ ] 5.4 In real Chrome, Safari and Firefox (127 or later), choose Copy template and paste into an image AI. Verify: the template image pastes. Where it can't be copied, the template is saved as a file and the card says so.
+
+## 6. Combine with board-dice-rolls
+
+- [x] 6.1 Merge the updated `throw-dice-on-board` branch (now built on `board-dice-rolls`, #61). Take #61's compact Attack section whole: its tray only shows GM-only rolls, so it needs no look. Give `ui/BoardDice.tsx` the viewer's id so their own centred throws wear their look. Verify: lint, typecheck and all tests pass; the browser checks in 3.2.
+
