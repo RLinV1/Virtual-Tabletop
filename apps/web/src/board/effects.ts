@@ -35,22 +35,27 @@ export function attackEffectFor(event: DomainEvent, after: RoomState, viewer: Pa
     }
     case "RollRuled": {
       if (!event.verdict) return null;
-      const tokenId = targetOf(after, event.rollId);
-      return tokenId && visible(tokenId) ? { kind: event.verdict, tokenId } : null;
+      const tokenId = targetOf(after, event.rollId, visible);
+      return tokenId ? { kind: event.verdict, tokenId } : null;
     }
     case "RollDamageApplied": {
-      const tokenId = targetOf(after, event.rollId);
+      const tokenId = targetOf(after, event.rollId, visible);
       // "−0" says nothing.
-      return tokenId && event.amount > 0 && visible(tokenId) ? { kind: "damage", tokenId, amount: event.amount } : null;
+      return tokenId && event.amount > 0 ? { kind: "damage", tokenId, amount: event.amount } : null;
     }
     default:
       return null;
   }
 }
 
-/** The target token of an attack roll in the viewer's copy; null for a plain roll or a blanked side. */
-function targetOf(state: RoomState, rollId: string): string | null {
-  return state.rolls.find((roll) => roll.id === rollId)?.attack?.target?.tokenId ?? null;
+/**
+ * The target of an attack roll whose both sides this viewer can see, or null. A ruling on
+ * "Unknown → Aria" plays nothing: the spec allows no attack animation once either side is hidden.
+ */
+function targetOf(state: RoomState, rollId: string, visible: (tokenId: string) => boolean): string | null {
+  const attack = state.rolls.find((roll) => roll.id === rollId)?.attack;
+  if (!attack?.actor || !attack.target || !visible(attack.actor.tokenId)) return null;
+  return visible(attack.target.tokenId) ? attack.target.tokenId : null;
 }
 
 /** Attack effects playing at once; past this the oldest is dropped. */

@@ -87,6 +87,17 @@ describe("attackEffectFor: which events animate (KAN-76)", () => {
   });
 });
 
+describe("attackEffectFor: rulings with a hidden side (KAN-76, FR-GM-23)", () => {
+  it("plays no hit, miss or damage when the attacker is blanked or hidden for the player", () => {
+    const blanked = roll({ attack: { actor: null, target: side("b"), label: null, kind: "toHit" } });
+    expect(attackEffectFor(ruled("hit"), room({ rolls: [blanked] }), player)).toBeNull();
+    expect(attackEffectFor(applied(), room({ rolls: [blanked] }), player)).toBeNull();
+    const hiddenActor = room({ tokens: [token("a", true), token("b")] });
+    expect(attackEffectFor(ruled("miss"), hiddenActor, player)).toBeNull();
+    expect(attackEffectFor(ruled("miss"), hiddenActor, gm)).toMatchObject({ kind: "miss", tokenId: "b" });
+  });
+});
+
 describe("attackEffectFor: GM-only rolls (KAN-76, FR-GM-22)", () => {
   it("never strikes for a player on a GM-only roll, even if one arrived", () => {
     const gmRoll = roll({ visibility: "gm" });

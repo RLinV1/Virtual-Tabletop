@@ -1247,7 +1247,8 @@ export class BoardView {
     if (live().length !== ids.length) return;
     while (this.attackFx.length >= MAX_ATTACK_EFFECTS) this.endAttackFx(this.attackFx[0]!);
 
-    const plan = attackPlan(effect, this.reducedMotion);    const g = new Graphics();
+    const plan = attackPlan(effect, this.reducedMotion);
+    const g = new Graphics();
     g.eventMode = "none";
     this.fxLayer.addChild(g);
     let label: Text | null = null;
@@ -1262,6 +1263,8 @@ export class BoardView {
     }
     const target = this.tokens.get(effect.kind === "strike" ? effect.toId : effect.tokenId)!;
     const started = performance.now();
+    /** Where a static (reduced-motion) effect was last drawn; it redraws only when a token moves. */
+    let drawnAt = "";
     const fx: AttackFx = {
       step: (now) => {
         const t = Math.max(0, (now - started) / plan.durationMs);
@@ -1269,6 +1272,14 @@ export class BoardView {
         if (t >= 1 || g.destroyed || views.length !== ids.length) {
           this.endAttackFx(fx);
           return false;
+        }
+        if (!plan.motion) {
+          const at = views.map((v) => `${v.container.position.x},${v.container.position.y}`).join(";");
+          if (at === drawnAt) {
+            this.stepSkipped = true;
+            return true;
+          }
+          drawnAt = at;
         }
         const to = views[views.length - 1]!;
         const at = to.container.position;
