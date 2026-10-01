@@ -50,6 +50,8 @@ Alternatives:
 
 A roll is in `airborne` until its dice land, and the Dice panel row, the Attack card and the GM's Rulings list hold its total until then. Each throw lands on its own clock and reports its own roll, so any number can be in the air at once.
 
+Your own board throws are also in `onBoard` until the board reports them gone (`throwDice`'s `onGone`: faded, or dropped early). While any of your dice show, in `onBoard` or still landing in a private tray, `rollThrow.rolling` disables your roll controls: the Dice panel's Roll button and drag die, and the Attack section's roll buttons. Each throw is seen out before the next, and other people's dice never block you.
+
 This replaces `board-dice-rolls`' single roll in the air, the hold and release that kept a dropped roll out of it, and this change's earlier ack-seq lookup (`net/rollsBySeq.ts`). With one slot, several drags in a row raced: a roll could be thrown twice, or a landing ignored so its result never showed. The thrower no longer needs the roll's id at all, because its own drop pairs with its roll the same way everyone else's does. The Rulings list's own timer (`throwDuration`) goes too, since it now reads `airborne`.
 
 Alternatives:

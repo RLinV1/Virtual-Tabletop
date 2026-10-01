@@ -18,6 +18,8 @@ export interface ActiveThrow {
   map: Pick<MapImage, "width" | "height"> | null;
   /** The dice are at rest. The board also calls it when it drops a throw early; it must be safe to call twice. */
   onLanded: () => void;
+  /** The dice have left the board: faded, or dropped early. */
+  onGone: () => void;
 }
 
 /**

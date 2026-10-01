@@ -202,6 +202,7 @@ export function RoomPanel({
           onPick={onAttackPick}
           reset={attackReset}
           airborne={rollThrow.airborne}
+          rolling={rollThrow.rolling}
           onLanded={rollThrow.onLanded}
           onPickOnBoard={onPickOnBoard}
           onShowPing={onShowPing}

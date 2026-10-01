@@ -264,7 +264,10 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
   // - a private (GM-only) roll is thrown in the GM's panel tray, off the board (board-dice-rolls).
   // A roll is `airborne` until its dice land; then the card in the board's corner says what it
   // was. Rolls that come in a snapshot (load, reconnect) are already on the table: never thrown.
+  // Your own dice on the board stay `onBoard` until they've faded, and you can't roll again until
+  // then, so a throw is never covered by the next one.
   const [airborne, setAirborne] = useState<ReadonlySet<string>>(() => new Set());
+  const [onBoard, setOnBoard] = useState<ReadonlySet<string>>(() => new Set());
   const [landedId, setLandedId] = useState<string | null>(null);
   const [cardRollId, setCardRollId] = useState<string | null>(null);
   const land = useCallback((rollId: string) => {
@@ -302,9 +305,11 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
       const board = boardRef.current;
       const aim = drops.current.take(roll, performance.now()) ?? (mine ? board?.centreAim() : null);
       // Not where it can't be animated (reduced motion, say): then it lands at once.
-      const thrown = !!aim && !!board?.throwDice({ rollId: roll.id, from: aim.from, to: aim.to }, trayRoll(roll), () => land(roll.id));
-      if (thrown) setAirborne((s) => new Set(s).add(roll.id));
-      else land(roll.id);
+      const gone = () => setOnBoard((s) => without(s, roll.id));
+      const thrown = !!aim && !!board?.throwDice({ rollId: roll.id, from: aim.from, to: aim.to }, trayRoll(roll), () => land(roll.id), gone);
+      if (!thrown) return land(roll.id);
+      setAirborne((s) => new Set(s).add(roll.id));
+      if (mine) setOnBoard((s) => new Set(s).add(roll.id));
     });
     return () => {
       stop();
@@ -325,7 +330,9 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
     return () => window.clearTimeout(timer);
   }, [cardRollId]);
   const cardRoll = cardRollId ? state?.rolls.find((r) => r.id === cardRollId) : undefined;
-  const rollThrow: RollThrow = { airborne, justLandedId: landedId, onLanded: land, expectDrop };
+  // Your dice are still showing: on the board until they fade, or in a private tray until they land.
+  const rolling = onBoard.size > 0 || !!state?.rolls.some((r) => airborne.has(r.id) && r.byParticipantId === you?.id);
+  const rollThrow: RollThrow = { airborne, rolling, justLandedId: landedId, onLanded: land, expectDrop };
 
   if (status === "ended") return <SessionEnded roomName={state?.name ?? null} reason={endReason} />;
 

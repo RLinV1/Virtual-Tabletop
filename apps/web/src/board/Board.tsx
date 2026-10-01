@@ -43,9 +43,10 @@ export interface BoardHandle {
   centreAim(): { from: Point; to: Point } | null;
   /**
    * Throw a roll's dice on this viewer's board. False when they can't be animated here (reduced
-   * motion, no Web Animations, the board not ready); then `onLanded` is never called.
+   * motion, no Web Animations, the board not ready); then neither callback is called. `onGone`
+   * comes once the dice have faded off the board, or were cleared early.
    */
-  throwDice(t: BoardThrow, roll: TrayRoll, onLanded: () => void): boolean;
+  throwDice(t: BoardThrow, roll: TrayRoll, onLanded: () => void, onGone?: () => void): boolean;
 }
 
 /** What the Dice panel needs from the board to throw dice onto it (throw-dice-on-board). */
@@ -115,9 +116,20 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     setThrows(next);
   };
   const followView = useCallback((fn: (view: BoardTransform) => void) => viewRef.current?.onViewChange(fn) ?? (() => {}), []);
-  const throwDone = useCallback((rollId: string) => setBoardThrows(throwsRef.current.filter((t) => t.throw.rollId !== rollId)), []);
+  const throwDone = useCallback((rollId: string) => {
+    const done = throwsRef.current.filter((t) => t.throw.rollId === rollId);
+    setBoardThrows(throwsRef.current.filter((t) => t.throw.rollId !== rollId));
+    done.forEach((t) => t.onGone());
+  }, []);
   // Don't leave the Dice panel waiting on dice that are no longer drawn.
-  useEffect(() => () => throwsRef.current.forEach((t) => t.onLanded()), []);
+  useEffect(
+    () => () =>
+      throwsRef.current.forEach((t) => {
+        t.onLanded();
+        t.onGone();
+      }),
+    [],
+  );
 
   /** Create the token at `at`. One at a time: a second click while the first is in flight does nothing. */
   const place = async (at: Point) => {
@@ -267,7 +279,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       const { map, grid } = latest.current.state.scene;
       return centreThrow(centre, view.transform, grid, map);
     },
-    throwDice: (t: BoardThrow, roll: TrayRoll, onLanded: () => void) => {
+    throwDice: (t: BoardThrow, roll: TrayRoll, onLanded: () => void, onGone?: () => void) => {
       const view = viewRef.current;
       const { map, grid } = latest.current.state.scene;
       if (!view || !canAnimateDice(hostRef.current)) return false;
@@ -277,10 +289,13 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
         landed = true;
         onLanded();
       };
-      const next = [...throwsRef.current, { throw: t, roll, size: boardDieSize(grid, view.transform), map, onLanded: once }];
+      const next = [...throwsRef.current, { throw: t, roll, size: boardDieSize(grid, view.transform), map, onLanded: once, onGone: onGone ?? (() => {}) }];
       const evicted = next.splice(0, Math.max(0, next.length - MAX_BOARD_THROWS));
       setBoardThrows(next);
-      evicted.forEach((e) => e.onLanded());
+      evicted.forEach((e) => {
+        e.onLanded();
+        e.onGone();
+      });
       return true;
     },
   }), []);

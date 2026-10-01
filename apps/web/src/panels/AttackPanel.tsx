@@ -76,6 +76,7 @@ export function AttackPanel({
   onPick,
   reset,
   airborne,
+  rolling,
   onLanded,
   onPickOnBoard,
   onShowPing,
@@ -91,6 +92,8 @@ export function AttackPanel({
   reset: AttackReset;
   /** Rolls whose dice are still in the air on this viewer's screen (throw-dice-on-board). */
   airborne: ReadonlySet<string>;
+  /** The viewer's own dice are still showing: rolling again waits until they're gone. */
+  rolling: boolean;
   /** Its dice have landed, on the board or in the private tray. */
   onLanded: (rollId: string) => void;
   /** Put the board into targeting mode for this attacker. */
@@ -166,6 +169,7 @@ export function AttackPanel({
           targetId={target?.id ?? null}
           clearedRollId={reset.clearedRollId}
           airborne={airborne}
+          rolling={rolling}
           onLanded={onLanded}
           initial={lastUsed[attacker.id] ?? DEFAULT_ATTACK}
           presets={allPresets[attacker.id] ?? []}
@@ -196,6 +200,7 @@ function AttackForm({
   targetId,
   clearedRollId,
   airborne,
+  rolling,
   onLanded,
   initial,
   presets,
@@ -220,6 +225,7 @@ function AttackForm({
   targetId: string | null;
   clearedRollId: string | null;
   airborne: ReadonlySet<string>;
+  rolling: boolean;
   onLanded: (rollId: string) => void;
   initial: AttackSettings;
   presets: AttackPreset[];
@@ -261,7 +267,7 @@ function AttackForm({
 
   /** One roll with attack context, then a ping on the target if everyone may see it. */
   const send = async (roll: { expression: string; kind: AttackKind; label: string; targetId: string; visibility?: DiceVisibility }): Promise<boolean> => {
-    if (busy) return false;
+    if (busy || rolling) return false;
     const rollVisibility = roll.visibility ?? visibility;
     setBusy(true);
     const result = await connection.command({
@@ -473,7 +479,8 @@ function AttackForm({
               <button
                 type="button"
                 className="attack-roll"
-                disabled={!target || busy}
+                disabled={!target || busy || rolling}
+                title={rolling ? "Your dice are still on the board" : undefined}
                 onClick={() => rollPreset(chosen)}
                 aria-label={target ? `Roll ${chosen.name} ${chosen.toHit ? "to hit" : "damage to"} ${target.token.name}` : undefined}
               >
@@ -553,7 +560,12 @@ function AttackForm({
             </fieldset>
 
             <div className="attack-roll-row">
-              <button type="submit" className="attack-roll" disabled={busy || !target}>
+              <button
+                type="submit"
+                className="attack-roll"
+                disabled={busy || rolling || !target}
+                title={rolling ? "Your dice are still on the board" : undefined}
+              >
                 <DiceFive size={18} aria-hidden="true" />
                 {busy ? "Rolling…" : !target ? "Choose a target" : kind === "damage" ? `Roll ${expression} damage` : `Roll ${expression} to hit`}
               </button>
@@ -573,6 +585,7 @@ function AttackForm({
         onLanded={onLanded}
         allPresets={allPresets}
         busy={busy}
+        rolling={rolling}
         onRollDamage={rollDamage}
         onRule={isGm ? (rollId, verdict) => void gm({ type: "roll.rule", rollId, verdict }) : undefined}
         onApply={isGm ? (rollId) => void gm({ type: "roll.applyDamage", rollId }) : undefined}
@@ -718,6 +731,7 @@ function LatestAttack({
   onLanded,
   allPresets,
   busy,
+  rolling,
   onRollDamage,
   onRule,
   onApply,
@@ -731,6 +745,8 @@ function LatestAttack({
   onLanded: (rollId: string) => void;
   allPresets: Record<string, AttackPreset[]>;
   busy: boolean;
+  /** Your dice are still showing: Roll damage waits until they're gone. */
+  rolling: boolean;
   onRollDamage: (roll: DiceRoll) => void;
   /** GM only: rule on their own to-hit roll. */
   onRule?: (rollId: string, verdict: Verdict) => void;
@@ -780,7 +796,13 @@ function LatestAttack({
         </p>
       )}
       {canFollowUp && (
-        <button type="button" className="attack-follow-up" disabled={busy} onClick={() => onRollDamage(latest)}>
+        <button
+          type="button"
+          className="attack-follow-up"
+          disabled={busy || rolling}
+          title={rolling ? "Your dice are still on the board" : undefined}
+          onClick={() => onRollDamage(latest)}
+        >
           <Sword size={14} aria-hidden="true" />
           {preset?.damage ? `Roll damage ${attackExpression(preset.damage)}` : "Roll damage"}
         </button>
