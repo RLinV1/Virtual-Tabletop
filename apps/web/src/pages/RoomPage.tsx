@@ -304,9 +304,11 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
       }
       const board = boardRef.current;
       const aim = drops.current.take(roll, performance.now()) ?? (mine ? board?.centreAim() : null);
+      // Your own roll wears your dice look, here and in your other tabs (dice-image-skins).
+      const look = { ...trayRoll(roll), skinned: mine };
       // Not where it can't be animated (reduced motion, say): then it lands at once.
       const gone = () => setOnBoard((s) => without(s, roll.id));
-      const thrown = !!aim && !!board?.throwDice({ rollId: roll.id, from: aim.from, to: aim.to }, trayRoll(roll), () => land(roll.id), gone);
+      const thrown = !!aim && !!board?.throwDice({ rollId: roll.id, from: aim.from, to: aim.to }, look, () => land(roll.id), gone);
       if (!thrown) return land(roll.id);
       setAirborne((s) => new Set(s).add(roll.id));
       if (mine) setOnBoard((s) => new Set(s).add(roll.id));

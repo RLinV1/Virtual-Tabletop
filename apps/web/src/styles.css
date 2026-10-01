@@ -529,7 +529,7 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 
 /* The tray the latest roll lands in. Rust dice for the table; a GM-only roll is thrown in
    slate with amber numerals, and its row still carries the "GM only" badge. */
-.dice-tray, .thrown-dice-roll, .dice-ghost, .dice-throw-handle {
+.dice-tray, .thrown-dice-roll, .dice-ghost, .dice-throw-handle, .dice-look-preview {
   --die-body: var(--accent);
   --die-ink: var(--accent-ink);
   --die-shadow: rgba(0, 0, 0, 0.6);
@@ -574,6 +574,69 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 .thrown-dice-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 .thrown-dice-roll { --die-shadow: rgba(0, 0, 0, 0.55); }
 .thrown-dice-roll .die3d-slot { position: absolute; }
+
+/* A die in the viewer's image skin (dice-image-skins): the picture is the face, and the
+   painted shading and the result highlight lie over it as tints. The numerals keep a dark
+   outline so they read on any picture. */
+.die3d.skinned .die3d-face polygon { fill: #05070a; fill-opacity: var(--shade); }
+.die3d.skinned .die3d-face.front polygon { fill: #fff; fill-opacity: 8%; }
+.die3d.skinned .die3d-face text {
+  fill: #fff; paint-order: stroke; stroke: rgba(8, 10, 14, 0.78); stroke-width: 0.09em; stroke-linejoin: round;
+}
+.die3d.skinned .die3d-face line { stroke: #fff; }
+.dice-look { display: flex; flex-direction: column; gap: var(--space-1); }
+.dice-look p { margin: 0; }
+.dice-look-row { display: flex; align-items: center; gap: var(--space-2); }
+.dice-look-row select { flex: 1; min-width: 0; }
+.dice-look-edit { white-space: nowrap; font-size: 0.9em; }
+
+/* The asset library's Dice tab: cards as on the other tabs, the dice standing in for a thumbnail. */
+.dice-look-preview { display: flex; justify-content: center; align-items: center; gap: 0.9rem; }
+.asset-thumb .dice-look-preview { width: 100%; height: 100%; background: radial-gradient(ellipse 80% 90% at 50% 30%, var(--raised), var(--field)); }
+dialog.modal.dice-look-modal { width: min(40rem, calc(100vw - 2rem)); }
+.dice-look-form label { display: flex; flex-direction: column; gap: var(--space-1); }
+.dice-look-form p { margin: 0; }
+.dice-look-pictures-head { justify-content: space-between; align-items: baseline; }
+
+/* A look's dice, one card each with a single Edit menu (dice-image-skins). */
+.die-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr)); gap: var(--space-3); }
+.die-card {
+  position: relative;
+  display: flex; flex-direction: column; gap: var(--space-2); min-width: 0;
+  padding: var(--space-2); border: 1px solid var(--border); border-radius: 10px; background: var(--panel);
+  transition: border-color 200ms cubic-bezier(0.16, 1, 0.3, 1), transform 300ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+/* The open menu belongs above the cards after it. */
+.die-card:has(.popover) { z-index: 2; border-color: var(--border-strong); }
+.die-card-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.die-card-name { font-size: var(--fs-md); }
+.die-card-edit { display: inline-flex; align-items: center; gap: 0.3rem; }
+.die-card-thumb { position: relative; }
+.die-card-toast {
+  position: absolute; left: var(--space-2); right: var(--space-2); bottom: var(--space-2); margin: 0;
+  padding: 0.3rem 0.5rem; border-radius: 6px; text-align: center;
+  font-size: var(--fs-xs); line-height: 1.3; color: var(--text);
+  background: color-mix(in srgb, var(--raised) 92%, transparent); border: 1px solid var(--border-strong);
+}
+.die-card-toast.error { color: var(--danger); border-color: var(--danger); }
+.die-card .die3d-slot { transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1); }
+.die-menu { display: flex; flex-direction: column; min-width: 11rem; }
+.die-card .popover { padding: var(--space-1); }
+.die-menu-item {
+  display: flex; align-items: center; gap: var(--space-2); width: 100%; text-align: left; white-space: nowrap;
+  background: transparent; color: var(--text); border: 1px solid transparent;
+  font-weight: 500; font-size: var(--fs-sm); padding: 0.4rem 0.5rem;
+}
+.die-menu-item:hover:not(:disabled), .die-menu-item:focus-visible { filter: none; background: var(--panel); }
+/* Resetting drops the picture, so it warns on hover like other destructive actions. */
+.die-menu-item.danger:hover:not(:disabled), .die-menu-item.danger:focus-visible { border-color: var(--danger); color: var(--danger); }
+@media (prefers-reduced-motion: no-preference) {
+  .die-card { animation: die-card-in 360ms cubic-bezier(0.16, 1, 0.3, 1) backwards; animation-delay: calc(var(--index, 0) * 40ms); }
+  .die-card:hover { transform: translateY(-2px); border-color: var(--border-strong); }
+  .die-card:hover .die3d-slot { transform: translateY(-3px); }
+  .die-card .popover, .die-card-toast { animation: modal-in 0.16s ease-out; }
+  @keyframes die-card-in { from { opacity: 0; transform: translateY(6px); } }
+}
 
 /* The die to pick up in the Dice panel, and the one held under the pointer. */
 .dice-throw { display: flex; align-items: center; gap: var(--space-2); }

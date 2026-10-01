@@ -236,7 +236,7 @@ export function bodyFor(sides: number): Body {
  * Standard numbering: opposite faces sum to faces + 1, as on a real die. A d4 has no
  * opposite faces, so it is numbered in order.
  */
-function standardLabels(b: Body): number[] {
+export function standardLabels(b: Body): number[] {
   const count = b.faces.length;
   const labels = new Array<number>(count).fill(0);
   let next = 1;

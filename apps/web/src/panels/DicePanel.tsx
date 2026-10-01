@@ -8,6 +8,7 @@ import type { DiceBoard } from "../board/Board";
 import type { DiceDrop } from "../board/diceDrops";
 import { throwBlocker } from "../board/diceThrow";
 import { DiceThrowHandle } from "./DiceThrowHandle";
+import { DiceLookPicker } from "./DiceLookPicker";
 
 const QUICK = ["1d20", "1d20+5", "2d6", "1d8+3", "4d6"];
 
@@ -170,6 +171,7 @@ export function DicePanel({
             onThrow={throwOnBoard}
           />
         )}
+        {board && <DiceLookPicker />}
 
         {isGm && (
           <label className="checkbox">
