@@ -19,6 +19,8 @@ const QUICK = ["1d20", "1d20+5", "2d6", "1d8+3", "4d6"];
 export interface RollThrow {
   /** Rolls whose dice are still in the air: their totals wait. */
   airborne: ReadonlySet<string>;
+  /** Your own dice are still showing (in the air, or on the board until they fade): rolling waits. */
+  rolling: boolean;
   /** The roll whose dice landed last. */
   justLandedId: string | null;
   /** A panel tray's dice have landed. */
@@ -76,6 +78,7 @@ export function DicePanel({
 
   const roll = async (e: FormEvent) => {
     e.preventDefault();
+    if (rollThrow.rolling) return;
     if (!parsed.ok) return setError(parsed.message);
     setBusy(true);
     const result = await connection.command(rollCommand(expression, visibility));
@@ -141,7 +144,11 @@ export function DicePanel({
             aria-describedby={invalid ? "dice-error" : undefined}
             autoComplete="off"
           />
-          <button type="submit" disabled={busy || !parsed.ok}>
+          <button
+            type="submit"
+            disabled={busy || rollThrow.rolling || !parsed.ok}
+            title={rollThrow.rolling ? "Your dice are still on the board" : undefined}
+          >
             Roll
           </button>
         </div>
@@ -159,7 +166,7 @@ export function DicePanel({
             sides={parsed.ok ? parsed.expression.sides : 20}
             gmOnly={visibility === "gm"}
             blocker={throwBlocker(expression, state.scene.map !== null, visibility === "gm")}
-            busy={busy}
+            busy={busy || rollThrow.rolling}
             board={board}
             onThrow={throwOnBoard}
           />

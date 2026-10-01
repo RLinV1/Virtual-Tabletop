@@ -121,6 +121,17 @@ Every roll SHALL be thrown, and land, on its own: several rolls, dropped or roll
 - **WHEN** a player throws three dice onto the map one after another, and presses Roll in between
 - **THEN** each throw lands at its own drop, the Roll lands in the middle, and each shows its result card as it lands
 
+### Requirement: You can't roll again while your dice are showing
+From the moment a viewer's own roll is thrown until its dice have faded off the board, that viewer's roll controls SHALL be disabled: the Dice panel's Roll button and drag die, and the Attack section's roll buttons (a named attack, Custom roll, Roll damage). A private roll in the GM's panel tray SHALL hold them only until its dice land. Other participants' dice SHALL NOT hold them, and a roll with no dice on this screen (reduced motion) SHALL hold them only while it is being sent.
+
+#### Scenario: Roll, then roll again
+- **WHEN** a player presses Roll and their die is still on the board
+- **THEN** Roll and the drag die are disabled, and both work again as soon as the die has faded
+
+#### Scenario: Someone else's dice
+- **WHEN** another player's dropped dice are on this viewer's board
+- **THEN** this viewer can still roll
+
 ### Requirement: Board throws are not replayed
 A board throw SHALL only ever play for a roll that arrives while the page is connected. Reloading, reconnecting or switching phone tabs SHALL NOT throw anything on the board; a roll whose throw was interrupted SHALL count as already landed.
 
