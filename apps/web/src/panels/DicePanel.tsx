@@ -1,21 +1,35 @@
 import { useState, type FormEvent } from "react";
-import { attackLabel, formatAttackParties, formatAttackRoll, type Verdict, parseDiceExpression, type DiceVisibility, type RoomState } from "@vtt/shared";
+import { attackLabel, formatAttackParties, formatAttackRoll, formatExpression, type Verdict, parseDiceExpression, type DiceVisibility, type Point, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
 import { PanelSection } from "../ui/PanelSection";
 import { DiceTray, type TrayRoll } from "../ui/DiceTray";
+import type { DiceBoard } from "../board/Board";
+import type { DiceDrop } from "../board/diceDrops";
+import { throwBlocker } from "../board/diceThrow";
+import { DiceThrowHandle } from "./DiceThrowHandle";
+import { DiceLookPicker } from "./DiceLookPicker";
 
 const QUICK = ["1d20", "1d20+5", "2d6", "1d8+3", "4d6"];
 
 /**
- * Where the table's latest roll is in its throw (attack-section-compact), held by the room page so
- * the board and the panels agree: the roll still in the air, the one that just landed, and how a
- * panel tray reports its landing.
+ * Which rolls are still being thrown on this viewer's screen (throw-dice-on-board), held by the
+ * room page so the board and the panels agree on when each roll's dice have landed.
  */
 export interface RollThrow {
-  rollId: string | null;
+  /** Rolls whose dice are still in the air: their totals wait. */
+  airborne: ReadonlySet<string>;
+  /** Your own dice are still showing (in the air, or on the board until they fade): rolling waits. */
+  rolling: boolean;
+  /** The roll whose dice landed last. */
   justLandedId: string | null;
+  /** A panel tray's dice have landed. */
   onLanded: (rollId: string) => void;
+  /**
+   * Your die was let go over the map: your next roll of this expression lands there instead of
+   * in the middle of the board. Returns a function that forgets it, for a roll that didn't go through.
+   */
+  expectDrop: (drop: DiceDrop) => () => void;
 }
 
 /**
@@ -28,22 +42,29 @@ export interface RollThrow {
  * server re-parses and rolls, and its result is the only one anyone sees. A GM-only roll
  * never reaches a player, so players have no "hidden roll" placeholder in their log.
  *
- * Each new public roll is thrown as 3D dice over everyone's board (attack-section-compact); a
+ * Your public roll is thrown as 3D dice in the middle of your board (throw-dice-on-board); a
  * private roll is thrown in this panel's tray instead, off the shared view. Its text row waits
  * until the dice land so the total is not read before the dice show it. Rolls already on the
  * table when the room loads have landed: joining, reconnecting or switching tabs does not
  * replay them.
+ *
+ * The die beside the form can be dragged onto the map. That rolls exactly as Roll does; the dice
+ * land where the die was let go instead, on the thrower's board and, replayed from a dice drop
+ * (ADR 0014), on everyone else's, then the result card says what was rolled.
  */
 export function DicePanel({
   connection,
   state,
   isGm,
   rollThrow,
+  board,
 }: {
   connection: RoomConnection;
   state: RoomState;
   isGm: boolean;
   rollThrow: RollThrow;
+  /** The room's board, to throw dice onto; absent where there is none. */
+  board?: DiceBoard;
 }) {
   const [expression, setExpression] = useState("1d20");
   const [visibility, setVisibility] = useState<DiceVisibility>("public");
@@ -57,9 +78,10 @@ export function DicePanel({
 
   const roll = async (e: FormEvent) => {
     e.preventDefault();
+    if (rollThrow.rolling) return;
     if (!parsed.ok) return setError(parsed.message);
     setBusy(true);
-    const result = await connection.command({ type: "dice.roll", expression, visibility });
+    const result = await connection.command(rollCommand(expression, visibility));
     setBusy(false);
     setError(result.ok ? null : result.message);
   };
@@ -83,7 +105,27 @@ export function DicePanel({
       }
     : undefined;
   const latest = rolls[0];
-  const throwing = latest !== undefined && latest.id === rollThrow.rollId;
+  const throwing = latest !== undefined && rollThrow.airborne.has(latest.id);
+
+  /** Roll for a die let go over the map; true once the roll is made, and its dice are on their way. */
+  const throwOnBoard = async (aim: { from: Point; to: Point }): Promise<boolean> => {
+    if (!parsed.ok) return false;
+    setBusy(true);
+    // Where the die was let go: kept here so the roll lands there when it arrives, and sent first
+    // for everyone else to replay the throw there (ADR 0014). The roll is exactly what Roll sends.
+    const drop = { expression: formatExpression(parsed.expression), from: aim.from, to: aim.to };
+    const forget = rollThrow.expectDrop(drop);
+    connection.ephemeral({ type: "diceDrop", ...drop });
+    const result = await withTimeout(connection.command(rollCommand(expression, visibility)), THROW_ANSWER_MS);
+    setBusy(false);
+    if (!result?.ok) {
+      forget();
+      setError(result ? result.message : "The roll didn't go through. Try again.");
+      return false;
+    }
+    setError(null);
+    return true;
+  };
 
   return (
     <PanelSection id="dice" title="Dice">
@@ -102,7 +144,11 @@ export function DicePanel({
             aria-describedby={invalid ? "dice-error" : undefined}
             autoComplete="off"
           />
-          <button type="submit" disabled={busy || !parsed.ok}>
+          <button
+            type="submit"
+            disabled={busy || rollThrow.rolling || !parsed.ok}
+            title={rollThrow.rolling ? "Your dice are still on the board" : undefined}
+          >
             Roll
           </button>
         </div>
@@ -114,6 +160,18 @@ export function DicePanel({
             </button>
           ))}
         </div>
+
+        {board && (
+          <DiceThrowHandle
+            sides={parsed.ok ? parsed.expression.sides : 20}
+            gmOnly={visibility === "gm"}
+            blocker={throwBlocker(expression, state.scene.map !== null, visibility === "gm")}
+            busy={busy || rollThrow.rolling}
+            board={board}
+            onThrow={throwOnBoard}
+          />
+        )}
+        {board && <DiceLookPicker />}
 
         {isGm && (
           <label className="checkbox">
@@ -171,6 +229,21 @@ export function DicePanel({
       </Modal>
     </PanelSection>
   );
+}
+
+/** The command both Roll and a throw onto the board send (throw-dice-on-board). */
+export function rollCommand(expression: string, visibility: DiceVisibility) {
+  return { type: "dice.roll", expression, visibility } as const;
+}
+
+/** How long a thrown die waits for the server before it gives up. */
+const THROW_ANSWER_MS = 5000;
+
+/** The promise's value, or null if it takes longer than `ms`. */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), ms)));
+  return Promise.race([promise, late]).finally(() => clearTimeout(timer));
 }
 
 export function trayRoll(r: RoomState["rolls"][number]): TrayRoll {

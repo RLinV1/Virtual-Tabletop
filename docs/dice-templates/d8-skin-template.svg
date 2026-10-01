@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1536" height="1024" viewBox="0 0 1536 1024">
+  <rect width="1536" height="1024" fill="#d9d4c9"/>
+  <g>
+    <rect x="1" y="129" width="382" height="382" fill="#e7e3da" stroke="#b8b2a6" stroke-width="2" stroke-dasharray="10 8"/>
+    <polygon points="360.0,465.5 24.0,465.5 192.0,174.5" fill="#ffffff" stroke="#1b1f24" stroke-width="4" stroke-linejoin="round"/>
+    <rect x="144.6" y="315.5" width="94.8" height="106.0" rx="13.4" fill="none" stroke="#b9582f" stroke-width="3" stroke-dasharray="10 7"/>
+    <text x="192" y="368.4974226119286" font-size="111.5" font-weight="700" fill="#cfc9bd" text-anchor="middle" dominant-baseline="central" font-family="Helvetica, Arial, sans-serif">1</text>
+    <path d="M 192 294.1 l 8.9 11.9 h -17.8 z" fill="#1b1f24"/>
+    <text x="10" y="150" font-size="16" fill="#6d675c" font-family="Helvetica, Arial, sans-serif">d8 · face 1</text>
+  </g>
+  <g>
+    <rect x="385" y="129" width="382" height="382" fill="#e7e3da" stroke="#b8b2a6" stroke-width="2" stroke-dasharray="10 8"/>
+    <polygon points="744.0,465.5 408.0,465.5 576.0,174.5" fill="#ffffff" stroke="#1b1f24" stroke-width="4" stroke-linejoin="round"/>
+    <rect x="528.6" y="315.5" width="94.8" height="106.0" rx="13.4" fill="none" stroke="#b9582f" stroke-width="3" stroke-dasharray="10 7"/>
+    <text x="576" y="368.4974226119286" font-size="111.5" font-weight="700" fill="#cfc9bd" text-anchor="middle" dominant-baseline="central" font-family="Helvetica, Arial, sans-serif">2</text>
+    <path d="M 576 294.1 l 8.9 11.9 h -17.8 z" fill="#1b1f24"/>
+    <text x="394" y="150" font-size="16" fill="#6d675c" font-family="Helvetica, Arial, sans-serif">d8 · face 2</text>
+  </g>
+  <g>
+    <rect x="769" y="129" width="382" height="382" fill="#e7e3da" stroke="#b8b2a6" stroke-width="2" stroke-dasharray="10 8"/>
+    <polygon points="1128.0,465.5 792.0,465.5 960.0,174.5" fill="#ffffff" stroke="#1b1f24" stroke-width="4" stroke-linejoin="round"/>
+    <rect x="912.6" y="315.5" width="94.8" height="106.0" rx="13.4" fill="none" stroke="#b9582f" stroke-width="3" stroke-dasharray="10 7"/>
+    <text x="960" y="368.4974226119286" font-size="111.5" font-weight="700" fill="#cfc9bd" text-anchor="middle" dominant-baseline="central" font-family="Helvetica, Arial, sans-serif">3</text>
+    <path d="M 960 294.1 l 8.9 11.9 h -17.8 z" fill="#1b1f24"/>
+    <text x="778" y="150" font-size="16" fill="#6d675c" font-family="Helvetica, Arial, sans-serif">d8 · face 3</text>
+  </g>
+  <g>
+    <rect x="1153" y="129" width="382" height="382" fill="#e7e3da" stroke="#b8b2a6" stroke-width="2" stroke-dasharray="10 8"/>
+    <polygon points="1512.0,465.5 1176.0,465.5 1344.0,174.5" fill="#ffffff" stroke="#1b1f24" stroke-width="4" stroke-linejoin="round"/>
+    <rect x="1296.6" y="315.5" width="94.8" height="106.0" rx="13.4" fill="none" stroke="#b9582f" stroke-width="3" stroke-dasharray="10 7"/>
+    <text x="1344" y="368.4974226119286" font-size="111.5" font-weight="700" fill="#cfc9bd" text-anchor="middle" dominant-baseline="central" font-family="Helvetica, Arial, sans-serif">4</text>
+    <path d="M 1344 294.1 l 8.9 11.9 h -17.8 z" fill="#1b1f24"/>
+    <text x="1162" y="150" font-size="16" fill="#6d675c" font-family="Helvetica, Arial, sans-serif">d8 · face 4</text>
+  </g>
+  <g>
+    <rect x="1" y="513" width="382" height="382" fill="#e7e3da" stroke="#b8b2a6" stroke-width="2" stroke-dasharray="10 8"/>
+    <polygon points="360.0,849.5 24.0,849.5 192.0,558.5" fill="#ffffff" stroke="#1b1f24" stroke-width="4" stroke-linejoin="round"/>
+    <rect x="144.6" y="699.5" width="94.8" height="106.0" rx="13.4" fill="none" stroke="#b9582f" stroke-width="3" stroke-dasharray="10 7"/>
+    <text x="192" y="752.4974226119285" font-size="111.5" font-weight="700" fill="#cfc9bd" text-anchor="middle" dominant-baseline="central" font-family="Helvetica, Arial, sans-serif">5</text>
+    <path d="M 192 678.1 l 8.9 11.9 h -17.8 z" fill="#1b1f24"/>
+    <text x="10" y="534" font-size="16" fill="#6d675c" font-family="Helvetica, Arial, sans-serif">d8 · face 5</text>
+  </g>
+  <g>
+    <rect x="385" y="513" width="382" height="382" fill="#e7e3da" stroke="#b8b2a6" stroke-width="2" stroke-dasharray="10 8"/>
+    <polygon points="744.0,849.5 408.0,849.5 576.0,558.5" fill="#ffffff" stroke="#1b1f24" stroke-width="4" stroke-linejoin="round"/>
+    <rect x="528.6" y="699.5" width="94.8" height="106.0" rx="13.4" fill="none" stroke="#b9582f" stroke-width="3" stroke-dasharray="10 7"/>
+    <text x="576" y="752.4974226119285" font-size="111.5" font-weight="700" fill="#cfc9bd" text-anchor="middle" dominant-baseline="central" font-family="Helvetica, Arial, sans-serif">6</text>
+    <path d="M 576 678.1 l 8.9 11.9 h -17.8 z" fill="#1b1f24"/>
+    <text x="394" y="534" font-size="16" fill="#6d675c" font-family="Helvetica, Arial, sans-serif">d8 · face 6</text>
+  </g>
+  <g>
+    <rect x="769" y="513" width="382" height="382" fill="#e7e3da" stroke="#b8b2a6" stroke-width="2" stroke-dasharray="10 8"/>
+    <polygon points="1128.0,849.5 792.0,849.5 960.0,558.5" fill="#ffffff" stroke="#1b1f24" stroke-width="4" stroke-linejoin="round"/>
+    <rect x="912.6" y="699.5" width="94.8" height="106.0" rx="13.4" fill="none" stroke="#b9582f" stroke-width="3" stroke-dasharray="10 7"/>
+    <text x="960" y="752.4974226119285" font-size="111.5" font-weight="700" fill="#cfc9bd" text-anchor="middle" dominant-baseline="central" font-family="Helvetica, Arial, sans-serif">7</text>
+    <path d="M 960 678.1 l 8.9 11.9 h -17.8 z" fill="#1b1f24"/>
+    <text x="778" y="534" font-size="16" fill="#6d675c" font-family="Helvetica, Arial, sans-serif">d8 · face 7</text>
+  </g>
+  <g>
+    <rect x="1153" y="513" width="382" height="382" fill="#e7e3da" stroke="#b8b2a6" stroke-width="2" stroke-dasharray="10 8"/>
+    <polygon points="1512.0,849.5 1176.0,849.5 1344.0,558.5" fill="#ffffff" stroke="#1b1f24" stroke-width="4" stroke-linejoin="round"/>
+    <rect x="1296.6" y="699.5" width="94.8" height="106.0" rx="13.4" fill="none" stroke="#b9582f" stroke-width="3" stroke-dasharray="10 7"/>
+    <text x="1344" y="752.4974226119285" font-size="111.5" font-weight="700" fill="#cfc9bd" text-anchor="middle" dominant-baseline="central" font-family="Helvetica, Arial, sans-serif">8</text>
+    <path d="M 1344 678.1 l 8.9 11.9 h -17.8 z" fill="#1b1f24"/>
+    <text x="1162" y="534" font-size="16" fill="#6d675c" font-family="Helvetica, Arial, sans-serif">d8 · face 8</text>
+  </g>
+</svg>

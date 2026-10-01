@@ -8,6 +8,7 @@ import {
   type ClientMessageInput,
   type CommandInput,
   type CommittedEvent,
+  type DiceRoll,
   type EphemeralPayload,
   type Participant,
   type RoomState,
@@ -44,6 +45,7 @@ export type CommandResult =
 type EphemeralListener = (from: string, payload: EphemeralPayload) => void;
 /** Called with a live event and the viewer's state before and after it (KAN-76). */
 type CommittedListener = (committed: CommittedEvent, before: RoomState, after: RoomState) => void;
+type RollListener = (roll: DiceRoll) => void;
 
 /**
  * Client side of the sync protocol (docs/adr/0001-event-model.md, docs/adr/0002).
@@ -69,6 +71,7 @@ export class RoomConnection {
   private pending = new Map<string, (r: CommandResult) => void>();
   private ephemeralListeners = new Set<EphemeralListener>();
   private committedListeners = new Set<CommittedListener>();
+  private rollListeners = new Set<RollListener>();
 
   readonly store: StoreApi<RoomSnapshot> = createStore<RoomSnapshot>(() => ({
     status: "connecting",
@@ -146,6 +149,15 @@ export class RoomConnection {
     });
   }
 
+  /**
+   * Called for each roll made while connected, once its event is applied (throw-dice-on-board).
+   * Never for rolls that arrive in a snapshot: those are already on the table.
+   */
+  onRolled(fn: RollListener) {
+    this.rollListeners.add(fn);
+    return () => this.rollListeners.delete(fn);
+  }
+
   ephemeral(payload: EphemeralPayload) {
     if (this.snapshot.status === "open") this.send({ type: "ephemeral", payload });
   }
@@ -160,16 +172,21 @@ export class RoomConnection {
       case "event": {
         const { state, seq } = this.snapshot;
         if (!state || msg.committed.seq !== seq + 1) return this.resync();
+        let next: RoomState;
         try {
           // Only the GM's events carry `commandId`; with it the undo history stays in step with
           // the server's. Players get none, so they keep no history (ADR 0013).
-          const next = msg.committed.commandId ? reduceCommitted(state, msg.committed) : reduce(state, msg.committed.event);
+          next = msg.committed.commandId ? reduceCommitted(state, msg.committed) : reduce(state, msg.committed.event);
           const you = this.snapshot.you ? (next.participants[this.snapshot.you.id] ?? null) : null;
           this.update({ state: next, seq: msg.committed.seq, you });
-          this.emitCommitted(msg.committed, state, next);
         } catch {
-          this.resync();
+          return this.resync();
         }
+        // After the try: a listener's mistake must not read as a broken event stream. Committed
+        // listeners first, so a strike is waiting before its roll can land (KAN-76).
+        this.emitCommitted(msg.committed, state, next);
+        const { event } = msg.committed;
+        if (event.type === "DiceRolled") this.rollListeners.forEach((fn) => fn(event.roll));
         return;
       }
 

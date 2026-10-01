@@ -529,10 +529,12 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 
 /* The tray the latest roll lands in. Rust dice for the table; a GM-only roll is thrown in
    slate with amber numerals, and its row still carries the "GM only" badge. */
-.dice-tray {
+.dice-tray, .thrown-dice-roll, .dice-ghost, .dice-throw-handle, .dice-look-preview {
   --die-body: var(--accent);
   --die-ink: var(--accent-ink);
   --die-shadow: rgba(0, 0, 0, 0.6);
+}
+.dice-tray {
   display: flex; flex-wrap: wrap; justify-content: center; gap: 0.3rem 0.55rem;
   padding: 0.7rem 0.5rem 0.8rem;
   border: 1px solid var(--border); border-radius: var(--radius);
@@ -540,7 +542,7 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
   /* The dice are thrown in from outside the tray; clip them until they arrive. */
   overflow: hidden;
 }
-.dice-tray.private { --die-body: #39404b; --die-ink: var(--warn); }
+.dice-tray.private, .thrown-dice-roll.private, .dice-ghost.private, .dice-throw-handle[data-private] { --die-body: #39404b; --die-ink: var(--warn); }
 .die3d-slot { position: relative; width: var(--die); height: var(--die); }
 .die3d-shadow {
   position: absolute; left: 14%; right: 14%; bottom: -4%; height: 22%;
@@ -565,6 +567,106 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
   text-anchor: middle; dominant-baseline: central;
 }
 .die3d-face line { stroke: var(--die-ink); stroke-linecap: round; }
+
+/* Dice thrown onto the map (throw-dice-on-board). The world layer follows the board's pan and
+   zoom; the dice are placed in it in board pixels. Nothing here takes the pointer. */
+.thrown-dice { position: absolute; inset: 0; z-index: 1; overflow: hidden; pointer-events: none; }
+.thrown-dice-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.thrown-dice-roll { --die-shadow: rgba(0, 0, 0, 0.55); }
+.thrown-dice-roll .die3d-slot { position: absolute; }
+
+/* A die in the viewer's image skin (dice-image-skins): the picture is the face, and the
+   painted shading and the result highlight lie over it as tints. The numerals keep a dark
+   outline so they read on any picture. */
+.die3d.skinned .die3d-face polygon { fill: #05070a; fill-opacity: var(--shade); }
+.die3d.skinned .die3d-face.front polygon { fill: #fff; fill-opacity: 8%; }
+.die3d.skinned .die3d-face text {
+  fill: #fff; paint-order: stroke; stroke: rgba(8, 10, 14, 0.78); stroke-width: 0.09em; stroke-linejoin: round;
+}
+.die3d.skinned .die3d-face line { stroke: #fff; }
+.dice-look { display: flex; flex-direction: column; gap: var(--space-1); }
+.dice-look p { margin: 0; }
+.dice-look-row { display: flex; align-items: center; gap: var(--space-2); }
+.dice-look-row select { flex: 1; min-width: 0; }
+.dice-look-edit { white-space: nowrap; font-size: 0.9em; }
+
+/* The asset library's Dice tab: cards as on the other tabs, the dice standing in for a thumbnail. */
+.dice-look-preview { display: flex; justify-content: center; align-items: center; gap: 0.9rem; }
+.asset-thumb .dice-look-preview { width: 100%; height: 100%; background: radial-gradient(ellipse 80% 90% at 50% 30%, var(--raised), var(--field)); }
+dialog.modal.dice-look-modal { width: min(40rem, calc(100vw - 2rem)); }
+.dice-look-form label { display: flex; flex-direction: column; gap: var(--space-1); }
+.dice-look-form p { margin: 0; }
+.dice-look-pictures-head { justify-content: space-between; align-items: baseline; }
+
+/* A look's dice, one card each with a single Edit menu (dice-image-skins). */
+.die-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr)); gap: var(--space-3); }
+.die-card {
+  position: relative;
+  display: flex; flex-direction: column; gap: var(--space-2); min-width: 0;
+  padding: var(--space-2); border: 1px solid var(--border); border-radius: 10px; background: var(--panel);
+  transition: border-color 200ms cubic-bezier(0.16, 1, 0.3, 1), transform 300ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+/* The open menu belongs above the cards after it. */
+.die-card:has(.popover) { z-index: 2; border-color: var(--border-strong); }
+.die-card-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.die-card-name { font-size: var(--fs-md); }
+.die-card-edit { display: inline-flex; align-items: center; gap: 0.3rem; }
+.die-card-thumb { position: relative; }
+.die-card-toast {
+  position: absolute; left: var(--space-2); right: var(--space-2); bottom: var(--space-2); margin: 0;
+  padding: 0.3rem 0.5rem; border-radius: 6px; text-align: center;
+  font-size: var(--fs-xs); line-height: 1.3; color: var(--text);
+  background: color-mix(in srgb, var(--raised) 92%, transparent); border: 1px solid var(--border-strong);
+}
+.die-card-toast.error { color: var(--danger); border-color: var(--danger); }
+.die-card .die3d-slot { transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1); }
+.die-menu { display: flex; flex-direction: column; min-width: 11rem; }
+.die-card .popover { padding: var(--space-1); }
+.die-menu-item {
+  display: flex; align-items: center; gap: var(--space-2); width: 100%; text-align: left; white-space: nowrap;
+  background: transparent; color: var(--text); border: 1px solid transparent;
+  font-weight: 500; font-size: var(--fs-sm); padding: 0.4rem 0.5rem;
+}
+.die-menu-item:hover:not(:disabled), .die-menu-item:focus-visible { filter: none; background: var(--panel); }
+/* Resetting drops the picture, so it warns on hover like other destructive actions. */
+.die-menu-item.danger:hover:not(:disabled), .die-menu-item.danger:focus-visible { border-color: var(--danger); color: var(--danger); }
+@media (prefers-reduced-motion: no-preference) {
+  .die-card { animation: die-card-in 360ms cubic-bezier(0.16, 1, 0.3, 1) backwards; animation-delay: calc(var(--index, 0) * 40ms); }
+  .die-card:hover { transform: translateY(-2px); border-color: var(--border-strong); }
+  .die-card:hover .die3d-slot { transform: translateY(-3px); }
+  .die-card .popover, .die-card-toast { animation: modal-in 0.16s ease-out; }
+  @keyframes die-card-in { from { opacity: 0; transform: translateY(6px); } }
+}
+
+/* The die to pick up in the Dice panel, and the one held under the pointer. */
+.dice-throw { display: flex; align-items: center; gap: var(--space-2); }
+.dice-throw p { margin: 0; }
+.dice-throw-handle {
+  flex: none; display: grid; place-items: center;
+  width: calc(var(--die) + 14px); height: calc(var(--die) + 14px);
+  border: 1px dashed var(--border); border-radius: var(--radius);
+  background: var(--field);
+  cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none;
+}
+.dice-throw-handle:active { cursor: grabbing; }
+.dice-throw-handle.disabled { opacity: 0.45; cursor: not-allowed; }
+.dice-ghost {
+  /* Placed by a transform written on each frame (DiceThrowHandle), so following the pointer
+     never costs a layout. */
+  position: fixed; left: 0; top: 0; z-index: 1000; width: var(--die); height: var(--die);
+  pointer-events: none; will-change: transform;
+  transition: opacity 150ms;
+}
+/* Not over the map: letting go here puts the die back. */
+.dice-ghost.off-map { opacity: 0.55; }
+.dice-ghost.fading { opacity: 0; transition: opacity 400ms; }
+@media (prefers-reduced-motion: no-preference) {
+  .dice-ghost .die3d { animation: dice-ghost-spin 900ms linear infinite; }
+}
+@keyframes dice-ghost-spin {
+  from { transform: rotateX(0deg) rotateY(0deg) rotateZ(0deg); }
+  to { transform: rotateX(360deg) rotateY(720deg) rotateZ(180deg); }
+}
 
 @media (prefers-reduced-motion: no-preference) {
   /* The total arrives with the dice. */
@@ -1930,24 +2032,30 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 }
 .board-notice p { margin: 0; }
 
-/* The viewer's own attack roll over the board (attack-section-compact); never takes pointer input. */
-.board-dice {
-  position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 5;
-  display: flex; flex-direction: column; align-items: center; gap: var(--space-2);
-  pointer-events: none; max-width: calc(100% - 2rem);
-}
-.board-dice .dice-tray { background: none; border: none; overflow: visible; }
+/* What was just rolled (board-dice-rolls, throw-dice-on-board); never takes pointer input. */
 .board-roll-popup {
-  display: flex; flex-direction: column; align-items: center; gap: 0.15rem; text-align: center;
-  padding: var(--space-2) var(--space-4);
-  background: var(--raised); border: 1px solid var(--border-strong); border-top: 3px solid var(--accent);
-  border-radius: 0; box-shadow: 0 10px 28px var(--shadow);
+  /* Bottom right, clear of the notices (top right) and the hint (bottom left). */
+  position: absolute; right: var(--space-3); bottom: var(--space-3); z-index: 6;
+  display: flex; align-items: center; gap: var(--space-3);
+  max-width: min(22rem, calc(100% - 2 * var(--space-3)));
+  padding: var(--space-2) var(--space-3);
+  background: var(--raised); border: 1px solid var(--border-strong); border-left: 3px solid var(--accent);
+  border-radius: var(--radius); box-shadow: 0 10px 28px var(--shadow);
+  pointer-events: none;
 }
-.board-roll-popup strong { font-size: 1.6rem; font-variant-numeric: tabular-nums; }
-.board-roll-popup.private { border-top-color: var(--warn); }
-.board-roll-popup .muted { font-size: var(--fs-sm); }
+.board-roll-popup strong { font-size: 1.4rem; line-height: 1; font-variant-numeric: tabular-nums; }
+.board-roll-popup.private { border-left-color: var(--warn); }
+.board-roll-meta { display: flex; flex-direction: column; align-items: flex-start; gap: 0.15rem; min-width: 0; }
+.board-roll-meta .muted { font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 @media (prefers-reduced-motion: no-preference) {
-  .board-roll-popup { animation: modal-in 0.16s ease-out; }
+  /* In from the right, a pause to read, and back out: the same 4 s the room page shows it for. */
+  .board-roll-popup { animation: roll-card 4s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  @keyframes roll-card {
+    0% { opacity: 0; transform: translateX(calc(100% + var(--space-3))); }
+    9% { opacity: 1; transform: none; }
+    90% { opacity: 1; transform: none; }
+    100% { opacity: 0; transform: translateX(calc(100% + var(--space-3))); }
+  }
 }
 .turn-notice { border-left-color: var(--accent); }
 @media (prefers-reduced-motion: no-preference) {

@@ -11,7 +11,16 @@ import { RulingButtons } from "./RulingButtons";
  * afterwards, and the app never decides for them (README §7). Rendered for the GM only; the
  * server refuses these commands from anyone else regardless.
  */
-export function RulingsPanel({ connection, state }: { connection: RoomConnection; state: RoomState }) {
+export function RulingsPanel({
+  connection,
+  state,
+  airborne,
+}: {
+  connection: RoomConnection;
+  state: RoomState;
+  /** Rolls whose dice are still in the air on this screen: the total and the controls wait for them. */
+  airborne: ReadonlySet<string>;
+}) {
   const pending = pendingRulings(state);
   // One request per roll at a time; the server refuses a second apply anyway.
   const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
@@ -39,6 +48,7 @@ export function RulingsPanel({ connection, state }: { connection: RoomConnection
               key={item.roll.id}
               item={item}
               busy={busy.has(item.roll.id)}
+              rolling={airborne.has(item.roll.id)}
               onRule={(verdict) => send(item.roll.id, { type: "roll.rule", rollId: item.roll.id, verdict })}
               onApply={() => send(item.roll.id, { type: "roll.applyDamage", rollId: item.roll.id })}
             />
@@ -57,11 +67,14 @@ export function RulingsPanel({ connection, state }: { connection: RoomConnection
 function RulingRow({
   item,
   busy,
+  rolling,
   onRule,
   onApply,
 }: {
   item: PendingRuling;
   busy: boolean;
+  /** The dice are still landing: the total and the controls wait for them. */
+  rolling: boolean;
   onRule: (verdict: "hit" | "miss") => void;
   onApply: () => void;
 }) {
@@ -74,7 +87,7 @@ function RulingRow({
       <span className="ruling-line">
         <span className="ruling-parties">{description}</span>
         <span className="ruling-total">
-          <strong>{roll.total}</strong> <span className="muted">{roll.expression}</span>
+          <strong>{rolling ? "Rolling…" : roll.total}</strong> <span className="muted">{roll.expression}</span>
           {roll.visibility === "gm" && <em className="badge">GM only</em>}
         </span>
       </span>
@@ -85,7 +98,8 @@ function RulingRow({
             ? item.ac === null ? "No AC" : `AC ${item.ac}`
             : `${item.hp}${item.maxHp !== null ? `/${item.maxHp}` : ""} HP`}
         </span>
-        <RulingButtons item={item} description={`${description}, ${roll.total}`} busy={busy} onRule={onRule} onApply={onApply} />
+        {/* Not even disabled: Apply −N and the buttons' names would give the total away. */}
+        {!rolling && <RulingButtons item={item} description={`${description}, ${roll.total}`} busy={busy} onRule={onRule} onApply={onApply} />}
       </span>
     </li>
   );
