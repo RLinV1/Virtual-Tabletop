@@ -92,3 +92,13 @@ Lint, full typecheck, build, tests and strict validation passed. There were 563 
 ### Mainline pull-request verification — 2026-10-02
 
 The feature branch starts from mainline `bb89754`. Final lint, full typecheck, tests and build passed with 739 tests and 20 environment-dependent store skips. All 39 Chromium assertion groups passed against fresh isolated mainline-based processes, with no page errors. Strict validation passed for this change and both updated contracts. The 79 focused sample/interaction cases and the physical-trackpad follow-up in task 5.8 remain as recorded above.
+
+## 10. PR #66 correctness review
+
+- [x] 10.1 Reproduce and fix pending B arrows jumping to the seed; cover every count and quadrant, with recovery after interruption.
+- [x] 10.2 Preserve exact pending sample bounds through count reinterpretation, Shift keyboard adjustment and Enter, including Pan mode.
+- [x] 10.3 Confirm focused unselected A/B handles and controls without selecting or submitting; return focus to the map and keep hover stable.
+- [x] 10.4 Reset library save locks on editor replacement and prevent obsolete success/rejection from affecting newer editors/saves, including reopening the same asset.
+- [x] 10.5 Run lint, typecheck, full tests, build, expanded Chromium QA and strict OpenSpec validation; record results and remaining environment/manual gaps in `docs/QA-grid-sample.md`.
+
+The review passed 743 tests with 20 Postgres/Redis-dependent skips, 83 focused sample/interaction cases, and 43 Chromium assertion groups. Lint, typecheck, production build and strict validation of this change and both affected contracts passed. The existing dependency annotation and bundle-size warnings remain. Physical-trackpad task 5.8 and browser simulation of GM-role reassignment remain unverified.

@@ -287,6 +287,60 @@ try{
   await hoverPoint(b);assert.deepEqual(await values(),pendingHover);assert.equal(gridCount(),0);
   mark('Map/control Enter confirms valid pending B and A/B hover previews locally; invalid B remains selected for retry and Enter emits no save command');
 
+  const beforeFocusedEnter=await values();
+  for(const panEnabled of [false,true]){
+    if(panEnabled)await dialog.getByRole('button',{name:'Pan',exact:true}).click();
+    for(const anchor of ['A','B']){
+      for(const target of [dialog.getByRole('button',{name:`Select ${anchor}`,exact:true}),svg.locator(`[data-anchor="${anchor}"]`)]){
+        await target.focus();await gm.keyboard.press('Enter');await settle();
+        assert.equal(await dialog.getByRole('button',{name:`Select ${anchor}`,exact:true}).getAttribute('aria-pressed'),'false');
+        assert.equal(await svg.evaluate(el=>globalThis.document.activeElement===el),true);
+        await hoverPoint(b);assert.deepEqual(await values(),beforeFocusedEnter);assert.equal(gridCount(),0);
+      }
+    }
+    if(panEnabled)await dialog.getByRole('button',{name:'Pan',exact:true}).click();
+  }
+  mark('Enter on focused unselected A/B handles and controls confirms without selecting, including Pan mode');
+
+  for(const count of [1,3,5]){
+    await dialog.getByRole('button',{name:count===1?'1 square':`${count}×${count}`,exact:true}).click();
+    for(const [sx,sy] of [[1,1],[-1,1],[1,-1],[-1,-1]]){
+      await dialog.getByRole('button',{name:'Start over',exact:true}).click();
+      await clickPoint({x:700,y:600},false);await hoverPoint({x:700+sx*100*count,y:600+sy*100*count});
+      assert.equal((await values()).cell,100);
+      await gm.keyboard.press(sx>0?'ArrowRight':'ArrowLeft');await settle();
+      assert.equal((await values()).cell,100.5);
+      const keyboardCandidate=await values();
+      await gm.evaluate(()=>globalThis.window.dispatchEvent(new Event('blur')));await settle();
+      await svg.focus();await gm.keyboard.press('Enter');await settle();
+      assert.deepEqual(await values(),keyboardCandidate);
+      assert.deepEqual(await anchorPoint('A'),{x:700,y:600});
+      assert.equal(await svg.locator('.is-provisional').count(),0);assert.equal(gridCount(),0);
+    }
+  }
+  mark('Pending B arrows adjust the visible hover candidate at all counts/quadrants; interruption and Enter retain the adjusted geometry');
+
+  // A 70px seed must remain 70px wide when reinterpreted as three cells.
+  await adv();await cell.fill('70');await offx.fill('0');
+  await dialog.getByRole('spinbutton',{name:'Offset Y (px)',includeHidden:true}).fill('0');
+  await dialog.getByRole('button',{name:'1 square',exact:true}).click();
+  await clickPoint({x:500,y:400},false);await settle();
+  const countBounds=await anchorPoint('B');
+  await dialog.getByRole('button',{name:'3×3',exact:true}).click();
+  await dialog.getByRole('button',{name:'Pan',exact:true}).click();
+  await svg.focus();await gm.keyboard.press('Enter');await settle();
+  assert.equal((await values()).cell,70/3);assert.deepEqual(await anchorPoint('B'),countBounds);
+  assert.match(await dialog.locator('.map-grid-status').innerText(),/Sample placed/);
+  await dialog.getByRole('button',{name:'Pan',exact:true}).click();
+  mark('Pending count reinterpretation preserves exact bounds and fractional spacing through Enter, including Pan mode');
+
+  // A Shift-placed A alone does not opt the later default B confirmation out of snapping.
+  await dialog.getByRole('button',{name:'Start over',exact:true}).click();
+  await clickPoint({x:425.125,y:315.25},true);await settle();
+  assert.ok(Object.values(await values()).every(n=>Number.isInteger(n*2)));
+  const defaultSeed=await values();await gm.keyboard.press('Enter');await settle();
+  assert.deepEqual(await values(),defaultSeed);
+
   const stable=await values();
   await dialog.getByRole('button',{name:'Start over',exact:true}).click();
   await svg.focus();await gm.keyboard.press('Enter');await settle();
@@ -298,7 +352,7 @@ try{
   const keyboardPreview=await values();
   await gm.keyboard.press('Enter');
   assert.match(await dialog.locator('.map-grid-status').innerText(),/Sample placed/);
-  assert.equal((await values()).cell,Math.round((seededSide+1.5+10)/3*2)/2);
+  assert.equal((await values()).cell,(seededSide+1.5+10)/3);
   assert.deepEqual(await values(),keyboardPreview);
   const placedCell=(await values()).cell;
   const bounds=await anchorPoint('B');
@@ -323,6 +377,9 @@ try{
     await settle();
   };
   await hoverWhileTyping();assert.equal(await cell.inputValue(),'');assert.equal(await apply.isDisabled(),true);
+  await cell.pressSequentially('1e');await hoverWhileTyping();await gm.keyboard.press('Shift');
+  assert.equal(await apply.isDisabled(),true);
+  await cell.pressSequentially('2');assert.equal(await cell.inputValue(),'1e2');
   await cell.fill('80.25');await offx.fill('2.125');
   const offy=dialog.getByRole('spinbutton',{name:'Offset Y (px)',includeHidden:true});await offy.fill('3.375');
   await hoverWhileTyping();await gm.keyboard.press('Shift');
@@ -564,6 +621,56 @@ try{
     await editing.waitFor({state:'hidden'});assert.equal(patches,acceptedLibraryPatches);
   }
   mark('All library dismissal paths preserve saved metadata; library edits leave existing player grid/token pixels unchanged');
+  // An upload started before opening an existing map editor can replace its target
+  // while a save is pending. Old responses must not lock, unlock or close the new editor.
+  for(const rejectOld of [false,true]){
+    let releaseUpload,releaseOld,releaseNew;
+    const uploadReady=new Promise(resolve=>{releaseUpload=resolve;});
+    const oldReady=new Promise(resolve=>{releaseOld=resolve;});
+    const newReady=new Promise(resolve=>{releaseNew=resolve;});
+    let notifyUpload,notifyOld,notifyNew;
+    const uploadSeen=new Promise(resolve=>{notifyUpload=resolve;});
+    const oldSeen=new Promise(resolve=>{notifyOld=resolve;});
+    const newSeen=new Promise(resolve=>{notifyNew=resolve;});
+    let oldRequest=true;
+    await library.route('**/api/library**',async route=>{
+      if(route.request().method()==='POST'){
+        const response=await route.fetch();notifyUpload();await uploadReady;await route.fulfill({response});
+      }else if(route.request().method()==='PATCH'){
+        if(oldRequest){
+          oldRequest=false;notifyOld();await oldReady;
+          if(rejectOld){await route.fulfill({status:500,contentType:'application/json',body:JSON.stringify({error:'QA obsolete save'})});return;}
+        }else {notifyNew();await newReady;}
+        await route.continue();
+      }else await route.continue();
+    });
+    await library.locator('input[type=file]').setInputFiles({name:`late-${rejectOld}.png`,mimeType:'image/png',buffer:await readFile(liveMap)});
+    await uploadSeen;
+    await library.locator('.asset-card').filter({hasText:'kan 09 live map'}).getByRole('button',{name:'Edit grid',exact:true}).click();
+    await edit.getByRole('button',{name:'Advanced',exact:true}).click();await libraryCell.fill(rejectOld?'81':'80');
+    await edit.getByRole('button',{name:'Save grid',exact:true}).click();await oldSeen;
+    releaseUpload();await ld.waitFor();await library.evaluate(()=>new Promise(resolve=>globalThis.requestAnimationFrame(()=>globalThis.requestAnimationFrame(resolve))));
+    assert.equal(await edit.getByRole('button',{name:'Start over',exact:true}).isDisabled(),false);
+    assert.equal(await libraryCell.inputValue(),'70');assert.equal(await ls.locator('.grid-anchor-dot').count(),0);
+    if(!rejectOld){
+      // Reopening the original asset is a new editor even though its ID matches.
+      await edit.getByRole('button',{name:'Set up later',exact:true}).click();
+      await library.locator('.asset-card').filter({hasText:'kan 09 live map'}).getByRole('button',{name:'Edit grid',exact:true}).click();
+      await edit.getByRole('button',{name:'Advanced',exact:true}).click();await libraryCell.fill('82');
+    }
+    const currentDraft=await lvalues();
+    await edit.getByRole('button',{name:'Save grid',exact:true}).click();await newSeen;
+    const obsoleteResponse=library.waitForResponse(r=>r.request().method()==='PATCH');
+    releaseOld();await obsoleteResponse;
+    await library.evaluate(()=>new Promise(resolve=>globalThis.requestAnimationFrame(()=>globalThis.requestAnimationFrame(resolve))));
+    assert.equal(await edit.getByRole('button',{name:'Saving…',exact:true}).isVisible(),true);
+    assert.equal(await edit.getByRole('button',{name:'Start over',exact:true}).isDisabled(),true);
+    assert.deepEqual(await lvalues(),currentDraft);
+    assert.equal(await edit.getByText('QA obsolete save').count(),0);
+    await library.keyboard.press('Escape');assert.equal(await edit.isVisible(),true);
+    releaseNew();await edit.waitFor({state:'hidden'});await library.unroute('**/api/library**');
+  }
+  mark('Delayed upload resets library editor and its save lock; obsolete success/rejection cannot unlock or dismiss a newer save, including the same asset');
   // Place saved and unconfigured copies through the actual room picker.
   await library.locator('input[type=file]').setInputFiles({name:'unconfigured.png',mimeType:'image/png',buffer:await readFile(liveMap)});
   await ld.waitFor();await ld.getByRole('button',{name:'Set up later',exact:true}).click();

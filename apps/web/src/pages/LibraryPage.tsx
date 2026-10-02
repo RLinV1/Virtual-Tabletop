@@ -282,9 +282,9 @@ function Library() {
             saving={gridSaving}
             onSavingChange={setGridSaving}
             onCancel={() => setGridTarget(null)}
-            onSaved={(saved) => {
+            onSaved={(saved, currentEditor) => {
               replace(saved);
-              setGridTarget((open) => (open?.id === saved.id ? null : open));
+              if (currentEditor) setGridTarget((open) => (open?.id === saved.id ? null : open));
             }}
           />
         )}
@@ -490,7 +490,7 @@ function LibraryGridEditor({ asset, gmToken, onCancel, onSaved, saving, onSaving
   asset: LibraryAsset;
   gmToken: string;
   onCancel: () => void;
-  onSaved: (asset: LibraryAsset) => void;
+  onSaved: (asset: LibraryAsset, currentEditor: boolean) => void;
   saving: boolean;
   onSavingChange: (saving: boolean) => void;
 }) {
@@ -498,7 +498,16 @@ function LibraryGridEditor({ asset, gmToken, onCancel, onSaved, saving, onSaving
   // An older grid too fine to draw starts at the smallest drawable size, as placement does.
   const [draft, setDraft] = useState(() => toGridDraft(normalizeLegacyGridForBoard(saved, asset)));
   const savingRef = useRef(false);
+  const active = useRef(true);
   const [error, setError] = useState<string | null>(null);
+  // A delayed upload can replace this editor while its PATCH is still pending.
+  useEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+      onSavingChange(false);
+    };
+  }, [onSavingChange]);
 
   return (
     <div className="stack">
@@ -518,12 +527,13 @@ function LibraryGridEditor({ asset, gmToken, onCancel, onSaved, saving, onSaving
           onSavingChange(true);
           setError(null);
           try {
-            onSaved(await api.library.update(gmToken, asset.id, { grid }));
+            const saved = await api.library.update(gmToken, asset.id, { grid });
+            onSaved(saved, active.current);
           } catch (err) {
-            setError(err instanceof Error ? err.message : "Could not save the grid");
+            if (active.current) setError(err instanceof Error ? err.message : "Could not save the grid");
           } finally {
             savingRef.current = false;
-            onSavingChange(false);
+            if (active.current) onSavingChange(false);
           }
         }}
         applying={saving}

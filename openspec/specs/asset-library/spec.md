@@ -90,6 +90,18 @@ During valid provisional placement or anchor repositioning, the Advanced cell-si
 
 Normal B keyboard arrows SHALL change each cell by 0.5 image pixels at every sample count; Shift SHALL retain freeform 10-image-pixel sample-side steps. Advanced offsets SHALL match the grid and explain wrapping within one cell when resizing around A. Keyboard adjustment SHALL select the focused anchor. Enter from the map, an anchor handle or A/B control SHALL confirm a valid visible candidate or retain the latest keyboard adjustment, deselect the anchor and focus the map, without saving or resnapping confirmed freeform geometry. An invalid candidate SHALL keep selection for retry. Subsequent hover SHALL leave geometry unchanged until selection resumes; Save grid SHALL persist the confirmed keyboard-adjusted draft.
 
+Pending B keyboard adjustment SHALL start from the visible candidate or the recoverable sample after interruption. Count changes SHALL preserve pending and completed sample bounds. Enter SHALL preserve exact pending keyboard/count geometry, including after Shift release and while Pan is enabled. Enter on a focused unselected handle or A/B control SHALL leave selection cleared and focus the map.
+
+Replacing or reopening the editor SHALL reset its draft, anchors, error and save lock. A response from an obsolete editor MAY refresh the saved asset in the library list, but SHALL NOT close the current editor, display an error there, or change its save lock, including when the same asset is reopened.
+
+#### Scenario: Upload replaces an editor during save
+- **WHEN** a delayed upload opens setup while another map's grid save is pending
+- **THEN** setup starts with its own editable default draft, and the old response cannot dismiss or unlock a subsequent save
+
+#### Scenario: Reopen an asset before its old save responds
+- **WHEN** the GM reopens the original asset after an upload replaced its pending editor
+- **THEN** the obsolete response may update the library list but leaves the new editor and its draft intact
+
 #### Scenario: Finish keyboard calibration in the library
 - **WHEN** the GM adjusts B with arrows, presses Enter and moves the pointer toward Save grid
 - **THEN** the anchor is deselected, the displayed spacing and offsets stay unchanged, no PATCH is sent until Save grid, and that request retains the keyboard-adjusted geometry

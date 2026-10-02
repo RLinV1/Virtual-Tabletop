@@ -3,7 +3,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type Keyboard
 import { gridLineStyle, type GridSpec, type Point } from "@vtt/shared";
 import { gridLines } from "../board/gridLines";
 import { canRenderGrid, minimumGridCellSizeForDisplay, type BoardSize } from "../board/gridRenderLimit";
-import { adjustGridSampleCorner, drawGridSample, GRID_CELL_SNAP, gridFromSample, screenToMap, seedGridSample, snapGridSampleOffsets, type SampleCount } from "./gridSample";
+import { adjustGridSampleCorner, drawGridSample, GRID_CELL_SNAP, gridFromSample, screenToMap, seedGridSample, snapGridSampleOffsets, type GridSample, type SampleCount } from "./gridSample";
 import { beginPointerGesture, EMPTY_GESTURE, EMPTY_PLACEMENT, finishPointerGesture, interruptPointerGesture, movePointerGesture,
   repositionGridSample, transitionPlacement, type Anchor, type Placement, type PointerGesture } from "./gridSampleInteraction";
 
@@ -41,7 +41,8 @@ export function MapGridPreview({ map, grid, onChange, onPreviewChange, previewEn
   const [count, setCount] = useState<SampleCount>(1);
   const [placement, setPlacement] = useState<Placement>(EMPTY_PLACEMENT);
   // Keyboard/seed geometry survives pauses; visible temporary previews do not.
-  const [provisionalCorner, setProvisionalCorner] = useState<Point | null>(null);
+  const [provisionalSample, setProvisionalSample] = useState<GridSample | null>(null);
+  const [preserveProvisional, setPreserveProvisional] = useState(false);
   const [cursor, setCursor] = useState<Point | null>(null);
   const [previewActive, setPreviewActive] = useState(false);
   const [freeform, setFreeform] = useState(false);
@@ -83,7 +84,7 @@ export function MapGridPreview({ map, grid, onChange, onPreviewChange, previewEn
     const sent = sentGeometry.current;
     if (sent.cellSize !== grid.cellSize || sent.offsetX !== grid.offsetX || sent.offsetY !== grid.offsetY) {
       setPlacement(EMPTY_PLACEMENT);
-      setProvisionalCorner(null);
+      setProvisionalSample(null);
       setMessage(null);
       clearTransient();
     }
@@ -92,7 +93,7 @@ export function MapGridPreview({ map, grid, onChange, onPreviewChange, previewEn
   useEffect(() => { if (disabled || !previewEnabled) clearTransient(); }, [disabled, previewEnabled, clearTransient]);
   useEffect(() => {
     setPlacement(EMPTY_PLACEMENT);
-    setProvisionalCorner(null);
+    setProvisionalSample(null);
     setMessage(null);
     clearTransient();
   }, [geometryRevision, clearTransient]);
@@ -189,10 +190,11 @@ export function MapGridPreview({ map, grid, onChange, onPreviewChange, previewEn
     setCursor(null);
     setMessage(null);
     if (result.placement.stage === "awaiting-b") {
-      setProvisionalCorner(seedGridSample(result.placement.anchor, grid.cellSize, count, map, cellSizeStep)?.corner ?? null);
+      setProvisionalSample(seedGridSample(result.placement.anchor, grid.cellSize, count, map, cellSizeStep));
+      setPreserveProvisional(false);
       setPreviewActive(true);
     } else {
-      setProvisionalCorner(null);
+      setProvisionalSample(null);
       setPreviewActive(false);
     }
     if (result.grid) {
@@ -208,16 +210,18 @@ export function MapGridPreview({ map, grid, onChange, onPreviewChange, previewEn
   const preview = useMemo(() => {
     const step = freeform ? 0 : GRID_CELL_SNAP;
     if (placement.stage === "awaiting-b") {
-      const point = cursor ?? provisionalCorner;
+      // An untouched seed follows Shift; explicit keyboard/count edits keep their bounds.
+      if (!cursor && (preserveProvisional || freeform)) return provisionalSample;
+      const point = cursor ?? provisionalSample?.corner;
       const candidate = point ? drawGridSample(placement.anchor, point, count, map, step) : null;
       return candidate && snapGridSampleOffsets(candidate, map, step);
     }
     if (placement.stage === "repositioning" && cursor) return repositionGridSample(placement.sample, placement.selected, cursor, map, step, step);
     return null;
-  }, [placement, cursor, provisionalCorner, count, map, freeform]);
+  }, [placement, cursor, provisionalSample, preserveProvisional, count, map, freeform]);
   const previewGrid = useMemo(() => previewActive && previewEnabled && !disabled && preview
-    ? gridFromSample(preview, grid, map, freeform ? 0 : GRID_CELL_SNAP) : null,
-  [previewActive, previewEnabled, disabled, preview, grid, map, freeform]);
+    ? gridFromSample(preview, grid, map, cursor && !freeform ? GRID_CELL_SNAP : 0) : null,
+  [previewActive, previewEnabled, disabled, preview, grid, map, cursor, freeform]);
   useEffect(() => { onPreviewChange?.(previewGrid); }, [onPreviewChange, previewGrid]);
   useEffect(() => () => { onPreviewChange?.(null); }, [onPreviewChange]);
   const shownGrid = previewGrid ?? grid;
@@ -338,9 +342,14 @@ export function MapGridPreview({ map, grid, onChange, onPreviewChange, previewEn
       const delta = { x: arrow.x * step, y: arrow.y * step };
       const cellSizeStep = e.shiftKey ? 0 : GRID_CELL_SNAP;
       if (placement.stage === "awaiting-b" && !pan && !space) {
-        const provisional = provisionalCorner && drawGridSample(placement.anchor, provisionalCorner, count, map);
-        const next = provisional && adjustGridSampleCorner(provisional, delta, map, cellSizeStep);
-        if (next && gridFromSample(next, grid, map)) { setProvisionalCorner(next.corner); setPreviewActive(true); setMessage(null); }
+        const provisional = preview;
+        const adjusted = provisional && adjustGridSampleCorner(provisional, delta, map, cellSizeStep);
+        const next = adjusted && snapGridSampleOffsets(adjusted, map, cellSizeStep);
+        if (next && gridFromSample(next, grid, map)) {
+          setPlacement({ stage: "awaiting-b", anchor: next.anchor });
+          setPreserveProvisional(true);
+          setProvisionalSample(next); setPreviewActive(true); setMessage(null);
+        }
         else invalid();
       } else if (sample && anchor && !pan && !space) {
         const editing = transitionPlacement(placement, { type: "select", anchor }, count, grid, map).placement;
@@ -358,23 +367,34 @@ export function MapGridPreview({ map, grid, onChange, onPreviewChange, previewEn
           return clamp({ ...from, cx: from.cx + delta.x * 30 / scale, cy: from.cy + delta.y * 30 / scale });
         });
       }
-    } else if (e.key === "Enter" && (selected || (!pan && !space))) {
+    } else if (e.key === "Enter") {
       e.preventDefault();
       clearTransient();
-      if (selected) {
+      if (sample) {
         // Hover confirmation uses the visible candidate; keyboard adjustments are
         // already in the draft, so confirming those only clears the selection.
-        if (previewActive && cursor && !pan && !space) commit(cursor, e.shiftKey);
+        if (selected && previewActive && cursor && !pan && !space) commit(cursor, e.shiftKey);
         else {
           setPlacement(transitionPlacement(placement, { type: "confirm" }, count, grid, map).placement);
           setMessage(null);
         }
         svgRef.current?.focus();
-      } else if (action === "A" || action === "B") select(action);
-      else if (placement.stage === "awaiting-a") commit({ x: view.cx, y: view.cy }, e.shiftKey);
-      else if (placement.stage === "awaiting-b") {
-        const corner = previewActive && cursor ? cursor : provisionalCorner;
-        if (corner) commit(corner, e.shiftKey);
+      } else if (placement.stage === "awaiting-b") {
+        if (previewActive && cursor && !pan && !space) commit(cursor, e.shiftKey);
+        else if (preview) {
+          const result = transitionPlacement(placement, { type: "confirm", sample: preview }, count, grid, map);
+          if (result.invalid) invalid();
+          else if (result.grid) {
+            setPlacement(result.placement);
+            setProvisionalSample(null);
+            setMessage(null);
+            sentGeometry.current = result.grid;
+            onChange(result.grid);
+          }
+        }
+        svgRef.current?.focus();
+      } else if (!pan && !space) {
+        commit({ x: view.cx, y: view.cy }, e.shiftKey);
       }
     }
   };
@@ -407,10 +427,13 @@ export function MapGridPreview({ map, grid, onChange, onPreviewChange, previewEn
             <button key={n} type="button" className="secondary" aria-pressed={count === n} disabled={disabled}
               onClick={() => {
                 const result = transitionPlacement(placement, { type: "count", count: n }, count, grid, map);
-                const pending = placement.stage === "awaiting-b" && preview;
+                const pending = placement.stage === "awaiting-b" && (preview ?? provisionalSample);
                 if (result.invalid || (pending && !gridFromSample({ ...pending, count: n }, grid, map))) { invalid(); return; }
                 clearTransient();
-                if (pending) setProvisionalCorner(pending.corner);
+                if (pending) {
+                  setProvisionalSample({ ...pending, count: n });
+                  setPreserveProvisional(true);
+                }
                 setPlacement(result.placement);
                 setCount(n);
                 setMessage(null);
@@ -419,7 +442,7 @@ export function MapGridPreview({ map, grid, onChange, onPreviewChange, previewEn
           ))}
         </div>
         <button type="button" className="secondary" disabled={disabled} onClick={() => {
-          clearTransient(); setPlacement(EMPTY_PLACEMENT); setProvisionalCorner(null); setMessage(null); svgRef.current?.focus();
+          clearTransient(); setPlacement(EMPTY_PLACEMENT); setProvisionalSample(null); setMessage(null); svgRef.current?.focus();
         }}>Start over</button>
         <div role="group" aria-label="Select anchor" className="grid-anchor-controls">
           {(["A", "B"] as const).map((anchor) => (

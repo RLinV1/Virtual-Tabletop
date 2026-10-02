@@ -13,7 +13,7 @@ export const EMPTY_PLACEMENT: Placement = { stage: "awaiting-a" };
 type PlacementAction =
   | { type: "place"; point: Point; cellSizeStep?: number; offsetStep?: number }
   | { type: "select"; anchor: Anchor }
-  | { type: "confirm" }
+  | { type: "confirm"; sample?: GridSample }
   | { type: "adjust"; anchor: Anchor; delta: Point; cellSizeStep?: number; offsetStep?: number }
   | { type: "count"; count: SampleCount }
   | { type: "reset" };
@@ -31,8 +31,10 @@ export function repositionGridSample(sample: GridSample, anchor: Anchor, point: 
 export function transitionPlacement(placement: Placement, action: PlacementAction, count: SampleCount,
   grid: GridSpec, map: BoardSize): PlacementResult {
   if (action.type === "reset") return { placement: EMPTY_PLACEMENT };
-  if (action.type === "confirm") return { placement: placement.stage === "repositioning"
-    ? { stage: "placed", sample: placement.sample } : placement };
+  if (action.type === "confirm" && (placement.stage !== "awaiting-b" || !action.sample)) {
+    return { placement: placement.stage === "repositioning"
+      ? { stage: "placed", sample: placement.sample } : placement };
+  }
   const sample = "sample" in placement ? placement.sample : null;
   if (action.type === "select") return { placement: sample
     ? { stage: "repositioning", selected: action.anchor, sample } : placement };
@@ -45,7 +47,9 @@ export function transitionPlacement(placement: Placement, action: PlacementActio
     return { placement: { stage: "awaiting-b", anchor: { x: snap(x, map.width), y: snap(y, map.height) } } };
   }
   let candidate: GridSample | null = null;
-  if (action.type === "place") {
+  if (action.type === "confirm") {
+    candidate = action.sample ?? null;
+  } else if (action.type === "place") {
     if (placement.stage === "awaiting-b") candidate = drawGridSample(placement.anchor, action.point, count, map, action.cellSizeStep);
     else if (placement.stage === "repositioning") candidate = repositionGridSample(placement.sample, placement.selected, action.point, map, action.cellSizeStep);
     else return { placement };

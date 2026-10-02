@@ -6,13 +6,13 @@ Verified on 2026-10-02 with headless Chromium against isolated local web/server 
 
 Frontend geometry and interaction tests cover two-click placement, all four quadrants, dominant-axis square locking, fractional spacing, half-pixel cell and X/Y offset snapping and Shift freeform behavior, 1/3/5-square counts, image boundaries, partial edge cells, canonical offsets, invalid candidates, A translation, B resizing, keyboard geometry, movement thresholds, interruption recovery, and multi-touch suppression. Hover and gesture handling remain local to the editor.
 
-`npm run lint`, `npm run typecheck`, `npm test`, and `npm run build` passed on the final feature branch based on mainline `bb89754`. The suite passed 739 tests with 20 environment-dependent store tests skipped; 79 focused frontend cases cover sample geometry and interaction transitions. All 39 Chromium assertion groups passed against fresh isolated processes on ports 5295/5296. Strict OpenSpec validation passed for the active `kan-10-grid-preview` change and the `room-grid-calibration` and `asset-library` contracts. The build reported the existing dependency annotation and bundle-size warnings, without failing.
+`npm run lint`, `npm run typecheck`, `npm test`, and `npm run build` passed on the final feature branch based on mainline `bb89754`. The PR #66 review suite passed 743 tests (268 shared, 133 server, 342 web), with 20 environment-dependent store tests skipped; 83 focused frontend cases cover sample geometry and interaction transitions. All 43 Chromium assertion groups passed against isolated processes on ports 5305/5306 using Chrome Headless Shell 151.0.7922.34. The original 39 groups also passed before the fixes, so the new regressions cover previously missing cases. Strict OpenSpec validation passed for the active `kan-10-grid-preview` change and the `room-grid-calibration` and `asset-library` contracts. The build reported the existing dependency annotation and bundle-size warnings, without failing.
 
-The initial restricted-sandbox test run could not open localhost sockets (`listen EPERM`); the final run passed with local socket access enabled. No database migration or shared schema change was needed.
+The review suite ran with local socket access enabled. The 20 skipped tests require Postgres (`DATABASE_URL`); the room deletion Redis case additionally requires `REDIS_URL`. Browser QA used an in-memory store and temporary local uploads with MinIO autodetection disabled. No database migration or shared schema change was needed.
 
 ## Browser acceptance results
 
-All 39 assertion groups passed in the final harness run, with no browser page errors:
+All 43 assertion groups passed in the review harness run, with no browser page errors:
 
 - Two stationary clicks finalize a square, including fractional geometry while Shift is held; pauses and blur between clicks retain A. Live cell-size and X/Y readouts match provisional placement/repositioning geometry while the confirmed draft, save eligibility and network traffic remain unchanged. Accessible help identifies temporary values. The missing-map fallback also previews and restores without a render loop.
 - Default placement and B resizing save exact half-pixel cell sizes, and anchor placement/adjustment saves exact half-pixel X/Y offsets. Normal A repositioning preserves existing fractional cell spacing while snapping its canonical offsets; Shift preserves arbitrary fractional offsets. The sample translates to match the snapped grid phase so both handles remain aligned within image bounds. Pressing/releasing Shift changes the preview and live readouts without changing the confirmed draft; Shift at commit preserves fractional cell size. Unit coverage includes 1×1, 3×3 and 5×5 snapping in every quadrant and at boundaries.
@@ -32,7 +32,18 @@ All 39 assertion groups passed in the final harness run, with no browser page er
 
 Browser checks found and fixed two interruption issues: capture revocation can be visible before the browser dispatches `lostpointercapture`, and window resizing can leave the fixed-width modal unchanged. The editor now checks capture at release and handles window resize independently of its SVG ResizeObserver.
 
-Scene/accepted-grid resets were checked over the wire. The existing role and asset identity resets were preserved and inspected in the parent editor keys and role guards; the harness does not simulate GM-role reassignment or an externally replaced library target during an outstanding request. Those paths continue to use the existing lifecycle protection.
+Scene/accepted-grid resets were checked over the wire. The review harness also covers a delayed upload replacing a library target during an outstanding request, followed by another save, for both obsolete success and rejection. It includes reopening the same asset before its old save responds. GM-role reassignment remains inspected in the parent keys/role guards but is not simulated by the harness.
+
+## PR #66 bugs reproduced and fixed — 2026-10-02
+
+| Reproduction | Cause and correction |
+| --- | --- |
+| Place A with a 70 px seed, hover B at a 100 px cell size, then press an outward arrow. The field jumped to 70.5 instead of 100.5 and could change quadrant. | Pending B arrows used the original seed. They now adjust the visible sample. Chromium checks every count and quadrant, then interrupts and confirms the keyboard result. |
+| Place A with a 70 px-wide one-cell seed, change to 3×3, then press Enter. The side grew to 70.5 px and cells became 23.5 rather than 70/3. Pending Shift keyboard geometry was also resnapped on Shift release. | Only a corner survived; rendering and confirmation quantized it again. Pending geometry now retains the complete sample and exact side, with validation on confirmation. Unit and Chromium coverage checks preserved bounds, freeform keyboard geometry and Pan-mode Enter. |
+| Tab to an unselected A/B handle or control and press Enter. It became selected, allowing later hover to change the displayed values. | The Enter branch activated selection instead of confirming. Enter now leaves selection cleared and returns focus to the map, including with Pan enabled, without sending a save. |
+| Start a slow library upload, open an existing map's editor and submit a delayed grid save, then complete the upload. The new setup editor remained locked by the old save. | Save state lived in the parent without cleanup or request-lifetime protection. Replacement now clears the lock; obsolete responses cannot affect the current editor or its pending save, even after reopening the same asset. Successful obsolete saves still refresh the library list. |
+
+Numeric regression coverage also types an incomplete exponent (`1e`), moves over the map and toggles Shift, then completes it as `1e2`. The text survives and remains unsaveable until valid. An untouched seed still snaps normally after placing A with Shift and releasing it before confirming B. Existing save payloads, rejected-save retry, duplicate suppression, locked controls, upload/setup, player grid/token isolation, touch navigation, capture loss and compact layouts still pass. The 320px, 390px and desktop screenshots were visually inspected. Physical trackpad testing was **not performed**.
 
 ## Reproducible Chromium harness
 

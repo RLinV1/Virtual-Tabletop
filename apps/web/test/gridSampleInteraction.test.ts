@@ -193,6 +193,23 @@ describe("keyboard resizing and confirmation", () => {
       expect(transitionPlacement(state, { type: "confirm" }, 3, DEFAULT_GRID, map)).toEqual({ placement: state });
     }
   });
+
+  it.each([1, 3, 5] as const)("confirms pending keyboard/count geometry exactly for count %s", (count) => {
+    for (const [sx, sy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]] as const) {
+      const sample = drawGridSample(a, { x: a.x + sx * 70, y: a.y + sy * 70 }, count, map)!;
+      const result = transitionPlacement(pending, { type: "confirm", sample }, count, DEFAULT_GRID, map);
+      expect(result.placement).toEqual({ stage: "placed", sample });
+      expect(result.grid?.cellSize).toBe(70 / count);
+      expect(result.grid?.offsetX).toBeCloseTo(a.x % (70 / count));
+      expect(result.grid?.offsetY).toBeCloseTo(a.y % (70 / count));
+    }
+  });
+
+  it("retains pending A if a recoverable keyboard sample is invalid", () => {
+    const sample = drawGridSample(a, { x: a.x + 0.01, y: a.y + 0.01 }, 5, map)!;
+    expect(transitionPlacement(pending, { type: "confirm", sample }, 5, DEFAULT_GRID, map))
+      .toEqual({ placement: pending, invalid: true });
+  });
 });
 
 describe("qualified clicks and navigation", () => {

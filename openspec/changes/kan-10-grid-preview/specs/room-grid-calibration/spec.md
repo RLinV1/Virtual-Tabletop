@@ -157,6 +157,16 @@ Enter on the focused map SHALL place A at the view center; arrows SHALL adjust p
 
 Keyboard adjustment of a focused handle or A/B control SHALL select that anchor. Enter from the map, a handle, or an A/B control SHALL confirm a valid visible candidate or retain the latest keyboard-adjusted sample, clear selection and temporary preview state, and focus the map. This SHALL work while Pan is enabled, without submitting the form or resnapping a confirmed freeform sample. Invalid candidates SHALL retain selection and allow retry. Subsequent hover SHALL NOT change confirmed geometry until an anchor is selected again; Apply/Save grid SHALL persist the confirmed draft through the existing API.
 
+Pending B arrows SHALL adjust the current visible candidate when present, or the recoverable seed/keyboard sample after interruption. Keyboard-adjusted and count-reinterpreted pending samples SHALL retain their exact bounds and spacing when Shift is released or Enter confirms them, including with Pan enabled. Count changes SHALL preserve pending sample bounds as well as completed sample bounds. Enter on an unselected focused handle or A/B control SHALL retain the completed geometry, leave selection cleared, and focus the map.
+
+#### Scenario: Refine a hovered B with the keyboard
+- **WHEN** the GM hovers a 100 px cell candidate for pending B and presses an outward normal arrow
+- **THEN** its cell becomes 100.5 px, retaining its quadrant instead of jumping to the original seed
+
+#### Scenario: Confirm reinterpreted pending bounds
+- **WHEN** the GM changes a pending 70 px-wide one-cell sample to 3×3 and confirms it with Enter
+- **THEN** its bounds stay fixed and its cell size is exactly 70/3 px
+
 #### Scenario: Swipe instead of tap
 - **WHEN** a pointer travels more than 6 CSS pixels and returns to its starting point before release
 - **THEN** the gesture navigates and places no anchor
