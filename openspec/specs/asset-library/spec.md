@@ -21,7 +21,7 @@ A GM SHALL be able to upload a PNG, JPEG or WebP image of up to 25 MB as either 
 
 #### Scenario: Upload a map
 - **WHEN** a GM uploads a 2048x1536 PNG named "Goblin Cave" as a map
-- **THEN** the library lists a map "Goblin Cave" with size 2048x1536 and the default grid
+- **THEN** the library lists a map "Goblin Cave" with size 2048x1536 and no saved grid, and opens grid setup
 
 #### Scenario: Unsupported file
 - **WHEN** a GM uploads a GIF or a file over 25 MB
@@ -43,14 +43,18 @@ The library page (`/library`) SHALL show the GM's library in separate Maps, Toke
 - **THEN** only maps whose name contains "gob", case-insensitively, are shown
 
 ### Requirement: Map assets carry a grid
-Every map asset SHALL store a grid definition: cell size, offsets, and units per cell with a label. It defaults to the room default grid. Token assets SHALL store only the image, its size and a name.
+Map assets MAY store a grid definition: cell size, offsets, and units per cell with a label. New uploads SHALL start without saved grid metadata. Grid setup SHALL begin with the room default grid and persist metadata only when the GM saves, including when the saved values equal that default. Token assets SHALL store only the image, its size and a name.
 
-#### Scenario: Default grid on upload
+#### Scenario: Unconfigured map on upload
 - **WHEN** a map is uploaded
-- **THEN** its stored grid equals the room default grid
+- **THEN** its stored grid is empty and the shared setup editor opens with the default values
+
+#### Scenario: Explicitly save the default grid
+- **WHEN** the GM saves an unconfigured map's grid without changing the default values
+- **THEN** the map stores that explicit grid and future placements reuse it without opening setup
 
 ### Requirement: Place a library asset in a room
-In a room, the GM SHALL be able to set the map or add a token from their library as well as by uploading a new image. Placing a map SHALL set the room's map and **copy** the asset's grid into the room in a single undoable action. Placing a token SHALL create a token that shows the asset's image. The room SHALL record which library asset each map or token came from.
+In a room, the GM SHALL be able to set the map or add a token from their library as well as by uploading a new image. Placing a configured map SHALL set the room's map and **copy** the asset's grid into the room in a single undoable action. A successful placement or upload without saved grid metadata SHALL open the shared setup editor; the accepted room grid remains authoritative until Apply succeeds. Placing a token SHALL create a token that shows the asset's image. The room SHALL record which library asset each map or token came from.
 
 #### Scenario: Map placement copies the grid
 - **WHEN** the GM places library map "Goblin Cave" whose grid cell size is 64
@@ -76,11 +80,27 @@ When the room's current map came from the GM's library, the GM SHALL be able to 
 - **THEN** "Save grid to library" is not offered
 
 ### Requirement: Edit a map's grid in the library
-From the asset library, the GM SHALL be able to edit the grid of any map they own without opening a room. The editor SHALL offer the same fields and validation as the in-room grid correction: cell size, offsets, units per cell with a label, and line style. It SHALL show the draft grid over the whole map image, and the GM SHALL be able to zoom and pan that view. The editor SHALL open with the map's saved grid, with the cell size raised to the smallest drawable size if the saved value is below it. Saving SHALL replace the library map's grid. Cancelling or dismissing the editor SHALL leave the saved grid unchanged. Built-in example maps and token assets SHALL NOT offer grid editing.
+From the asset library, the GM SHALL be able to edit the grid of any map they own without opening a room. Rooms and the library SHALL use the same focused sample editor: click or tap A and then B at opposite corners of one square or a 3×3 or 5×5 sample, check the grid across the whole image, then select A to translate the sample or B to change spacing. Labeled A/B selection controls SHALL remain usable for small or overlapping samples. Hover previews SHALL remain inside the editor without updating the draft. Stationary releases within 6 CSS pixels SHALL place anchors; swipes SHALL pan, and two fingers SHALL pan and zoom without placing anchors. Pending A and completed samples SHALL survive blur, cancellation, zoom, pan, Fit map, and viewport resizing. Enter SHALL place A at the view center and confirm B after arrow adjustment. Start over SHALL clear placement while retaining the last valid draft, camera, sample count, units, and style. Changing sample count SHALL reinterpret the same bounds after validation. Numeric geometry edits SHALL invalidate anchors, while units and style edits SHALL preserve them. Placement and pointer resizing SHALL snap cell size to 0.5 image-pixel increments; holding Shift SHALL preserve freeform fractional placement. Anchor placement and adjustment SHALL also snap X/Y offsets to 0.5 image pixels, with Shift preserving freeform offsets. Offset snapping SHALL translate the whole sample to the nearest fitting grid phase while respecting image bounds and preserving spacing; converting a freeform sample MAY slightly shift A when resizing B. Zoom, pan, Fit map, touch, and keyboard adjustment SHALL be supported. Units per square and the unit label SHALL remain visible and editable; cell size, offsets, nudges, and line style SHALL be under Advanced. The editor SHALL offer the same draft validation in rooms and the library. It SHALL open with the map's saved grid, with the cell size raised to the smallest drawable size if the saved value is below it, or with the default grid when metadata is empty. Saving SHALL replace the library map's grid and preserve the original image dimensions. Cancelling or dismissing the editor SHALL leave the saved grid unchanged. Failed saves SHALL retain the editor and its draft for retry. Built-in example maps and token assets SHALL NOT offer grid editing.
 
 The server MUST reject a saved grid whose cell size is too small for its lines to be drawn on that map at its stored pixel size, and MUST leave the stored grid unchanged. This is the same limit that applies to a room's grid.
 
 Editing a library grid SHALL NOT change any room. It only affects later placements of the map.
+
+During valid provisional placement or anchor repositioning, the Advanced cell-size and X/Y fields SHALL display the editor's live geometry, including snapping and Shift freeform input, without changing the confirmed draft, save eligibility, or sending a request. Confirmation SHALL update only the local draft; Save grid SHALL persist only confirmed values. Cancellation, capture loss, pointer departure, blur, navigation, resizing, Start over, and invalid previews SHALL restore confirmed values while preserving recoverable anchors. Numeric field or nudge focus SHALL clear the temporary preview and take precedence; hover or modifier changes SHALL NOT overwrite typed text, including incomplete or invalid values. Accessible help SHALL identify temporary preview values.
+
+Normal B keyboard arrows SHALL change each cell by 0.5 image pixels at every sample count; Shift SHALL retain freeform 10-image-pixel sample-side steps. Advanced offsets SHALL match the grid and explain wrapping within one cell when resizing around A. Keyboard adjustment SHALL select the focused anchor. Enter from the map, an anchor handle or A/B control SHALL confirm a valid visible candidate or retain the latest keyboard adjustment, deselect the anchor and focus the map, without saving or resnapping confirmed freeform geometry. An invalid candidate SHALL keep selection for retry. Subsequent hover SHALL leave geometry unchanged until selection resumes; Save grid SHALL persist the confirmed keyboard-adjusted draft.
+
+#### Scenario: Finish keyboard calibration in the library
+- **WHEN** the GM adjusts B with arrows, presses Enter and moves the pointer toward Save grid
+- **THEN** the anchor is deselected, the displayed spacing and offsets stay unchanged, no PATCH is sent until Save grid, and that request retains the keyboard-adjusted geometry
+
+#### Scenario: Inspect temporary library geometry
+- **WHEN** the GM places A or selects an anchor and previews new geometry
+- **THEN** the Advanced fields match the editor preview without sending a PATCH request or changing any saved map or room grid
+
+#### Scenario: Numeric focus clears library readouts
+- **WHEN** the GM focuses and edits a geometry field during a provisional preview
+- **THEN** the field first returns to the confirmed draft, keeps subsequent typed text despite map hover, and uses the existing validation and explicit Save grid path
 
 #### Scenario: Edit and save a map's grid
 - **WHEN** the GM opens Edit grid on their map "Goblin Cave", sets the cell size to 64 and saves

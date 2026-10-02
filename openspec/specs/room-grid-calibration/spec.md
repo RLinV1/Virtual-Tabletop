@@ -1,10 +1,10 @@
-# Spec Delta
+# room-grid-calibration
 
 ## Purpose
 
 Lets a GM align the active room grid to a battle map while seeing manual corrections privately on the board before accepting them for everyone in the room.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: GM can correct the active room grid
 The GM SHALL be able to open Adjust grid from the Battle map controls and use the shared two-click sample editor to align the grid. Cell size, horizontal and vertical offsets, pixel nudges, and line style SHALL be available under Advanced. Distance per square and its unit label SHALL remain visible. Players SHALL NOT see the editing control.

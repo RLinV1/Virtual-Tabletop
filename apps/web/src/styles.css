@@ -440,7 +440,7 @@ button.color-swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--panel), 0
 .grid-field { min-width: 0; }
 .grid-nudges { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.2rem; margin-top: 0.25rem; }
 .grid-nudges button { min-width: 0; padding: 0.25rem 0; }
-.grid-confidence, .grid-message, .grid-actions { grid-column: 1 / -1; }
+.grid-message, .grid-actions { grid-column: 1 / -1; }
 .grid-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
 
 /* Name and Delete on the first line, owner and visibility under it. */
@@ -1109,36 +1109,54 @@ dialog.modal {
   box-shadow: 0 24px 60px var(--shadow);
 }
 dialog.modal::backdrop { background: rgba(6, 8, 11, 0.62); }
-dialog.modal.grid-preview-modal { margin-right: 1rem; margin-left: auto; }
-dialog.modal.grid-preview-modal::backdrop { background: rgba(6, 8, 11, 0.35); }
-@media (max-width: 720px) {
-  dialog.modal.grid-preview-modal { margin-inline: auto; }
-}
-/* Library Edit grid: the whole map beside the grid form, stacked on narrow screens. */
-dialog.modal.library-grid-modal { width: min(68rem, calc(100vw - 2rem)); }
-.library-grid-editor {
-  display: grid; grid-template-columns: minmax(0, 1fr) 22rem; gap: var(--space-4); align-items: start;
-}
-.map-grid-preview { position: relative; min-width: 0; }
-.map-grid-canvas {
-  /* Shaped like the map (inline aspect-ratio), letterboxed only when the height cap applies. */
-  display: block; width: 100%; height: auto; min-height: 12rem; max-height: min(70dvh, 38rem);
-  border-radius: var(--radius); background: var(--field);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 0 0 1px var(--border);
-  cursor: grab; touch-action: none; user-select: none;
-}
-.map-grid-canvas:active { cursor: grabbing; }
-.map-grid-zoom {
-  position: absolute; right: var(--space-2); bottom: var(--space-2);
-  display: flex; align-items: center; gap: var(--space-1);
-  padding: var(--space-1); border-radius: var(--radius);
-  background: rgba(14, 16, 19, 0.82); border: 1px solid var(--border);
-}
-.map-grid-zoom button { display: grid; place-items: center; }
+/* Both room and library use the same focused sample editor. */
+dialog.modal.grid-editor-modal { width: min(68rem, calc(100vw - 2rem)); }
+.grid-editor { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.map-grid-preview { min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.grid-instruction { margin: 0; font-size: var(--fs-sm); color: var(--text); }
+.map-grid-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.map-grid-toolbar button { display: inline-flex; align-items: center; justify-content: center; gap: 0.3rem; min-height: 44px; padding: 0.3rem 0.6rem; }
+.grid-sample-count { display: flex; gap: var(--space-1); }
+.grid-anchor-controls { display: flex; gap: var(--space-1); }
+.map-grid-status { margin: 0; min-height: 1.5em; color: var(--text); }
+.map-grid-toolbar button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+.map-grid-zoom { display: flex; align-items: center; gap: var(--space-1); margin-left: auto; }
 .map-grid-zoom-level { min-width: 3.5rem; text-align: center; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
-@media (max-width: 860px) {
-  .library-grid-editor { grid-template-columns: minmax(0, 1fr); }
-  .map-grid-canvas { max-height: min(45dvh, 22rem); }
+.map-grid-canvas {
+  display: block; width: 100%; height: clamp(12rem, 48dvh, 36rem);
+  border-radius: var(--radius); background: var(--field);
+  box-shadow: 0 0 0 1px var(--border);
+  cursor: crosshair; touch-action: none; user-select: none;
+}
+.map-grid-canvas.is-panning { cursor: grab; }
+.map-grid-canvas.is-panning:active { cursor: grabbing; }
+.grid-sample [data-anchor] { cursor: pointer; }
+.grid-sample [data-anchor]:focus { outline: none; }
+.grid-sample [data-anchor]:focus .grid-anchor-dot,
+.grid-sample [data-anchor][aria-pressed="true"] .grid-anchor-dot {
+  stroke: var(--focus); stroke-width: 3px; vector-effect: non-scaling-stroke;
+}
+.map-grid-help { margin: 0; }
+.grid-line-fields { display: flex; flex-direction: column; gap: var(--space-3); }
+.grid-editor-footer {
+  position: sticky; bottom: calc(-1 * var(--space-4)); z-index: 1;
+  display: flex; flex-direction: column; gap: var(--space-2);
+  padding: var(--space-2) 0; background: var(--raised); border-top: 1px solid var(--border);
+}
+.grid-scale { display: flex; align-items: center; gap: var(--space-2); font-size: var(--fs-sm); flex-wrap: wrap; }
+.grid-scale input { width: 4.5rem; min-width: 0; }
+.grid-editor-footer .grid-message { margin: 0; }
+.grid-editor .grid-actions { display: flex; justify-content: flex-end; }
+.grid-actions button { min-height: 44px; }
+@media (max-width: 720px) {
+  dialog.modal.grid-editor-modal { width: calc(100vw - 1rem); max-height: calc(100dvh - 1rem); }
+  .grid-editor-modal .modal-body { max-height: calc(100dvh - 1rem); padding-inline: var(--space-3); }
+  .map-grid-canvas { height: clamp(10rem, 34dvh, 24rem); }
+  .map-grid-toolbar { gap: var(--space-1); }
+  .map-grid-zoom { margin-left: 0; }
+  .grid-scale { gap: var(--space-1); }
+  .grid-scale input { width: 3.25rem; }
+  .grid-editor .grid-actions { display: grid; grid-template-columns: 1fr 1fr; }
 }
 
 .modal-body {

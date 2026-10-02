@@ -129,7 +129,7 @@ describe("room deletion: what is removed and what is kept (KAN-72)", () => {
       await client.command({
         type: "scene.setMap",
         map: { url: map.url, width: map.width, height: map.height, assetId: map.id },
-        grid: map.grid!,
+        grid: map.grid ?? undefined,
       });
     }
 

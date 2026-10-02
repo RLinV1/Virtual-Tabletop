@@ -1,50 +1,105 @@
-import { CornersOut, MagnifyingGlassMinus, MagnifyingGlassPlus } from "@phosphor-icons/react";
-import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
-import { gridLineStyle, type GridSpec } from "@vtt/shared";
+import { CornersOut, Hand, MagnifyingGlassMinus, MagnifyingGlassPlus } from "@phosphor-icons/react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { gridLineStyle, type GridSpec, type Point } from "@vtt/shared";
 import { gridLines } from "../board/gridLines";
-import { canRenderGrid, type BoardSize } from "../board/gridRenderLimit";
+import { canRenderGrid, minimumGridCellSizeForDisplay, type BoardSize } from "../board/gridRenderLimit";
+import { adjustGridSampleCorner, drawGridSample, GRID_CELL_SNAP, gridFromSample, screenToMap, seedGridSample, snapGridSampleOffsets, type SampleCount } from "./gridSample";
+import { beginPointerGesture, EMPTY_GESTURE, EMPTY_PLACEMENT, finishPointerGesture, interruptPointerGesture, movePointerGesture,
+  repositionGridSample, transitionPlacement, type Anchor, type Placement, type PointerGesture } from "./gridSampleInteraction";
 
-/** Closest zoom, in screen pixels per board pixel: enough to align a line to the pixel. */
 const MAX_SCALE = 8;
 const BUTTON_STEP = 1.5;
-
 interface Camera {
-  /** Board point at the centre of the view. */
   cx: number;
   cy: number;
-  /** Multiple of the fit-to-map scale; 1 shows the whole map. */
+  /** Multiple of the fit-to-map scale. */
   zoom: number;
 }
-
 const FIT: Camera = { cx: Number.NaN, cy: Number.NaN, zoom: 1 };
+interface Pinch { distance: number; zoom: number; point: Point }
+const midpoint = (a: Point, b: Point): Point => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
 
-/**
- * The whole map with a grid over it, for aligning a library map's grid outside a room.
- * Zoom and pan only move the SVG viewBox, so everything is drawn in board pixels
- * (invariant 8), and lines are computed for the visible part of the map alone.
- */
-export function MapGridPreview({ map, grid }: { map: BoardSize & { url: string }; grid: GridSpec }) {
+/** Shared map editor. Anchors, provisional geometry and navigation stay local. */
+export function MapGridPreview({ map, grid, onChange, onPreviewChange, previewEnabled = true, disabled = false, geometryRevision = 0 }: {
+  map: BoardSize & { url: string | null };
+  grid: GridSpec;
+  onChange: (grid: GridSpec) => void;
+  /** Temporary geometry for editor readouts; never changes the confirmed draft. */
+  onPreviewChange?: (grid: GridSpec | null) => void;
+  /** Numeric editing takes precedence until focus returns to the map. */
+  previewEnabled?: boolean;
+  disabled?: boolean;
+  /** Explicit numeric edits also invalidate anchors when the field is temporarily invalid. */
+  geometryRevision?: number;
+}) {
   const svgRef = useRef<SVGSVGElement>(null);
+  const helpId = useId();
+  const statusId = useId();
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
   const [camera, setCamera] = useState<Camera>(FIT);
-  const drag = useRef<{ pointerId: number; x: number; y: number } | null>(null);
+  const [count, setCount] = useState<SampleCount>(1);
+  const [placement, setPlacement] = useState<Placement>(EMPTY_PLACEMENT);
+  // Keyboard/seed geometry survives pauses; visible temporary previews do not.
+  const [provisionalCorner, setProvisionalCorner] = useState<Point | null>(null);
+  const [cursor, setCursor] = useState<Point | null>(null);
+  const [previewActive, setPreviewActive] = useState(false);
+  const [freeform, setFreeform] = useState(false);
+  const [pan, setPan] = useState(false);
+  const [space, setSpace] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const gesture = useRef<PointerGesture>(EMPTY_GESTURE);
+  const pinch = useRef<Pinch | null>(null);
+  const sentGeometry = useRef(grid);
+  const sample = "sample" in placement ? placement.sample : null;
+  const selected = placement.stage === "repositioning" ? placement.selected : null;
+
+  const clearTransient = useCallback(() => {
+    const pointers = gesture.current.pointers;
+    gesture.current = interruptPointerGesture(gesture.current);
+    pinch.current = null;
+    setCursor(null);
+    setPreviewActive(false);
+    for (const p of pointers) {
+      if (svgRef.current?.hasPointerCapture(p.id)) svgRef.current.releasePointerCapture(p.id);
+    }
+  }, []);
 
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
     const observer = new ResizeObserver(([entry]) => {
-      if (entry) setViewport({ width: entry.contentRect.width, height: entry.contentRect.height });
+      if (entry) {
+        clearTransient();
+        setViewport({ width: entry.contentRect.width, height: entry.contentRect.height });
+      }
     });
     observer.observe(svg);
     return () => observer.disconnect();
-  }, []);
+  }, [clearTransient]);
+
+  // Numeric corrections invalidate anchors; units and line style preserve them.
+  useEffect(() => {
+    const sent = sentGeometry.current;
+    if (sent.cellSize !== grid.cellSize || sent.offsetX !== grid.offsetX || sent.offsetY !== grid.offsetY) {
+      setPlacement(EMPTY_PLACEMENT);
+      setProvisionalCorner(null);
+      setMessage(null);
+      clearTransient();
+    }
+    sentGeometry.current = grid;
+  }, [grid, clearTransient]);
+  useEffect(() => { if (disabled || !previewEnabled) clearTransient(); }, [disabled, previewEnabled, clearTransient]);
+  useEffect(() => {
+    setPlacement(EMPTY_PLACEMENT);
+    setProvisionalCorner(null);
+    setMessage(null);
+    clearTransient();
+  }, [geometryRevision, clearTransient]);
 
   const fitScale = viewport.width > 0 && viewport.height > 0
-    ? Math.min(viewport.width / map.width, viewport.height / map.height)
-    : 1;
+    ? Math.min(viewport.width / map.width, viewport.height / map.height) : 1;
   const maxZoom = Math.max(1, MAX_SCALE / fitScale);
-
-  /** Keeps the zoom in range and the view over the map; a view wider than the map centres it. */
   const clamp = (next: Camera): Camera => {
     const zoom = Math.min(maxZoom, Math.max(1, next.zoom));
     const scale = fitScale * zoom;
@@ -54,16 +109,14 @@ export function MapGridPreview({ map, grid }: { map: BoardSize & { url: string }
       half * 2 >= size || Number.isNaN(c) ? size / 2 : Math.min(size - half, Math.max(half, c));
     return { zoom, cx: axis(next.cx, halfW, map.width), cy: axis(next.cy, halfH, map.height) };
   };
-
   const view = clamp(camera);
   const scale = fitScale * view.zoom;
   const vw = viewport.width / scale;
   const vh = viewport.height / scale;
   const vx = view.cx - vw / 2;
   const vy = view.cy - vh / 2;
-
-  /** Zoom by `factor`, keeping the board point under screen point (sx, sy) in place. */
   const zoomAt = (factor: number, sx = viewport.width / 2, sy = viewport.height / 2) => {
+    clearTransient();
     setCamera((current) => {
       const from = clamp(current);
       const fromScale = fitScale * from.zoom;
@@ -71,89 +124,366 @@ export function MapGridPreview({ map, grid }: { map: BoardSize & { url: string }
       const py = from.cy - viewport.height / fromScale / 2 + sy / fromScale;
       const zoom = Math.min(maxZoom, Math.max(1, from.zoom * factor));
       const toScale = fitScale * zoom;
-      return clamp({ zoom, cx: px - sx / toScale + viewport.width / toScale / 2, cy: py - sy / toScale + viewport.height / toScale / 2 });
+      return clamp({ zoom, cx: px - sx / toScale + viewport.width / toScale / 2,
+        cy: py - sy / toScale + viewport.height / toScale / 2 });
     });
   };
   const zoomAtRef = useRef(zoomAt);
   zoomAtRef.current = zoomAt;
-
-  // React's wheel listener is passive, and the page must not scroll while zooming the map.
   useEffect(() => {
     const svg = svgRef.current;
     if (!svg) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const rect = svg.getBoundingClientRect();
-      // Trackpad pinches arrive as ctrl+wheel with small deltas; scale both the same way.
       zoomAtRef.current(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.002)), e.clientX - rect.left, e.clientY - rect.top);
     };
     svg.addEventListener("wheel", onWheel, { passive: false });
     return () => svg.removeEventListener("wheel", onWheel);
   }, []);
 
+  useEffect(() => {
+    const press = (e: globalThis.KeyboardEvent) => { if (e.key === "Shift") setFreeform(true); };
+    const release = (e: globalThis.KeyboardEvent) => {
+      if (e.code === "Space") setSpace(false);
+      if (e.key === "Shift") setFreeform(false);
+    };
+    const blur = () => { setSpace(false); setFreeform(false); clearTransient(); };
+    const releaseOutside = (e: globalThis.PointerEvent) => {
+      if (e.target instanceof Node && svgRef.current?.contains(e.target)) return;
+      gesture.current = finishPointerGesture(gesture.current, e.pointerId, true).gesture;
+      pinch.current = null;
+      setCursor(null);
+      setPreviewActive(false);
+    };
+    window.addEventListener("keydown", press);
+    window.addEventListener("keyup", release);
+    window.addEventListener("blur", blur);
+    window.addEventListener("resize", clearTransient);
+    window.addEventListener("pointerup", releaseOutside);
+    window.addEventListener("pointercancel", releaseOutside);
+    return () => {
+      window.removeEventListener("keydown", press);
+      window.removeEventListener("keyup", release);
+      window.removeEventListener("blur", blur);
+      window.removeEventListener("resize", clearTransient);
+      window.removeEventListener("pointerup", releaseOutside);
+      window.removeEventListener("pointercancel", releaseOutside);
+    };
+  }, [clearTransient]);
+
+  const mapPoint = (point: Point): Point | null => {
+    const matrix = svgRef.current?.getScreenCTM();
+    return matrix ? screenToMap(point, matrix.inverse()) : null;
+  };
+  const invalid = () => {
+    setCursor(null);
+    setPreviewActive(false);
+    setMessage(`Keep the sample inside the map, with each square between ${minimumGridCellSizeForDisplay(map)} and 2000 px. Your last valid grid is retained. Try another location.`);
+  };
+  const commit = (point: Point, freeformPlacement = false) => {
+    const cellSizeStep = freeformPlacement ? 0 : GRID_CELL_SNAP;
+    const result = transitionPlacement(placement, { type: "place", point, cellSizeStep, offsetStep: cellSizeStep }, count, grid, map);
+    if (result.invalid) { invalid(); return; }
+    setPlacement(result.placement);
+    setCursor(null);
+    setMessage(null);
+    if (result.placement.stage === "awaiting-b") {
+      setProvisionalCorner(seedGridSample(result.placement.anchor, grid.cellSize, count, map, cellSizeStep)?.corner ?? null);
+      setPreviewActive(true);
+    } else {
+      setProvisionalCorner(null);
+      setPreviewActive(false);
+    }
+    if (result.grid) {
+      sentGeometry.current = result.grid;
+      onChange(result.grid);
+    }
+  };
+  const select = (anchor: Anchor) => {
+    clearTransient();
+    setPlacement(transitionPlacement(placement, { type: "select", anchor }, count, grid, map).placement);
+    setMessage(null);
+  };
+  const preview = useMemo(() => {
+    const step = freeform ? 0 : GRID_CELL_SNAP;
+    if (placement.stage === "awaiting-b") {
+      const point = cursor ?? provisionalCorner;
+      const candidate = point ? drawGridSample(placement.anchor, point, count, map, step) : null;
+      return candidate && snapGridSampleOffsets(candidate, map, step);
+    }
+    if (placement.stage === "repositioning" && cursor) return repositionGridSample(placement.sample, placement.selected, cursor, map, step, step);
+    return null;
+  }, [placement, cursor, provisionalCorner, count, map, freeform]);
+  const previewGrid = useMemo(() => previewActive && previewEnabled && !disabled && preview
+    ? gridFromSample(preview, grid, map, freeform ? 0 : GRID_CELL_SNAP) : null,
+  [previewActive, previewEnabled, disabled, preview, grid, map, freeform]);
+  useEffect(() => { onPreviewChange?.(previewGrid); }, [onPreviewChange, previewGrid]);
+  useEffect(() => () => { onPreviewChange?.(null); }, [onPreviewChange]);
+  const shownGrid = previewGrid ?? grid;
+  const shownSample = previewGrid ? preview : sample;
+
   const onPointerDown = (e: PointerEvent<SVGSVGElement>) => {
-    if (e.button !== 0) return;
+    if (disabled || (e.button !== 0 && e.button !== 1)
+      || (gesture.current.pointers.some((p) => p.id !== e.pointerId) && e.pointerType !== "touch")) return;
+    const screen = { x: e.clientX, y: e.clientY };
+    const point = mapPoint(screen);
+    if (!point) return;
+    setFreeform(e.shiftKey);
+    e.preventDefault();
+    const action = (e.target as Element).closest("[data-anchor]")?.getAttribute("data-anchor");
+    svgRef.current?.focus();
     e.currentTarget.setPointerCapture(e.pointerId);
-    drag.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY };
+    gesture.current = beginPointerGesture(gesture.current, { id: e.pointerId, type: e.pointerType,
+      start: screen, current: screen, anchor: action === "A" || action === "B" ? action : null }, pan || space || e.button === 1);
+    const touches = gesture.current.pointers.filter((p) => p.type === "touch");
+    const [firstTouch, secondTouch] = touches;
+    if (touches.length === 2 && firstTouch && secondTouch) {
+      const mid = midpoint(firstTouch.current, secondTouch.current);
+      const fixed = mapPoint(mid);
+      if (fixed) pinch.current = { distance: Math.max(1, distance(firstTouch.current, secondTouch.current)), zoom: view.zoom, point: fixed };
+    }
+    setCursor(gesture.current.navigating ? null : point);
+    setPreviewActive(!gesture.current.navigating);
   };
   const onPointerMove = (e: PointerEvent<SVGSVGElement>) => {
-    const d = drag.current;
-    if (!d || d.pointerId !== e.pointerId) return;
-    const dx = (e.clientX - d.x) / scale;
-    const dy = (e.clientY - d.y) / scale;
-    drag.current = { ...d, x: e.clientX, y: e.clientY };
-    setCamera((current) => {
-      const from = clamp(current);
-      return clamp({ ...from, cx: from.cx - dx, cy: from.cy - dy });
-    });
+    if (disabled) return;
+    setFreeform(e.shiftKey);
+    const screen = { x: e.clientX, y: e.clientY };
+    const before = gesture.current;
+    const previous = before.pointers.find((p) => p.id === e.pointerId);
+    if (!previous) {
+      if (!before.pointers.length && e.pointerType !== "touch" && !pan && !space && previewEnabled) {
+        setCursor(mapPoint(screen));
+        setPreviewActive(true);
+      }
+      return;
+    }
+    const next = movePointerGesture(before, e.pointerId, screen);
+    gesture.current = next;
+    if (next.interrupted) return;
+    if (!next.navigating) { setCursor(mapPoint(screen)); setPreviewActive(true); return; }
+    setCursor(null);
+    setPreviewActive(false);
+    const touches = next.pointers.filter((p) => p.type === "touch");
+    const [firstTouch, secondTouch] = touches;
+    const startPinch = pinch.current;
+    if (firstTouch && secondTouch && startPinch) {
+      const mid = midpoint(firstTouch.current, secondTouch.current);
+      const rect = e.currentTarget.getBoundingClientRect();
+      const zoom = Math.min(maxZoom, Math.max(1,
+        startPinch.zoom * distance(firstTouch.current, secondTouch.current) / startPinch.distance));
+      const nextScale = fitScale * zoom;
+      setCamera(clamp({ zoom,
+        cx: startPinch.point.x - (mid.x - rect.left - viewport.width / 2) / nextScale,
+        cy: startPinch.point.y - (mid.y - rect.top - viewport.height / 2) / nextScale }));
+    } else if (next.pointers.length === 1) {
+      const from = before.navigating ? previous.current : previous.start;
+      const dx = (screen.x - from.x) / scale;
+      const dy = (screen.y - from.y) / scale;
+      setCamera((current) => {
+        const fromView = clamp(current);
+        return clamp({ ...fromView, cx: fromView.cx - dx, cy: fromView.cy - dy });
+      });
+    }
   };
-  const endDrag = (e: PointerEvent<SVGSVGElement>) => {
-    if (drag.current?.pointerId === e.pointerId) drag.current = null;
+  const onPointerUp = (e: PointerEvent<SVGSVGElement>) => {
+    // Capture revocation can become observable before lostpointercapture is dispatched.
+    if (!e.currentTarget.hasPointerCapture(e.pointerId)) gesture.current = interruptPointerGesture(gesture.current);
+    // Include the release position even when the browser omitted a final move event.
+    const next = movePointerGesture(gesture.current, e.pointerId, { x: e.clientX, y: e.clientY });
+    const result = finishPointerGesture(next, e.pointerId);
+    gesture.current = result.gesture;
+    pinch.current = null;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+    if (disabled || !result.click) { setCursor(null); setPreviewActive(false); return; }
+    if (result.click.anchor && sample && result.click.anchor !== selected) select(result.click.anchor);
+    else {
+      const point = mapPoint(result.click.current);
+      if (point) commit(point, e.shiftKey);
+    }
+  };
+  const cancelPointer = (e: PointerEvent<SVGSVGElement>) => {
+    const result = finishPointerGesture(gesture.current, e.pointerId, true);
+    gesture.current = result.gesture;
+    pinch.current = null;
+    setCursor(null);
+    setPreviewActive(false);
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+  };
+  const onKeyDown = (e: KeyboardEvent<SVGSVGElement | HTMLButtonElement>) => {
+    if (disabled) return;
+    const action = (e.target as Element).closest("[data-anchor]")?.getAttribute("data-anchor");
+    if (e.code === "Space" && (action === "A" || action === "B") && e.currentTarget === svgRef.current) {
+      e.preventDefault();
+      select(action);
+      return;
+    }
+    if (e.code === "Space" && e.currentTarget === svgRef.current) {
+      e.preventDefault();
+      clearTransient();
+      setSpace(true);
+      return;
+    }
+    const arrows: Record<string, Point> = {
+      ArrowLeft: { x: -1, y: 0 }, ArrowRight: { x: 1, y: 0 },
+      ArrowUp: { x: 0, y: -1 }, ArrowDown: { x: 0, y: 1 },
+    };
+    const arrow = arrows[e.key];
+    const anchor = action === "A" || action === "B" ? action : selected;
+    if (arrow) {
+      e.preventDefault();
+      clearTransient();
+      const step = e.shiftKey ? 10 : 1;
+      const delta = { x: arrow.x * step, y: arrow.y * step };
+      const cellSizeStep = e.shiftKey ? 0 : GRID_CELL_SNAP;
+      if (placement.stage === "awaiting-b" && !pan && !space) {
+        const provisional = provisionalCorner && drawGridSample(placement.anchor, provisionalCorner, count, map);
+        const next = provisional && adjustGridSampleCorner(provisional, delta, map, cellSizeStep);
+        if (next && gridFromSample(next, grid, map)) { setProvisionalCorner(next.corner); setPreviewActive(true); setMessage(null); }
+        else invalid();
+      } else if (sample && anchor && !pan && !space) {
+        const editing = transitionPlacement(placement, { type: "select", anchor }, count, grid, map).placement;
+        const result = transitionPlacement(editing, { type: "adjust", anchor, delta, cellSizeStep, offsetStep: e.shiftKey ? 0 : GRID_CELL_SNAP }, count, grid, map);
+        if (result.invalid) invalid();
+        else if (result.grid) {
+          setPlacement(result.placement);
+          sentGeometry.current = result.grid;
+          setMessage(null);
+          onChange(result.grid);
+        }
+      } else {
+        setCamera((current) => {
+          const from = clamp(current);
+          return clamp({ ...from, cx: from.cx + delta.x * 30 / scale, cy: from.cy + delta.y * 30 / scale });
+        });
+      }
+    } else if (e.key === "Enter" && (selected || (!pan && !space))) {
+      e.preventDefault();
+      clearTransient();
+      if (selected) {
+        // Hover confirmation uses the visible candidate; keyboard adjustments are
+        // already in the draft, so confirming those only clears the selection.
+        if (previewActive && cursor && !pan && !space) commit(cursor, e.shiftKey);
+        else {
+          setPlacement(transitionPlacement(placement, { type: "confirm" }, count, grid, map).placement);
+          setMessage(null);
+        }
+        svgRef.current?.focus();
+      } else if (action === "A" || action === "B") select(action);
+      else if (placement.stage === "awaiting-a") commit({ x: view.cx, y: view.cy }, e.shiftKey);
+      else if (placement.stage === "awaiting-b") {
+        const corner = previewActive && cursor ? cursor : provisionalCorner;
+        if (corner) commit(corner, e.shiftKey);
+      }
+    }
   };
 
-  const style = gridLineStyle(grid);
+  const style = gridLineStyle(shownGrid);
   const path = useMemo(() => {
-    if (viewport.width === 0 || !canRenderGrid(grid.cellSize, map)) return "";
-    const x0 = Math.max(0, vx);
-    const y0 = Math.max(0, vy);
-    const x1 = Math.min(map.width, vx + vw);
-    const y1 = Math.min(map.height, vy + vh);
-    const { xs, ys } = gridLines(grid, { x: x0, y: y0, width: x1 - x0, height: y1 - y0 });
+    if (viewport.width === 0 || !canRenderGrid(shownGrid.cellSize, map)) return "";
+    const x0 = Math.max(0, vx), y0 = Math.max(0, vy);
+    const x1 = Math.min(map.width, vx + vw), y1 = Math.min(map.height, vy + vh);
+    const { xs, ys } = gridLines(shownGrid, { x: x0, y: y0, width: x1 - x0, height: y1 - y0 });
     return xs.map((x) => `M${x} ${y0}V${y1}`).join("") + ys.map((y) => `M${x0} ${y}H${x1}`).join("");
-  }, [grid, map, viewport.width, vx, vy, vw, vh]);
-
+  }, [shownGrid, map, viewport.width, vx, vy, vw, vh]);
   const ready = viewport.width > 0 && viewport.height > 0;
+  // Keep committed handles stationary while previewing a reposition, so a map click
+  // can commit instead of accidentally selecting a handle that followed the cursor.
+  const first = placement.stage === "awaiting-b" ? shownSample?.anchor ?? placement.anchor : sample?.anchor;
+  const second = sample?.corner ?? shownSample?.corner;
+  const side = shownSample ? Math.abs(shownSample.corner.x - shownSample.anchor.x) : 0;
+  const status = placement.stage === "awaiting-a" ? "Step 1: Click or tap a grid intersection to place A."
+    : placement.stage === "awaiting-b" ? "Step 2: Click or tap the opposite corner to place B."
+      : selected ? `Anchor ${selected} selected. Click the map to reposition it, or press Enter to confirm and deselect.`
+        : "Sample placed. Check alignment across the map; select A to move it or B to change spacing.";
+
   return (
     <div className="map-grid-preview">
-      <svg
-        ref={svgRef}
-        className="map-grid-canvas"
-        style={{ aspectRatio: `${map.width} / ${map.height}` }}
-        viewBox={ready ? `${vx} ${vy} ${vw} ${vh}` : `0 0 ${map.width} ${map.height}`}
-        role="img"
-        aria-label="Map with the grid you are editing"
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
-      >
-        <rect x={0} y={0} width={map.width} height={map.height} fill="#2b2e35" />
-        <image href={map.url} x={0} y={0} width={map.width} height={map.height} />
-        {/* True line width in board pixels, but never under one screen pixel so it stays visible at fit. */}
-        <path d={path} fill="none" stroke={style.color} strokeOpacity={style.opacity} strokeWidth={Math.max(style.width, 1 / scale)} />
-      </svg>
-      <div className="map-grid-zoom" role="group" aria-label="Zoom">
-        <button type="button" className="secondary small" aria-label="Zoom out" disabled={view.zoom <= 1} onClick={() => zoomAt(1 / BUTTON_STEP)}>
-          <MagnifyingGlassMinus size={16} aria-hidden="true" />
-        </button>
-        <span className="map-grid-zoom-level" aria-live="polite">{Math.round(scale * 100)}%</span>
-        <button type="button" className="secondary small" aria-label="Zoom in" disabled={view.zoom >= maxZoom} onClick={() => zoomAt(BUTTON_STEP)}>
-          <MagnifyingGlassPlus size={16} aria-hidden="true" />
-        </button>
-        <button type="button" className="secondary small" aria-label="Fit map" disabled={view.zoom <= 1} onClick={() => setCamera(FIT)}>
-          <CornersOut size={16} aria-hidden="true" />
-        </button>
+      <p className="grid-instruction">Place A and B at opposite corners of one square. For a gridless map, choose the square size you want.</p>
+      <div className="map-grid-toolbar">
+        <div role="group" aria-label="Sample size" className="grid-sample-count">
+          {([1, 3, 5] as const).map((n) => (
+            <button key={n} type="button" className="secondary" aria-pressed={count === n} disabled={disabled}
+              onClick={() => {
+                const result = transitionPlacement(placement, { type: "count", count: n }, count, grid, map);
+                const pending = placement.stage === "awaiting-b" && preview;
+                if (result.invalid || (pending && !gridFromSample({ ...pending, count: n }, grid, map))) { invalid(); return; }
+                clearTransient();
+                if (pending) setProvisionalCorner(pending.corner);
+                setPlacement(result.placement);
+                setCount(n);
+                setMessage(null);
+                if (result.grid) { sentGeometry.current = result.grid; onChange(result.grid); }
+              }}>{n === 1 ? "1 square" : `${n}×${n}`}</button>
+          ))}
+        </div>
+        <button type="button" className="secondary" disabled={disabled} onClick={() => {
+          clearTransient(); setPlacement(EMPTY_PLACEMENT); setProvisionalCorner(null); setMessage(null); svgRef.current?.focus();
+        }}>Start over</button>
+        <div role="group" aria-label="Select anchor" className="grid-anchor-controls">
+          {(["A", "B"] as const).map((anchor) => (
+            <button key={anchor} type="button" className="secondary" data-anchor={anchor}
+              aria-pressed={selected === anchor} disabled={disabled || !sample} onClick={() => select(anchor)}
+              onKeyDown={onKeyDown}>Select {anchor}</button>
+          ))}
+        </div>
+        <button type="button" className="secondary" aria-pressed={pan} disabled={disabled}
+          onClick={() => { clearTransient(); setPan((current) => !current); }}><Hand size={16} aria-hidden="true" /> Pan</button>
+        <div className="map-grid-zoom" role="group" aria-label="Zoom">
+          <button type="button" className="secondary" aria-label="Zoom out" disabled={view.zoom <= 1}
+            onClick={() => zoomAt(1 / BUTTON_STEP)}><MagnifyingGlassMinus size={18} aria-hidden="true" /></button>
+          <span className="map-grid-zoom-level">{Math.round(scale * 100)}%</span>
+          <button type="button" className="secondary" aria-label="Zoom in" disabled={view.zoom >= maxZoom}
+            onClick={() => zoomAt(BUTTON_STEP)}><MagnifyingGlassPlus size={18} aria-hidden="true" /></button>
+          <button type="button" className="secondary" onClick={() => { clearTransient(); setCamera(FIT); }}>
+            <CornersOut size={18} aria-hidden="true" /> Fit map
+          </button>
+        </div>
       </div>
+      <p id={statusId} className="map-grid-status small-print" role="status">{status}</p>
+      <svg ref={svgRef} className={`map-grid-canvas${pan || space ? " is-panning" : ""}`}
+        viewBox={ready ? `${vx} ${vy} ${vw} ${vh}` : `0 0 ${map.width} ${map.height}`}
+        role="group" aria-label="Place grid anchors on the map" aria-describedby={`${statusId} ${helpId}`} tabIndex={0}
+        aria-disabled={disabled} onPointerDown={onPointerDown} onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp} onPointerCancel={cancelPointer} onLostPointerCapture={(e) => {
+          if (gesture.current.pointers.some((p) => p.id === e.pointerId)) clearTransient();
+        }}
+        onPointerLeave={clearTransient} onKeyDown={onKeyDown} onBlur={() => { setSpace(false); clearTransient(); }}>
+        <rect x={0} y={0} width={map.width} height={map.height} fill="#2b2e35" />
+        {map.url && <image href={map.url} x={0} y={0} width={map.width} height={map.height} />}
+        <path d={path} fill="none" stroke={style.color} strokeOpacity={style.opacity}
+          strokeWidth={Math.max(style.width, 1 / scale)} pointerEvents="none" />
+        {first && (
+          <g className={`grid-sample${previewGrid ? " is-provisional" : ""}`}>
+            {shownSample && <rect x={Math.min(shownSample.anchor.x, shownSample.corner.x)}
+              y={Math.min(shownSample.anchor.y, shownSample.corner.y)} width={side} height={side}
+              fill="rgba(224,138,98,0.16)" stroke="#f7b18d" strokeWidth={2 / scale}
+              strokeDasharray={previewGrid ? `${6 / scale} ${4 / scale}` : undefined} pointerEvents="none" />}
+            {([{ anchor: "A", point: first }, { anchor: "B", point: second }] as const).map(({ anchor, point }) => point && (
+              <g key={anchor} data-anchor={anchor} role={sample ? "button" : undefined} tabIndex={sample && !disabled ? 0 : -1}
+                aria-label={`Select anchor ${anchor}. Use arrow keys; Enter confirms and deselects.`}
+                aria-pressed={selected === anchor} aria-disabled={disabled}>
+                <circle cx={point.x} cy={point.y} r={22 / scale} fill="transparent" />
+                <circle className="grid-anchor-dot" cx={point.x} cy={point.y} r={8 / scale}
+                  fill={selected === anchor ? "#fff0e6" : "#f7b18d"} stroke="#181b20" strokeWidth={2 / scale} />
+                <text x={point.x + 12 / scale} y={point.y - 12 / scale} fontSize={14 / scale}
+                  fontWeight={700} fill="#fff0e6" stroke="#181b20" strokeWidth={3 / scale} paintOrder="stroke"
+                  pointerEvents="none" aria-hidden="true">{anchor}</text>
+              </g>
+            ))}
+          </g>
+        )}
+      </svg>
+      <p id={helpId} className="muted small-print map-grid-help">
+        Placement and pointer adjustment snap cell size and X/Y offsets to 0.5 px. Hold Shift for freeform placement.
+        Focus the map and press Enter to place A at the view center, then use arrows and Enter to place B.
+        Select or focus A to move both anchors by 1 image pixel, or B to change cell size by 0.5 px.
+        Shift uses freeform 10-pixel sample steps. Enter confirms placement and deselects the anchor.
+        Use Apply or Save grid to save it.
+        Swipe, use Pan, or Space-drag to move the view. Use two fingers to pan and zoom.
+      </p>
+      {message && <p className="error" role="status">{message}</p>}
     </div>
   );
 }

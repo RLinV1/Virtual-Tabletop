@@ -48,3 +48,37 @@ The form stays in the Battle map section's Adjust grid dialog, now reached throu
 ## Migration Plan
 
 No KAN-10 data migration is needed. New commands and library updates must use canonical offsets; historical events are replayed without reparsing. The existing room command and optional line-style fields remain in use.
+
+## KAN-09 two-click anchors (2026-09-30)
+
+`MapGridPreview` separates durable placement (awaiting A, awaiting B, placed, repositioning A/B) from seed/keyboard geometry, cursor previews, and pointer gestures. Frontend-only transitions in `gridSampleInteraction.ts` commit geometry only after a qualified release or valid keyboard adjustment. `gridSample.ts` keeps dominant-axis square geometry, fractional image coordinates, canonical offsets, edge clamping, and existing draft validation. A translates both anchors; B changes spacing before any translation needed for offset snapping. Reposition previews keep committed handles stationary so they remain selectable. Labeled selection controls support overlapping handles. Count changes reinterpret the same sample bounds after validation.
+
+A click or tap travels at most 6 CSS pixels. Exceeding the threshold permanently turns that gesture into pan. Pan mode, Space and middle-button presses always navigate; two touch pointers suppress placement until all lift. Pinch zoom uses the original midpoint map coordinate and current screen midpoint, with the existing camera limits. Capture cancellation, departure, blur, external camera changes and resize discard transient input without discarding A or completed anchors. Start over preserves the last valid form draft and camera. Numeric field edits invalidate anchors even while temporarily invalid; units and style edits preserve them.
+
+The provisional square and full-map preview stay inside the editor and send no draft callback. Existing room/library Apply, dismissal, scene/asset/accepted-grid/role resets, duplicate-submit guards, failed-save retry and upload/setup flows remain in place. No shared schema, database or save API changes are needed. Physical Safari/Chromium trackpad testing is a separate manual check; the original drag interruption cause remains unconfirmed.
+
+### Half-pixel cell-size snapping
+
+Placement and pointer resizing snap the cell side to the nearest 0.5 image pixels by quantizing the sample side in multiples of `count × 0.5`. The cell-side calculation keeps A fixed before applying offset snapping; Shift retains freeform coordinates. At a boundary, the side is capped at the largest fitting snapped value. Holding Shift disables quantization and immediately updates hover/press previews; release reads the current modifier, so freeform applies when Shift is held at commit. Enter confirmation of a pointer preview follows the same modifier; confirmation of a committed keyboard adjustment preserves that geometry. Normal B arrows use 0.5-pixel cell steps; Shift retains freeform 10-pixel sample-side adjustment. Changing sample count still reinterprets the same bounds rather than moving anchors.
+
+A frontend-only exact side value travels with the sample, so adding a snapped side to fractional A coordinates does not turn an exact half-pixel cell size into a floating-point remainder in the form or saved grid. Translation and count reinterpretation retain that exact side. No sample metadata enters the save API.
+
+### Half-pixel X/Y offset snapping (2026-10-01)
+
+Anchor placement and adjustment now snap both canonical offsets to 0.5 image pixels unless Shift is held. Initial A snaps within image bounds; finalized placement and reposition previews translate the whole sample to the nearest fitting snapped phase of its cell size. This keeps both handles on the displayed grid rather than rounding only the saved values. Existing fractional cell spacing is preserved when moving A, including at reverse-quadrant boundaries. Converting a freeform sample to snapped offsets can slightly translate A during B resizing; Shift retains precise freeform coordinates.
+
+The phase search considers the nearest grid periods and sample bounds on each axis, so both corners stay inside the image. Canonical offsets are normalized to exact half pixels at draft conversion, including zero near a floating-point period boundary. Keyboard anchor adjustments apply the same offset snapping unless Shift is held. A retains its 1/10 image-pixel translation steps; normal B arrows now use half-pixel cell steps. Numeric editing and sample-count reinterpretation retain their existing validation and geometry behavior.
+
+### Live Advanced geometry values (2026-10-02)
+
+`MapGridPreview` exposes a temporary preview callback separate from the valid confirmed-draft callback. `GridForm` uses temporary geometry only to display cell size and offsets, with accessible help identifying unconfirmed values. Validation, nudges, save eligibility and submitted payloads continue to use the string-valued confirmed draft. Hover sends no room command, ephemeral message, or library request and cannot affect a player board.
+
+An explicit active-preview flag distinguishes the durable seed/keyboard corner from transient visible geometry. Cancellation, capture loss, pointer departure, blur, navigation, resizing, Start over and invalid attempts clear visible temporary geometry and readouts, but retain recoverable pending A/completed placement and the keyboard corner. Hover, a new touch press, or provisional keyboard adjustment resumes the preview. A valid click/keyboard confirmation transfers geometry into the draft.
+
+Focusing numeric fields or their nudge controls immediately displays confirmed values, clears temporary geometry, and suppresses pointer previews while focus remains in that group. Numeric typing retains incomplete text and invalidates anchors as before. Returning focus to the map explicitly permits new previews; units/style editing retains its existing behavior.
+
+### Keyboard resizing and Enter confirmation (2026-10-02)
+
+The previous B arrow path moved the sample side by one image pixel and divided by its cell count. That produced thirds for 3×3 samples and fifths for 5×5, bypassing normal cell-size snapping. Normal B arrows now move to the adjacent half-pixel cell value in the arrow's quadrant direction, scaling the whole side by the sample count. Shift preserves the previous freeform 10-image-pixel sample-side steps. Default half-pixel samples keep A fixed; canonical offsets still change as spacing changes because they are the remainder of A's image coordinates within one cell. Advanced explains this wrapping and continues to show actual geometry rather than rounding just the text.
+
+Keyboard adjustment selects the focused anchor. Enter handles the map, SVG handles and selection controls consistently: a valid active cursor candidate commits locally; otherwise a frontend confirm transition retains the keyboard-adjusted sample and clears selection without another draft callback or snapping pass. Focus returns to the map so a focused handle cannot immediately adjust again after deselection. Enter prevents native button activation/form submission, handles Pan mode, and preserves invalid-selection retry. Pending B uses the visible cursor candidate when active or its durable keyboard corner after interruption. Hover over a completed unselected sample cannot change its geometry. Existing Apply/Save requests continue to submit only confirmed draft values.
