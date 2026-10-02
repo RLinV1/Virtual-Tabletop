@@ -121,6 +121,26 @@ export type Initiative = z.infer<typeof Initiative>;
 /** How many rolls the log keeps. Older ones stay in the event log, just not in state. */
 export const ROLL_LOG_LIMIT = 30;
 
+/** How many chat messages the state keeps. Older ones stay in the event log (ADR 0015). */
+export const CHAT_LOG_LIMIT = 200;
+
+/** Longest chat message, in characters after trimming (KAN-75). */
+export const MAX_CHAT_LENGTH = 500;
+
+/**
+ * One chat message (KAN-75, ADR 0015). `senderName` is the name at send time, so the line reads
+ * correctly after a rename. `at` is the committed time, stamped by `reduce` from event metadata
+ * (it cannot read a clock); null when the event was reduced without it.
+ */
+export const ChatMessage = z.object({
+  id: Id,
+  senderId: Id,
+  senderName: z.string().min(1).max(40),
+  text: z.string().min(1).max(MAX_CHAT_LENGTH),
+  at: z.string().nullable(),
+});
+export type ChatMessage = z.infer<typeof ChatMessage>;
+
 export interface RoomState {
   roomId: Id;
   name: string;
@@ -133,6 +153,8 @@ export interface RoomState {
   rolls: DiceRoll[];
   /** Placed area templates everyone at the table can see, bar GM-only ones (FR-TAC-06, ADR 0007). */
   templates: Record<Id, AreaTemplate>;
+  /** Most recent chat messages, oldest first, public to the whole room (KAN-75, ADR 0015). Capped at CHAT_LOG_LIMIT. */
+  chat: ChatMessage[];
   /**
    * Recent undoable actions, oldest first (FR-REC-02, ADR 0013). Derived by `reduce` from
    * committed events and their `commandId`s; GM-only (players always get an empty list).
@@ -150,6 +172,7 @@ export function emptyRoomState(roomId: Id): RoomState {
     initiative: null,
     rolls: [],
     templates: {},
+    chat: [],
     undo: [],
   };
 }

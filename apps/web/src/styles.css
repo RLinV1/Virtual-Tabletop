@@ -506,6 +506,19 @@ button.small { min-height: 0; padding: 0.2rem 0.5rem; font-size: var(--fs-sm); }
 .dice-quick { display: flex; flex-wrap: wrap; gap: 0.3rem; }
 label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-size: var(--fs-sm); color: var(--text); }
 
+/* --- Chat (KAN-75) --- */
+.chat-form { display: flex; flex-direction: column; gap: 0.4rem; margin-top: var(--space-2); }
+.chat-log { display: flex; flex-direction: column; gap: var(--space-1); max-height: 14rem; overflow-y: auto; }
+.chat-message {
+  display: flex; flex-direction: column; gap: 0.1rem; font-size: var(--fs-sm);
+  padding: var(--space-2); background: var(--raised); border: 1px solid var(--border); border-radius: var(--radius);
+}
+/* Your own lines get a border mark as well as the name, never colour alone. */
+.chat-message.mine { border-left: 3px solid var(--accent); }
+.chat-meta { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; }
+.chat-meta time { font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.chat-text { overflow-wrap: anywhere; }
+
 .roll-log { display: flex; flex-direction: column; max-height: 13rem; overflow-y: auto; }
 /* A roll as a card: total in a box with its dice beneath, then the expression and roller. */
 .roll {

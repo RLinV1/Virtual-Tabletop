@@ -11,6 +11,12 @@ import type { RoomRegistry } from "../domain/roomRegistry";
 import type { RoomStore } from "../store/roomStore";
 
 const EPHEMERAL_PER_SECOND = 40;
+/**
+ * Chat messages one connection may send per CHAT_WINDOW_MS (KAN-75). Each one is a permanent
+ * event row, so an unbounded loop would grow the log forever and hold the room's queue.
+ */
+const CHAT_PER_WINDOW = 10;
+const CHAT_WINDOW_MS = 10_000;
 
 /**
  * Socket.IO gateway (DESIGN.md §1, §2).
@@ -79,6 +85,8 @@ export function registerSocket(
 
     let windowStart = Date.now();
     let ephemeralCount = 0;
+    /** Send times of this connection's recent chat messages, oldest first. */
+    let chatTimes: number[] = [];
 
     // Handle one message at a time so a socket's messages commit in the order sent.
     let queue: Promise<void> = Promise.resolve();
@@ -110,6 +118,19 @@ export function registerSocket(
 
       switch (msg.type) {
         case "command": {
+          if (msg.command.type === "chat.send") {
+            const now = Date.now();
+            chatTimes = chatTimes.filter((t) => now - t < CHAT_WINDOW_MS);
+            if (chatTimes.length >= CHAT_PER_WINDOW) {
+              return send({
+                type: "rejected",
+                clientCommandId: msg.clientCommandId,
+                code: "invalid",
+                message: "You're sending messages too fast. Wait a few seconds.",
+              });
+            }
+            chatTimes.push(now);
+          }
           const result = await room.submit(participantId, msg.command);
           if (result.ok) send({ type: "ack", clientCommandId: msg.clientCommandId, seq: result.seq });
           else send({ type: "rejected", clientCommandId: msg.clientCommandId, code: result.code, message: result.message });

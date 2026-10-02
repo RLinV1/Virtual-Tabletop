@@ -1,6 +1,6 @@
 import type { DiceRoll } from "./dice";
 import type { CommittedEvent, DomainEvent } from "./events";
-import { ROLL_LOG_LIMIT, type RoomState } from "./state";
+import { CHAT_LOG_LIMIT, ROLL_LOG_LIMIT, type RoomState } from "./state";
 import { eventMeta, recordUndo, type EventMeta } from "./undo";
 
 /**
@@ -14,14 +14,15 @@ import { eventMeta, recordUndo, type EventMeta } from "./undo";
  * Without it, state changes the same way and the history is left alone.
  */
 export function reduce(state: RoomState, event: DomainEvent, meta?: EventMeta): RoomState {
-  const next = apply(state, event);
+  const next = apply(state, event, meta?.at ?? null);
   if (event.type === "ActionUndone") {
     // Drops the undone action, and the entry this undo's own inverse events just opened,
     // so an undo is never itself undoable (no redo).
     const undo = state.undo.filter((e) => e.commandId !== event.commandId && e.commandId !== meta?.commandId);
     return { ...next, undo };
   }
-  return meta ? { ...next, undo: recordUndo(state, event, meta) } : next;
+  // `meta` may carry only the commit time (players get no `commandId`); then there is no history to keep.
+  return meta?.commandId !== undefined ? { ...next, undo: recordUndo(state, event, { ...meta, commandId: meta.commandId }) } : next;
 }
 
 /** `reduce` for a committed event, grouping it into its action for undo. */
@@ -29,8 +30,17 @@ export function reduceCommitted(state: RoomState, committed: CommittedEvent): Ro
   return reduce(state, committed.event, eventMeta(committed));
 }
 
+/**
+ * `reduce` for an event as a client receives it. The GM's events carry `commandId` and keep the
+ * undo history in step with the server's; a player's carry none, so they get only the committed
+ * time (chat, ADR 0015) and keep no history (ADR 0013).
+ */
+export function reduceReceived(state: RoomState, committed: CommittedEvent): RoomState {
+  return committed.commandId ? reduceCommitted(state, committed) : reduce(state, committed.event, { at: committed.at });
+}
+
 /** The state change for one event, without the undo history (`reduce` adds that). */
-function apply(state: RoomState, event: DomainEvent): RoomState {
+function apply(state: RoomState, event: DomainEvent, at: string | null): RoomState {
   switch (event.type) {
     case "RoomCreated":
       return { ...state, name: event.name };
@@ -148,6 +158,11 @@ function apply(state: RoomState, event: DomainEvent): RoomState {
         const { damageApplied: _applied, ...rest } = roll;
         return rest;
       });
+
+    // Newest last, oldest dropped; the full history stays in the event log. The time comes from
+    // the commit metadata because `reduce` cannot read a clock (ADR 0015).
+    case "ChatMessageSent":
+      return { ...state, chat: [...state.chat, { ...event.message, at }].slice(-CHAT_LOG_LIMIT) };
 
     case "TemplatePlaced":
       return { ...state, templates: { ...state.templates, [event.template.id]: event.template } };

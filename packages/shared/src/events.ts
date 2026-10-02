@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ConditionId, TokenStats } from "./conditions";
 import { DiceRoll, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
-import { AreaTemplate, Id, Initiative, MapImage, Participant, Token } from "./state";
+import { AreaTemplate, ChatMessage, Id, Initiative, MapImage, Participant, Token } from "./state";
 
 /**
  * Events are FACTS the server has committed. They are append-only and never edited.
@@ -151,6 +151,14 @@ export const DomainEvent = z.discriminatedUnion("type", [
     type: z.literal("RollDamageUnapplied"),
     rollId: Id,
     amount: z.number().int().min(0),
+  }),
+  /**
+   * Someone sent a chat message (KAN-75, ADR 0015). The sender is the acting participant, set by
+   * `decide`. Replaces nothing, so there is no `previous`; the time is the commit's `at`.
+   */
+  z.object({
+    type: z.literal("ChatMessageSent"),
+    message: ChatMessage.omit({ at: true }),
   }),
   z.object({
     type: z.literal("TemplatePlaced"),

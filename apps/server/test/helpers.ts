@@ -7,8 +7,7 @@ import {
   SOCKET_EVENTS,
   emptyRoomState,
   filterStateForViewer,
-  reduce,
-  reduceCommitted,
+  reduceReceived,
   type ClientMessageInput,
   type CreateRoomResponse,
   type JoinRoomResponse,
@@ -188,7 +187,7 @@ export class TestClient {
       case "event":
         if (msg.committed.seq !== this.seq + 1) throw new Error(`Gap: have ${this.seq}, got ${msg.committed.seq}`);
         // As the browser does: only the GM's events carry `commandId` (ADR 0013).
-        this.state = msg.committed.commandId ? reduceCommitted(this.state, msg.committed) : reduce(this.state, msg.committed.event);
+        this.state = reduceReceived(this.state, msg.committed);
         this.seq = msg.committed.seq;
         break;
       case "redacted":
