@@ -42,8 +42,9 @@ export const ChatText = z
     "Messages can't contain control or invisible formatting characters.",
   )
   .refine(
-    // Blank-looking fillers (Hangul and Braille blanks) are letters or symbols, not spaces.
-    (text) => text.replace(/[\p{Z}\u115f\u1160\u3164\uffa0\u2800]|\u200c|\u200d/gu, "").length > 0,
+    // Spaces, characters that render as nothing (joiners, Hangul fillers, U+034F) and the Braille
+    // blank, which is a symbol, not a space: a message of only these looks empty.
+    (text) => text.replace(/[\p{Z}\p{Default_Ignorable_Code_Point}\u2800]/gu, "").length > 0,
     "Messages need at least one visible character.",
   );
 

@@ -45,6 +45,7 @@ describe("chat.send validation (KAN-75)", () => {
     ["only a Hangul filler", "\u3164"],
     ["only Braille blanks", "\u2800\u2800"],
     ["only joiners", "\u200d\u200c"],
+    ["only a combining grapheme joiner", "\u034f"],
   ])("refuses %s", (_name, text) => {
     expect(parse(text).success).toBe(false);
   });

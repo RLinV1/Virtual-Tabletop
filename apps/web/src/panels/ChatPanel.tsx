@@ -40,7 +40,8 @@ export function ChatPanel({ connection, state }: { connection: RoomConnection; s
     const result = await connection.command({ type: "chat.send", text });
     setBusy(false);
     if (result.ok) {
-      setText("");
+      // Only what was sent: anything typed while waiting for the server is the next message.
+      setText((current) => (current === text ? "" : current));
       setError(null);
     } else {
       // Keep what was typed so it can be fixed and sent again.
