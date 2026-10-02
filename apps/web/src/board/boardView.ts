@@ -1,6 +1,7 @@
 import {
   Application,
   Assets,
+  ColorMatrixFilter,
   Container,
   Graphics,
   Sprite,
@@ -31,6 +32,21 @@ import { exceedsPanThreshold, pinchIsManual, resizeAction, zoomChangesScale } fr
 import { conditionRowY, tokenLabelFontSize, tokenLabelStroke } from "./tokenLabel";
 import { canRenderGrid, DEFAULT_BOARD_SIZE } from "./gridRenderLimit";
 import { gridLines } from "./gridLines";
+import {
+  MAX_ATTACK_EFFECTS,
+  REST_TIME,
+  STRIKE_TRAVEL,
+  artStyleFor,
+  attackPlan,
+  conditionLoopWanted,
+  conditionShapes,
+  loopFrameDue,
+  loopingConditions,
+  prefersReducedMotion,
+  watchReducedMotion,
+  type AttackEffect,
+  type EffectShape,
+} from "./effects";
 import { areaOrigin, areaShape, areaSizeFromDrag, formatDistance, hitMark, measure, sweepPoints, templateMark, type BoardTool, type Mark } from "./tools";
 
 export interface BoardCallbacks {
@@ -145,6 +161,11 @@ const failedImageUrls = new Set<string>();
 
 interface TokenView {
   container: Container;
+  /**
+   * The token's body, art and mask. Condition looks (tilt, fade, grey) and shake apply here, never
+   * to `container.position`, which is the token's board position (KAN-76).
+   */
+  art: Container;
   body: Graphics;
   /** Token art clipped to the token circle; hidden when there is none or it failed to load. */
   image: Sprite;
@@ -158,6 +179,24 @@ interface TokenView {
   markers: Container;
   label: Text;
   drawnKey: string;
+  /** Condition effects, between the art and the badges; never catches pointer events. */
+  effects: Graphics;
+  conditions: ConditionId[];
+  /** Conditions whose effect moves, so the condition loop knows whom to redraw. */
+  looping: boolean;
+  /** Offsets from a hit shake and from trembling, added up on `art.position`. */
+  shake: Point;
+  /** The hit whose shake `shake` holds, or null (KAN-76). */
+  shakeOwner: AttackFx | null;
+  tremble: Point;
+  /** Greyscale filter while Unconscious; made once, then reused. */
+  grey: ColorMatrixFilter | null;
+}
+
+/** An attack effect playing; `stop` removes it and gives the tokens back their position. */
+interface AttackFx {
+  step: (now: number) => boolean;
+  stop(): void;
 }
 
 /**
@@ -243,6 +282,15 @@ export class BoardView {
   private pendingSize: { width: number; height: number } | null = null;
   /** Per-frame animation steps; each returns false once it has finished. */
   private animations = new Set<(now: number) => boolean>();
+  /** Set by a step that skipped its frame, so the frame is not redrawn for nothing. */
+  private stepSkipped = false;
+  /** Attack animations playing (KAN-76), oldest first. */
+  private attackFx: AttackFx[] = [];
+  private reducedMotion = prefersReducedMotion();
+  private stopMotionWatch: (() => void) | null = null;
+  /** The condition loop is in `animations`. */
+  private loopRegistered = false;
+  private lastLoopDraw = 0;
   /** Told the world transform whenever a frame draws it changed (throw-dice-on-board). */
   private viewListeners = new Set<(view: BoardTransform) => void>();
   private lastView: BoardTransform | null = null;
@@ -318,6 +366,15 @@ export class BoardView {
       this.schedule();
     });
     this.hostObserver.observe(this.host);
+    this.stopMotionWatch = watchReducedMotion((reduced) => {
+      this.reducedMotion = reduced;
+      // Effects already playing finish as they are; conditions redraw at once.
+      for (const view of this.tokens.values()) view.drawnKey = "";
+      if (this.state && this.you) this.syncTokens();
+      this.syncConditionLoop();
+      this.invalidate();
+    });
+    document.addEventListener("visibilitychange", this.syncConditionLoop);
     this.invalidate();
   }
 
@@ -336,8 +393,13 @@ export class BoardView {
     if (!this.initialized) return;
     if (this.pendingSize) this.settleResize();
     if (this.animations.size > 0) {
-      for (const step of this.animations) if (!step(now)) this.animations.delete(step);
-      this.dirty = true;
+      let drew = false;
+      for (const step of this.animations) {
+        this.stepSkipped = false;
+        if (!step(now)) this.animations.delete(step);
+        if (!this.stepSkipped) drew = true;
+      }
+      if (drew) this.dirty = true;
     }
     for (const [id, ghost] of this.ghosts) {
       if (now > ghost.expires) {
@@ -414,6 +476,10 @@ export class BoardView {
     cancelAnimationFrame(this.frame);
     this.frame = 0;
     this.animations.clear();
+    this.attackFx = [];
+    this.loopRegistered = false;
+    this.stopMotionWatch?.();
+    document.removeEventListener("visibilitychange", this.syncConditionLoop);
     this.viewListeners.clear();
     this.hostObserver?.disconnect();
     this.app.canvas.removeEventListener("wheel", this.onWheel);
@@ -445,6 +511,7 @@ export class BoardView {
     if (this.autoFit) this.fitToScreen();
     // A grid change moves the squares under a still pointer.
     if (this.placement) this.redrawGhost();
+    this.syncConditionLoop();
     this.invalidate();
   }
 
@@ -1003,6 +1070,8 @@ export class BoardView {
 
     for (const [id, view] of this.tokens) {
       if (!state.tokens[id]) {
+        // A filter is not a child: free the Unconscious greyscale's GPU resources by hand.
+        view.grey?.destroy();
         view.container.destroy({ children: true });
         this.tokens.delete(id);
         this.pendingMoves.delete(id);
@@ -1043,10 +1112,18 @@ export class BoardView {
     const imageMask = new Graphics();
     image.mask = imageMask;
     // Disc first so it shows through while the image loads, or instead of one that failed.
-    container.addChild(body, image, imageMask, decor, markers, label);
+    const art = new Container();
+    art.addChild(body, image, imageMask);
+    const effects = new Graphics();
+    effects.eventMode = "none";
+    // Condition effects sit under the HP bar and the FR-TAC-08 badges, which stay on top.
+    container.addChild(art, effects, decor, markers, label);
     container.on("pointerdown", (e: FederatedPointerEvent) => this.onTokenDown(e, tokenId));
     this.tokenLayer.addChild(container);
-    return { container, body, image, imageMask, imageUrl: null, radius: 0, decor, markers, label, drawnKey: "" };
+    return {
+      container, art, body, image, imageMask, imageUrl: null, radius: 0, decor, markers, label, drawnKey: "",
+      effects, conditions: [], looping: false, shake: { x: 0, y: 0 }, shakeOwner: null, tremble: { x: 0, y: 0 }, grey: null,
+    };
   }
 
   private drawToken(view: TokenView, token: Token, grid: GridSpec, you: Participant) {
@@ -1078,6 +1155,236 @@ export class BoardView {
 
     this.drawDecor(view, token, r, focused, active, owned);
     this.drawConditions(view, token.conditions, r);
+    this.drawConditionLook(view, token.conditions, r);
+  }
+
+  /**
+   * The fixed effect of each condition (KAN-76): a look for the art wrapper (fade, tilt, grey) and
+   * decoration in the effects layer. Looping ones are redrawn by `conditionLoop`; with reduced
+   * motion, or while the loop is not running, they show their still pose.
+   */
+  private drawConditionLook(view: TokenView, conditions: ConditionId[], r: number) {
+    view.conditions = conditions;
+    view.looping = !this.reducedMotion && loopingConditions(conditions).length > 0;
+    const style = artStyleFor(conditions, this.reducedMotion);
+    const { art } = view;
+    art.alpha = style.alpha;
+    art.rotation = (style.tilt * Math.PI) / 180;
+    art.scale.set(1, style.squash);
+    if (style.greyscale) {
+      view.grey ??= new ColorMatrixFilter();
+      view.grey.greyscale(0.6, false);
+      art.filters = [view.grey];
+    } else {
+      art.filters = null;
+    }
+    if (!view.looping) this.applyArtOffset(view, 0, 0);
+    this.drawEffectShapes(view.effects, conditionShapes(conditions, view.looping ? performance.now() / 1000 : REST_TIME, r));
+  }
+
+  private drawEffectShapes(g: Graphics, shapes: EffectShape[]) {
+    g.clear();
+    for (const shape of shapes) {
+      if (shape.kind === "circle") g.circle(shape.x, shape.y, shape.r);
+      else g.poly(shape.points, shape.closed);
+      if (shape.fill !== undefined) g.fill({ color: shape.fill, alpha: shape.alpha });
+      if (shape.stroke !== undefined) g.stroke({ width: shape.width ?? 1, color: shape.stroke, alpha: shape.alpha });
+    }
+  }
+
+  /** Trembling and a hit's shake move the art inside the token; `container.position` is never touched. */
+  private applyArtOffset(view: TokenView, trembleX: number, trembleY: number) {
+    view.tremble.x = trembleX;
+    view.tremble.y = trembleY;
+    view.art.position.set(view.shake.x + trembleX, view.shake.y + trembleY);
+  }
+
+  private loopWanted() {
+    let loopingTokens = 0;
+    for (const view of this.tokens.values()) if (view.looping && view.container.visible) loopingTokens++;
+    return conditionLoopWanted({ loopingTokens, pageVisible: document.visibilityState === "visible", reducedMotion: this.reducedMotion });
+  }
+
+  /** Runs the condition loop only while a visible token has a moving effect, the page is shown and motion is allowed. */
+  private syncConditionLoop = () => {
+    if (!this.initialized || this.loopRegistered || !this.loopWanted()) return;
+    this.loopRegistered = true;
+    this.animations.add(this.conditionLoop);
+    this.schedule();
+  };
+
+  /** One step of `animations` for every looping condition: redraws at most 30 times a second, then unregisters itself. */
+  private conditionLoop = (now: number) => {
+    if (!this.loopWanted()) {
+      this.loopRegistered = false;
+      for (const view of this.tokens.values()) if (view.tremble.x !== 0 || view.tremble.y !== 0) this.applyArtOffset(view, 0, 0);
+      return false;
+    }
+    if (!loopFrameDue(now, this.lastLoopDraw)) {
+      this.stepSkipped = true;
+      return true;
+    }
+    this.lastLoopDraw = now;
+    const t = now / 1000;
+    for (const view of this.tokens.values()) {
+      if (!view.looping) continue;
+      this.drawEffectShapes(view.effects, conditionShapes(view.conditions, t, view.radius));
+      const amp = artStyleFor(view.conditions, false).tremble * view.radius;
+      this.applyArtOffset(view, Math.sin(t * 61) * amp, Math.cos(t * 53) * amp);
+    }
+    return true;
+  };
+
+  /**
+   * Plays an attack, ruling or damage effect on the viewer's board (KAN-76). The effect names tokens
+   * and reads their position every frame, so it follows one that moves and ends if one disappears.
+   * Graphics never take pointer events.
+   */
+  playAttackEffect(effect: AttackEffect) {
+    if (!this.initialized || !this.state) return;
+    const ids = effect.kind === "strike" ? [effect.fromId, effect.toId] : [effect.tokenId];
+    const live = () => ids.map((id) => this.tokens.get(id)).filter((v): v is TokenView => !!v && !v.container.destroyed);
+    if (live().length !== ids.length) return;
+    while (this.attackFx.length >= MAX_ATTACK_EFFECTS) this.endAttackFx(this.attackFx[0]!);
+
+    const plan = attackPlan(effect, this.reducedMotion);
+    const g = new Graphics();
+    g.eventMode = "none";
+    this.fxLayer.addChild(g);
+    let label: Text | null = null;
+    if (effect.kind === "damage") {
+      label = new Text({
+        text: `−${effect.amount}`,
+        style: { fill: 0xff6b5e, fontSize: 28, fontFamily: BOARD_FONT, fontWeight: "700", stroke: { color: 0x000000, width: 5 } },
+      });
+      label.anchor.set(0.5, 1);
+      label.eventMode = "none";
+      this.fxLayer.addChild(label);
+    }
+    const target = this.tokens.get(effect.kind === "strike" ? effect.toId : effect.tokenId)!;
+    const started = performance.now();
+    /** Where a static (reduced-motion) effect was last drawn; it redraws only when a token moves. */
+    let drawnAt = "";
+    const fx: AttackFx = {
+      step: (now) => {
+        const t = Math.max(0, (now - started) / plan.durationMs);
+        const views = live();
+        if (t >= 1 || g.destroyed || views.length !== ids.length) {
+          this.endAttackFx(fx);
+          return false;
+        }
+        if (!plan.motion) {
+          const at = views.map((v) => `${v.container.position.x},${v.container.position.y}`).join(";");
+          if (at === drawnAt) {
+            this.stepSkipped = true;
+            return true;
+          }
+          drawnAt = at;
+        }
+        const to = views[views.length - 1]!;
+        const at = to.container.position;
+        const r = to.radius;
+        g.clear();
+        if (effect.kind === "strike") {
+          this.drawStrike(g, views[0]!.container.position, at, r, t, plan.motion);
+        } else if (effect.kind === "hit") {
+          this.drawHit(g, at, r, t, plan.motion);
+          // The newest hit on a token owns its shake, so an older one ending can't cut it off.
+          to.shakeOwner = fx;
+          to.shake.x = plan.motion ? Math.sin(t * 40) * r * 0.12 * (1 - t) : 0;
+          this.applyArtOffset(to, to.tremble.x, to.tremble.y);
+        } else if (effect.kind === "miss") {
+          this.drawMiss(g, at, r, t, plan.motion);
+        } else if (label) {
+          const rise = plan.motion ? t * r * 1.1 : 0;
+          label.position.set(at.x, at.y - r - 6 - rise);
+          label.alpha = t < 0.6 ? 1 : (1 - t) / 0.4;
+        }
+        return true;
+      },
+      stop: () => {
+        if (!g.destroyed) g.destroy();
+        if (label && !label.destroyed) label.destroy();
+        if (effect.kind === "hit" && !target.container.destroyed && target.shakeOwner === fx) {
+          target.shakeOwner = null;
+          target.shake.x = 0;
+          this.applyArtOffset(target, target.tremble.x, target.tremble.y);
+        }
+      },
+    };
+    this.attackFx.push(fx);
+    this.animations.add(fx.step);
+    this.invalidate();
+  }
+
+  private endAttackFx(fx: AttackFx) {
+    this.animations.delete(fx.step);
+    this.attackFx = this.attackFx.filter((f) => f !== fx);
+    fx.stop();
+    this.invalidate();
+  }
+
+  /** A bolt from attacker to target, then a neutral ring on the target; a still ring only with reduced motion. */
+  private drawStrike(g: Graphics, from: Point, to: Point, r: number, t: number, motion: boolean) {
+    if (!motion) {
+      const a = t < 0.7 ? 1 : (1 - t) / 0.3;
+      g.circle(to.x, to.y, r * 1.1).stroke({ width: 4, color: AIM_COLOR, alpha: a });
+      g.circle(to.x, to.y, r * 0.3).fill({ color: AIM_COLOR, alpha: a }).stroke({ width: 2, color: AIM_EDGE, alpha: a });
+      return;
+    }
+    if (t < STRIKE_TRAVEL) {
+      const p = t / STRIKE_TRAVEL;
+      const eased = 1 - (1 - p) * (1 - p);
+      const x = from.x + (to.x - from.x) * eased;
+      const y = from.y + (to.y - from.y) * eased;
+      const tail = Math.max(0, eased - 0.25);
+      const tx = from.x + (to.x - from.x) * tail;
+      const ty = from.y + (to.y - from.y) * tail;
+      g.moveTo(tx, ty).lineTo(x, y).stroke({ width: 6, color: AIM_EDGE, alpha: 0.6 });
+      g.moveTo(tx, ty).lineTo(x, y).stroke({ width: 3, color: AIM_COLOR, alpha: 0.95 });
+      g.circle(x, y, Math.max(5, r * 0.18)).fill({ color: AIM_COLOR }).stroke({ width: 2, color: AIM_EDGE });
+      return;
+    }
+    const q = (t - STRIKE_TRAVEL) / (1 - STRIKE_TRAVEL);
+    g.circle(to.x, to.y, r * (0.4 + 0.8 * q)).stroke({ width: 5 * (1 - q) + 1, color: AIM_COLOR, alpha: 1 - q });
+  }
+
+  /** A flash and a red burst of spikes (the shake is applied by the caller). */
+  private drawHit(g: Graphics, at: Point, r: number, t: number, motion: boolean) {
+    const k = motion ? t : 0.3;
+    const alpha = motion ? 1 - t : t < 0.7 ? 1 : (1 - t) / 0.3;
+    if (motion) g.circle(at.x, at.y, r).fill({ color: 0xffffff, alpha: 0.7 * (1 - t) * (1 - t) });
+    for (let i = 0; i < 8; i++) {
+      const a = (i * Math.PI) / 4 + 0.2;
+      const inner = r * (0.55 + 0.5 * k);
+      const outer = r * (0.95 + 0.6 * k);
+      const w = 0.16;
+      g.poly([
+        at.x + Math.cos(a - w) * inner, at.y + Math.sin(a - w) * inner,
+        at.x + Math.cos(a) * outer, at.y + Math.sin(a) * outer,
+        at.x + Math.cos(a + w) * inner, at.y + Math.sin(a + w) * inner,
+      ]).fill({ color: 0xe74c3c, alpha }).stroke({ width: 1.5, color: AIM_EDGE, alpha });
+    }
+  }
+
+  /** A pale arc that sweeps past the token and glances off: nothing lands. */
+  private drawMiss(g: Graphics, at: Point, r: number, t: number, motion: boolean) {
+    const alpha = motion ? 1 - t * t : t < 0.7 ? 0.9 : ((1 - t) / 0.3) * 0.9;
+    const sweep = motion ? Math.min(1, t * 1.6) : 1;
+    const from = -2.5;
+    const end = from + 2.3 * sweep;
+    const points: number[] = [];
+    for (let i = 0; i <= 12; i++) {
+      const a = from + ((end - from) * i) / 12;
+      points.push(at.x + Math.cos(a) * r * 1.15, at.y + Math.sin(a) * r * 1.15);
+    }
+    g.poly(points, false).stroke({ width: 6, color: AIM_EDGE, alpha: alpha * 0.6 });
+    g.poly(points, false).stroke({ width: 3, color: 0xcbd5e1, alpha });
+    // The glance: a short tick leaving the end of the arc.
+    const ex = at.x + Math.cos(end) * r * 1.15;
+    const ey = at.y + Math.sin(end) * r * 1.15;
+    const out = r * 0.5 * sweep;
+    g.moveTo(ex, ey).lineTo(ex + Math.cos(end + 1.2) * out, ey + Math.sin(end + 1.2) * out).stroke({ width: 3, color: 0xcbd5e1, alpha });
   }
 
   /**
