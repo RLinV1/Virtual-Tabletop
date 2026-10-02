@@ -7,6 +7,7 @@ import {
   reduceCommitted,
   type ClientMessageInput,
   type CommandInput,
+  type CommittedEvent,
   type DiceRoll,
   type EphemeralPayload,
   type Participant,
@@ -42,6 +43,8 @@ export type CommandResult =
   | { ok: false; code: string; message: string };
 
 type EphemeralListener = (from: string, payload: EphemeralPayload) => void;
+/** Called with a live event and the viewer's state before and after it (KAN-76). */
+type CommittedListener = (committed: CommittedEvent, before: RoomState, after: RoomState) => void;
 type RollListener = (roll: DiceRoll) => void;
 
 /**
@@ -67,6 +70,7 @@ export class RoomConnection {
   private nextCommandId = 0;
   private pending = new Map<string, (r: CommandResult) => void>();
   private ephemeralListeners = new Set<EphemeralListener>();
+  private committedListeners = new Set<CommittedListener>();
   private rollListeners = new Set<RollListener>();
 
   readonly store: StoreApi<RoomSnapshot> = createStore<RoomSnapshot>(() => ({
@@ -125,6 +129,15 @@ export class RoomConnection {
     return () => this.ephemeralListeners.delete(fn);
   }
 
+  /**
+   * Live events only: called after an in-order `event` message has been applied, never for a
+   * snapshot, a redacted event or a failed reduce, so nothing replays on load or resync.
+   */
+  onCommitted(fn: CommittedListener) {
+    this.committedListeners.add(fn);
+    return () => this.committedListeners.delete(fn);
+  }
+
   command(command: CommandInput): Promise<CommandResult> {
     if (this.snapshot.status !== "open") {
       return Promise.resolve({ ok: false, code: "offline", message: "Not connected" });
@@ -159,16 +172,19 @@ export class RoomConnection {
       case "event": {
         const { state, seq } = this.snapshot;
         if (!state || msg.committed.seq !== seq + 1) return this.resync();
+        let next: RoomState;
         try {
           // Only the GM's events carry `commandId`; with it the undo history stays in step with
           // the server's. Players get none, so they keep no history (ADR 0013).
-          const next = msg.committed.commandId ? reduceCommitted(state, msg.committed) : reduce(state, msg.committed.event);
+          next = msg.committed.commandId ? reduceCommitted(state, msg.committed) : reduce(state, msg.committed.event);
           const you = this.snapshot.you ? (next.participants[this.snapshot.you.id] ?? null) : null;
           this.update({ state: next, seq: msg.committed.seq, you });
         } catch {
           return this.resync();
         }
-        // After the try: a listener's mistake must not read as a broken event stream.
+        // After the try: a listener's mistake must not read as a broken event stream. Committed
+        // listeners first, so a strike is waiting before its roll can land (KAN-76).
+        this.emitCommitted(msg.committed, state, next);
         const { event } = msg.committed;
         if (event.type === "DiceRolled") this.rollListeners.forEach((fn) => fn(event.roll));
         return;
@@ -206,6 +222,17 @@ export class RoomConnection {
         }
         console.warn("Server error:", msg.message);
         return;
+    }
+  }
+
+  /** A listener that throws must not look like a bad event and trigger a resync. */
+  private emitCommitted(committed: CommittedEvent, before: RoomState, after: RoomState) {
+    for (const fn of this.committedListeners) {
+      try {
+        fn(committed, before, after);
+      } catch (err) {
+        console.warn("Committed listener failed:", err);
+      }
     }
   }
 
