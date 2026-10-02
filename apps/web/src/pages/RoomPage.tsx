@@ -202,15 +202,24 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
     if (gridApplyInFlight.current) return false;
     gridApplyInFlight.current = true;
     const generation = gridApplyGeneration.current;
+    const mapKey = JSON.stringify(connection.snapshot.state?.scene.map);
+    const accepted = connection.snapshot.state?.scene.grid;
+    const stillCurrent = (ok: boolean) => {
+      const snapshot = connection.snapshot;
+      return generation === gridApplyGeneration.current && snapshot.you?.role === "gm"
+        && mapKey === JSON.stringify(snapshot.state?.scene.map)
+        && !!snapshot.state && !!accepted
+        && gridsEqual(snapshot.state.scene.grid, ok ? grid : accepted);
+    };
     setGridApplying(true);
     setGridError(null);
     try {
       const result = await connection.command({ type: "scene.setGrid", grid });
-      if (generation !== gridApplyGeneration.current) return false;
+      if (!stillCurrent(result.ok)) return false;
       if (!result.ok) setGridError(result.message);
       return result.ok;
     } catch (error) {
-      if (generation !== gridApplyGeneration.current) return false;
+      if (!stillCurrent(false)) return false;
       setGridError(error instanceof Error ? error.message : "Could not apply grid");
       return false;
     } finally {

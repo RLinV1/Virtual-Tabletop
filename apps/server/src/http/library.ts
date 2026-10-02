@@ -5,7 +5,6 @@ import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import {
   canRenderGrid,
-  DEFAULT_GRID,
   GmIdentifyRequest,
   LibraryPatchRequest,
   LibraryUploadFields,
@@ -77,7 +76,9 @@ export function registerLibraryRoutes(
         name: fields.data.name,
         width: fields.data.width,
         height: fields.data.height,
-        grid: fields.data.kind === "map" ? DEFAULT_GRID : null,
+        // Uploading an image does not establish its spacing. The setup editor saves
+        // an explicit grid, including when the GM accepts the default values (KAN-09).
+        grid: null,
         createdAt: new Date().toISOString(),
       };
       await store.createAsset(record);

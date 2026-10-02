@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { GM_TOKEN_HEADER, type GmRoomSummary, type LibraryAsset, type LibraryUsageResponse } from "@vtt/shared";
+import { DEFAULT_GRID, GM_TOKEN_HEADER, type GmRoomSummary, type LibraryAsset, type LibraryUsageResponse } from "@vtt/shared";
 import { newGuestToken, startServer, type TestClient } from "./helpers";
 
 let server: Awaited<ReturnType<typeof startServer>>;
@@ -125,11 +125,11 @@ describe("GM dashboard (gm-home)", () => {
 });
 
 describe("library upload and management (asset-library)", () => {
-  it("uploads a map with the default grid and a token with none", async () => {
+  it("uploads unconfigured maps and token art without grid metadata (KAN-09)", async () => {
     const gm = await newGm();
     const map = await uploadOk(gm, { kind: "map", name: "Goblin Cave" });
     expect(map).toMatchObject({ kind: "map", name: "Goblin Cave", width: 2048, height: 1536 });
-    expect(map.grid?.cellSize).toBe(70);
+    expect(map.grid).toBeNull();
     const token = await uploadOk(gm, { kind: "token", name: "Goblin", width: 256, height: 256 });
     expect(token.grid).toBeNull();
 
@@ -212,6 +212,17 @@ describe("editing a map's grid in the library (asset-library, FR-GM-04)", () => 
       body: JSON.stringify({ grid }),
     });
 
+  it("saves an explicit default grid while preserving original map dimensions (KAN-09)", async () => {
+    const gm = await newGm();
+    const map = await uploadOk(gm, { kind: "map", name: "Cave", width: 1025, height: 769 });
+    expect(map.grid).toBeNull();
+    const res = await patchGrid(gm, map.id, DEFAULT_GRID);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ id: map.id, width: 1025, height: 769, grid: DEFAULT_GRID });
+    const list = (await (await gmFetch(gm, "/api/library")).json()) as LibraryAsset[];
+    expect(list.find((a) => a.id === map.id)?.grid).toEqual(DEFAULT_GRID);
+  });
+
   it("rejects a grid too fine to draw on the map's stored size and keeps the saved grid", async () => {
     const gm = await newGm();
     const map = await uploadOk(gm, { kind: "map", name: "Vast", width: 4000, height: 3000 });
@@ -256,7 +267,7 @@ describe("in-use tracking (asset-library: Warn before deleting an asset in use)"
     await client.command({
       type: "scene.setMap",
       map: { url: mapAsset.url, width: mapAsset.width, height: mapAsset.height, assetId: mapAsset.id },
-      grid: mapAsset.grid!,
+      grid: mapAsset.grid ?? undefined,
     });
     expect((await usage(gm, mapAsset.id)).map((r) => r.name)).toEqual(["Goblin Cave"]);
 
@@ -291,7 +302,7 @@ describe("in-use tracking (asset-library: Warn before deleting an asset in use)"
     const placed = await client.command({
       type: "scene.setMap",
       map: { url: map.url, width: map.width, height: map.height, assetId: map.id },
-      grid: map.grid!,
+      grid: map.grid ?? undefined,
     });
     await alice.waitForSeq((placed as { seq: number }).seq);
 

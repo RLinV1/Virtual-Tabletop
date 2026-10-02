@@ -52,8 +52,9 @@ export function GmPanel({
         onSetMap={(map, grid, report) => runWith(report)(connection.command({ type: "scene.setMap", map, grid }))}
         onGridClose={onGridDraftCancel}
         gridApplying={gridApplying}
-        grid={(close) => (
+        grid={(close, setup) => (
           <GridForm
+            key={JSON.stringify([state.scene.map, state.scene.grid])}
             grid={state.scene.grid}
             map={state.scene.map}
             draft={gridDraft}
@@ -63,6 +64,8 @@ export function GmPanel({
             onApply={async (grid) => { if (await onGridApply(grid)) close(); }}
             applying={gridApplying}
             error={gridError}
+            cancelLabel={setup ? "Set up later" : "Cancel"}
+            allowUnchanged={setup}
           >
             {gmToken && state.scene.map?.assetId && (
               <SaveGridToLibrary gmToken={gmToken} assetId={state.scene.map.assetId} grid={state.scene.grid} />
@@ -109,12 +112,13 @@ function MapSection(props: {
   onGridClose: () => void;
   gridApplying: boolean;
   /** The grid form, shown in its own modal; `close` dismisses it after a successful apply. */
-  grid: (close: () => void) => ReactNode;
+  grid: (close: () => void, setup: boolean) => ReactNode;
 }) {
   const [busy, setBusy] = useState(false);
   const [picking, setPicking] = useState(false);
   const [pickError, setPickError] = useState<string | null>(null);
   const [gridOpen, setGridOpen] = useState(false);
+  const [setup, setSetup] = useState(false);
   const gridOpenRef = useRef(false);
   useEffect(() => { gridOpenRef.current = gridOpen; }, [gridOpen]);
   // A compact-layout switch can unmount the editor without a dialog close event.
@@ -133,7 +137,10 @@ function MapSection(props: {
     try {
       const { url } = await api.upload(file, props.token);
       const { width, height } = await imageSize(url);
-      await props.onSetMap({ url, width, height }, undefined, props.onError);
+      if (await props.onSetMap({ url, width, height }, undefined, props.onError)) {
+        setSetup(true);
+        setGridOpen(true);
+      }
     } catch (err) {
       props.onError(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -146,7 +153,13 @@ function MapSection(props: {
   const place = async (asset: LibraryAsset) => {
     const map = { url: asset.url, width: asset.width, height: asset.height, assetId: libraryAssetId(asset) };
     const grid = asset.grid ? normalizeLegacyGridForBoard(asset.grid, map) : undefined;
-    if (await props.onSetMap(map, grid, setPickError)) setPicking(false);
+    if (await props.onSetMap(map, grid, setPickError)) {
+      setPicking(false);
+      if (!asset.grid) {
+        setSetup(true);
+        setGridOpen(true);
+      }
+    }
   };
 
   return (
@@ -168,7 +181,10 @@ function MapSection(props: {
             From library
           </button>
         )}
-        <button type="button" className="secondary" data-tour="gm-grid" disabled={props.gridApplying} onClick={() => setGridOpen(true)}>
+        <button type="button" className="secondary" data-tour="gm-grid" disabled={props.gridApplying} onClick={() => {
+          setSetup(false);
+          setGridOpen(true);
+        }}>
           {props.gridApplying ? "Applying grid…" : "Adjust grid"}
         </button>
       </div>
@@ -185,8 +201,10 @@ function MapSection(props: {
           {pickError && <p role="alert" className="error">{pickError}</p>}
         </Modal>
       )}
-      <Modal open={gridOpen} title="Grid" className="grid-preview-modal" onClose={closeGrid}>
-        {props.grid(closeGrid)}
+      <Modal open={gridOpen} title={setup ? "Set up grid" : "Edit grid"} className="grid-editor-modal" onClose={() => {
+        if (!props.gridApplying) closeGrid();
+      }}>
+        {props.grid(closeGrid, setup)}
       </Modal>
     </PanelSection>
   );
