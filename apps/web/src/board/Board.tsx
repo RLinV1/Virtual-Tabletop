@@ -237,19 +237,15 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     viewRef.current?.update(state, you);
   }, [state, you]);
 
-  // Landing a roll releases its strike. Earlier ones whose dice were replaced mid-air are
-  // dropped, not played in a burst nobody would see.
+  // Landing a roll releases its own strike. Each roll is thrown on its own, so the others keep
+  // waiting for their dice, or for the fallback timer if a landing never reaches us.
   useEffect(() => {
     const waiting = waitingStrikes.current;
-    if (!landedRollId || !waiting.has(landedRollId)) return;
-    for (const [rollId, strike] of [...waiting]) {
-      waiting.delete(rollId);
-      window.clearTimeout(strike.timer);
-      if (rollId === landedRollId) {
-        viewRef.current?.playAttackEffect(strike.effect);
-        break;
-      }
-    }
+    const strike = landedRollId ? waiting.get(landedRollId) : undefined;
+    if (!landedRollId || !strike) return;
+    waiting.delete(landedRollId);
+    window.clearTimeout(strike.timer);
+    viewRef.current?.playAttackEffect(strike.effect);
   }, [landedRollId]);
 
   useEffect(() => {

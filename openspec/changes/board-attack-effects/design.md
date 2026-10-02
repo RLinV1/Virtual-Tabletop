@@ -37,7 +37,7 @@ See proposal.md — Why. `BoardView` (`apps/web/src/board/boardView.ts`) renders
 
 - [Continuous rendering drains battery with many conditioned tokens] → 30 fps cap, stops when tab hidden or reduced motion; spec change recorded in `client-render-performance`.
 - [An animation hints at a hidden token] → only filtered events and filtered state are used; effects.ts refuses null/absent/hidden sides; unit tests cover it; visibility-auditor reviews the diff.
-- [A long burst of rolls stacks effects] → cap concurrent attack effects at 8, oldest dropped; strikes waiting for their dice are capped at 8 too, and a landing plays only its own strike (older ones replaced mid-air are dropped, not replayed in a burst).
+- [A long burst of rolls stacks effects] → cap concurrent attack effects at 8, oldest dropped; strikes waiting for their dice are capped at 8 too (oldest dropped), and a landing releases only its own strike; each roll is thrown on its own, so the others keep waiting for their dice or the 5 s fallback.
 - [Undoing a ruling replays an effect] → the compensating `RollRuled` looks like any ruling to the client (players never see `ActionUndone`), so it plays the restored verdict's effect. Cosmetic; accepted.
 - [Prone tilt conflicts with token rotation] → tilt is applied on the art wrapper on top of `token.rotation`, not replacing it.
 
