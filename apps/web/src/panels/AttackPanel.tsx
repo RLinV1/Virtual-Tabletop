@@ -288,7 +288,7 @@ function AttackForm({
     const snapshot = connection.snapshot;
     const caughtUp = result.seq !== null && snapshot.seq >= result.seq;
     const now = snapshot.state?.tokens[roll.targetId];
-    if (caughtUp && now && shouldPingTarget(now, rollVisibility)) {
+    if (caughtUp && now && shouldPingTarget(now, rollVisibility, snapshot.state?.fog ?? {})) {
       onShowPing(now.position);
       connection.ephemeral({ type: "ping", at: now.position });
     }

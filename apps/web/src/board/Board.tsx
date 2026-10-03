@@ -67,7 +67,15 @@ const HINTS: Record<BoardTool["kind"], string> = {
   area: "Drag to size and aim · click to place the chosen size · hold Alt to place freely · everyone at the table sees areas",
   erase: "Click or drag over your marks and areas to erase them · Esc to stop",
   attack: "Click the token to attack · Esc or right-click to cancel",
+  fog: "",
 };
+
+/** Fog hints by mode (FR-GM-17). Players never get the Fog tool. */
+const FOG_HINTS = {
+  rect: "Drag a rectangle to hide it from players · Esc to stop",
+  polygon: "Click corners · click the first corner or press Enter to close · Backspace removes a corner · Esc cancels",
+  reveal: "Click fog to remove it and show players what is under it · undo from the activity log",
+} as const;
 
 /** With GM only ticked, the areas are the GM's alone; saying "everyone sees them" would mislead. */
 const GM_ONLY_AREA_HINT = "Drag to size and aim · click to place the chosen size · GM only: players won't see these areas";
@@ -169,6 +177,16 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       removeTemplate: async (templateId) => {
         const result = await connection.command({ type: "template.remove", templateId });
         if (!result.ok) console.warn("Area removal rejected:", result.message);
+        return result.ok;
+      },
+      addFog: async (region) => {
+        const result = await connection.command({ type: "fog.add", region });
+        if (!result.ok) console.warn("Fog rejected:", result.message);
+        return result.ok;
+      },
+      removeFog: async (regionId) => {
+        const result = await connection.command({ type: "fog.remove", regionId });
+        if (!result.ok) console.warn("Fog removal rejected:", result.message);
         return result.ok;
       },
       placeToken: (at) => void placeRef.current(at),
@@ -283,7 +301,12 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   useEffect(() => {
     if (tool.kind === "select") return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || e.defaultPrevented || isTyping(e.target) || document.querySelector("dialog[open]")) return;
+      if (e.defaultPrevented || isTyping(e.target) || document.querySelector("dialog[open]")) return;
+      // The Fog polygon takes Enter to close and Backspace to drop a corner; Escape abandons it first.
+      if (toolRef.current.kind === "fog" && e.key === "Enter" && viewRef.current?.closeFogPolygon()) return e.preventDefault();
+      if (toolRef.current.kind === "fog" && e.key === "Backspace" && viewRef.current?.undoFogPoint()) return e.preventDefault();
+      if (e.key !== "Escape") return;
+      if (viewRef.current?.cancelFogPolygon()) return;
       if (toolRef.current.kind === "attack") endAttack();
       else setTool({ kind: "select" });
     };
@@ -399,8 +422,9 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
           </div>
         </div>
       )}
-      <p className="board-hint">
-        {placing ? PLACING_HINT : tool.kind === "area" && tool.gmOnly ? GM_ONLY_AREA_HINT : HINTS[tool.kind]}
+      {/* Announced when the tool changes; while placing, the placement bar already speaks. */}
+      <p className="board-hint" aria-live={placing ? "off" : "polite"}>
+        {placing ? PLACING_HINT : tool.kind === "area" && tool.gmOnly ? GM_ONLY_AREA_HINT : tool.kind === "fog" ? FOG_HINTS[tool.mode] : HINTS[tool.kind]}
       </p>
     </div>
   );
