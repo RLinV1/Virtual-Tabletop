@@ -2,11 +2,12 @@ import type { Command, DepartureAction } from "./commands";
 import { MIN_HP } from "./conditions";
 import { formatExpression, parseDiceExpression, rollDice, type AttackContext } from "./dice";
 import type { DomainEvent } from "./events";
-import { isSnapped, resizedTokenCenter, snapTokenCenter, type GridSpec, type Point } from "./geometry";
+import { isSnapped, polygonArea, resizedTokenCenter, snapTokenCenter, type GridSpec, type Point } from "./geometry";
 import { canRenderGrid } from "./gridRenderLimit";
 import type { SessionEndReason } from "./protocol";
 import { inverseOf, undoableAction, undoConflict } from "./undo";
-import { MAX_AREA_TEMPLATES, MAX_PLAYERS_PER_ROOM, type AreaTemplate, type DiceLookOnTable, type Initiative, type Participant, type RoomState, type Token } from "./state";
+import { concealedFrom, fogConcealsSide, isInFog, templateConcealedFrom } from "./visibility";
+import { MAX_AREA_TEMPLATES, MAX_FOG_REGIONS, MAX_PLAYERS_PER_ROOM, type AreaTemplate, type DiceLookOnTable, type Initiative, type Participant, type RoomState, type Token } from "./state";
 
 export type RejectionCode = "forbidden" | "not_found" | "invalid";
 
@@ -146,9 +147,9 @@ export function decide(
 
     case "token.move": {
       const token = state.tokens[command.tokenId];
-      // A player asking about a token they can't see gets the same answer as a missing one,
-      // so rejections don't leak the existence of hidden tokens (FR-GM-23).
-      if (!token || (token.hidden && !can.administer(actor))) return notFound("token");
+      // A player asking about a token they can't see (hidden, or under fog) gets the same answer
+      // as a missing one, so rejections don't leak that it exists (FR-GM-23, ADR 0016).
+      if (!token || concealedFrom(state.fog, token, actor)) return notFound("token");
       if (!can.moveToken(actor, token)) return forbidden();
       return accept({
         type: "TokenMoved",
@@ -160,7 +161,7 @@ export function decide(
 
     case "token.configure": {
       const token = state.tokens[command.tokenId];
-      if (!token || (token.hidden && !can.administer(actor))) return notFound("token");
+      if (!token || concealedFrom(state.fog, token, actor)) return notFound("token");
       if (!can.editToken(actor, token)) return forbidden();
       const changes = command.changes;
       const gmFields = changes.name !== undefined || changes.position !== undefined || changes.size !== undefined ||
@@ -188,20 +189,26 @@ export function decide(
       const name = changes.name === undefined ? token.name : uniqueTokenName(state, changes.name, token.id);
       const size = changes.size ?? token.size;
       const rotation = changes.rotation === undefined ? token.rotation : normalizeRotation(changes.rotation);
+      const position = changes.position ?? resizedPosition(state, token, size);
+      const moved: DomainEvent | null = position.x !== token.position.x || position.y !== token.position.y
+        ? { type: "TokenMoved", tokenId: token.id, from: token.position, to: position }
+        : null;
+      // Fog follows the same rule as hiding (ADR 0016): into fog first, out of fog last.
+      const fogged = (p: Point) => isInFog(state.fog, p);
+      const intoFog = moved !== null && fogged(position) && !fogged(token.position);
+      const outOfFog = moved !== null && !fogged(position) && fogged(token.position);
       const events: DomainEvent[] = [];
       // Hide before any secret edit is broadcast; reveal only after every edit is applied.
       const hiddenEvent: DomainEvent | null = changes.hidden !== undefined && changes.hidden !== token.hidden
         ? { type: "TokenHiddenSet", tokenId: token.id, hidden: changes.hidden, previous: token.hidden }
         : null;
       if (hiddenEvent && changes.hidden) events.push(hiddenEvent);
+      if (moved && intoFog) events.push(moved);
       if (name !== token.name || size !== token.size || rotation !== token.rotation) {
         events.push({ type: "TokenAppearanceSet", tokenId: token.id, name, size, rotation,
           previous: { name: token.name, size: token.size, rotation: token.rotation } });
       }
-      const position = changes.position ?? resizedPosition(state, token, size);
-      if (position.x !== token.position.x || position.y !== token.position.y) {
-        events.push({ type: "TokenMoved", tokenId: token.id, from: token.position, to: position });
-      }
+      if (moved && !intoFog && !outOfFog) events.push(moved);
       if (imageUrl !== undefined && assetId !== undefined &&
         (imageUrl !== token.imageUrl || assetId !== (token.assetId ?? null))) {
         events.push({ type: "TokenImageSet", tokenId: token.id, imageUrl, assetId,
@@ -222,6 +229,7 @@ export function decide(
           events.push({ type: "TokenOwnersSet", tokenId: token.id, ownerIds, previous: token.ownerIds });
         }
       }
+      if (moved && outOfFog) events.push(moved);
       if (hiddenEvent && !changes.hidden) events.push(hiddenEvent);
       return accept(...events);
     }
@@ -235,17 +243,19 @@ export function decide(
       const rotation = normalizeRotation(command.rotation);
       if (name === token.name && command.size === token.size && rotation === token.rotation) return { ok: true, events: [] };
       const position = resizedPosition(state, token, command.size);
-      return accept(
-        {
-          type: "TokenAppearanceSet",
-          tokenId: token.id,
-          name,
-          size: command.size,
-          rotation,
-          previous: { name: token.name, size: token.size, rotation: token.rotation },
-        },
-        ...(position === token.position ? [] : [{ type: "TokenMoved" as const, tokenId: token.id, from: token.position, to: position }]),
-      );
+      const appearance: DomainEvent = {
+        type: "TokenAppearanceSet",
+        tokenId: token.id,
+        name,
+        size: command.size,
+        rotation,
+        previous: { name: token.name, size: token.size, rotation: token.rotation },
+      };
+      if (position === token.position) return accept(appearance);
+      const moved: DomainEvent = { type: "TokenMoved", tokenId: token.id, from: token.position, to: position };
+      // Into fog: move first, so the new name is never sent to players (ADR 0016).
+      const intoFog = isInFog(state.fog, position) && !isInFog(state.fog, token.position);
+      return intoFog ? accept(moved, appearance) : accept(appearance, moved);
     }
 
     case "token.delete": {
@@ -284,7 +294,7 @@ export function decide(
 
     case "token.setStats": {
       const token = state.tokens[command.tokenId];
-      if (!token || (token.hidden && !can.administer(actor))) return notFound("token");
+      if (!token || concealedFrom(state.fog, token, actor)) return notFound("token");
       if (!can.editToken(actor, token)) return forbidden();
       if (command.stats.hp !== null && command.stats.maxHp !== null && command.stats.hp > command.stats.maxHp) {
         return reject("invalid", "Current HP cannot exceed maximum HP");
@@ -315,7 +325,7 @@ export function decide(
 
     case "token.setConditions": {
       const token = state.tokens[command.tokenId];
-      if (!token || (token.hidden && !can.administer(actor))) return notFound("token");
+      if (!token || concealedFrom(state.fog, token, actor)) return notFound("token");
       if (!can.editToken(actor, token)) return forbidden();
       return accept({
         type: "TokenConditionsSet",
@@ -366,7 +376,7 @@ export function decide(
         // Authorization first; a token the actor can't see is answered as a missing one (ADR 0010).
         const visible = (id: string) => {
           const token = state.tokens[id];
-          return token && (!token.hidden || can.administer(actor)) ? token : null;
+          return token && !concealedFrom(state.fog, token, actor) ? token : null;
         };
         const attacker = visible(command.attack.actorTokenId);
         if (!attacker) return notFound("token");
@@ -374,7 +384,8 @@ export function decide(
         const target = visible(command.attack.targetTokenId);
         if (!target) return notFound("token");
         if (target.id === attacker.id) return reject("invalid", "A token can't attack itself");
-        const side = (t: Token) => ({ tokenId: t.id, name: t.name, hidden: t.hidden });
+        // An unowned token under fog is concealed on the roll for good, like a hidden one (ADR 0016).
+        const side = (t: Token) => ({ tokenId: t.id, name: t.name, hidden: t.hidden || fogConcealsSide(state, t) });
         attack = { actor: side(attacker), target: side(target), label: command.attack.label || null, kind: command.attack.kind };
       }
       if (command.visibility === "gm" && !can.rollHidden(actor)) return forbidden();
@@ -452,10 +463,36 @@ export function decide(
 
     case "template.remove": {
       const template = state.templates[command.templateId];
-      // A GM-only template answers a player exactly like a missing one (FR-GM-23).
-      if (!template || (template.gmOnly && !can.administer(actor))) return notFound("template");
+      // A template the player can't see (GM-only, or someone else's under fog) answers like a missing one (FR-GM-23).
+      if (!template || templateConcealedFrom(state.fog, template, actor)) return notFound("template");
       if (!can.removeTemplate(actor, template)) return forbidden();
       return accept({ type: "TemplateRemoved", template });
+    }
+
+    case "fog.add": {
+      if (!can.administer(actor)) return forbidden();
+      if (Object.keys(state.fog).length >= MAX_FOG_REGIONS) {
+        return reject("invalid", `A room can hold at most ${MAX_FOG_REGIONS} fog regions. Remove some first.`);
+      }
+      const { region } = command;
+      const points: Point[] = region.shape === "rect"
+        ? [
+            { x: Math.min(region.from.x, region.to.x), y: Math.min(region.from.y, region.to.y) },
+            { x: Math.max(region.from.x, region.to.x), y: Math.min(region.from.y, region.to.y) },
+            { x: Math.max(region.from.x, region.to.x), y: Math.max(region.from.y, region.to.y) },
+            { x: Math.min(region.from.x, region.to.x), y: Math.max(region.from.y, region.to.y) },
+          ]
+        : region.points;
+      // A line or a point conceals nothing and can't be clicked to remove; refuse it.
+      if (Math.abs(polygonArea(points)) < 1) return reject("invalid", "A fog region needs some area.");
+      return accept({ type: "FogAdded", region: { id: ctx.newId(), shape: region.shape, points } });
+    }
+
+    case "fog.remove": {
+      if (!can.administer(actor)) return forbidden();
+      const region = state.fog[command.regionId];
+      if (!region) return notFound("fog region");
+      return accept({ type: "FogRemoved", region });
     }
 
     case "participant.rename": {

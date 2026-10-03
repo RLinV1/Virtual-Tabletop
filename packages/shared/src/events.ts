@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ConditionId, TokenStats } from "./conditions";
 import { DiceRoll, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
-import { AreaTemplate, ChatMessage, DiceLookOnTable, Id, Initiative, MapImage, Participant, Token } from "./state";
+import { AreaTemplate, ChatMessage, DiceLookOnTable, FogRegion, Id, Initiative, MapImage, Participant, Token } from "./state";
 
 /**
  * Events are FACTS the server has committed. They are append-only and never edited.
@@ -175,6 +175,16 @@ export const DomainEvent = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("TemplateRemoved"),
     template: AreaTemplate,
+  }),
+  /** The GM fogged a region of the map (FR-GM-17, ADR 0016). */
+  z.object({
+    type: z.literal("FogAdded"),
+    region: FogRegion,
+  }),
+  /** Carries the whole region as it was, so undo can restore it (invariant 6). */
+  z.object({
+    type: z.literal("FogRemoved"),
+    region: FogRegion,
   }),
   /**
    * The GM undid one earlier action (FR-REC-02, ADR 0013). Comes last in its batch, after the

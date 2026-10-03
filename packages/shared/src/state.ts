@@ -129,6 +129,27 @@ export const AreaTemplate = z.object({
 });
 export type AreaTemplate = z.infer<typeof AreaTemplate>;
 
+/** How a fog region was drawn (FR-GM-17, ADR 0016). Both are stored as polygons. */
+export const FogShape = z.enum(["rect", "polygon"]);
+export type FogShape = z.infer<typeof FogShape>;
+
+/** Most fog regions a room holds at once, so one GM can't grow state without bound. */
+export const MAX_FOG_REGIONS = 100;
+/** Most corners one fog polygon may have. */
+export const MAX_FOG_POINTS = 64;
+
+/**
+ * A fogged region of the map (FR-GM-17, ADR 0016). `points` are board coordinates (invariant 8);
+ * a rectangle is stored as its four corners, so every reader handles one geometry. Tokens and
+ * templates under it are withheld from players (`concealedFrom` in visibility.ts).
+ */
+export const FogRegion = z.object({
+  id: Id,
+  shape: FogShape,
+  points: z.array(Point).min(3).max(MAX_FOG_POINTS),
+});
+export type FogRegion = z.infer<typeof FogRegion>;
+
 /**
  * The authoritative state of one room. Produced only by folding committed events
  * through `reduce` — never mutated directly.
@@ -187,6 +208,8 @@ export interface RoomState {
   templates: Record<Id, AreaTemplate>;
   /** Most recent chat messages, oldest first, public to the whole room (KAN-75, ADR 0015). Capped at CHAT_LOG_LIMIT. */
   chat: ChatMessage[];
+  /** Fog regions, in the order they were added (FR-GM-17, ADR 0016). Sent to players: they are the mask. */
+  fog: Record<Id, FogRegion>;
   /**
    * Recent undoable actions, oldest first (FR-REC-02, ADR 0013). Derived by `reduce` from
    * committed events and their `commandId`s; GM-only (players always get an empty list).
@@ -205,6 +228,7 @@ export function emptyRoomState(roomId: Id): RoomState {
     rolls: [],
     templates: {},
     chat: [],
+    fog: {},
     undo: [],
   };
 }

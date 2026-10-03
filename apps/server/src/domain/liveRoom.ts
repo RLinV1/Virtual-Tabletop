@@ -1,6 +1,7 @@
 import { randomInt, randomUUID } from "node:crypto";
 import {
   can,
+  concealedFrom,
   decide,
   decideJoin,
   emptyRoomState,
@@ -274,11 +275,16 @@ export class LiveRoom {
     }
     // A dice drop only makes sense on the map: one off it, or with no map, is a forged payload.
     if (payload.type === "diceDrop" && !onMap(this.state.scene.map, payload.from, payload.to)) return;
+    // A ping points at the map: one off it, or with no map yet, has nothing to point at (KAN-34).
+    if (payload.type === "ping" && !onMap(this.state.scene.map, payload.at)) return;
     for (const client of this.clients) {
       if (client === from) continue;
       const viewer = this.state.participants[client.participantId];
       if (!viewer || !isActive(viewer)) continue;
-      if (token?.hidden && viewer.role !== "gm") continue;
+      // A token the viewer may not see, or one dragged into fog they don't own, sends them nothing:
+      // the preview point would trace it through the concealed area (FR-GM-17, ADR 0016).
+      if (token && concealedFrom(this.state.fog, token, viewer)) continue;
+      if (token && payload.type === "tokenDragPreview" && concealedFrom(this.state.fog, { ...token, position: payload.at }, viewer)) continue;
       // A dice drop is one message per throw, not pointer chatter, and a lost one shows the throw
       // in the wrong place: it is delivered reliably, still unsequenced (ADR 0014).
       const deliver = payload.type === "diceDrop" ? client.send : (client.sendVolatile ?? client.send);

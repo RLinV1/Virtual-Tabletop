@@ -6,6 +6,7 @@ import { useAccount } from "../account/accountStore";
 import { imageSize } from "../net/imageFile";
 import type { CommandResult, RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
+import { FogPanel } from "../panels/FogPanel";
 import { PanelSection } from "../ui/PanelSection";
 import type { GridDraft } from "./gridDraft";
 import { GridForm } from "./GridForm";
@@ -26,7 +27,7 @@ interface Props {
   onReviewDeparture: (participantId: string) => void;
 }
 
-/** The GM's administration section: departed players to resolve, then map and grid setup. */
+/** The GM's administration section: departed players to resolve, map and grid setup, then fog. */
 export function GmPanel({
   connection, state, token, onReviewDeparture,
   gridDraft, hasGridDraft, onGridDraftChange, onGridDraftCancel, onGridApply, gridApplying, gridError,
@@ -73,6 +74,7 @@ export function GmPanel({
           </GridForm>
         )}
       />
+      <FogPanel connection={connection} state={state} />
     </>
   );
 }

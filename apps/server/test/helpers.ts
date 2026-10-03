@@ -188,6 +188,7 @@ export class TestClient {
   readonly rawLog: string[] = [];
   private inbox: ServerMessage[] = [];
   private waiters: Array<() => void> = [];
+  private listeners = new Set<(msg: ServerMessage) => void>();
   private nextId = 0;
 
   /** Resolves with Socket.IO's reason once this client is disconnected, by either side. */
@@ -197,6 +198,7 @@ export class TestClient {
     this.disconnected = new Promise((resolve) => socket.once("disconnect", (reason) => resolve(reason)));
     socket.on(SOCKET_EVENTS.event, (msg: ServerMessage) => {
       this.rawLog.push(JSON.stringify(msg));
+      this.listeners.forEach((fn) => fn(msg));
       this.apply(msg);
       this.inbox.push(msg);
       this.waiters.splice(0).forEach((w) => w());
@@ -220,6 +222,12 @@ export class TestClient {
     const reply = await client.waitFor((m) => m.type === "welcome" || m.type === "error");
     if (reply.type === "error") throw new Error(`${reply.code}: ${reply.message}`);
     return client;
+  }
+
+  /** Called synchronously as each message arrives, before it is queued; for timing (KAN-39). */
+  onMessage(fn: (msg: ServerMessage) => void) {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
   }
 
   send(msg: ClientMessageInput) {
