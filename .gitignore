@@ -15,3 +15,6 @@ apps/web/scripts/out/
 
 # Playwright MCP snapshots and screenshots
 .playwright-mcp/
+
+# Transient lock left by `openspec archive`; never commit it.
+openspec/changes/archive/.openspec-archive.lock

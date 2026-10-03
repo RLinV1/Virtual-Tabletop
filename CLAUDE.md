@@ -20,6 +20,7 @@ npm test            # vitest: shared unit tests + server multi-client integratio
 npm run typecheck
 npm run lint
 npm test --workspace=@vtt/server -- -t "reconnect"   # run one test by name
+npm run test:bench --workspace=@vtt/server         # ephemeral latency benchmark alone (runs last in npm test)
 ```
 Run `npm run lint && npm run typecheck && npm test` before declaring any task done.
 

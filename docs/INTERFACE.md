@@ -23,9 +23,9 @@ the application is beyond one room screen.
 Two corrections to what this section used to claim. The boards it referenced —
 `room-setup.png`, `at-the-table.png`, `between-sessions.png` — **were never produced**;
 `assets/ui-reference/` held only a README describing them, and has since been removed. And the
-palette that README called "already applied" (deep slate-teal ground, parchment text, gold accent) is **not**
-what ships: `apps/web/src/styles.css` uses a neutral charcoal ground with a blue accent.
-The documented direction was abandoned silently. §11.9 picks one.
+palette that README called "already applied" (deep slate-teal ground, parchment text, gold accent) was
+never what shipped: `apps/web/src/styles.css` used a neutral charcoal ground with a blue accent.
+§11.9 now records the palette that replaced both, a slate ground with a single rust accent (KAN-60).
 
 ## 11.2 Page inventory
 
@@ -237,24 +237,33 @@ page wants space.
 
 ## 11.9 Design system
 
-**Direction.** Resolve the palette split in favour of the team's original intent: a deep,
-slightly cool ground with a **single warm accent**. That reads as a table lit from above,
-which is what the product is, and it avoids the blue-on-charcoal default that every
-developer tool already uses. The shipped blue accent should go.
+**Direction.** Slate and rust: a wet-erase battle mat under a marker, not a SaaS dashboard.
+One cool neutral family for every surface, and a **single warm accent** that marks the one
+thing to act on. It avoids the blue-on-charcoal default that every developer tool already
+uses. `apps/web/src/styles.css` `:root` is the source of truth; this table mirrors it.
 
 | Token | Value | Use |
 | --- | --- | --- |
-| `--ground` | `#0f1418` | Page and board surround. Never pure black |
-| `--panel` | `#161d22` | Panels, overlays |
-| `--hairline` | `#24323a` | 1px separators — the primary grouping device |
-| `--text` | `#e8e2d4` | Body |
-| `--muted` | `#8a9aa3` | Secondary, labels |
-| `--accent` | `#d6a355` | The single accent: primary action, active turn |
-| `--ok` `--warn` `--danger` | `#4caf7d` `#d29922` `#c4564f` | Status only, never decoration |
+| `--bg` | `#121417` | Page and board surround. Never pure black |
+| `--panel` | `#181b20` | Panels |
+| `--raised` | `#20242a` | Overlays, menus, raised controls |
+| `--field` | `#0e1013` | Input wells |
+| `--border` | `#272c33` | 1px decorative separators — the primary grouping device |
+| `--border-strong` | `#6a7280` | Control boundaries; at least 3:1 on every surface (WCAG 1.4.11) |
+| `--text` | `#e3e6ea` | Body |
+| `--muted` | `#8e96a2` | Secondary, labels |
+| `--accent` | `#b9582f` | The single accent (rust): primary action, active turn |
+| `--accent-ink` | `#fff8f3` | Text on accent fills |
+| `--focus` | `#e08a62` | Focus ring, a lighter rust that shows on rust fills too |
+| `--ok` `--warn` `--danger` | `#6fbf73` `#d9a441` `#e0685c` | Status only, never decoration |
 
-One accent, under 80% saturation. Status colours are never the only signal — the active
-turn carries a glyph and position as well as gold, conditions carry a shape and an
-abbreviation as well as a fill (FR-TAC-08).
+One accent, under 80% saturation (rust is 59%). Status colours are never the only signal —
+the active turn carries a glyph and position as well as rust, conditions carry a shape and
+an abbreviation as well as a fill (FR-TAC-08).
+
+Measured contrast on `--panel`: text 13.8:1, muted 5.8:1, danger 5.2:1, focus 6.6:1,
+border-strong 3.6:1, border 1.2:1 (decorative only). Accent ink on accent is 4.4:1, just under the WCAG AA 4.5:1 for normal
+text; darkening `--accent` slightly would clear it (follow-up).
 
 **Typography.** A geometric grotesk for the interface and a true monospace for anything
 numeric — initiative scores, hit points, dice results, seq numbers all need tabular figures
