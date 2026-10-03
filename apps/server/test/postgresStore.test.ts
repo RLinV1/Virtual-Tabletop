@@ -97,7 +97,7 @@ describe.skipIf(!store)("PostgresRoomStore (docs/adr/0001-event-model.md)", () =
 });
 
 /**
- * The insert-only guard lives in the database (migration 0006), so these go around the store
+ * The insert-only guard lives in the database (migration 0007), so these go around the store
  * with a raw client, as a buggy query or a manual psql session would (KAN-42, FR-REC-03).
  */
 describe.skipIf(!store)("event log is insert-only (KAN-42, FR-REC-03)", () => {

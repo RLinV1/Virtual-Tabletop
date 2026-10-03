@@ -215,7 +215,7 @@ export class PostgresRoomStore implements RoomStore {
     const deleted = await this.prisma.$transaction(async (tx) => {
       if ((await tx.room.count({ where: { id: roomId } })) === 0) return null;
       // The only path allowed to remove events, and only this room's: the insert-only trigger
-      // checks this transaction-local setting (migration 0006, KAN-42).
+      // checks this transaction-local setting (migration 0007, KAN-42).
       await tx.$executeRaw`SELECT set_config('vtt.room_delete', ${roomId}, true)`;
       const uploads = await tx.roomUpload.findMany({ where: { roomId }, select: { objectKey: true } });
       await tx.assetRef.deleteMany({ where: { roomId } });

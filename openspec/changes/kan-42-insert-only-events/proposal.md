@@ -10,7 +10,7 @@ The rule has one approved exception. ADR 0009 lets room deletion erase a room's 
 
 ## What Changes
 
-- New Prisma migration `0006_events_insert_only` adding Postgres triggers on `events`:
+- New Prisma migration `0007_events_insert_only` adding Postgres triggers on `events`:
   - `BEFORE UPDATE` (row level): always raises.
   - `BEFORE DELETE` (row level): raises unless the current transaction has set `vtt.room_delete` to the id of the row's room.
   - `BEFORE TRUNCATE` (statement level): always raises.
@@ -31,7 +31,7 @@ None.
 
 ## Impact
 
-- `apps/server/prisma/migrations/0006_events_insert_only/migration.sql` (new).
+- `apps/server/prisma/migrations/0007_events_insert_only/migration.sql` (new).
 - `apps/server/src/store/postgresRoomStore.ts`: one `set_config` call in `deleteRoom`.
 - `apps/server/test/postgresStore.test.ts` and `roomDeletionStore.test.ts`: new cases (run when `DATABASE_URL` is set).
 - `docs/adr/0009-room-deletion.md`, `apps/server/prisma/schema.prisma` comments.

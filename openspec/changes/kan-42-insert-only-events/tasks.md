@@ -1,6 +1,6 @@
 ## 1. Migration
 
-- [x] 1.1 Add `apps/server/prisma/migrations/0006_events_insert_only/migration.sql` with the guard function and the `BEFORE UPDATE`, `BEFORE DELETE` (row) and `BEFORE TRUNCATE` (statement) triggers on `events`; verify `npx prisma migrate deploy` applies it cleanly against `docker compose up -d postgres`
+- [x] 1.1 Add `apps/server/prisma/migrations/0007_events_insert_only/migration.sql` with the guard function and the `BEFORE UPDATE`, `BEFORE DELETE` (row) and `BEFORE TRUNCATE` (statement) triggers on `events`; verify `npx prisma migrate deploy` applies it cleanly against `docker compose up -d postgres`
 - [x] 1.2 Verify by hand in `psql` that `UPDATE events SET type = type`, `DELETE FROM events` and `TRUNCATE events` each fail with the FR-REC-03 message
 
 ## 2. Store
@@ -18,4 +18,4 @@
 - [x] 4.1 Add an "Enforcement" paragraph to `docs/adr/0009-room-deletion.md` and point the `schema.prisma` header comment to the trigger; verify the links resolve
 - [ ] 4.2 Run `npm run lint && npm run typecheck && npm test` without and with `DATABASE_URL`; verify all pass
 
-> Verification note: Docker was not available on the dev machine, so 1.1, 1.2, 2.1 and 3.1–3.2 were verified by applying migrations 0001–0006 to PGlite (Postgres in WebAssembly) and running the same UPDATE / DELETE / TRUNCATE / cross-room / room-deletion statements. The Postgres test cases are in the suite and run whenever `DATABASE_URL` is set; CI does not start Postgres today. 4.2 stays open until the suite has run once with `DATABASE_URL` against a real Postgres.
+> Verification note: Docker was not available on the dev machine, so 1.1, 1.2, 2.1 and 3.1–3.2 were verified by applying migrations 0001–0007 to PGlite (Postgres in WebAssembly) and running the same UPDATE / DELETE / TRUNCATE / cross-room / room-deletion statements. The Postgres test cases are in the suite and run whenever `DATABASE_URL` is set; CI does not start Postgres today. 4.2 stays open until the suite has run once with `DATABASE_URL` against a real Postgres.

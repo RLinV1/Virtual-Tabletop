@@ -23,7 +23,7 @@ Invariant 5 holds for every room that exists. **Deleting a room erases its whole
 
 ### Enforcement (KAN-42)
 
-Migration `0006_events_insert_only` adds triggers on `events`: every `UPDATE` and `TRUNCATE` fails, and a `DELETE` fails unless the same transaction has set `vtt.room_delete` to that row's room id. `PostgresRoomStore.deleteRoom` sets it with `set_config(..., true)` as the first statement of its transaction, so the opt-in covers one room and ends with the transaction. The rule holds for any client of the database, not only this server; a migration that truly must rewrite events drops and recreates the triggers inside itself.
+Migration `0007_events_insert_only` adds triggers on `events`: every `UPDATE` and `TRUNCATE` fails, and a `DELETE` fails unless the same transaction has set `vtt.room_delete` to that row's room id. `PostgresRoomStore.deleteRoom` sets it with `set_config(..., true)` as the first statement of its transaction, so the opt-in covers one room and ends with the transaction. The rule holds for any client of the database, not only this server; a migration that truly must rewrite events drops and recreates the triggers inside itself.
 
 ### Who may delete
 
