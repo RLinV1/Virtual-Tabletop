@@ -447,6 +447,7 @@ describe("target pings (KAN-34, FR-TAC-05)", () => {
     expect(await bob.waitFor(isEphemeral)).toEqual({ type: "ephemeral", from: alice.participantId, payload: ping(100) });
     bob.send({ type: "ephemeral", payload: ping(200) });
     expect((await alice.waitFor(isEphemeral)).from).toBe(bob.participantId);
+    await expect(bob.waitFor(isEphemeral, 200)).rejects.toThrow(/Timed out/);
   });
 
   it("is never persisted: no seq, nothing in a fresh snapshot or the activity log", async () => {
@@ -472,6 +473,9 @@ describe("target pings (KAN-34, FR-TAC-05)", () => {
     const { gm, alice, bob } = await setup();
     // No map yet: the ping goes nowhere.
     alice.send({ type: "ephemeral", payload: ping(10) });
+    // Barrier: Alice's socket is read in order, so once her next command is answered the
+    // server has already handled (and dropped) that ping, before the map exists.
+    await alice.command({ type: "token.move", tokenId: "00000000-0000-4000-8000-000000000000", to: { x: 1, y: 1 } });
     await gm.command({ type: "scene.setMap", map: { url: "/uploads/m.png", width: 1000, height: 800 } });
     await bob.waitForSeq(gm.seq);
     // Off the map: dropped too. The valid ping after it is the first one anyone receives.
