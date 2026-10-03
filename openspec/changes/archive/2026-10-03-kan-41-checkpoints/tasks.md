@@ -1,6 +1,6 @@
 ## 1. ADR
 
-- [ ] 1.1 Write `docs/adr/0019-checkpoints.md` covering decisions 1–5 of design.md, amend ADR 0001's checkpoint line to point to it, and get Real-Time Architecture owner sign-off; verify the ADR is linked from the change
+- [x] 1.1 Write `docs/adr/0019-checkpoints.md` covering decisions 1–5 of design.md, amend ADR 0001's checkpoint line to point to it, and get Real-Time Architecture owner sign-off; verify the ADR is linked from the change
 
 ## 2. Shared contract
 
@@ -26,4 +26,4 @@
 - [x] 5.1 In Playwright with a GM and a player context at desktop and mobile widths: save "Start", move and hide tokens, add a token, restore "Start", and confirm both boards match; then undo the restore from the activity log; take screenshots
 - [x] 5.2 Time the success metric in Playwright: from an accidental token reveal to the table restored (via undo, and via checkpoint), and record both durations (target under 15 s) on the KAN-41 ticket
 
-> 5.2 result (Playwright, GM + player, 2026-10-03): after an accidental token move, Restore → confirm put the player's board back in 0.6 s from the first click (2 clicks with the Manage tab open); undoing the restore from the activity log took 0.4 s (2 clicks). Both are system time; the human part is finding the button. 1.1 stays open until the Real-Time Architecture owner accepts ADR 0019.
+> 5.2 result (Playwright, GM + player, 2026-10-03): after an accidental token move, Restore → confirm put the player's board back in 0.6 s from the first click (2 clicks with the Manage tab open); undoing the restore from the activity log took 0.4 s (2 clicks). Both are system time; the human part is finding the button. ADR 0019 accepted by the Real-Time Architecture owner on 2026-10-03.
