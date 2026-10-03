@@ -24,8 +24,17 @@ export function concealedFrom(
   return !token.ownerIds.includes(viewer.id) && isInFog(fog, token.position);
 }
 
+/**
+ * Whether fog conceals a token's side on attack rolls for good (ADR 0016): an unowned token under
+ * fog. Owned tokens are the party's; players saw their names already, so their sides follow the
+ * token's current visibility instead.
+ */
+export function fogConcealsSide(state: Pick<RoomState, "fog">, token: Pick<Token, "ownerIds" | "position">): boolean {
+  return token.ownerIds.length === 0 && isInFog(state.fog, token.position);
+}
+
 /** Whether `viewer` may not see a template: GM-only, or placed by someone else under fog (ADR 0007, ADR 0016). */
-function templateConcealedFrom(fog: RoomState["fog"], template: AreaTemplate, viewer: Participant): boolean {
+export function templateConcealedFrom(fog: RoomState["fog"], template: AreaTemplate, viewer: Participant): boolean {
   if (viewer.role === "gm") return false;
   if (template.gmOnly) return true;
   return template.ownerId !== viewer.id && isInFog(fog, template.origin);
@@ -138,8 +147,11 @@ export function filterEventForViewer(
       // The order may name hidden tokens, so the player gets a filtered snapshot instead
       // of the raw event — same reasoning as a reveal.
       return { kind: "resync" };
-    case "InitiativeEnded":
-      return pass;
+    case "InitiativeEnded": {
+      // `previous` is the GM's whole order: strip concealed tokens from it, as a snapshot would.
+      const visible = filterStateForViewer(before, viewer).tokens;
+      return { kind: "event", committed: { ...withoutCommandId, event: { ...e, previous: initiativeForPlayer(e.previous, visible) } } };
+    }
     case "TemplatePlaced":
     case "TemplateRemoved":
       // gmOnly never changes after placement, and fog changes only through FogAdded/FogRemoved,

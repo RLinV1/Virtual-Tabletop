@@ -826,13 +826,12 @@ export class BoardView {
       const region = fogRegionAt(visible, at);
       if (!region) return;
       this.removingFog.add(region.id);
-      const restore = () => {
+      // Cleared on any answer: an undo can bring the same id back, and it must be drawn again.
+      const settle = () => {
         this.removingFog.delete(region.id);
         this.redrawMarks();
       };
-      this.callbacks.removeFog(region.id).then((ok) => {
-        if (!ok) restore();
-      }, restore);
+      this.callbacks.removeFog(region.id).then(settle, settle);
       this.redrawMarks();
       return;
     }

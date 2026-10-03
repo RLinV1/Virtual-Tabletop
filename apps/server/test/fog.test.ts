@@ -89,4 +89,23 @@ describe("manual fog of war over the wire (FR-GM-17, FR-GM-23, ADR 0016)", () =>
     expect(fog(alice)).toEqual(fog(gm));
     expect(tokenNamed(alice, "Lurker")).toBeUndefined();
   });
+
+  it("never leaks a fogged attacker on a roll, even after it is deleted (review fix)", async () => {
+    const { gm, alice } = await setup();
+    const hero = await gm.command({ type: "token.create", name: "Hero", position: { x: 385, y: 385 }, ownerIds: [alice.participantId] });
+    await gm.waitForSeq(seqOf(hero));
+    await gm.waitForSeq(seqOf(await gm.command(FOG_RECT)));
+    const lurker = await gm.command({ type: "token.create", name: "Lurker", position: { x: 70, y: 70 } });
+    await gm.waitForSeq(seqOf(lurker));
+    const rolled = await gm.command({
+      type: "dice.roll", expression: "1d20",
+      attack: { actorTokenId: tokenNamed(gm, "Lurker")!.id, targetTokenId: tokenNamed(gm, "Hero")!.id },
+    });
+    await gm.waitForSeq(seqOf(rolled));
+    await gm.waitForSeq(seqOf(await gm.command({ type: "token.delete", tokenId: tokenNamed(gm, "Lurker")!.id })));
+    const ended = await gm.command({ type: "fog.remove", regionId: fog(gm)[0]!.id });
+    await Promise.all([gm, alice].map((c) => c.waitForSeq(seqOf(ended))));
+    expect(alice.state.rolls.at(-1)?.attack?.actor).toBeNull();
+    expect(alice.rawLog.join(" ")).not.toContain("Lurker");
+  });
 });

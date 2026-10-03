@@ -11,6 +11,7 @@ import {
   MAX_FOG_REGIONS,
   pointInPolygon,
   reduce,
+  reduceAll,
   undoableAction,
   type CommandInput,
   type CommittedEvent,
@@ -228,5 +229,75 @@ describe("fog changes are undoable (FR-GM-17, FR-REC-02)", () => {
     expect(decide(removed.state, gm, Command.parse({ type: "history.undo", commandId: added.commandId }), ctx))
       .toMatchObject({ ok: false, code: "invalid" });
     expect(isInFog(removed.state.fog, { x: 35, y: 35 })).toBe(false);
+  });
+});
+
+describe("fog review fixes (FR-GM-17, FR-GM-23)", () => {
+  it("keeps a fogged attacker blank on old rolls after it is deleted or revealed", () => {
+    const { state: s1, token: hero } = withToken(baseRoom(), { name: "Hero", ownerIds: [alice.id] });
+    const moved = run(s1, gm, { type: "token.move", tokenId: hero.id, to: { x: 385, y: 385 } }).state;
+    const { state: s2, token: lurker } = withToken(moved, { name: "Lurker" });
+    const { state: fogged, region } = addFog(s2);
+    const rolled = run(fogged, gm, { type: "dice.roll", expression: "1d20", attack: { actorTokenId: lurker.id, targetTokenId: hero.id } }).state;
+    expect(filterStateForViewer(rolled, alice).rolls.at(-1)?.attack?.actor).toBeNull();
+    const deleted = run(rolled, gm, { type: "token.delete", tokenId: lurker.id }).state;
+    expect(JSON.stringify(filterStateForViewer(deleted, alice))).not.toContain("Lurker");
+    const revealed = run(rolled, gm, { type: "fog.remove", regionId: region.id }).state;
+    expect(filterStateForViewer(revealed, alice).rolls.at(-1)?.attack?.actor).toBeNull();
+  });
+
+  it("marks sides hidden when an unowned token moves into fog after the roll", () => {
+    const { state: s1, token: hero } = withToken(baseRoom(), { name: "Hero", ownerIds: [alice.id] });
+    const away = run(s1, gm, { type: "token.move", tokenId: hero.id, to: { x: 385, y: 385 } }).state;
+    const { state: s2, token: goblin } = withToken(run(away, gm, OVER_TOKEN).state, { name: "Goblin" });
+    const out = run(s2, gm, { type: "token.move", tokenId: goblin.id, to: { x: 245, y: 245 } }).state;
+    const rolled = run(out, alice, { type: "dice.roll", expression: "1d20", attack: { actorTokenId: hero.id, targetTokenId: goblin.id } }).state;
+    const back = run(rolled, gm, { type: "token.move", tokenId: goblin.id, to: { x: 35, y: 35 } }).state;
+    const deleted = run(back, gm, { type: "token.delete", tokenId: goblin.id }).state;
+    expect(filterStateForViewer(deleted, alice).rolls.at(-1)?.attack?.target).toBeNull();
+  });
+
+  it("filters the turn order carried by InitiativeEnded", () => {
+    const { state: s1, token: hero } = withToken(baseRoom(), { name: "Hero", ownerIds: [alice.id] });
+    const away = run(s1, gm, { type: "token.move", tokenId: hero.id, to: { x: 385, y: 385 } }).state;
+    const { state: s2, token: shade } = withToken(away, { name: "Shade" });
+    const { state } = addFog(run(s2, gm, { type: "initiative.start", entries: [{ tokenId: shade.id, score: 20 }, { tokenId: hero.id, score: 5 }] }).state);
+    const ended = run(state, gm, { type: "initiative.end" }).events[0]!;
+    const filtered = filterEventForViewer(committed(ended), state, alice);
+    expect(filtered.kind).toBe("event");
+    expect(JSON.stringify(filtered)).not.toContain(shade.id);
+  });
+
+  it("answers commands about a fogged token as if it did not exist", () => {
+    const { state: s1, token: goblin } = withToken(baseRoom(), { name: "Goblin" });
+    const { state: s2, token: hero } = withToken(s1, { name: "Hero", ownerIds: [alice.id] });
+    const away = run(s2, gm, { type: "token.move", tokenId: hero.id, to: { x: 385, y: 385 } }).state;
+    const { state } = addFog(away);
+    expect(attempt(state, alice, { type: "token.move", tokenId: goblin.id, to: { x: 0, y: 0 } })).toMatchObject({ code: "not_found" });
+    expect(attempt(state, alice, { type: "dice.roll", expression: "1d20", attack: { actorTokenId: hero.id, targetTokenId: goblin.id } }))
+      .toMatchObject({ code: "not_found" });
+    const placed = run(state, bob, { type: "template.place", shape: "circle", origin: { x: 35, y: 35 }, toward: { x: 35, y: 35 }, size: 10 }).events[0]!;
+    const id = placed.type === "TemplatePlaced" ? placed.template.id : "";
+    const withTemplate = reduce(state, placed);
+    expect(attempt(withTemplate, alice, { type: "template.remove", templateId: id })).toMatchObject({ code: "not_found" });
+  });
+
+  it("moves a token into fog before renaming it in the same save", () => {
+    const { state: s1, token } = withToken(baseRoom(), { name: "Guard" });
+    const away = run(s1, gm, { type: "token.move", tokenId: token.id, to: { x: 385, y: 385 } }).state;
+    const { state } = addFog(away);
+    const events = run(state, gm, { type: "token.configure", tokenId: token.id, changes: { name: "Secret Lich", position: { x: 35, y: 35 } } }).events;
+    expect(events.map((e) => e.type)).toEqual(["TokenMoved", "TokenAppearanceSet"]);
+    const out = run(reduceAll(state, events), gm, { type: "token.configure", tokenId: token.id, changes: { name: "Guard", position: { x: 385, y: 385 } } }).events;
+    expect(out.map((e) => e.type)).toEqual(["TokenAppearanceSet", "TokenMoved"]);
+  });
+
+  it("refuses an undo that would push the room past the fog cap", () => {
+    let state = baseRoom();
+    for (let i = 0; i < MAX_FOG_REGIONS; i++) state = addFog(state).state;
+    const first = Object.values(state.fog)[0]!;
+    const removed = act(state, gm, { type: "fog.remove", regionId: first.id });
+    const refilled = addFog(removed.state).state;
+    expect(decide(refilled, gm, Command.parse({ type: "history.undo", commandId: removed.commandId }), ctx)).toMatchObject({ ok: false });
   });
 });

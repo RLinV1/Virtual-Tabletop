@@ -22,8 +22,13 @@ Fog regions become room state, following the standard pattern.
   - `filterStateForViewer` keeps only tokens not concealed from the viewer, so the turn order and attack sides (derived from that token map) follow. A template is withheld when it is GM-only, or when its origin is under fog and the viewer did not place it. Fog regions are sent to players: they are the mask, and they name no token.
   - `filterEventForViewer`: `FogAdded` / `FogRemoved` resync players. `TokenMoved` and `TokenOwnersSet` compare concealment before and after: unchanged and visible passes, unchanged and concealed is redacted, changed resyncs. `TokenCreated`, `TokenDeleted` and other token events are redacted when concealed. Template events are redacted when concealed under the fog before the event; fog changes only through events that resync, so that is the fog the player's state reflects.
   - `LiveRoom.relayEphemeral` drops a drag preview for a viewer from whom the token is concealed, or for whom its preview point is under fog.
+- **Attack rolls.** An unowned token under fog is marked `hidden` on every attack roll that names it: at roll time in `decide`, and in `reduce` when fog is added over it or it moves into fog. Like a hidden token (ADR 0010), its side then stays blank for players after a delete, reveal or rename. Party tokens (with owners) follow their current visibility instead, so the party's own names don't vanish from old rolls each time they walk through fog.
+- **Rejections.** Commands from a player about a fogged token, or another player's template under fog, answer `not_found`, as for a hidden token.
+- **Ordering.** `token.configure` and `token.setAppearance` emit a move into fog before any other edit, and a move out of fog after them, the same "hide first, reveal last" rule as `TokenHiddenSet`.
+- **`InitiativeEnded`** passes to players with `previous` reduced to the tokens they may see.
+- **Pings.** The GM's automatic attack ping is skipped for a fogged target.
 - **Owners keep their tokens.** A player whose token is under fog still sees and moves it. The board draws fog between the grid and the tokens, so it stays on top of the mask.
-- **Undo.** `FogAdded` and `FogRemoved` join `REVERSIBLE_EVENT_TYPES` as each other's inverse. Undoing an add is refused once the region is gone; undoing a removal is refused if the region is back.
+- **Undo.** `FogAdded` and `FogRemoved` join `REVERSIBLE_EVENT_TYPES` as each other's inverse. Undoing an add is refused once the region is gone; undoing a removal is refused if the region is back, or if the room is already at `MAX_FOG_REGIONS`.
 - **Activity log.** "GM added a fog rectangle", "GM removed a fog polygon".
 
 `fog.add` / `fog.remove` are new commands and `FogAdded` / `FogRemoved` new events. No existing schema changes shape. `RoomState` gains a field that `emptyRoomState` initializes, and state is rebuilt by replaying events, so existing rooms load with `fog: {}`. The filters change behaviour for tokens and templates under fog, which only exist once fog does.
@@ -35,6 +40,7 @@ Fog regions become room state, following the standard pattern.
 - **Snapshots on fog changes.** Every fog change resyncs each player. Fog changes are rare GM actions.
 - **Centre-point rule.** A large token whose centre is outside fog stays visible even if part of it is under fog.
 - **Map pixels are not protected.** The map image URL is already delivered; fog is visual concealment of the picture (FRONTEND-CONTRACT.md, visibility contract). Use maps without baked-in secrets.
+- **Map changes keep fog.** Regions stay in board coordinates when the map is replaced; the GM removes them by hand. Scene replacement (FRONTEND-CONTRACT.md) is the place to reset them.
 - **Not covered here.** Dynamic line of sight, walls and portals (FR-GM-18, FR-GM-19); editing a placed region; brush-painted fog.
 
 ## Alternatives considered

@@ -1,6 +1,6 @@
 import { formatAttackParties } from "./dice";
 import type { CommittedEvent, DomainEvent } from "./events";
-import type { RoomState } from "./state";
+import { MAX_FOG_REGIONS, type RoomState } from "./state";
 
 /**
  * Undo for reversible actions (FR-REC-02, FR-REC-03, ADR 0013).
@@ -178,6 +178,8 @@ export function undoConflict(state: RoomState, entry: UndoEntry): string | null 
     }
     if (event.type === "FogRemoved") {
       if (state.fog[event.region.id]) return "Can't undo: that fog is already back.";
+      // Undo must not grow the room past the cap `fog.add` enforces.
+      if (Object.keys(state.fog).length >= MAX_FOG_REGIONS) return `Can't undo: the room already has ${MAX_FOG_REGIONS} fog regions.`;
       continue;
     }
     if (!("tokenId" in event)) {
