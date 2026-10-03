@@ -1,7 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
 import { seed, THROW_MS, throwKeyframes, throwStagger, throwTurns } from "./diceGeometry";
 import { canAnimateDice, Die3D, dieParts, layoutDice, type TrayRoll } from "./Die3D";
-import { useActiveDiceLook } from "./diceSkinStore";
 
 export type { TrayRoll } from "./Die3D";
 
@@ -32,7 +31,6 @@ export function DiceTray({
   scale?: number;
 }) {
   const root = useRef<HTMLDivElement>(null);
-  const skin = useActiveDiceLook();
   const landed = useRef(onLanded);
   landed.current = onLanded;
 
@@ -68,7 +66,7 @@ export function DiceTray({
   return (
     <div ref={root} className={className} aria-hidden="true" style={{ "--die": `${size}px` } as CSSProperties}>
       {dice.map((die, i) => (
-        <Die3D key={i} die={die} skin={roll.skinned ? skin : null} />
+        <Die3D key={i} die={die} skin={roll.skin ?? null} />
       ))}
     </div>
   );

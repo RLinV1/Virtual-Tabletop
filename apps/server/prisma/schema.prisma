@@ -35,22 +35,100 @@ model Room {
   checkpoints Checkpoint[]
   assetRefs   AssetRef[]
   uploads     RoomUpload[]
+  members     RoomMember[]
 
   @@index([ownerGmId])
   @@map("rooms")
 }
 
-/// Interim GM identity until FR-GM-01 accounts (ADR 0004). Stores only the token's SHA-256.
+/// An owner of rooms and library items (ADR 0004, ADR 0017). Despite the table name it now
+/// holds two kinds of row: one per account (`users.owner_id`, no token), and legacy GM device
+/// identities from before accounts, which store only their token's SHA-256. The device-identity
+/// removal follow-up renames the table to `owners`.
 model GmIdentity {
   id        String   @id @db.Uuid
-  tokenHash String   @unique @map("token_hash")
+  tokenHash String?  @unique @map("token_hash")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   rooms     Room[]
   assets    LibraryAsset[]
   creatures LibraryCreature[]
+  diceLooks DiceLook[]
+  user      User?
 
   @@map("gm_identities")
+}
+
+/// A person's account (FR-GM-01, ADR 0017). Never part of room state.
+model User {
+  id                String   @id @db.Uuid
+  /// Trimmed and lowercased, so the unique index is case-insensitive.
+  email             String   @unique
+  displayName       String   @map("display_name")
+  /// argon2id PHC string; never leaves the server.
+  passwordHash      String   @map("password_hash")
+  ownerId           String   @unique @map("owner_id") @db.Uuid
+  activeDiceLookId  String?  @map("active_dice_look_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  passwordChangedAt DateTime @default(now()) @map("password_changed_at") @db.Timestamptz(6)
+
+  owner          GmIdentity   @relation(fields: [ownerId], references: [id])
+  activeDiceLook DiceLook?    @relation("ActiveDiceLook", fields: [activeDiceLookId], references: [id], onDelete: SetNull)
+  sessions       Session[]
+  memberships    RoomMember[]
+
+  @@map("users")
+}
+
+/// A sign-in (ADR 0017 I1). Only the cookie token's SHA-256 is stored.
+model Session {
+  tokenHash  String   @id @map("token_hash")
+  userId     String   @map("user_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastSeenAt DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  /// Absolute end: created_at + 90 days. Idle end is last_seen_at + 30 days.
+  expiresAt  DateTime @map("expires_at") @db.Timestamptz(6)
+
+  user        User         @relation(fields: [userId], references: [id])
+  credentials Credential[]
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+/// Which participant a person is in a room (ADR 0017 M1). Access, not game state: kept beside
+/// the event log like `credentials`, and never sent to any participant.
+model RoomMember {
+  roomId        String   @map("room_id") @db.Uuid
+  participantId String   @map("participant_id") @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  room Room @relation(fields: [roomId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  @@id([roomId, participantId])
+  @@unique([roomId, userId])
+  @@index([userId])
+  @@map("room_members")
+}
+
+/// A person's dice look (ADR 0017 O3): up to one picture per die type, in `faces`.
+model DiceLook {
+  id        String   @id @db.Uuid
+  ownerGmId String   @map("owner_gm_id") @db.Uuid
+  name      String
+  /// { "d20": { "objectKey", "url", "width", "height" }, ... }; object keys never leave the server.
+  faces     Json
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  owner    GmIdentity @relation(fields: [ownerGmId], references: [id])
+  activeOf User[]     @relation("ActiveDiceLook")
+
+  @@index([ownerGmId])
+  @@map("dice_looks")
 }
 
 /// A GM's stored map or token image. `grid` is set for maps only.
@@ -143,9 +221,16 @@ model Credential {
   roomId        String    @map("room_id") @db.Uuid
   participantId String    @map("participant_id") @db.Uuid
   revokedAt     DateTime? @map("revoked_at") @db.Timestamptz(6)
+  /// The sign-in this seat was created or kept under (ADR 0017 M4); it stops working with it.
+  /// Null for guests who never signed in.
+  sessionHash   String?   @map("session_hash")
 
-  room Room @relation(fields: [roomId], references: [id])
+  room    Room     @relation(fields: [roomId], references: [id])
+  /// Restrict, not SET NULL: a seat must never outlive its sign-in as a guest seat. The store
+  /// deletes a session's credentials itself, in the same transaction as the session.
+  session Session? @relation(fields: [sessionHash], references: [tokenHash], onDelete: Restrict)
 
+  @@index([sessionHash])
   @@map("credentials")
 }
 

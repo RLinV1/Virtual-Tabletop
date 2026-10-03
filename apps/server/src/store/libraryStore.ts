@@ -1,4 +1,4 @@
-import type { AssetKind, GmRoomSummary, GridSpec } from "@vtt/shared";
+import type { AssetKind, DieName, GmRoomSummary, GridSpec, LegacySummary } from "@vtt/shared";
 
 /** A stored library asset (ADR 0004). `objectKey` is the AssetStore key; it never leaves the server. */
 export interface LibraryAssetRecord {
@@ -37,8 +37,25 @@ export class CreatureImageMissingError extends Error {
   }
 }
 
+/** One die's picture in a dice look (ADR 0017 O3). `objectKey` never leaves the server. */
+export interface DiceFaceRecord {
+  objectKey: string;
+  url: string;
+  width: number;
+  height: number;
+}
+
+export interface DiceLookRecord {
+  id: string;
+  ownerGmId: string;
+  name: string;
+  faces: Partial<Record<DieName, DiceFaceRecord>>;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface NewRoomOptions {
-  /** GM device identity that owns the room; null for rooms created without one. */
+  /** The owner row that owns the room (an account's, ADR 0017 O1); null for rooms created without one. */
   ownerGmId?: string | null;
   name?: string;
 }
@@ -77,4 +94,33 @@ export interface LibraryStore {
   deleteCreature(id: string, ownerGmId: string): Promise<boolean>;
   /** The GM's creatures whose image is this asset, for the delete warning. */
   creaturesUsingImage(assetId: string, ownerGmId: string): Promise<{ id: string; name: string }[]>;
+
+  /** What an owner row owns, for the legacy-move offer (ADR 0017 O2). */
+  ownedCounts(ownerGmId: string): Promise<LegacySummary>;
+  /**
+   * Moves everything the device owner row owns to the account's owner row and deletes the
+   * device row, all at once (ADR 0017 O2). Null when there is no such device row. A row that
+   * belongs to an account is never a device row and is never deleted here.
+   */
+  claimDeviceOwner(deviceOwnerId: string, accountOwnerId: string): Promise<LegacySummary | null>;
+
+  /** The owner's dice looks, newest first (ADR 0017 O3). Every read and write is scoped to its owner. */
+  listDiceLooks(ownerGmId: string): Promise<DiceLookRecord[]>;
+  countDiceLooks(ownerGmId: string): Promise<number>;
+  findDiceLook(id: string, ownerGmId: string): Promise<DiceLookRecord | null>;
+  createDiceLook(look: DiceLookRecord): Promise<void>;
+  renameDiceLook(id: string, ownerGmId: string, name: string, at: string): Promise<DiceLookRecord | null>;
+  /**
+   * Sets one die's picture, or resets it to classic with `face: null`. Returns the updated look
+   * and the object key it replaced, for the caller to delete; null when there is no such look.
+   */
+  setDiceLookFace(
+    id: string,
+    ownerGmId: string,
+    die: DieName,
+    face: DiceFaceRecord | null,
+    at: string,
+  ): Promise<{ look: DiceLookRecord; replacedKey: string | null } | null>;
+  /** Deletes the look, clearing it as anyone's look in use. Returns its object keys, or null. */
+  deleteDiceLook(id: string, ownerGmId: string): Promise<string[] | null>;
 }

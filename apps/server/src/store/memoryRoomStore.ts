@@ -1,13 +1,23 @@
 import { randomUUID } from "node:crypto";
-import type { CommittedEvent, GmRoomSummary, GridSpec } from "@vtt/shared";
+import type { CommittedEvent, DieName, GmRoomSummary, GridSpec, LegacySummary } from "@vtt/shared";
+import {
+  EmailTakenError,
+  type EndedSessions,
+  type NewUserRecord,
+  type SessionRecord,
+  type UserRecord,
+} from "./identityStore";
 import {
   CreatureImageMissingError,
   type CreaturePatch,
+  type DiceFaceRecord,
+  type DiceLookRecord,
   type LibraryAssetRecord,
   type LibraryCreatureRecord,
   type NewCreatureRecord,
   type NewRoomOptions,
 } from "./libraryStore";
+import type { KeepSeatConflict, MemberRecord } from "./membershipStore";
 import { SeqConflictError, type CredentialRecord, type NewEvent, type RoomStore } from "./roomStore";
 
 /** Dev/test store. Loses everything on restart. */
@@ -23,6 +33,11 @@ export class MemoryRoomStore implements RoomStore {
   private refs = new Map<string, Set<string>>();
   /** roomId -> object keys uploaded from inside it (ADR 0009). */
   private uploads = new Map<string, Set<string>>();
+  private users = new Map<string, UserRecord>();
+  private sessions = new Map<string, SessionRecord>();
+  /** `${roomId}/${participantId}` -> the account holding that seat (ADR 0017 M1). */
+  private members = new Map<string, MemberRecord>();
+  private diceLooks = new Map<string, DiceLookRecord>();
 
   async createRoom(roomId: string, inviteCode: string, options: NewRoomOptions = {}) {
     if (this.events.has(roomId)) throw new Error(`Room ${roomId} already exists`);
@@ -63,9 +78,12 @@ export class MemoryRoomStore implements RoomStore {
 
   /** Stores a credential; re-saving a revoked token keeps it revoked, like the Postgres upsert. */
   async saveCredential(tokenHash: string, record: CredentialRecord) {
+    // The foreign key Postgres enforces: a seat can only be bound to a session that exists.
+    if (record.sessionHash && !this.sessions.has(record.sessionHash)) throw new Error("No such session");
     // Like the Postgres upsert, re-saving a token keeps its revoked mark: a removed token stays removed.
     const revokedAt = this.credentials.get(tokenHash)?.revokedAt;
-    this.credentials.set(tokenHash, revokedAt ? { ...record, revokedAt } : record);
+    const row = { roomId: record.roomId, participantId: record.participantId, sessionHash: record.sessionHash ?? null };
+    this.credentials.set(tokenHash, revokedAt ? { ...row, revokedAt } : row);
   }
 
   /** The credential for a token hash, or null when it is unknown or revoked. */
@@ -73,7 +91,7 @@ export class MemoryRoomStore implements RoomStore {
     const row = this.credentials.get(tokenHash);
     // FR-GM-20: a revoked credential resolves to nothing, as in the Postgres store.
     if (!row || row.revokedAt) return null;
-    return { roomId: row.roomId, participantId: row.participantId };
+    return { roomId: row.roomId, participantId: row.participantId, sessionHash: row.sessionHash ?? null };
   }
 
   /** The credential for a token hash only when it has been revoked. */
@@ -131,6 +149,7 @@ export class MemoryRoomStore implements RoomStore {
     this.uploads.delete(roomId);
     for (const [code, id] of this.invites) if (id === roomId) this.invites.delete(code);
     for (const [hash, row] of this.credentials) if (row.roomId === roomId) this.credentials.delete(hash);
+    for (const [key, member] of this.members) if (member.roomId === roomId) this.members.delete(key);
     return { uploadKeys };
   }
 
@@ -147,8 +166,16 @@ export class MemoryRoomStore implements RoomStore {
   }
 
   async listOwnedRooms(ownerGmId: string): Promise<GmRoomSummary[]> {
-    return [...this.rooms.entries()]
-      .filter(([, room]) => room.ownerGmId === ownerGmId)
+    return this.summarize([...this.rooms.entries()].filter(([, room]) => room.ownerGmId === ownerGmId));
+  }
+
+  async summarizeRooms(roomIds: string[]) {
+    const wanted = new Set(roomIds);
+    return this.summarize([...this.rooms.entries()].filter(([id]) => wanted.has(id)));
+  }
+
+  private summarize(rooms: [string, { name: string; createdAt: string }][]): GmRoomSummary[] {
+    return rooms
       .map(([id, room]) => ({
         id,
         name: room.name,
@@ -243,6 +270,193 @@ export class MemoryRoomStore implements RoomStore {
     return [...this.creatures.values()]
       .filter((c) => c.ownerGmId === ownerGmId && c.imageAssetId === assetId)
       .map((c) => ({ id: c.id, name: c.name }));
+  }
+
+
+  // ---------- Identity (ADR 0017) ----------
+
+  async createUser(user: NewUserRecord) {
+    for (const existing of this.users.values()) if (existing.email === user.email) throw new EmailTakenError();
+    const now = new Date().toISOString();
+    // The account's owner row has no token: nothing but a session can act as it.
+    const record: UserRecord = {
+      ...user, ownerId: randomUUID(), activeDiceLookId: null, createdAt: now, passwordChangedAt: now,
+    };
+    this.users.set(user.id, record);
+    return structuredClone(record);
+  }
+
+  async findUserByEmail(email: string) {
+    for (const user of this.users.values()) if (user.email === email) return structuredClone(user);
+    return null;
+  }
+
+  async findUserById(id: string) {
+    const user = this.users.get(id);
+    return user ? structuredClone(user) : null;
+  }
+
+  async setPasswordHash(userId: string, passwordHash: string, changed: boolean) {
+    const user = this.users.get(userId);
+    if (!user) return;
+    user.passwordHash = passwordHash;
+    if (changed) user.passwordChangedAt = new Date().toISOString();
+  }
+
+  async setActiveDiceLook(userId: string, lookId: string | null) {
+    const user = this.users.get(userId);
+    if (user) user.activeDiceLookId = lookId;
+  }
+
+  async createSession(session: SessionRecord) {
+    this.sessions.set(session.tokenHash, structuredClone(session));
+  }
+
+  async findSession(tokenHash: string) {
+    const session = this.sessions.get(tokenHash);
+    return session ? structuredClone(session) : null;
+  }
+
+  async touchSession(tokenHash: string, at: string) {
+    const session = this.sessions.get(tokenHash);
+    if (session) session.lastSeenAt = at;
+  }
+
+  async deleteSession(tokenHash: string) {
+    return this.endSessions((s) => s.tokenHash === tokenHash);
+  }
+
+  async deleteUserSessions(userId: string, exceptHash?: string) {
+    return this.endSessions((s) => s.userId === userId && s.tokenHash !== exceptHash);
+  }
+
+  async deleteExpiredSessions(now: string, idleBefore: string) {
+    return this.endSessions((s) => s.expiresAt <= now || s.lastSeenAt < idleBefore);
+  }
+
+  /** Deletes the matching sessions and the seat credentials bound to them (ADR 0017 M4). */
+  private endSessions(match: (s: SessionRecord) => boolean): EndedSessions {
+    const ended = new Set([...this.sessions.values()].filter(match).map((s) => s.tokenHash));
+    const credentialHashes: string[] = [];
+    for (const [hash, row] of this.credentials) {
+      if (row.sessionHash && ended.has(row.sessionHash)) {
+        this.credentials.delete(hash);
+        credentialHashes.push(hash);
+      }
+    }
+    for (const hash of ended) this.sessions.delete(hash);
+    return { credentialHashes };
+  }
+
+  // ---------- Membership (ADR 0017) ----------
+
+  async findMember(roomId: string, userId: string) {
+    for (const member of this.members.values()) {
+      if (member.roomId === roomId && member.userId === userId) return { ...member };
+    }
+    return null;
+  }
+
+  async findMemberByParticipant(roomId: string, participantId: string) {
+    const member = this.members.get(`${roomId}/${participantId}`);
+    return member ? { ...member } : null;
+  }
+
+  async putMember(member: MemberRecord) {
+    if (!this.events.has(member.roomId)) throw new Error(`No room ${member.roomId}`);
+    const taken = this.members.get(`${member.roomId}/${member.participantId}`);
+    if (taken && taken.userId !== member.userId) throw new Error("Seat belongs to another account");
+    for (const [key, existing] of this.members) {
+      if (existing.roomId === member.roomId && existing.userId === member.userId) this.members.delete(key);
+    }
+    this.members.set(`${member.roomId}/${member.participantId}`, { ...member });
+  }
+
+  async listMemberships(userId: string) {
+    return [...this.members.values()].filter((m) => m.userId === userId).map((m) => ({ ...m }));
+  }
+
+  async keepSeat(member: MemberRecord, credentialHash: string, sessionHash: string): Promise<KeepSeatConflict | null> {
+    if (await this.findMember(member.roomId, member.userId)) return "account_has_seat";
+    if (this.members.has(`${member.roomId}/${member.participantId}`)) return "seat_taken";
+    const credential = this.credentials.get(credentialHash);
+    if (!credential || !this.sessions.has(sessionHash)) throw new Error("No such credential or session");
+    this.members.set(`${member.roomId}/${member.participantId}`, { ...member });
+    credential.sessionHash = sessionHash;
+    return null;
+  }
+
+  // ---------- Legacy device identities and dice looks (ADR 0017) ----------
+
+  async ownedCounts(ownerGmId: string): Promise<LegacySummary> {
+    const count = <T extends { ownerGmId: string | null }>(rows: Iterable<T>) =>
+      [...rows].filter((r) => r.ownerGmId === ownerGmId).length;
+    return {
+      rooms: count(this.rooms.values()),
+      assets: count(this.assets.values()),
+      creatures: count(this.creatures.values()),
+      diceLooks: count(this.diceLooks.values()),
+    };
+  }
+
+  async claimDeviceOwner(deviceOwnerId: string, accountOwnerId: string) {
+    const device = [...this.gms].find(([, id]) => id === deviceOwnerId);
+    if (!device) return null;
+    const moved = await this.ownedCounts(deviceOwnerId);
+    for (const rows of [this.rooms.values(), this.assets.values(), this.creatures.values(), this.diceLooks.values()]) {
+      for (const row of rows as Iterable<{ ownerGmId: string | null }>) {
+        if (row.ownerGmId === deviceOwnerId) row.ownerGmId = accountOwnerId;
+      }
+    }
+    this.gms.delete(device[0]);
+    return moved;
+  }
+
+  async listDiceLooks(ownerGmId: string) {
+    return [...this.diceLooks.values()]
+      .filter((l) => l.ownerGmId === ownerGmId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((l) => structuredClone(l));
+  }
+
+  async countDiceLooks(ownerGmId: string) {
+    return [...this.diceLooks.values()].filter((l) => l.ownerGmId === ownerGmId).length;
+  }
+
+  async findDiceLook(id: string, ownerGmId: string) {
+    const look = this.diceLooks.get(id);
+    return look && look.ownerGmId === ownerGmId ? structuredClone(look) : null;
+  }
+
+  async createDiceLook(look: DiceLookRecord) {
+    this.diceLooks.set(look.id, structuredClone(look));
+  }
+
+  async renameDiceLook(id: string, ownerGmId: string, name: string, at: string) {
+    const look = this.diceLooks.get(id);
+    if (!look || look.ownerGmId !== ownerGmId) return null;
+    look.name = name;
+    look.updatedAt = at;
+    return structuredClone(look);
+  }
+
+  async setDiceLookFace(id: string, ownerGmId: string, die: DieName, face: DiceFaceRecord | null, at: string) {
+    const look = this.diceLooks.get(id);
+    if (!look || look.ownerGmId !== ownerGmId) return null;
+    const replacedKey = look.faces[die]?.objectKey ?? null;
+    if (face) look.faces[die] = { ...face };
+    else delete look.faces[die];
+    look.updatedAt = at;
+    return { look: structuredClone(look), replacedKey };
+  }
+
+  async deleteDiceLook(id: string, ownerGmId: string) {
+    const look = this.diceLooks.get(id);
+    if (!look || look.ownerGmId !== ownerGmId) return null;
+    this.diceLooks.delete(id);
+    // As `ON DELETE SET NULL` does in Postgres: whoever had it in use goes back to classic.
+    for (const user of this.users.values()) if (user.activeDiceLookId === id) user.activeDiceLookId = null;
+    return Object.values(look.faces).map((f) => f.objectKey);
   }
 
   /** The foreign key Postgres enforces on `image_asset_id`. */
