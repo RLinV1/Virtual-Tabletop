@@ -22,7 +22,7 @@
 *Alternative:* store a snapshot (the `snapshots` table, or the state inside `CheckpointCreated`). Faster for long logs, but it is a second copy that can drift from the log, and putting the full table in `CheckpointCreated` bloats every reload. Room logs here are small (hundreds to low thousands of events). If replay becomes slow, a snapshot can be added as a cache later with no protocol change.
 
 ### 2. Table state is passed into `decide` via context
-`liveRoom.submit` sees `checkpoint.restore`, loads and replays inside its exclusive queue, and calls `decide` with `ctx.checkpointTable(checkpointId)` returning the table or `null`. `decide` authorises first (GM only), then checks the checkpoint exists in `state.checkpoints`, then emits `CheckpointRestored { checkpointId, restored, previous }` with `previous` taken from the current state (invariant 6). `decide` does no I/O.
+`liveRoom.submit` sees `checkpoint.restore`, loads and replays inside its exclusive queue, and calls `decide` with `ctx.checkpointTable(checkpointId)` returning the table or `null`. `decide` authorises first (GM only), then checks the checkpoint exists in `state.checkpoints`, then emits `CheckpointRestored { checkpointId, name, restored, previous }` with `previous` taken from the current state (invariant 6). `decide` does no I/O.
 
 *Alternative:* have `reduce` compute the restored table itself. Impossible: `reduce` only has the current state, not the history.
 

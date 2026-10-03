@@ -18,25 +18,33 @@ export function CheckpointsPanel({ connection, state }: { connection: RoomConnec
   const newestFirst = [...state.checkpoints].reverse();
 
   const save = async () => {
+    if (busy) return; // Enter pressed twice must not save two checkpoints.
     const trimmed = name.trim();
     if (!trimmed) return setError("Give the checkpoint a name.");
     setBusy(true);
-    const result = await connection.command({ type: "checkpoint.create", name: trimmed });
-    setBusy(false);
-    setError(result.ok ? null : result.message);
-    if (result.ok) {
-      setName("");
-      setStatus(`Saved checkpoint "${trimmed}".`);
+    try {
+      const result = await connection.command({ type: "checkpoint.create", name: trimmed });
+      setError(result.ok ? null : result.message);
+      if (result.ok) {
+        setName("");
+        setStatus(`Saved checkpoint "${trimmed}".`);
+      }
+    } finally {
+      setBusy(false);
     }
   };
 
   const restore = async (checkpoint: Checkpoint) => {
+    if (busy) return;
     setBusy(true);
-    const result = await connection.command({ type: "checkpoint.restore", checkpointId: checkpoint.id });
-    setBusy(false);
-    setConfirming(null);
-    setError(result.ok ? null : result.message);
-    if (result.ok) setStatus(`Restored checkpoint "${checkpoint.name}". Undo it from the activity log if that was wrong.`);
+    try {
+      const result = await connection.command({ type: "checkpoint.restore", checkpointId: checkpoint.id });
+      setError(result.ok ? null : result.message);
+      if (result.ok) setStatus(`Restored checkpoint "${checkpoint.name}". Undo it from the activity log if that was wrong.`);
+    } finally {
+      setBusy(false);
+      setConfirming(null);
+    }
   };
 
   return (
