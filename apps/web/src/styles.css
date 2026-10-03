@@ -2098,6 +2098,13 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 
 .departed-list { display: flex; flex-direction: column; gap: var(--space-2); }
 .departed-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: var(--fs-sm); }
+/* Checkpoints (KAN-41): the name field takes the row; each saved one is a name and Restore. */
+.checkpoint-form { margin-bottom: var(--space-2); }
+.checkpoint-name { display: flex; flex: 1; min-width: 0; }
+.checkpoint-name input { flex: 1; min-width: 0; }
+.checkpoint-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.checkpoint-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: var(--fs-sm); }
+.checkpoint-row > span { min-width: 0; overflow-wrap: anywhere; }
 
 /* Fog of war by keyboard (FR-GM-17): fog the map or a block of cells, reveal from a list. */
 .fog-cells fieldset { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-2) 0 0; padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius); }

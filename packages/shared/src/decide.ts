@@ -7,7 +7,7 @@ import { canRenderGrid } from "./gridRenderLimit";
 import type { SessionEndReason } from "./protocol";
 import { inverseOf, undoableAction, undoConflict } from "./undo";
 import { concealedFrom, fogConcealsSide, isInFog, templateConcealedFrom } from "./visibility";
-import { MAX_AREA_TEMPLATES, MAX_FOG_REGIONS, type AreaTemplate, type Initiative, type Participant, type RoomState, type Token } from "./state";
+import { MAX_AREA_TEMPLATES, MAX_CHECKPOINT_NAME, MAX_FOG_REGIONS, tableOf, type AreaTemplate, type Initiative, type Participant, type RoomState, type TableState, type Token } from "./state";
 
 export type RejectionCode = "forbidden" | "not_found" | "invalid";
 
@@ -22,6 +22,13 @@ export interface DecideContext {
    * deterministic and testable (CLAUDE.md invariant 2). Only dice use it.
    */
   random?: () => number;
+  /**
+   * The board as it was at a checkpoint, rebuilt by the server from the log (ADR 0017). Filled
+   * only for `checkpoint.restore`; null when the checkpoint can't be rebuilt.
+   */
+  checkpointTable?: (checkpointId: string) => TableState | null;
+  /** The room's last committed seq: where a checkpoint saved now points (ADR 0017). */
+  lastSeq?: number;
 }
 
 /** Permission helpers. Shared so the UI can hide controls, but ONLY the server's check counts. */
@@ -540,6 +547,24 @@ export function decide(
       if (conflict) return reject("invalid", conflict);
       // Reverse order, so an editor save's "hide first, reveal last" stays safe when undone (ADR 0013).
       return accept(...entry.events.map(inverseOf).reverse(), { type: "ActionUndone", commandId: entry.commandId });
+    }
+
+    case "checkpoint.create": {
+      if (!can.administer(actor)) return forbidden();
+      const name = command.name.trim();
+      if (!name) return reject("invalid", "Give the checkpoint a name.");
+      if (name.length > MAX_CHECKPOINT_NAME) return reject("invalid", `Checkpoint names are at most ${MAX_CHECKPOINT_NAME} characters.`);
+      if (ctx.lastSeq === undefined) return reject("invalid", "Checkpoints can't be saved here.");
+      return accept({ type: "CheckpointCreated", checkpoint: { id: ctx.newId(), name, seq: ctx.lastSeq } });
+    }
+
+    case "checkpoint.restore": {
+      if (!can.administer(actor)) return forbidden();
+      const checkpoint = state.checkpoints.find((c) => c.id === command.checkpointId);
+      if (!checkpoint) return notFound("checkpoint");
+      const restored = ctx.checkpointTable?.(checkpoint.id) ?? null;
+      if (!restored) return reject("invalid", `Checkpoint "${checkpoint.name}" can't be restored right now.`);
+      return accept({ type: "CheckpointRestored", checkpointId: checkpoint.id, name: checkpoint.name, restored, previous: tableOf(state) });
     }
   }
 }

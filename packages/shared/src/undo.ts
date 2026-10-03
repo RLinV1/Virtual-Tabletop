@@ -1,6 +1,6 @@
 import { formatAttackParties } from "./dice";
 import type { CommittedEvent, DomainEvent } from "./events";
-import { MAX_FOG_REGIONS, type RoomState } from "./state";
+import { MAX_FOG_REGIONS, tableOf, type RoomState } from "./state";
 
 /**
  * Undo for reversible actions (FR-REC-02, FR-REC-03, ADR 0013).
@@ -26,6 +26,7 @@ export const REVERSIBLE_EVENT_TYPES = [
   "RollDamageApplied",
   "FogAdded",
   "FogRemoved",
+  "CheckpointRestored",
 ] as const;
 
 export type ReversibleEvent = Extract<DomainEvent, { type: (typeof REVERSIBLE_EVENT_TYPES)[number] }>;
@@ -115,7 +116,7 @@ function withLabels(
   event: ReversibleEvent,
 ): Pick<UndoEntry, "tokenNames" | "rollLabels"> {
   const { tokenNames, rollLabels } = labels;
-  if (event.type === "FogAdded" || event.type === "FogRemoved") return labels;
+  if (event.type === "FogAdded" || event.type === "FogRemoved" || event.type === "CheckpointRestored") return labels;
   if ("tokenId" in event) {
     const token = state.tokens[event.tokenId];
     return token ? { tokenNames: { ...tokenNames, [token.id]: token.name }, rollLabels } : { tokenNames, rollLabels };
@@ -162,6 +163,9 @@ export function inverseOf(event: ReversibleEvent): DomainEvent {
       return { type: "FogRemoved", region: event.region };
     case "FogRemoved":
       return { type: "FogAdded", region: event.region };
+    case "CheckpointRestored":
+      // Puts back the board the restore replaced (ADR 0017).
+      return { ...event, restored: event.previous, previous: event.restored };
   }
 }
 
@@ -171,6 +175,11 @@ export function inverseOf(event: ReversibleEvent): DomainEvent {
  */
 export function undoConflict(state: RoomState, entry: UndoEntry): string | null {
   for (const event of entry.events) {
+    if (event.type === "CheckpointRestored") {
+      // A whole-board swap: undo only while the board is still exactly what the restore made it.
+      if (!sameValue(tableOf(state), event.restored)) return `Can't undo: the board has changed since "${event.name}" was restored.`;
+      continue;
+    }
     // Fog regions are never edited in place, so "still current" is just "still there" (or still gone).
     if (event.type === "FogAdded") {
       if (!state.fog[event.region.id]) return "Can't undo: that fog has already been removed.";
@@ -204,6 +213,16 @@ export function undoConflict(state: RoomState, entry: UndoEntry): string | null 
   return null;
 }
 
+/** Deep equality for plain data, ignoring object key order. */
+function sameValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const ka = Object.keys(a).filter((k) => (a as Record<string, unknown>)[k] !== undefined);
+  const kb = Object.keys(b).filter((k) => (b as Record<string, unknown>)[k] !== undefined);
+  return ka.length === kb.length && ka.every((k) => sameValue((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
+}
+
 /** Order-insensitive equality for condition lists. */
 function sameSet(a: readonly string[], b: readonly string[]) {
   return a.length === b.length && a.every((x) => b.includes(x));
@@ -229,6 +248,9 @@ export function describeUndo(entry: UndoEntry, tokens: RoomState["tokens"]): { v
   }
   const first = entry.events[0];
   if (!first) return { verb: "last action", noun: "an action" };
+  if (first.type === "CheckpointRestored") {
+    return { verb: `restore of "${first.name}"`, noun: `restoring checkpoint "${first.name}"` };
+  }
   if (first.type === "FogAdded" || first.type === "FogRemoved") {
     const what = first.region.shape === "rect" ? "fog rectangle" : "fog polygon";
     return first.type === "FogAdded"

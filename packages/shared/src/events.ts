@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ConditionId, TokenStats } from "./conditions";
 import { DiceRoll, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
-import { AreaTemplate, ChatMessage, FogRegion, Id, Initiative, MapImage, Participant, Token } from "./state";
+import { AreaTemplate, ChatMessage, Checkpoint, FogRegion, Id, Initiative, MapImage, Participant, TableState, Token } from "./state";
 
 /**
  * Events are FACTS the server has committed. They are append-only and never edited.
@@ -178,6 +178,22 @@ export const DomainEvent = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("FogRemoved"),
     region: FogRegion,
+  }),
+  /** The GM saved a named restore point (FR-REC-02, ADR 0017). */
+  z.object({
+    type: z.literal("CheckpointCreated"),
+    checkpoint: Checkpoint,
+  }),
+  /**
+   * The GM put the board back as it was at a checkpoint (ADR 0017). Carries the board it
+   * replaced (invariant 6), so the restore itself can be undone. GM-only: players resync.
+   */
+  z.object({
+    type: z.literal("CheckpointRestored"),
+    checkpointId: Id,
+    name: z.string(),
+    restored: TableState,
+    previous: TableState,
   }),
   /**
    * The GM undid one earlier action (FR-REC-02, ADR 0013). Comes last in its batch, after the

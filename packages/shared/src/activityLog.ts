@@ -100,6 +100,8 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
     case "TemplateRemoved": return `${actorName} removed a ${templateLabel(event.template)}${event.template.gmOnly ? " (GM only)" : ""}`;
     case "FogAdded": return `${actorName} added a fog ${fogLabel(event.region.shape)}`;
     case "FogRemoved": return `${actorName} removed a fog ${fogLabel(event.region.shape)}`;
+    case "CheckpointCreated": return `${actorName} saved checkpoint "${event.checkpoint.name}"`;
+    case "CheckpointRestored": return `${actorName} restored checkpoint "${event.name}"`;
     case "ActionUndone": {
       // The undone action is still in the history just before this event (ADR 0013).
       const entry = before.undo.find((e) => e.commandId === event.commandId);
