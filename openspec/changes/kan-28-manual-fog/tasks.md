@@ -21,4 +21,4 @@
 ## 4. Verification
 
 - [x] 4.1 Run `npm run lint && npm run typecheck && npm test` and confirm all pass
-- [ ] 4.2 Run the `sync-reviewer` and `visibility-auditor` agents and fix findings
+- [x] 4.2 Run the `sync-reviewer` and `visibility-auditor` agents and fix findings
