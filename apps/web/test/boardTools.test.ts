@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_GRID, type GridSpec, type Point } from "@vtt/shared";
-import { areaOrigin, areaShape, areaSizeFromDrag, hitMark, measure, snapToCellCenter, snapToIntersection, sweepPoints, type Mark } from "../src/board/tools";
+import { areaOrigin, areaShape, areaSizeFromDrag, fogRegionAt, hitMark, measure, snapToCellCenter, snapToIntersection, sweepPoints, type Mark } from "../src/board/tools";
 
 const grid: GridSpec = DEFAULT_GRID; // 70 px cells, 5 ft per cell
 const offsetGrid: GridSpec = { ...DEFAULT_GRID, offsetX: 10, offsetY: 20 };
@@ -184,5 +184,20 @@ describe("board tools (KAN-69, FR-TAC-03/04/06)", () => {
     it("is a single point for a click", () => {
       expect(sweepPoints({ x: 5, y: 5 }, { x: 5, y: 5 }, 12)).toEqual([{ x: 5, y: 5 }, { x: 5, y: 5 }]);
     });
+  });
+});
+
+describe("Fog tool hit testing (FR-GM-17)", () => {
+  const square = (id: string, x0: number, y0: number, size: number) => ({
+    id,
+    shape: "rect" as const,
+    points: [{ x: x0, y: y0 }, { x: x0 + size, y: y0 }, { x: x0 + size, y: y0 + size }, { x: x0, y: y0 + size }],
+  });
+
+  it("picks the topmost region under the pointer, or none", () => {
+    const fog = { a: square("a", 0, 0, 100), b: square("b", 50, 50, 100) };
+    expect(fogRegionAt(fog, { x: 75, y: 75 })?.id).toBe("b");
+    expect(fogRegionAt(fog, { x: 25, y: 25 })?.id).toBe("a");
+    expect(fogRegionAt(fog, { x: 300, y: 300 })).toBeNull();
   });
 });

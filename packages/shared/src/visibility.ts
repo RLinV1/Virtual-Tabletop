@@ -1,6 +1,35 @@
 import type { AttackSide, DiceRoll } from "./dice";
 import type { CommittedEvent } from "./events";
-import type { Initiative, Participant, RoomState } from "./state";
+import { pointInPolygon, type Point } from "./geometry";
+import type { AreaTemplate, Initiative, Participant, RoomState, Token } from "./state";
+
+/** Whether a board point lies under any fog region (FR-GM-17, ADR 0016). */
+export function isInFog(fog: RoomState["fog"], point: Point): boolean {
+  for (const region of Object.values(fog)) if (pointInPolygon(point, region.points)) return true;
+  return false;
+}
+
+/**
+ * Whether `viewer` may not see `token` (FR-GM-16, FR-GM-17, FR-GM-23): it is hidden, or its
+ * centre is under fog and the viewer doesn't own it. The GM sees everything. The one rule every
+ * filter and the ephemeral relay use, so they can't disagree (ADR 0016).
+ */
+export function concealedFrom(
+  fog: RoomState["fog"],
+  token: Pick<Token, "hidden" | "position" | "ownerIds">,
+  viewer: Participant,
+): boolean {
+  if (viewer.role === "gm") return false;
+  if (token.hidden) return true;
+  return !token.ownerIds.includes(viewer.id) && isInFog(fog, token.position);
+}
+
+/** Whether `viewer` may not see a template: GM-only, or placed by someone else under fog (ADR 0007, ADR 0016). */
+function templateConcealedFrom(fog: RoomState["fog"], template: AreaTemplate, viewer: Participant): boolean {
+  if (viewer.role === "gm") return false;
+  if (template.gmOnly) return true;
+  return template.ownerId !== viewer.id && isInFog(fog, template.origin);
+}
 
 /**
  * Player-safe state filtering (FR-GM-23).
@@ -12,17 +41,20 @@ import type { Initiative, Participant, RoomState } from "./state";
  */
 export function filterStateForViewer(state: RoomState, viewer: Participant): RoomState {
   if (viewer.role === "gm") return state;
+  // Hidden tokens, and tokens under fog the viewer doesn't own, are withheld (FR-GM-17).
   const tokens = Object.fromEntries(
-    Object.entries(state.tokens).filter(([, t]) => !t.hidden),
+    Object.entries(state.tokens).filter(([, t]) => !concealedFrom(state.fog, t, viewer)),
   );
   // GM-only rolls never reach a player, not even as a redacted placeholder (FR-GM-22).
-  const rolls = state.rolls.filter((r) => r.visibility === "public").map((r) => hideAttackSides(r, state));
+  const rolls = state.rolls.filter((r) => r.visibility === "public").map((r) => hideAttackSides(r, state, tokens));
   // A hidden token must not be inferable from a gap in the turn order (FR-GM-23).
   const initiative = state.initiative ? initiativeForPlayer(state.initiative, tokens) : null;
-  // GM-only area templates are withheld entirely, like hidden tokens (ADR 0007).
+  // GM-only area templates are withheld entirely, like hidden tokens (ADR 0007), and so are
+  // other people's templates under fog (ADR 0016).
   const templates = Object.fromEntries(
-    Object.entries(state.templates).filter(([, t]) => !t.gmOnly),
+    Object.entries(state.templates).filter(([, t]) => !templateConcealedFrom(state.fog, t, viewer)),
   );
+  // Fog regions stay: they are the mask the player's board draws, and name nothing (ADR 0016).
   // Chat is public, so `chat` stays as it is in the spread below (ADR 0015).
   // Undo is GM-only, and its entries name hidden tokens and their old values (ADR 0013).
   return { ...state, tokens, rolls, initiative, templates, undo: [] };
@@ -51,16 +83,32 @@ export function filterEventForViewer(
   const { commandId: _commandId, ...withoutCommandId } = committed;
   const pass: FilteredEvent = { kind: "event", committed: withoutCommandId };
   /** Whether the viewer could not see this token before the event; unknown tokens count as hidden. */
-  const hiddenBefore = (tokenId: string) => before.tokens[tokenId]?.hidden ?? true;
+  const hiddenBefore = (tokenId: string) => {
+    const token = before.tokens[tokenId];
+    return !token || concealedFrom(before.fog, token, viewer);
+  };
+  /** Same before and after: as-is or redacted. Changed: the token appears or vanishes, so resync. */
+  const byVisibility = (wasConcealed: boolean, isConcealed: boolean): FilteredEvent =>
+    wasConcealed !== isConcealed ? { kind: "resync" } : isConcealed ? redacted : pass;
 
   switch (e.type) {
     case "TokenCreated":
-      return e.token.hidden ? redacted : pass;
+      return concealedFrom(before.fog, e.token, viewer) ? redacted : pass;
     case "TokenDeleted":
-      return e.token.hidden ? redacted : pass;
-    case "TokenMoved":
+      return concealedFrom(before.fog, e.token, viewer) ? redacted : pass;
+    case "TokenMoved": {
+      // Moving into or out of fog changes what the viewer may see (ADR 0016).
+      const token = before.tokens[e.tokenId];
+      if (!token) return redacted;
+      return byVisibility(concealedFrom(before.fog, token, viewer), concealedFrom(before.fog, { ...token, position: e.to }, viewer));
+    }
+    case "TokenOwnersSet": {
+      // Gaining or losing a token under fog reveals or withdraws it for that player (ADR 0016).
+      const token = before.tokens[e.tokenId];
+      if (!token) return redacted;
+      return byVisibility(concealedFrom(before.fog, token, viewer), concealedFrom(before.fog, { ...token, ownerIds: e.ownerIds }, viewer));
+    }
     case "TokenAppearanceSet":
-    case "TokenOwnersSet":
     case "TokenStatsSet":
     case "TokenImageSet":
     case "TokenConditionsSet":
@@ -94,8 +142,13 @@ export function filterEventForViewer(
       return pass;
     case "TemplatePlaced":
     case "TemplateRemoved":
-      // gmOnly never changes after placement, so the event itself says whether a player may see it.
-      return e.template.gmOnly ? redacted : pass;
+      // gmOnly never changes after placement, and fog changes only through FogAdded/FogRemoved,
+      // which resync; so the fog before this event is the fog the player's state reflects.
+      return templateConcealedFrom(before.fog, e.template, viewer) ? redacted : pass;
+    case "FogAdded":
+    case "FogRemoved":
+      // Fog can hide or reveal any number of tokens and templates; a snapshot does both (ADR 0016).
+      return { kind: "resync" };
     case "TokenHiddenSet":
       // A reveal must deliver the whole token; a hide must remove it. A snapshot does both.
       return { kind: "resync" };
@@ -124,10 +177,11 @@ export function filterEventForViewer(
  * (see `reduce`), so it stays null after a reveal, rename or delete. A token only ever visible,
  * even once deleted, keeps its name, which the player already saw.
  */
-function hideAttackSides(roll: DiceRoll, state: RoomState): DiceRoll {
+function hideAttackSides(roll: DiceRoll, state: RoomState, visible: RoomState["tokens"]): DiceRoll {
   if (!roll.attack) return roll;
+  // A side whose token still exists but is not in the viewer's tokens is hidden or under fog.
   const conceal = (side: AttackSide | null) =>
-    !side || side.hidden || state.tokens[side.tokenId]?.hidden ? null : side;
+    !side || side.hidden || (state.tokens[side.tokenId] && !visible[side.tokenId]) ? null : side;
   const actor = conceal(roll.attack.actor);
   const target = conceal(roll.attack.target);
   if (actor === roll.attack.actor && target === roll.attack.target) return roll;

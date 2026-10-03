@@ -1,0 +1,232 @@
+import { describe, expect, it } from "vitest";
+import {
+  Command,
+  concealedFrom,
+  decide,
+  describeUndo,
+  filterEventForViewer,
+  filterStateForViewer,
+  formatActivity,
+  isInFog,
+  MAX_FOG_REGIONS,
+  pointInPolygon,
+  reduce,
+  undoableAction,
+  type CommandInput,
+  type CommittedEvent,
+  type DomainEvent,
+  type FogRegion,
+  type Participant,
+  type RoomState,
+} from "../src";
+import { alice, attempt, baseRoom, bob, ctx, gm, run, withToken } from "./fixtures";
+
+/** A rectangle over the fixture token's default position (35, 35). */
+const OVER_TOKEN: CommandInput = { type: "fog.add", region: { shape: "rect", from: { x: 70, y: 70 }, to: { x: 0, y: 0 } } };
+
+const committed = (event: DomainEvent, seq = 10): CommittedEvent => ({ seq, at: "2026-10-03T00:00:00.000Z", actorId: gm.id, event });
+
+function addFog(state: RoomState, input: CommandInput = OVER_TOKEN) {
+  const { state: next, events } = run(state, gm, input);
+  const added = events[0];
+  if (added?.type !== "FogAdded") throw new Error("expected FogAdded");
+  return { state: next, region: added.region };
+}
+
+/** Like the server: decide, then reduce the batch under one command id (ADR 0013). */
+let batch = 0;
+function act(state: RoomState, actor: Participant, input: CommandInput) {
+  const decision = decide(state, actor, Command.parse(input), ctx);
+  if (!decision.ok) throw new Error(`${decision.code}: ${decision.message}`);
+  const meta = { commandId: `fog-cmd-${++batch}`, actorId: actor.id };
+  let next = state;
+  for (const e of decision.events) next = reduce(next, e, meta);
+  return { state: next, events: decision.events, commandId: meta.commandId };
+}
+
+describe("fog geometry (FR-GM-17)", () => {
+  it("tests points against a polygon", () => {
+    const square = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
+    expect(pointInPolygon({ x: 5, y: 5 }, square)).toBe(true);
+    expect(pointInPolygon({ x: 15, y: 5 }, square)).toBe(false);
+    const ell = [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 10 }, { x: 10, y: 10 }, { x: 10, y: 20 }, { x: 0, y: 20 }];
+    expect(pointInPolygon({ x: 15, y: 15 }, ell)).toBe(false);
+    expect(pointInPolygon({ x: 5, y: 15 }, ell)).toBe(true);
+  });
+});
+
+describe("fog.add / fog.remove (FR-GM-17, ADR 0016)", () => {
+  it("stores a rectangle as its four normalised corners", () => {
+    const { state, region } = addFog(baseRoom());
+    expect(region).toMatchObject({ shape: "rect", points: [{ x: 0, y: 0 }, { x: 70, y: 0 }, { x: 70, y: 70 }, { x: 0, y: 70 }] });
+    expect(state.fog[region.id]).toEqual(region);
+  });
+
+  it("adds a polygon as given", () => {
+    const points = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 50, y: 80 }];
+    const { region } = addFog(baseRoom(), { type: "fog.add", region: { shape: "polygon", points } });
+    expect(region).toMatchObject({ shape: "polygon", points });
+  });
+
+  it("refuses fog from a player (FR-GM-15)", () => {
+    expect(attempt(baseRoom(), alice, OVER_TOKEN)).toMatchObject({ ok: false, code: "forbidden" });
+    const { state, region } = addFog(baseRoom());
+    expect(attempt(state, alice, { type: "fog.remove", regionId: region.id })).toMatchObject({ ok: false, code: "forbidden" });
+  });
+
+  it("refuses a region with no area", () => {
+    const line: CommandInput = { type: "fog.add", region: { shape: "polygon", points: [{ x: 0, y: 0 }, { x: 10, y: 10 }, { x: 20, y: 20 }] } };
+    expect(attempt(baseRoom(), gm, line)).toMatchObject({ ok: false, code: "invalid" });
+    const flat: CommandInput = { type: "fog.add", region: { shape: "rect", from: { x: 0, y: 5 }, to: { x: 50, y: 5 } } };
+    expect(attempt(baseRoom(), gm, flat)).toMatchObject({ ok: false, code: "invalid" });
+  });
+
+  it("refuses malformed payloads at the schema", () => {
+    expect(Command.safeParse({ type: "fog.add", region: { shape: "polygon", points: [{ x: 0, y: 0 }, { x: 1, y: 1 }] } }).success).toBe(false);
+    expect(Command.safeParse({ type: "fog.add", region: { shape: "rect", from: { x: 0, y: 0 }, to: { x: 1, y: 1 } }, id: "forged" }).success).toBe(false);
+    expect(Command.safeParse({ type: "fog.add", region: { shape: "rect", from: { x: 0, y: 0 }, to: { x: Infinity, y: 1 } } }).success).toBe(false);
+  });
+
+  it("caps the number of regions", () => {
+    let state = baseRoom();
+    for (let i = 0; i < MAX_FOG_REGIONS; i++) state = addFog(state).state;
+    expect(attempt(state, gm, OVER_TOKEN)).toMatchObject({ ok: false, code: "invalid" });
+  });
+
+  it("removes a region and carries the whole region (invariant 6)", () => {
+    const { state, region } = addFog(baseRoom());
+    const removed = run(state, gm, { type: "fog.remove", regionId: region.id });
+    expect(removed.events).toEqual([{ type: "FogRemoved", region }]);
+    expect(removed.state.fog).toEqual({});
+    expect(attempt(removed.state, gm, { type: "fog.remove", regionId: region.id })).toMatchObject({ ok: false, code: "not_found" });
+  });
+
+  it("reads in the activity log", () => {
+    const { region } = addFog(baseRoom());
+    expect(formatActivity({ type: "FogAdded", region }, "GM", baseRoom())).toBe("GM added a fog rectangle");
+  });
+});
+
+describe("content under fog is not sent to players (FR-GM-17, FR-GM-23)", () => {
+  it("withholds a token under fog from players, not from the GM", () => {
+    const { state: withGoblin, token } = withToken(baseRoom(), { name: "Goblin" });
+    const { state } = addFog(withGoblin);
+    expect(filterStateForViewer(state, gm).tokens[token.id]).toBeDefined();
+    expect(filterStateForViewer(state, alice).tokens[token.id]).toBeUndefined();
+    expect(JSON.stringify(filterStateForViewer(state, alice))).not.toContain("Goblin");
+  });
+
+  it("lets an owner keep their own token under fog", () => {
+    const { state: withHero, token } = withToken(baseRoom(), { name: "Hero", ownerIds: [alice.id] });
+    const { state } = addFog(withHero);
+    expect(filterStateForViewer(state, alice).tokens[token.id]).toBeDefined();
+    expect(filterStateForViewer(state, bob).tokens[token.id]).toBeUndefined();
+  });
+
+  it("still withholds a hidden token outside fog", () => {
+    const { state, token } = withToken(baseRoom(), { hidden: true });
+    expect(concealedFrom(state.fog, token, alice)).toBe(true);
+    expect(concealedFrom(state.fog, token, gm)).toBe(false);
+  });
+
+  it("resyncs players on fog changes, and passes them to the GM", () => {
+    const { state, region } = addFog(baseRoom());
+    for (const event of [{ type: "FogAdded", region }, { type: "FogRemoved", region }] as DomainEvent[]) {
+      expect(filterEventForViewer(committed(event), state, alice)).toEqual({ kind: "resync" });
+      expect(filterEventForViewer(committed(event), state, gm)).toMatchObject({ kind: "event" });
+    }
+  });
+
+  it("sends the fog regions themselves to players: they are the mask", () => {
+    const { state, region } = addFog(baseRoom());
+    expect(filterStateForViewer(state, alice).fog[region.id]).toEqual(region);
+  });
+
+  it("redacts events about a token under fog", () => {
+    const { state: withGoblin, token } = withToken(baseRoom(), { name: "Goblin" });
+    const { state } = addFog(withGoblin);
+    const moveInside: DomainEvent = { type: "TokenMoved", tokenId: token.id, from: token.position, to: { x: 40, y: 40 } };
+    expect(filterEventForViewer(committed(moveInside), state, alice)).toEqual({ kind: "redacted", seq: 10 });
+    const stats: DomainEvent = { type: "TokenStatsSet", tokenId: token.id, stats: { hp: 3, maxHp: 7, ac: null }, previous: token.stats };
+    expect(filterEventForViewer(committed(stats), state, alice)).toEqual({ kind: "redacted", seq: 10 });
+    expect(filterEventForViewer(committed({ type: "TokenDeleted", token }), state, alice)).toEqual({ kind: "redacted", seq: 10 });
+  });
+
+  it("redacts a token created under fog", () => {
+    const { state } = addFog(baseRoom());
+    const created = run(state, gm, { type: "token.create", name: "Ambusher", position: { x: 35, y: 35 } }).events[0]!;
+    expect(filterEventForViewer(committed(created), state, alice)).toEqual({ kind: "redacted", seq: 10 });
+  });
+
+  it("resyncs when a token moves into or out of fog, never sending the new position", () => {
+    const { state: withGoblin, token } = withToken(baseRoom(), { name: "Goblin" });
+    const { state } = addFog(withGoblin);
+    const out: DomainEvent = { type: "TokenMoved", tokenId: token.id, from: token.position, to: { x: 175, y: 35 } };
+    expect(filterEventForViewer(committed(out), state, alice)).toEqual({ kind: "resync" });
+    const outside = reduce(state, out);
+    const back: DomainEvent = { type: "TokenMoved", tokenId: token.id, from: { x: 175, y: 35 }, to: { x: 35, y: 35 } };
+    expect(filterEventForViewer(committed(back), outside, alice)).toEqual({ kind: "resync" });
+    // The owner sees their own token move either way.
+    const owned = { ...state, tokens: { ...state.tokens, [token.id]: { ...token, ownerIds: [alice.id] } } };
+    expect(filterEventForViewer(committed(out), owned, alice)).toMatchObject({ kind: "event" });
+  });
+
+  it("resyncs a player who gains or loses a token under fog", () => {
+    const { state: withGoblin, token } = withToken(baseRoom(), { name: "Goblin" });
+    const { state } = addFog(withGoblin);
+    const give: DomainEvent = { type: "TokenOwnersSet", tokenId: token.id, ownerIds: [alice.id], previous: [] };
+    expect(filterEventForViewer(committed(give), state, alice)).toEqual({ kind: "resync" });
+    expect(filterEventForViewer(committed(give), state, bob)).toEqual({ kind: "redacted", seq: 10 });
+  });
+
+  it("withholds other people's templates under fog", () => {
+    const { state: fogged } = addFog(baseRoom());
+    const placed = run(fogged, bob, { type: "template.place", shape: "circle", origin: { x: 35, y: 35 }, toward: { x: 35, y: 35 }, size: 10 });
+    const event = placed.events[0]!;
+    if (event.type !== "TemplatePlaced") throw new Error("expected TemplatePlaced");
+    expect(filterStateForViewer(placed.state, alice).templates[event.template.id]).toBeUndefined();
+    expect(filterStateForViewer(placed.state, bob).templates[event.template.id]).toBeDefined();
+    expect(filterEventForViewer(committed(event), fogged, alice)).toEqual({ kind: "redacted", seq: 10 });
+    expect(filterEventForViewer(committed(event), fogged, bob)).toMatchObject({ kind: "event" });
+  });
+
+  it("blanks an attack side under fog and drops it from the turn order", () => {
+    const { state: s1, token: hero } = withToken(baseRoom(), { name: "Hero", ownerIds: [alice.id] });
+    const { state: s2, token: goblin } = withToken(s1, { name: "Goblin" });
+    const moved = run(s2, gm, { type: "token.move", tokenId: hero.id, to: { x: 175, y: 35 } }).state;
+    const started = run(moved, gm, { type: "initiative.start", entries: [{ tokenId: goblin.id, score: 15 }, { tokenId: hero.id, score: 10 }] }).state;
+    const rolled = run(started, alice, { type: "dice.roll", expression: "1d20", attack: { actorTokenId: hero.id, targetTokenId: goblin.id } }).state;
+    const { state } = addFog(rolled);
+    const view = filterStateForViewer(state, alice);
+    expect(view.initiative?.order).toEqual([hero.id]);
+    expect(view.rolls.at(-1)?.attack?.target).toBeNull();
+    expect(JSON.stringify(view)).not.toContain("Goblin");
+  });
+});
+
+describe("fog changes are undoable (FR-GM-17, FR-REC-02)", () => {
+  it("undoes an accidental reveal, restoring the same region", () => {
+    const { state: withGoblin, token } = withToken(baseRoom(), { name: "Goblin" });
+    const added = act(withGoblin, gm, OVER_TOKEN);
+    const region = (added.events[0] as Extract<DomainEvent, { type: "FogAdded" }>).region;
+    const removed = act(added.state, gm, { type: "fog.remove", regionId: region.id });
+    expect(filterStateForViewer(removed.state, alice).tokens[token.id]).toBeDefined();
+    const entry = undoableAction(removed.state.undo, removed.commandId)!;
+    expect(describeUndo(entry, removed.state.tokens).verb).toBe("remove fog rectangle");
+    const undone = act(removed.state, gm, { type: "history.undo", commandId: removed.commandId });
+    expect(undone.events[0]).toEqual({ type: "FogAdded", region });
+    expect(undone.state.fog[region.id]).toEqual(region);
+    expect(filterStateForViewer(undone.state, alice).tokens[token.id]).toBeUndefined();
+  });
+
+  it("undoes adding fog, and refuses once it is already gone", () => {
+    const added = act(baseRoom(), gm, OVER_TOKEN);
+    const region: FogRegion = (added.events[0] as Extract<DomainEvent, { type: "FogAdded" }>).region;
+    const undone = act(added.state, gm, { type: "history.undo", commandId: added.commandId });
+    expect(undone.state.fog).toEqual({});
+    const removed = act(added.state, gm, { type: "fog.remove", regionId: region.id });
+    expect(decide(removed.state, gm, Command.parse({ type: "history.undo", commandId: added.commandId }), ctx))
+      .toMatchObject({ ok: false, code: "invalid" });
+    expect(isInFog(removed.state.fog, { x: 35, y: 35 })).toBe(false);
+  });
+});

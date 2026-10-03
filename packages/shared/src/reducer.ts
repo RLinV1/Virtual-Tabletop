@@ -173,6 +173,15 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
       return { ...state, templates: rest };
     }
 
+    case "FogAdded":
+      return { ...state, fog: { ...state.fog, [event.region.id]: event.region } };
+
+    case "FogRemoved": {
+      required(state.fog[event.region.id], event);
+      const { [event.region.id]: _removed, ...rest } = state.fog;
+      return { ...state, fog: rest };
+    }
+
     // Its compensating events already restored the values; `reduce` updates the history.
     case "ActionUndone":
       return state;

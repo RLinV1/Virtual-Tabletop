@@ -2,11 +2,11 @@ import type { Command, DepartureAction } from "./commands";
 import { MIN_HP } from "./conditions";
 import { formatExpression, parseDiceExpression, rollDice, type AttackContext } from "./dice";
 import type { DomainEvent } from "./events";
-import { isSnapped, resizedTokenCenter, snapTokenCenter, type GridSpec, type Point } from "./geometry";
+import { isSnapped, polygonArea, resizedTokenCenter, snapTokenCenter, type GridSpec, type Point } from "./geometry";
 import { canRenderGrid } from "./gridRenderLimit";
 import type { SessionEndReason } from "./protocol";
 import { inverseOf, undoableAction, undoConflict } from "./undo";
-import { MAX_AREA_TEMPLATES, type AreaTemplate, type Initiative, type Participant, type RoomState, type Token } from "./state";
+import { MAX_AREA_TEMPLATES, MAX_FOG_REGIONS, type AreaTemplate, type Initiative, type Participant, type RoomState, type Token } from "./state";
 
 export type RejectionCode = "forbidden" | "not_found" | "invalid";
 
@@ -450,6 +450,32 @@ export function decide(
       if (!template || (template.gmOnly && !can.administer(actor))) return notFound("template");
       if (!can.removeTemplate(actor, template)) return forbidden();
       return accept({ type: "TemplateRemoved", template });
+    }
+
+    case "fog.add": {
+      if (!can.administer(actor)) return forbidden();
+      if (Object.keys(state.fog).length >= MAX_FOG_REGIONS) {
+        return reject("invalid", `A room can hold at most ${MAX_FOG_REGIONS} fog regions. Remove some first.`);
+      }
+      const { region } = command;
+      const points: Point[] = region.shape === "rect"
+        ? [
+            { x: Math.min(region.from.x, region.to.x), y: Math.min(region.from.y, region.to.y) },
+            { x: Math.max(region.from.x, region.to.x), y: Math.min(region.from.y, region.to.y) },
+            { x: Math.max(region.from.x, region.to.x), y: Math.max(region.from.y, region.to.y) },
+            { x: Math.min(region.from.x, region.to.x), y: Math.max(region.from.y, region.to.y) },
+          ]
+        : region.points;
+      // A line or a point conceals nothing and can't be clicked to remove; refuse it.
+      if (Math.abs(polygonArea(points)) < 1) return reject("invalid", "A fog region needs some area.");
+      return accept({ type: "FogAdded", region: { id: ctx.newId(), shape: region.shape, points } });
+    }
+
+    case "fog.remove": {
+      if (!can.administer(actor)) return forbidden();
+      const region = state.fog[command.regionId];
+      if (!region) return notFound("fog region");
+      return accept({ type: "FogRemoved", region });
     }
 
     case "participant.rename": {

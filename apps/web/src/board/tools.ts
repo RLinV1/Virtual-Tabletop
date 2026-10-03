@@ -1,4 +1,4 @@
-import { snapTokenCenter, type AreaShape, type AreaTemplate, type GridSpec, type Point } from "@vtt/shared";
+import { pointInPolygon, snapTokenCenter, type AreaShape, type AreaTemplate, type FogRegion, type GridSpec, type Point } from "@vtt/shared";
 
 export type { AreaShape };
 
@@ -24,8 +24,20 @@ export type BoardTool =
       gmOnly: boolean;
     }
   | { kind: "erase" }
+  /** GM only (FR-GM-17, ADR 0016): conceal a rectangle or polygon, or reveal (remove) a fogged region. */
+  | { kind: "fog"; mode: FogMode }
   /** Picking whom `attackerId` attacks (attack-targeting). Started from a token's Attack button, not the rail. */
   | { kind: "attack"; attackerId: string };
+
+/** What the Fog tool does: drag a rectangle, click out a polygon, or click a region to remove it. */
+export type FogMode = "rect" | "polygon" | "reveal";
+
+/** The topmost fog region under `p` (the last added wins), or null. */
+export function fogRegionAt(fog: Record<string, FogRegion>, p: Point): FogRegion | null {
+  const regions = Object.values(fog);
+  for (let i = regions.length - 1; i >= 0; i--) if (pointInPolygon(p, regions[i]!.points)) return regions[i]!;
+  return null;
+}
 
 /** Colours offered by the Draw tool. */
 export const DRAW_COLORS = [
@@ -151,18 +163,8 @@ function distanceToSegment(p: Point, a: Point, b: Point): number {
   return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
 }
 
-function insidePolygon(p: Point, points: Point[]): boolean {
-  let inside = false;
-  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
-    const a = points[i]!;
-    const b = points[j]!;
-    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
-  }
-  return inside;
-}
-
 function nearPolygon(p: Point, points: Point[], tolerance: number): boolean {
-  return insidePolygon(p, points) || points.some((a, i) => distanceToSegment(p, a, points[(i + 1) % points.length]!) <= tolerance);
+  return pointInPolygon(p, points) || points.some((a, i) => distanceToSegment(p, a, points[(i + 1) % points.length]!) <= tolerance);
 }
 
 /**
