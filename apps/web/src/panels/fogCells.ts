@@ -70,6 +70,7 @@ export function coversWholeMap(region: FogRegion, map: MapImage): boolean {
   return Math.min(...xs) <= 0 && Math.min(...ys) <= 0 && Math.max(...xs) >= map.width && Math.max(...ys) >= map.height;
 }
 
+/** `n` limited to the range `lo`..`hi`. */
 function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n));
 }

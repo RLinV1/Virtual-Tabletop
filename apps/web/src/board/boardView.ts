@@ -635,6 +635,7 @@ export class BoardView {
       this.measurement = null;
       this.gesture = null;
       this.fogPoints = [];
+      this.fogHover = null;
     }
     this.attackHover = null;
     this.tool = tool;
@@ -798,6 +799,7 @@ export class BoardView {
     if (this.fogPoints.length < 3) return false;
     this.sendFog({ shape: "polygon", points: this.fogPoints });
     this.fogPoints = [];
+    this.fogHover = null;
     this.redrawMarks();
     return true;
   }
@@ -814,6 +816,7 @@ export class BoardView {
   cancelFogPolygon(): boolean {
     if (this.fogPoints.length === 0) return false;
     this.fogPoints = [];
+    this.fogHover = null;
     this.redrawOverlay();
     return true;
   }

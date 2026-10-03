@@ -13,6 +13,7 @@ afterEach(async () => {
   await server.close();
 });
 
+/** A room with a GM and one player, Alice, both connected. */
 async function setup() {
   const gmCreds = await server.createRoom();
   const aliceCreds = await server.join(gmCreds.inviteCode, "Alice");

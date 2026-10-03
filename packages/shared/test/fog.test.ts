@@ -27,6 +27,7 @@ const OVER_TOKEN: CommandInput = { type: "fog.add", region: { shape: "rect", fro
 
 const committed = (event: DomainEvent, seq = 10): CommittedEvent => ({ seq, at: "2026-10-03T00:00:00.000Z", actorId: gm.id, event });
 
+/** The GM adds fog (over the token by default); returns the new state and the region added. */
 function addFog(state: RoomState, input: CommandInput = OVER_TOKEN) {
   const { state: next, events } = run(state, gm, input);
   const added = events[0];
@@ -34,8 +35,8 @@ function addFog(state: RoomState, input: CommandInput = OVER_TOKEN) {
   return { state: next, region: added.region };
 }
 
-/** Like the server: decide, then reduce the batch under one command id (ADR 0013). */
 let batch = 0;
+/** Like the server: decide, then reduce the batch under one command id (ADR 0013). */
 function act(state: RoomState, actor: Participant, input: CommandInput) {
   const decision = decide(state, actor, Command.parse(input), ctx);
   if (!decision.ok) throw new Error(`${decision.code}: ${decision.message}`);

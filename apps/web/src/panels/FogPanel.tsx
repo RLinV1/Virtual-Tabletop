@@ -33,6 +33,7 @@ export function FogPanel({ connection, state }: { connection: RoomConnection; st
     setRevealed(null);
   }, [revealed, state.fog]);
 
+  /** What the list and its Reveal button call a region: "Whole map", or its shape and cells. */
   const label = (id: string) => {
     const region = state.fog[id];
     if (!region || !map) return "fog";
@@ -41,6 +42,7 @@ export function FogPanel({ connection, state }: { connection: RoomConnection; st
     return `${kind} · ${describeCells(region, map, grid)}`;
   };
 
+  /** Send a `fog.add`; on success, announce `done`. */
   const add = async (command: Extract<Command, { type: "fog.add" }>, done: string) => {
     setBusy(true);
     const result = await connection.command(command);
@@ -49,6 +51,7 @@ export function FogPanel({ connection, state }: { connection: RoomConnection; st
     if (result.ok) setStatus(done);
   };
 
+  /** Remove a region, announce it, and queue focus for the button that takes its place. */
   const reveal = async (id: string, index: number) => {
     const what = label(id);
     setBusy(true);
@@ -133,6 +136,7 @@ export function FogPanel({ connection, state }: { connection: RoomConnection; st
   );
 }
 
+/** A whole-number cell field, kept between 1 and `max` as the GM types. */
 function CellInput({ label, value, max, onChange }: { label: string; value: number; max: number; onChange: (n: number) => void }) {
   return (
     <label>
