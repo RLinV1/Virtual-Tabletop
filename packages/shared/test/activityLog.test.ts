@@ -18,6 +18,10 @@ describe("Human-readable activity formatter (FR-REC-01)", () => {
     ParticipantLeft: [{ type: "ParticipantLeft", participant: alice }, "Alice left the table"],
     ParticipantRevoked: [{ type: "ParticipantRevoked", participant: alice }, "Mara removed Alice from the room"],
     ParticipantRenamed: [{ type: "ParticipantRenamed", participantId: alice.id, previous: "Alice", displayName: "Tomas" }, "Mara renamed Alice to Tomas"],
+    ParticipantDiceLookSet: [
+      { type: "ParticipantDiceLookSet", participantId: alice.id, look: null, previous: { lookId: alice.id, version: 1, faces: {} } },
+      "Mara put Alice's dice back to classic",
+    ],
     MapSet: [{ type: "MapSet", map: { url: "/map.png", width: 100, height: 100 }, previous: null }, "Mara set the map"],
     GridSet: [{ type: "GridSet", grid: state.scene.grid, previous: state.scene.grid }, "Mara updated the grid"],
     TokenCreated: [{ type: "TokenCreated", token }, "Mara created Goblin"],

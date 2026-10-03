@@ -13,6 +13,8 @@ import {
   referencedAssetIds,
   type Command,
   type CommittedEvent,
+  type DiceLookOnTable,
+  type DieName,
   type DomainEvent,
   type EphemeralPayload,
   type JoinDecision,
@@ -34,6 +36,8 @@ const secureRandom = () => randomInt(0, 2 ** 31) / 2 ** 31;
 /** A connected socket bound to a participant. */
 export interface RoomClient {
   participantId: string;
+  /** The seat credential this connection presented, so it can be closed when that credential ends (ADR 0017 M4). */
+  credentialHash?: string;
   /** Reliable, ordered delivery: snapshots, committed events, acks. */
   send(message: ServerMessage): void;
   /**
@@ -46,8 +50,14 @@ export interface RoomClient {
   close(): void;
 }
 
-/** A join decision, or the room was deleted while the join waited in the queue (ADR 0009). */
-export type JoinResult = JoinDecision | { ok: false; code: "not_found"; message: string; reason?: undefined };
+/**
+ * A join decision, or the room was deleted while the join waited in the queue (ADR 0009), or the
+ * signed-in person already holds a seat here or was removed (ADR 0017 M1).
+ */
+export type JoinResult =
+  | JoinDecision
+  | { ok: false; code: "not_found"; message: string; reason?: undefined }
+  | { ok: false; code: "already_member" | "removed"; message: string; reason?: undefined };
 
 export type SubmitResult =
   | { ok: true; seq: number | null }
@@ -120,6 +130,11 @@ export class LiveRoom {
     return p ? endReason(p) : null;
   }
 
+  /** The room's GM seat, for its owner resuming on another device (ADR 0017 M2). */
+  gmParticipant(): Participant | undefined {
+    return Object.values(this.state.participants).find((p) => p.role === "gm" && isActive(p));
+  }
+
   /** The participant, only while they are still in the room (ADR 0006). */
   activeParticipant(id: string): Participant | undefined {
     const p = this.state.participants[id];
@@ -136,8 +151,11 @@ export class LiveRoom {
       // committed can't run after it (ADR 0006).
       if (!isActive(actor)) return { ok: false, code: "forbidden", message: "You are no longer in this room" };
       // Randomness is injected, never reached for inside `decide` — that is what keeps the
-      // kernel pure and the dice testable (CLAUDE.md invariant 2).
-      const decision = decide(this.state, actor, command, { newId: randomUUID, random: secureRandom });
+      // kernel pure and the dice testable (CLAUDE.md invariant 2). So is the actor's own dice
+      // look, read here from the stores (ADR 0018), the pre-decide lookup ADR 0004 anticipated.
+      const ownedDiceLook =
+        command.type === "participant.setDiceLook" && command.lookId ? await this.ownedDiceLook(actorId, command.lookId) : null;
+      const decision = decide(this.state, actor, command, { newId: randomUUID, random: secureRandom, ownedDiceLook });
       if (!decision.ok) return decision;
       const committed = await this.commit(actorId, decision.events);
       return { ok: true, seq: committed.at(-1)?.seq ?? null };
@@ -145,14 +163,45 @@ export class LiveRoom {
   }
 
   /**
-   * Guest join (FR-PL-01). Decided and committed in one queue step, so two joins racing for
-   * the same display name can't both pass the uniqueness check (KAN-61).
+   * The dice look `lookId` as the room would draw it, only when it belongs to the account that
+   * holds this participant's seat (ADR 0018). Null for a guest seat, or a look that isn't theirs.
    */
-  join(participant: Participant): Promise<JoinResult> {
+  private async ownedDiceLook(participantId: string, lookId: string): Promise<DiceLookOnTable | null> {
+    const member = await this.store.findMemberByParticipant(this.roomId, participantId);
+    const user = member ? await this.store.findUserById(member.userId) : null;
+    const look = user ? await this.store.findDiceLook(lookId, user.ownerId) : null;
+    if (!look) return null;
+    const faces: DiceLookOnTable["faces"] = {};
+    for (const [die, face] of Object.entries(look.faces) as [DieName, NonNullable<(typeof look.faces)[DieName]>][]) {
+      faces[die] = { url: face.url, width: face.width, height: face.height };
+    }
+    return { lookId: look.id, version: Date.parse(look.updatedAt), faces };
+  }
+
+  /**
+   * Invite join (FR-PL-01). Decided and committed in one queue step, so two joins racing for
+   * the same display name can't both pass the uniqueness check (KAN-61).
+   *
+   * A signed-in join (`userId`) also keeps the seat on the account, in the same step, so two joins
+   * from one account can't both get a seat (ADR 0017 M1). The account's existing seat decides:
+   * still active, refused (`already_member`); removed by the GM, refused (`removed`); left, the
+   * new seat replaces it.
+   */
+  join(participant: Participant, userId?: string): Promise<JoinResult> {
     return this.runExclusive(async (): Promise<JoinResult> => {
       if (this.isClosed) return { ok: false, code: "not_found", message: "This room has been deleted" };
+      if (userId) {
+        const existing = await this.store.findMember(this.roomId, userId);
+        const seat = existing ? this.state.participants[existing.participantId] : undefined;
+        if (seat && isActive(seat)) {
+          return { ok: false, code: "already_member", message: `You're already in this room as ${seat.displayName}` };
+        }
+        if (seat?.revoked) return { ok: false, code: "removed", message: "You were removed from this room" };
+      }
       const decision = decideJoin(this.state, participant);
-      if (decision.ok) await this.commit(participant.id, decision.events);
+      if (!decision.ok) return decision;
+      await this.commit(participant.id, decision.events);
+      if (userId) await this.store.putMember({ roomId: this.roomId, participantId: participant.id, userId });
       return decision;
     });
   }
@@ -174,6 +223,24 @@ export class LiveRoom {
     }
     this.clients.add(client);
     this.sendSnapshot(client);
+  }
+
+  /**
+   * Closes the connections that presented these credentials: their device's sign-in ended
+   * (ADR 0017 M4). The seat itself stays; the person resumes it after signing in again.
+   */
+  closeCredentials(hashes: ReadonlySet<string>) {
+    for (const client of [...this.clients]) {
+      if (!client.credentialHash || !hashes.has(client.credentialHash)) continue;
+      this.clients.delete(client);
+      client.send({ type: "sessionEnded", reason: "signed_out" });
+      client.close();
+    }
+  }
+
+  /** The seat credentials of the open connections, for the sweep that finds deleted ones. */
+  connectedCredentials(): string[] {
+    return [...this.clients].flatMap((c) => (c.credentialHash ? [c.credentialHash] : []));
   }
 
   detach(client: RoomClient) {

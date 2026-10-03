@@ -4,12 +4,11 @@ import { api } from "../net/api";
 import { builtinsMatching } from "../net/builtinAssets";
 
 /**
- * Pick a map or token from the GM's library inside a room (asset-library: Place a library
+ * Pick a map or token from the signed-in account's library inside a room (asset-library: Place a library
  * asset). The GM's own uploads come first, then the art that ships with the app
  * (builtin-library-assets), so the picker is useful before anything has been uploaded.
  */
 export function LibraryPicker(props: {
-  gmToken: string;
   kind: AssetKind;
   onPick: (asset: LibraryAsset) => void;
   /** Shows a Close button when the picker is inline; omitted inside a modal. */
@@ -23,10 +22,10 @@ export function LibraryPicker(props: {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.library.list(props.gmToken).then(setAssets, (err: unknown) =>
+    api.library.list().then(setAssets, (err: unknown) =>
       setError(err instanceof Error ? err.message : "Could not load the library"),
     );
-  }, [props.gmToken]);
+  }, []);
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();

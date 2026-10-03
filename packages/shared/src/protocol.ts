@@ -63,7 +63,8 @@ export type ClientMessageInput = z.input<typeof ClientMessage>;
  * Why a seat ended (ADR 0006): the player left, or the GM removed them. Also the handshake error
  * text. `deleted` ends every seat at once, because the owner deleted the room (ADR 0009).
  */
-export type SessionEndReason = "left" | "revoked" | "deleted";
+/** `signed_out`: the sign-in this device's seat was bound to ended (ADR 0017 M4). */
+export type SessionEndReason = "left" | "revoked" | "deleted" | "signed_out";
 
 export type ServerMessage =
   /** Full, filtered snapshot. Client replaces its state and sets lastSeq = seq (FR-PL-06). */
@@ -97,8 +98,8 @@ export const CreateRoomRequest = z.object({
   displayName: z.string().min(1).max(40),
   /** Browser-generated; the server stores only its SHA-256 (DESIGN.md §5). */
   guestToken: z.string().min(16).max(256),
-  /** The creating browser's GM device token; when it resolves, the room is owned by it (ADR 0004). */
-  gmToken: z.string().min(16).max(256).optional(),
+  // `gmToken` was removed (ADR 0017): the signed-in account owns the room. zod strips unknown
+  // keys, so an older client that still sends it parses unchanged.
 });
 export type CreateRoomRequest = z.infer<typeof CreateRoomRequest>;
 
@@ -108,6 +109,9 @@ export const JoinRoomRequest = z.object({
   guestToken: z.string().min(16).max(256),
 });
 export type JoinRoomRequest = z.infer<typeof JoinRoomRequest>;
+
+/** The 409 `code` for a join to a room that already holds `MAX_PLAYERS_PER_ROOM` players (room-player-cap). */
+export const ROOM_FULL = "room_full";
 
 export interface RoomCredentials {
   roomId: string;
@@ -131,12 +135,16 @@ export interface UploadResponse {
 
 // ---------- GM identity and asset library (ADR 0004) ----------
 
-/** Browser-generated GM device token. The server stores only its SHA-256, like guest tokens. */
+/**
+ * Legacy GM device token (ADR 0004). No new ones are made since accounts (ADR 0017); an existing
+ * one can still read, edit and delete what it owns, and be moved into an account.
+ */
 export const GmToken = z.string().min(16).max(256);
 
-/** Header carrying the GM token until FR-GM-01 replaces it with a session cookie. */
+/** Header carrying a legacy GM device token. Accounts use the session cookie instead (ADR 0017). */
 export const GM_TOKEN_HEADER = "x-gm-token";
 
+/** Legacy: `POST /api/gm/identify` now answers 410 Gone (ADR 0017). */
 export const GmIdentifyRequest = z.object({ gmToken: GmToken });
 export type GmIdentifyRequest = z.infer<typeof GmIdentifyRequest>;
 

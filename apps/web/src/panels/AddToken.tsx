@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { DEFAULT_TOKEN_COLOR, isActive, type RoomState } from "@vtt/shared";
 import type { TokenDraft } from "../board/placement";
 import { api } from "../net/api";
-import { loadGmToken } from "../net/identity";
+import { useAccount } from "../account/accountStore";
 import { libraryAssetId } from "../net/builtinAssets";
 import { creatureDraft } from "../pages/creatureDraft";
 import { CreaturePicker } from "../pages/LibraryCreatures";
@@ -32,8 +32,8 @@ export function AddTokenButton({
   const [open, setOpen] = useState(false);
   /** Filled in and waiting for the dialog to finish closing, so the board takes focus after it. */
   const pending = useRef<TokenDraft | null>(null);
-  // The library belongs to this device's GM identity; rooms made before it existed have none.
-  const [gmToken] = useState(loadGmToken);
+  // The library belongs to the signed-in account (ADR 0017); a signed-out GM uploads directly.
+  const hasLibrary = useAccount().status === "signedIn";
   const players = Object.values(state.participants).filter((p) => p.role === "player" && isActive(p));
 
   return (
@@ -54,7 +54,7 @@ export function AddTokenButton({
         <AddToken
           players={players}
           token={token}
-          gmToken={gmToken}
+          hasLibrary={hasLibrary}
           onAdd={(draft) => {
             pending.current = { ...draft, color: TOKEN_COLORS[Object.keys(state.tokens).length % TOKEN_COLORS.length] };
             setOpen(false);
@@ -74,7 +74,7 @@ interface TokenImage {
 function AddToken(props: {
   players: { id: string; displayName: string }[];
   token: string;
-  gmToken: string | null;
+  hasLibrary: boolean;
   /** The form is complete; the token is created once the GM picks its square on the board. */
   onAdd: (draft: TokenDraft) => void;
 }) {
@@ -123,7 +123,7 @@ function AddToken(props: {
           });
         }}
       >
-        {props.gmToken && (
+        {props.hasLibrary && (
           <div className="row add-token-creature">
             <button type="button" className="secondary" disabled={uploading} onClick={() => setPickingCreature(true)}>
               From creature
@@ -186,7 +186,7 @@ function AddToken(props: {
                   onChange={(e) => void onUpload(e.target.files?.[0])}
                 />
               </label>
-              {props.gmToken && (
+              {props.hasLibrary && (
                 <button type="button" className="secondary" disabled={uploading} onClick={() => setPicking(true)}>
                   From library
                 </button>
@@ -215,10 +215,9 @@ function AddToken(props: {
       </form>
       {/* Its own modal, stacked over this one (native dialogs stack), so searching the
           library has room. Kept outside the form so its buttons can never submit it. */}
-      {props.gmToken && (
+      {props.hasLibrary && (
         <Modal open={pickingCreature} title="Choose a creature" onClose={() => setPickingCreature(false)}>
           <CreaturePicker
-            gmToken={props.gmToken}
             onPick={(creature) => {
               // A creature's name is entered as its board name, so it may prefill the token's (ADR 0012).
               // Owner, Hidden and rotation stay as the GM set them.
@@ -234,10 +233,9 @@ function AddToken(props: {
           />
         </Modal>
       )}
-      {props.gmToken && (
+      {props.hasLibrary && (
         <Modal open={picking} title="Choose a token image" onClose={() => setPicking(false)}>
           <LibraryPicker
-            gmToken={props.gmToken}
             kind="token"
             onPick={(asset) => {
               // The token name is left to the GM on purpose: prefilling the library name
