@@ -54,8 +54,11 @@ export interface BoardCallbacks {
   moveToken(tokenId: string, to: Point): Promise<boolean>;
   /** Every pointer move of a token drag; the connection coalesces them (KAN-39). */
   dragPreview(tokenId: string, at: Point): void;
-  /** The drag ended (dropped or cancelled): its unsent preview is dropped. */
-  dragEnd(tokenId: string): void;
+  /**
+   * The drag ended. `at` is where the token now rests (the drop point, or back where it started),
+   * so other viewers' ghosts end there too; null when there is nothing to show.
+   */
+  dragEnd(tokenId: string, at: Point | null): void;
   ping(at: Point): void;
   /** Place a shared area template (ADR 0007). Resolves false if the server rejected it. */
   placeTemplate(template: { shape: AreaTemplate["shape"]; origin: Point; toward: Point; size: number; gmOnly: boolean }): Promise<boolean>;
@@ -1602,28 +1605,29 @@ export class BoardView {
     if (this.gesture) return this.finishGesture();
     const drag = this.drag;
     this.drag = null;
-    if (drag) this.callbacks.dragEnd(drag.tokenId);
-    if (!drag || !this.state) return;
-    const token = this.state.tokens[drag.tokenId];
+    if (!drag) return;
+    const token = this.state?.tokens[drag.tokenId];
     const view = this.tokens.get(drag.tokenId);
-    if (!token || !view) return;
+    if (!this.state || !token || !view) return this.callbacks.dragEnd(drag.tokenId, null);
     view.container.cursor = "grab";
 
     this.invalidate();
     const dropped = { x: view.container.x, y: view.container.y };
     // Snap by default; hold Alt for free placement (FR-TAC-02).
     const to = e.altKey ? dropped : snapTokenCenter(dropped, token.size, this.state.scene.grid);
-    if (to.x === token.position.x && to.y === token.position.y) {
-      view.container.position.set(to.x, to.y);
-      return;
-    }
     view.container.position.set(to.x, to.y);
+    this.callbacks.dragEnd(token.id, to);
+    if (to.x === token.position.x && to.y === token.position.y) return;
     this.pendingMoves.set(token.id, to);
     this.callbacks.moveToken(token.id, to).then((ok) => {
       if (ok) return;
       this.pendingMoves.delete(token.id);
       const current = this.state?.tokens[token.id];
-      if (current) this.tokens.get(token.id)?.container.position.set(current.position.x, current.position.y);
+      if (current) {
+        this.tokens.get(token.id)?.container.position.set(current.position.x, current.position.y);
+        // Rejected: the others' ghost goes back to where the token still is.
+        this.callbacks.dragEnd(token.id, current.position);
+      }
       this.invalidate();
     });
   };
@@ -1668,7 +1672,7 @@ export class BoardView {
       const view = this.tokens.get(this.drag.tokenId);
       const token = this.state?.tokens[this.drag.tokenId];
       if (view && token) view.container.position.set(token.position.x, token.position.y);
-      this.callbacks.dragEnd(this.drag.tokenId);
+      this.callbacks.dragEnd(this.drag.tokenId, token?.position ?? null);
       this.drag = null;
       this.invalidate();
     }

@@ -140,3 +140,42 @@ describe("RoomConnection.preview (KAN-39, FR-SYNC-03)", () => {
     }
   });
 });
+
+describe("RoomConnection.endPreview (KAN-39)", () => {
+  const drag = (x: number) => ({ type: "tokenDragPreview" as const, tokenId: "t1", at: { x, y: 0 } });
+  function sent(connection: RoomConnection) {
+    const messages: unknown[] = [];
+    (connection as unknown as { send(m: unknown): void }).send = (m) => messages.push(m);
+    return messages;
+  }
+
+  it("sends the final value at once in place of the unsent one", () => {
+    vi.useFakeTimers();
+    try {
+      const { connection } = open();
+      const messages = sent(connection);
+      connection.preview("drag:t1", drag(1));
+      connection.preview("drag:t1", drag(2)); // held for the next window
+      connection.endPreview("drag:t1", drag(70));
+      vi.runAllTimers();
+      expect(messages).toEqual([{ type: "ephemeral", payload: drag(1) }, { type: "ephemeral", payload: drag(70) }]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("sends nothing more when there is no final value", () => {
+    vi.useFakeTimers();
+    try {
+      const { connection } = open();
+      const messages = sent(connection);
+      connection.preview("drag:t1", drag(1));
+      connection.preview("drag:t1", drag(2));
+      connection.endPreview("drag:t1", null);
+      vi.runAllTimers();
+      expect(messages).toEqual([{ type: "ephemeral", payload: drag(1) }]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

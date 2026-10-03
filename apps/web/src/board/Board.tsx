@@ -160,7 +160,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
         return result.ok;
       },
       dragPreview: (tokenId, at) => connection.preview(`drag:${tokenId}`, { type: "tokenDragPreview", tokenId, at }),
-      dragEnd: (tokenId) => connection.cancelPreview(`drag:${tokenId}`),
+      dragEnd: (tokenId, at) => connection.endPreview(`drag:${tokenId}`, at && { type: "tokenDragPreview", tokenId, at }),
       ping: (at) => connection.ephemeral({ type: "ping", at }),
       placeTemplate: async (template) => {
         const result = await connection.command({ type: "template.place", ...template });

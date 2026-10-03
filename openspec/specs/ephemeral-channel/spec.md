@@ -45,6 +45,10 @@ The client SHALL send at most one continuous-preview message per stream per 50 m
 - **WHEN** a drag produces 30 pointer moves within 100 ms
 - **THEN** the client sends no more than 3 preview messages for that token, and the last one sent carries the final pointer position
 
+#### Scenario: Drop ends the stream where the token rests
+- **WHEN** a player drops a dragged token, whether or not the move is accepted
+- **THEN** the client sends one final preview at once at the square where the token now rests, and nothing older after it
+
 #### Scenario: Ping is not delayed
 - **WHEN** a player double-clicks to ping during a drag
 - **THEN** the ping is sent immediately, not on the next 50 ms tick

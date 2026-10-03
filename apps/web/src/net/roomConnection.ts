@@ -197,7 +197,16 @@ export class RoomConnection {
     }, Math.max(0, wait));
   }
 
-  /** Drops a preview stream's unsent value, e.g. once the drag it belongs to has ended. */
+  /**
+   * Ends a preview stream: any unsent value is replaced by `final`, which goes out at once (no
+   * 50 ms wait), so other clients settle where the input actually ended. Null just drops it.
+   */
+  endPreview(key: string, final: EphemeralPayload | null) {
+    this.cancelPreview(key);
+    if (final) this.ephemeral(final);
+  }
+
+  /** Drops a preview stream's unsent value. */
   cancelPreview(key: string) {
     const stream = this.previews.get(key);
     if (stream?.timer) clearTimeout(stream.timer);
