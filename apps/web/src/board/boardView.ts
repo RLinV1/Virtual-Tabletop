@@ -52,7 +52,10 @@ import { areaOrigin, areaShape, areaSizeFromDrag, formatDistance, hitMark, measu
 export interface BoardCallbacks {
   /** Commit a move. Resolves false if the server rejected it. */
   moveToken(tokenId: string, to: Point): Promise<boolean>;
+  /** Every pointer move of a token drag; the connection coalesces them (KAN-39). */
   dragPreview(tokenId: string, at: Point): void;
+  /** The drag ended (dropped or cancelled): its unsent preview is dropped. */
+  dragEnd(tokenId: string): void;
   ping(at: Point): void;
   /** Place a shared area template (ADR 0007). Resolves false if the server rejected it. */
   placeTemplate(template: { shape: AreaTemplate["shape"]; origin: Point; toward: Point; size: number; gmOnly: boolean }): Promise<boolean>;
@@ -70,7 +73,6 @@ export interface BoardCallbacks {
 
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 8;
-const PREVIEW_INTERVAL_MS = 50;
 /** Oldest marks drop off past this, so a long session can't grow the scene without bound. */
 const MAX_MARKS = 100;
 /** A tool drag shorter than this (screen pixels) is a click and makes no mark. */
@@ -232,7 +234,7 @@ export class BoardView {
   private mapMissing = false;
   private gridKey = "";
 
-  private drag: { tokenId: string; offset: Point; lastPreview: number } | null = null;
+  private drag: { tokenId: string; offset: Point } | null = null;
   private pan: { start: Point; origin: Point } | null = null;
   private tool: BoardTool = { kind: "select" };
   private marks: Mark[] = [];
@@ -1509,7 +1511,6 @@ export class BoardView {
     this.drag = {
       tokenId,
       offset: { x: p.x - view.container.x, y: p.y - view.container.y },
-      lastPreview: 0,
     };
     view.container.cursor = "grabbing";
     this.tokenLayer.addChild(view.container); // bring to front
@@ -1576,11 +1577,7 @@ export class BoardView {
       const p = this.toBoard(e.global);
       const at = { x: p.x - this.drag.offset.x, y: p.y - this.drag.offset.y };
       view.container.position.set(at.x, at.y);
-      const now = performance.now();
-      if (now - this.drag.lastPreview > PREVIEW_INTERVAL_MS) {
-        this.drag.lastPreview = now;
-        this.callbacks.dragPreview(this.drag.tokenId, at);
-      }
+      this.callbacks.dragPreview(this.drag.tokenId, at);
       this.invalidate();
     } else if (this.pan) {
       // A press that hardly moves is a tap, not a deliberate pan (KAN-54).
@@ -1605,6 +1602,7 @@ export class BoardView {
     if (this.gesture) return this.finishGesture();
     const drag = this.drag;
     this.drag = null;
+    if (drag) this.callbacks.dragEnd(drag.tokenId);
     if (!drag || !this.state) return;
     const token = this.state.tokens[drag.tokenId];
     const view = this.tokens.get(drag.tokenId);
@@ -1670,6 +1668,7 @@ export class BoardView {
       const view = this.tokens.get(this.drag.tokenId);
       const token = this.state?.tokens[this.drag.tokenId];
       if (view && token) view.container.position.set(token.position.x, token.position.y);
+      this.callbacks.dragEnd(this.drag.tokenId);
       this.drag = null;
       this.invalidate();
     }

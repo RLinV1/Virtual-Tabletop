@@ -70,3 +70,73 @@ describe("RoomConnection.onCommitted (KAN-76)", () => {
     expect(connection.snapshot.seq).toBe(5);
   });
 });
+
+describe("RoomConnection.preview (KAN-39, FR-SYNC-03)", () => {
+  /** What the connection hands to the socket, in order. */
+  function sent(connection: RoomConnection) {
+    const messages: unknown[] = [];
+    (connection as unknown as { send(m: unknown): void }).send = (m) => messages.push(m);
+    return messages;
+  }
+  const drag = (x: number) => ({ type: "tokenDragPreview" as const, tokenId: "t1", at: { x, y: 0 } });
+
+  it("sends at most one message per 50 ms per stream, and always the final value", () => {
+    vi.useFakeTimers();
+    try {
+      const { connection } = open();
+      const messages = sent(connection);
+      // 30 pointer moves over 100 ms.
+      for (let i = 0; i < 30; i++) {
+        connection.preview("drag:t1", drag(i));
+        vi.advanceTimersByTime(100 / 30);
+      }
+      vi.runAllTimers();
+      expect(messages.length).toBeLessThanOrEqual(3);
+      expect(messages.at(-1)).toEqual({ type: "ephemeral", payload: drag(29) });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps separate budgets per stream", () => {
+    vi.useFakeTimers();
+    try {
+      const { connection } = open();
+      const messages = sent(connection);
+      connection.preview("drag:t1", drag(1));
+      connection.preview("drag:t2", { ...drag(2), tokenId: "t2" });
+      expect(messages).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("sends a one-shot ping at once, even mid-drag", () => {
+    vi.useFakeTimers();
+    try {
+      const { connection } = open();
+      const messages = sent(connection);
+      connection.preview("drag:t1", drag(1));
+      connection.preview("drag:t1", drag(2));
+      connection.ephemeral({ type: "ping", at: { x: 5, y: 5 } });
+      expect(messages.at(-1)).toEqual({ type: "ephemeral", payload: { type: "ping", at: { x: 5, y: 5 } } });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("drops the unsent value when the stream is cancelled", () => {
+    vi.useFakeTimers();
+    try {
+      const { connection } = open();
+      const messages = sent(connection);
+      connection.preview("drag:t1", drag(1));
+      connection.preview("drag:t1", drag(2));
+      connection.cancelPreview("drag:t1");
+      vi.runAllTimers();
+      expect(messages).toEqual([{ type: "ephemeral", payload: drag(1) }]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

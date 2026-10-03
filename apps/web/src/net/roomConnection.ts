@@ -46,6 +46,15 @@ type EphemeralListener = (from: string, payload: EphemeralPayload) => void;
 type CommittedListener = (committed: CommittedEvent, before: RoomState, after: RoomState) => void;
 type RollListener = (roll: DiceRoll) => void;
 
+/** Shortest gap between two messages of one preview stream: at most 20 per second. */
+export const PREVIEW_INTERVAL_MS = 50;
+interface PreviewStream {
+  lastSent: number;
+  /** The newest value not yet sent, flushed when `timer` fires. */
+  pending: EphemeralPayload | null;
+  timer: ReturnType<typeof setTimeout> | null;
+}
+
 /**
  * Client side of the sync protocol (docs/adr/0001-event-model.md, docs/adr/0002).
  *  - Never changes state except through `reduce` on a server event, or a server snapshot.
@@ -71,6 +80,7 @@ export class RoomConnection {
   private ephemeralListeners = new Set<EphemeralListener>();
   private committedListeners = new Set<CommittedListener>();
   private rollListeners = new Set<RollListener>();
+  private previews = new Map<string, PreviewStream>();
 
   readonly store: StoreApi<RoomSnapshot> = createStore<RoomSnapshot>(() => ({
     status: "connecting",
@@ -118,6 +128,7 @@ export class RoomConnection {
   }
 
   stop() {
+    for (const key of [...this.previews.keys()]) this.cancelPreview(key);
     this.socket?.disconnect();
     this.socket = null;
     this.failPending("Disconnected");
@@ -157,8 +168,40 @@ export class RoomConnection {
     return () => this.rollListeners.delete(fn);
   }
 
+  /** One-shot ephemeral message (a ping, a dice drop): sent at once. */
   ephemeral(payload: EphemeralPayload) {
     if (this.snapshot.status === "open") this.send({ type: "ephemeral", payload });
+  }
+
+  /**
+   * A continuous preview (a drag, later a ruler or an aim), coalesced per `key` (KAN-39,
+   * FR-SYNC-03): at most one message per PREVIEW_INTERVAL_MS, and the latest value is always
+   * sent once input stops, so the other clients end where the pointer did.
+   */
+  preview(key: string, payload: EphemeralPayload) {
+    const stream = this.previews.get(key) ?? { lastSent: -Infinity, pending: null, timer: null };
+    this.previews.set(key, stream);
+    const wait = stream.lastSent + PREVIEW_INTERVAL_MS - Date.now();
+    if (wait <= 0 && !stream.timer) {
+      stream.lastSent = Date.now();
+      this.ephemeral(payload);
+      return;
+    }
+    stream.pending = payload;
+    stream.timer ??= setTimeout(() => {
+      stream.timer = null;
+      if (!stream.pending) return;
+      stream.lastSent = Date.now();
+      this.ephemeral(stream.pending);
+      stream.pending = null;
+    }, Math.max(0, wait));
+  }
+
+  /** Drops a preview stream's unsent value, e.g. once the drag it belongs to has ended. */
+  cancelPreview(key: string) {
+    const stream = this.previews.get(key);
+    if (stream?.timer) clearTimeout(stream.timer);
+    this.previews.delete(key);
   }
 
   /** Applies one server message: snapshots, ordered events, acks, and terminal session ends. */
