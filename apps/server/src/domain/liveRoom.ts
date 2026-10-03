@@ -208,6 +208,8 @@ export class LiveRoom {
     }
     // A dice drop only makes sense on the map: one off it, or with no map, is a forged payload.
     if (payload.type === "diceDrop" && !onMap(this.state.scene.map, payload.from, payload.to)) return;
+    // A ping points at the map: one off it, or with no map yet, has nothing to point at (KAN-34).
+    if (payload.type === "ping" && !onMap(this.state.scene.map, payload.at)) return;
     for (const client of this.clients) {
       if (client === from) continue;
       const viewer = this.state.participants[client.participantId];
