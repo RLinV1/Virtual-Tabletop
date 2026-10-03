@@ -2,7 +2,8 @@
 //
 // `events` is append-only: rows are never updated or deleted, and undo is a new
 // compensating event (FR-REC-03). The one exception is deleting a whole room, which
-// erases its log together with the room (docs/adr/0009-room-deletion.md). The per-room ordering guarantee (FR-SYNC-04) lives in
+// erases its log together with the room (docs/adr/0009-room-deletion.md). Postgres enforces
+// this with triggers (migration 0006_events_insert_only, KAN-42). The per-room ordering guarantee (FR-SYNC-04) lives in
 // the composite primary key below, not in application code — a duplicate seq is a
 // constraint violation no matter which instance tried to write it.
 //
