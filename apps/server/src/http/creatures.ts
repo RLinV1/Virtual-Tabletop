@@ -3,11 +3,12 @@ import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import { CreateCreatureRequest, UpdateCreatureRequest, type LibraryCreature } from "@vtt/shared";
 import { CreatureImageMissingError, type LibraryCreatureRecord } from "../store/libraryStore";
+import { requireAccountOwner, type Owner } from "../ownership/resolveOwner";
 import type { RoomStore } from "../store/roomStore";
 
 const CreatureIdParam = z.uuid();
 
-type WithGm = (req: Request, res: Response, handler: (gmId: string) => Promise<void>) => Promise<void>;
+type WithGm = (req: Request, res: Response, handler: (gmId: string, owner: Owner) => Promise<void>) => Promise<void>;
 
 /**
  * Reusable creatures (ADR 0012), beside the asset library and under the same rules: GM-only,
@@ -33,7 +34,8 @@ export function registerCreatureRoutes(app: Express, deps: { store: RoomStore; w
   });
 
   app.post("/api/library/creatures", (req, res) => {
-    void withGm(req, res, async (gmId) => {
+    void withGm(req, res, async (gmId, owner) => {
+      if (!requireAccountOwner(owner, res)) return;
       const body = CreateCreatureRequest.safeParse(req.body);
       if (!body.success) return void res.status(400).json({ error: body.error.issues });
       if (!(await ownTokenArt(gmId, body.data.imageAssetId))) return void imageRejected(res);

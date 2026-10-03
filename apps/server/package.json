@@ -10,13 +10,16 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate deploy"
+    "prisma:migrate": "prisma migrate deploy",
+    "account:reset-password": "tsx src/scripts/resetPassword.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1137.0",
+    "@node-rs/argon2": "^2.2.1",
     "@prisma/client": "^6.19.3",
     "@vtt/shared": "*",
     "express": "^5.2.1",
+    "image-size": "^2.0.4",
     "ioredis": "^6.0.0",
     "multer": "^2.4.0",
     "socket.io": "^4.8.3",

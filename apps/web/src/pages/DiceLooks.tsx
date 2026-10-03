@@ -2,7 +2,19 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { ArrowCounterClockwise, CaretDown, CopySimple, PencilSimple, UploadSimple } from "@phosphor-icons/react";
 import type { BodyName } from "../ui/diceGeometry";
 import { BODIES, DICE_PROMPT, SKIN_FILE_TYPES, type DiceSkin } from "../ui/diceSkin";
-import { copyTemplate, copyText, deleteDiceLook, readSkinFile, saveDiceLook, setActiveDiceLook, useDiceLooks } from "../ui/diceSkinStore";
+import { Link } from "../Link";
+import { signInFor } from "../account/safeNext";
+import {
+  browserLookCount,
+  copyTemplate,
+  copyText,
+  deleteDiceLook,
+  readSkinFile,
+  saveBrowserLooksToAccount,
+  saveDiceLook,
+  setActiveDiceLook,
+  useDiceLooks,
+} from "../ui/diceSkinStore";
 import { Die3D, layoutDice } from "../ui/Die3D";
 import { Modal } from "../ui/Modal";
 import { PopoverButton } from "../ui/Popover";
@@ -13,10 +25,11 @@ const SIDES: Record<BodyName, number> = { d4: 4, d6: 6, d8: 8, d10: 10, d12: 12,
  * The asset library's Dice tab (dice-image-skins): your dice looks, laid out like the other
  * tabs. The page's toolbar holds the search and "New dice look"; this is the grid of looks.
  * Each look holds a picture per die type, painted on that die's template (by hand or by an
- * image AI) or one square picture for every face. Looks live in this browser.
+ * image AI) or one square picture for every face. Signed in, looks are saved to the account
+ * (dice-looks); signed out, they live in this browser.
  */
 export function DiceLookCards({ query, onEdit }: { query: string; onEdit: (id: string) => void }) {
-  const { looks, activeId, ready } = useDiceLooks();
+  const { looks, activeId, ready, kept } = useDiceLooks();
   const q = query.trim().toLowerCase();
   const shown = q ? looks.filter((l) => l.name.toLowerCase().includes(q)) : looks;
 
@@ -33,7 +46,11 @@ export function DiceLookCards({ query, onEdit }: { query: string; onEdit: (id: s
         <p className="muted">
           {q
             ? "None of your dice looks match that search."
-            : "You haven't made any dice looks yet. A dice look paints your own dice with pictures, one per die type, from templates an image AI can fill in. It's kept in this browser: pick it in a room's Dice panel, and only you see it for now."}
+            : `You haven't made any dice looks yet. A dice look paints your own dice with pictures, one per die type, from templates an image AI can fill in. ${
+                kept === "account"
+                  ? "It's saved to your account: pick it in any room's Dice panel, on any device."
+                  : "It's kept in this browser: pick it in a room's Dice panel."
+              } Only you see it for now.`}
         </p>
       )}
       <ul className="plain asset-grid" role="tabpanel">
@@ -118,7 +135,7 @@ function DiceLookEditor({ look, active, onDone }: { look: DiceSkin; active: bool
   }, [note]);
   const rename = () => {
     const next = name.trim().slice(0, 40);
-    if (next && next !== look.name) void saveDiceLook({ ...look, name: next });
+    if (next && next !== look.name) saveDiceLook({ ...look, name: next }).catch(() => setName(look.name));
     else setName(look.name);
   };
   return (
@@ -201,7 +218,11 @@ function DieCard({ look, body, index }: { look: DiceSkin; body: BodyName; index:
     const result = await readSkinFile(file);
     if (typeof result === "string") return setStatus({ text: result, error: true });
     setStatus({ text: result.layout === "sheet" ? "Painted template on" : "Square picture on every face" });
-    await saveDiceLook({ ...look, images: { ...look.images, [body]: result } });
+    try {
+      await saveDiceLook({ ...look, images: { ...look.images, [body]: result } });
+    } catch (err) {
+      setStatus({ text: err instanceof Error ? err.message : "Couldn't save that picture", error: true });
+    }
   };
 
   return (
@@ -271,7 +292,7 @@ function DieCard({ look, body, index }: { look: DiceSkin; body: BodyName; index:
                     onClick={() => {
                       const images = { ...look.images };
                       delete images[body];
-                      void saveDiceLook({ ...look, images });
+                      saveDiceLook({ ...look, images }).catch(() => setStatus({ text: "Couldn't reset that die. Try again.", error: true }));
                       setStatus({ text: "Back to classic" });
                       close();
                     }}
@@ -312,5 +333,66 @@ function DicePreview({ look, bodies, size = 44 }: { look: DiceSkin; bodies: Body
         <Die3D key={i} die={die} skin={look} />
       ))}
     </div>
+  );
+}
+
+/**
+ * Signed in, with looks this browser made before: offer to save them to the account, beside the
+ * account's own (dice-looks: Bring this browser's dice looks into the account). Only when chosen.
+ */
+export function SaveBrowserLooksOffer() {
+  const [count, setCount] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ saved: number; failed: string[] } | null>(null);
+  useEffect(() => {
+    let live = true;
+    void browserLookCount().then((n) => live && setCount(n));
+    return () => {
+      live = false;
+    };
+  }, [result]);
+
+  async function save() {
+    setBusy(true);
+    try {
+      setResult(await saveBrowserLooksToAccount());
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (result && result.failed.length === 0) {
+    return (
+      <p role="status" className="notice">
+        Saved {result.saved} dice look{result.saved === 1 ? "" : "s"} to your account.
+      </p>
+    );
+  }
+  if (count === 0) return null;
+  return (
+    <div className="notice save-browser-looks">
+      <p>
+        This browser has {count} dice look{count === 1 ? "" : "s"} of its own. Save {count === 1 ? "it" : "them"} to your
+        account to use {count === 1 ? "it" : "them"} on any device.
+      </p>
+      {result && result.failed.length > 0 && (
+        <p role="alert" className="error">
+          {result.failed.join(", ")} could not be saved and stayed in this browser.
+        </p>
+      )}
+      <button type="button" onClick={() => void save()} disabled={busy}>
+        {busy ? "Saving…" : "Save to my account"}
+      </button>
+    </div>
+  );
+}
+
+/** Signed out on the Dice tab: a quiet way to keep looks on every device, never a wall (gm-dashboard). */
+export function DiceSignInLine() {
+  return (
+    <p className="muted small-print">
+      These looks are kept in this browser. <Link href={signInFor("/library?tab=dice")}>Sign in</Link> to keep your dice on
+      every device.
+    </p>
   );
 }

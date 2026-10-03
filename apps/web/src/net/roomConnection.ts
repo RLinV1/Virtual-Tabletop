@@ -62,6 +62,7 @@ const ENDED_MESSAGE: Record<SessionEndReason, string> = {
   left: "You left this room",
   revoked: "You were removed from this room",
   deleted: "This room was deleted",
+  signed_out: "You signed out on this device",
 };
 
 export class RoomConnection {
@@ -110,7 +111,7 @@ export class RoomConnection {
       if (err.message === "unauthorized" || err.message === "not_found") {
         socket.disconnect();
         this.update({ status: "unauthorized", refusal: err.message });
-      } else if (err.message === "left" || err.message === "revoked") {
+      } else if (err.message === "left" || err.message === "revoked" || err.message === "signed_out") {
         socket.disconnect();
         this.update({ status: "ended", endReason: err.message });
       }

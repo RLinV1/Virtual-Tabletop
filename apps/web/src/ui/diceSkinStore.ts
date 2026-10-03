@@ -1,30 +1,31 @@
 import { useSyncExternalStore } from "react";
+import { accountStore, type AccountState } from "../account/accountStore";
 import type { BodyName } from "./diceGeometry";
 import { keptSize, MAX_SKIN_FILE_BYTES, SHEET, SKIN_FILE_TYPES, skinLayoutFor, templateSvg, type DiceSkin, type DiceSkinImage } from "./diceSkin";
+import { accountBackend, copyLooks, localBackend, readActiveId, type CopyResult, type DiceLookBackend } from "./diceLookBackends";
 
 /**
- * This viewer's dice looks (dice-image-skins): made in the asset library's Dice tab, picked in
- * the room's Dice panel. They live in this browser only, so nobody else sees them yet.
+ * This viewer's dice looks (dice-image-skins, dice-looks): made in the asset library's Dice tab,
+ * picked in the room's Dice panel, and drawn only on this viewer's own screen.
  *
- * Pictures are kept in IndexedDB, which has room for several; which look is in use is a small
- * localStorage value. Other tabs hear about every change, so a look saved in the library shows
- * up in an open room at once. Without IndexedDB (a private window, say) looks last the visit.
+ * Signed in, they are the account's, the same on every device (ADR 0017 O3); signed out, they
+ * are this browser's, in IndexedDB. The store swaps between the two when the person signs in or
+ * out; nothing that draws dice knows which it is. Other tabs hear about every change, so a look
+ * saved in the library shows up in an open room at once; a change on another device shows up
+ * when this tab comes back to the front.
  */
-const DB_NAME = "vtt-dice-looks";
-const STORE = "looks";
-const ACTIVE_KEY = "vtt.diceLook.active";
-/** Where the one-skin prototype kept its d6 picture; moved into a look on first load. */
-const LEGACY_KEY = "vtt.diceSkin.d6";
-
 interface State {
   looks: DiceSkin[];
   activeId: string | null;
   ready: boolean;
+  /** Where the looks shown are kept. */
+  kept: "browser" | "account";
 }
 
-let state: State = { looks: [], activeId: readActiveId(), ready: false };
+let state: State = { looks: [], activeId: readActiveId(), ready: false, kept: "browser" };
+let backend: DiceLookBackend = localBackend;
 const listeners = new Set<() => void>();
-const channel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel(DB_NAME);
+const channel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel("vtt-dice-looks");
 channel?.addEventListener("message", () => void reload());
 
 function set(patch: Partial<State>) {
@@ -37,101 +38,44 @@ function subscribe(fn: () => void) {
   return () => listeners.delete(fn);
 }
 
-function readActiveId(): string | null {
-  try {
-    return localStorage.getItem(ACTIVE_KEY);
-  } catch {
-    return null;
-  }
-}
-
-// ---------- IndexedDB ----------
-
-let dbPromise: Promise<IDBDatabase> | null = null;
-
-function db(): Promise<IDBDatabase> {
-  dbPromise ??= new Promise((resolve, reject) => {
-    const open = indexedDB.open(DB_NAME, 1);
-    open.onupgradeneeded = () => open.result.createObjectStore(STORE, { keyPath: "id" });
-    open.onsuccess = () => resolve(open.result);
-    open.onerror = () => reject(open.error);
-  });
-  return dbPromise;
-}
-
-async function run<T>(mode: IDBTransactionMode, work: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
-  const tx = (await db()).transaction(STORE, mode);
-  const request = work(tx.objectStore(STORE));
-  return new Promise((resolve, reject) => {
-    tx.oncomplete = () => resolve(request.result);
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
-/** Only pictures this app re-encoded are ever shown. */
-function isLook(value: unknown): value is DiceSkin {
-  const look = value as DiceSkin;
-  return (
-    !!look &&
-    typeof look.id === "string" &&
-    typeof look.name === "string" &&
-    typeof look.images === "object" &&
-    Object.values(look.images).every((i) => !!i && typeof i.href === "string" && i.href.startsWith("data:image/") && skinLayoutFor(i.width, i.height) === i.layout)
-  );
-}
+let loading = 0;
 
 async function reload() {
+  const ticket = ++loading;
+  const kept = state.kept;
   try {
-    await migrateLegacy();
-    const all = (await run("readonly", (s) => s.getAll())).filter(isLook);
-    all.sort((a, b) => b.updatedAt - a.updatedAt);
-    set({ looks: all, activeId: readActiveId(), ready: true });
+    const loaded = await backend.load();
+    // A newer load (or a backend swap) won: drop this one.
+    if (ticket === loading) set({ ...loaded, ready: true, kept });
   } catch {
-    // No IndexedDB: keep whatever this visit made.
-    set({ activeId: readActiveId(), ready: true });
+    // No IndexedDB, or the server is unreachable: keep whatever this visit has.
+    if (ticket === loading) set({ ready: true, kept });
   }
 }
 
-let migration: Promise<void> | null = null;
-
-/** Once per page; see `moveLegacy`. */
-function migrateLegacy(): Promise<void> {
-  migration ??= moveLegacy();
-  return migration;
+/** Signed in, the account; signed out, the browser; still asking, nothing yet (no flash of the wrong looks). */
+function follow(account: AccountState) {
+  if (account.status === "loading") return;
+  const kept = account.status === "signedIn" ? "account" : "browser";
+  if (kept === state.kept && state.ready) return;
+  backend = kept === "account" ? accountBackend : localBackend;
+  set({ looks: [], activeId: null, ready: false, kept });
+  void reload();
 }
 
-async function moveLegacy() {
-  let raw: string | null = null;
-  try {
-    raw = localStorage.getItem(LEGACY_KEY);
-    // Taken before anything waits, so another tab loading at the same moment can't move it too.
-    if (raw) localStorage.removeItem(LEGACY_KEY);
-  } catch {
-    return;
-  }
-  if (!raw) return;
-  try {
-    const old = JSON.parse(raw) as DiceSkinImage & { name?: string };
-    const look: DiceSkin = { id: crypto.randomUUID(), name: "My d6 look", updatedAt: Date.now(), images: { d6: { href: old.href, width: old.width, height: old.height, layout: old.layout } } };
-    if (isLook(look)) {
-      await run("readwrite", (s) => s.put(look));
-      if (!readActiveId()) writeActiveId(look.id);
-    }
-  } catch {
-    // Unreadable: drop it.
-  }
+accountStore.subscribe(follow);
+follow(accountStore.getState());
+
+if (typeof document !== "undefined") {
+  // Changes made on another device arrive when this tab is next in front.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && state.kept === "account") void reload();
+  });
 }
 
-function writeActiveId(id: string | null) {
-  try {
-    if (id) localStorage.setItem(ACTIVE_KEY, id);
-    else localStorage.removeItem(ACTIVE_KEY);
-  } catch {
-    // Storage blocked: the choice lasts this visit.
-  }
+function announce() {
+  channel?.postMessage("changed");
 }
-
-void reload();
 
 // ---------- the API ----------
 
@@ -145,46 +89,63 @@ export function useActiveDiceLook(): DiceSkin | null {
   return looks.find((l) => l.id === activeId) ?? null;
 }
 
-export function newDiceLook(name: string): DiceSkin {
-  return { id: crypto.randomUUID(), name, updatedAt: Date.now(), images: {} };
-}
-
 /** Makes an empty look named "Dice look N" (the first free N) and returns its id. */
 export async function createDiceLook(): Promise<string> {
   const names = new Set(state.looks.map((l) => l.name));
   let n = state.looks.length + 1;
   while (names.has(`Dice look ${n}`)) n++;
-  const look = newDiceLook(`Dice look ${n}`);
-  await saveDiceLook(look);
+  const look = await backend.create(`Dice look ${n}`);
+  set({ looks: [look, ...state.looks] });
+  announce();
   return look.id;
 }
 
+/** Shows the change at once, then stores it; the stored copy (with the server's picture addresses) replaces it. */
 export async function saveDiceLook(look: DiceSkin) {
-  const saved = { ...look, updatedAt: Date.now() };
-  set({ looks: [saved, ...state.looks.filter((l) => l.id !== saved.id)] });
+  const prev = state.looks.find((l) => l.id === look.id) ?? null;
+  const next = { ...look, updatedAt: Date.now() };
+  set({ looks: [next, ...state.looks.filter((l) => l.id !== next.id)] });
   try {
-    await run("readwrite", (s) => s.put(saved));
+    const stored = await backend.save(prev, next);
+    set({ looks: state.looks.map((l) => (l.id === stored.id ? stored : l)) });
   } catch {
-    // Kept for this visit only.
+    // Not stored: put back what is, so the screen doesn't promise a save that didn't happen.
+    void reload();
+    throw new Error("Your dice look could not be saved. Try again.");
   }
-  channel?.postMessage("changed");
+  announce();
 }
 
 export async function deleteDiceLook(id: string) {
-  set({ looks: state.looks.filter((l) => l.id !== id) });
-  if (state.activeId === id) setActiveDiceLook(null);
+  set({ looks: state.looks.filter((l) => l.id !== id), activeId: state.activeId === id ? null : state.activeId });
   try {
-    await run("readwrite", (s) => s.delete(id));
+    await backend.remove(id);
   } catch {
-    // Nothing stored to delete.
+    void reload();
   }
-  channel?.postMessage("changed");
+  announce();
 }
 
 export function setActiveDiceLook(id: string | null) {
-  writeActiveId(id);
   set({ activeId: id });
-  channel?.postMessage("changed");
+  void backend.setActive(id).then(announce, () => void reload());
+}
+
+/** How many looks this browser keeps of its own: what signing in can bring to the account. */
+export async function browserLookCount(): Promise<number> {
+  try {
+    return (await localBackend.load()).looks.length;
+  } catch {
+    return 0;
+  }
+}
+
+/** Saves this browser's looks to the signed-in account, then shows the account's (dice-looks). */
+export async function saveBrowserLooksToAccount(): Promise<CopyResult> {
+  const result = await copyLooks(localBackend, accountBackend);
+  await reload();
+  announce();
+  return result;
 }
 
 /**

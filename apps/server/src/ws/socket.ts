@@ -8,6 +8,7 @@ import {
 import { hashToken } from "../domain/credentials";
 import type { LiveRoom, RoomClient } from "../domain/liveRoom";
 import type { RoomRegistry } from "../domain/roomRegistry";
+import type { Sessions } from "../identity/sessions";
 import type { RoomStore } from "../store/roomStore";
 
 const EPHEMERAL_PER_SECOND = 40;
@@ -17,6 +18,12 @@ const EPHEMERAL_PER_SECOND = 40;
  */
 const CHAT_PER_WINDOW = 10;
 const CHAT_WINDOW_MS = 10_000;
+/**
+ * Dice look changes one connection may make per minute (ADR 0018). Each is a permanent event,
+ * and nobody changes their dice ten times a minute on purpose.
+ */
+const DICE_LOOKS_PER_WINDOW = 10;
+const DICE_LOOK_WINDOW_MS = 60_000;
 
 /**
  * Socket.IO gateway (DESIGN.md §1, §2).
@@ -30,7 +37,7 @@ const CHAT_WINDOW_MS = 10_000;
  */
 export function registerSocket(
   io: SocketIOServer,
-  deps: { store: RoomStore; registry: RoomRegistry; logger?: boolean },
+  deps: { store: RoomStore; registry: RoomRegistry; sessions: Sessions; logger?: boolean },
 ) {
   // Authenticate during the handshake so an unauthorized socket never reaches a room.
   io.use(async (socket, next) => {
@@ -49,6 +56,9 @@ export function registerSocket(
         return next(new Error(revoked?.roomId === auth.data.roomId ? "revoked" : "unauthorized"));
       }
       if (cred.roomId !== auth.data.roomId) return next(new Error("unauthorized"));
+      // A seat bound to a sign-in works only while that session lasts (ADR 0017 M4). The sweep
+      // deletes ended sessions with their seats; this catches one that ended since.
+      if (cred.sessionHash && !(await deps.sessions.isLive(cred.sessionHash))) return next(new Error("signed_out"));
 
       const room = await deps.registry.get(cred.roomId);
       // Closed: the room is being deleted (ADR 0009). Same answer as a room that never existed.
@@ -60,6 +70,7 @@ export function registerSocket(
 
       socket.data.room = room;
       socket.data.participantId = cred.participantId;
+      socket.data.credentialHash = tokenHash;
       next();
     } catch (err) {
       console.error(`[vtt] socket handshake for room ${auth.data.roomId} failed:`, err);
@@ -75,6 +86,7 @@ export function registerSocket(
     const send = (msg: ServerMessage) => socket.emit(SOCKET_EVENTS.event, msg);
     const client: RoomClient = {
       participantId,
+      credentialHash: socket.data.credentialHash as string,
       send,
       sendVolatile: (msg) => socket.volatile.emit(SOCKET_EVENTS.event, msg),
       close: () => socket.disconnect(true),
@@ -87,6 +99,8 @@ export function registerSocket(
     let ephemeralCount = 0;
     /** Send times of this connection's recent chat messages, oldest first. */
     let chatTimes: number[] = [];
+    /** Times of this connection's recent dice look changes, oldest first. */
+    let diceLookTimes: number[] = [];
 
     // Handle one message at a time so a socket's messages commit in the order sent.
     let queue: Promise<void> = Promise.resolve();
@@ -130,6 +144,19 @@ export function registerSocket(
               });
             }
             chatTimes.push(now);
+          }
+          if (msg.command.type === "participant.setDiceLook" || msg.command.type === "participant.clearDiceLook") {
+            const now = Date.now();
+            diceLookTimes = diceLookTimes.filter((t) => now - t < DICE_LOOK_WINDOW_MS);
+            if (diceLookTimes.length >= DICE_LOOKS_PER_WINDOW) {
+              return send({
+                type: "rejected",
+                clientCommandId: msg.clientCommandId,
+                code: "invalid",
+                message: "You're changing dice too fast. Wait a minute.",
+              });
+            }
+            diceLookTimes.push(now);
           }
           const result = await room.submit(participantId, msg.command);
           if (result.ok) send({ type: "ack", clientCommandId: msg.clientCommandId, seq: result.seq });

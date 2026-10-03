@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ConditionId, TokenStats } from "./conditions";
 import { DiceRoll, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
-import { AreaTemplate, ChatMessage, Id, Initiative, MapImage, Participant, Token } from "./state";
+import { AreaTemplate, ChatMessage, DiceLookOnTable, Id, Initiative, MapImage, Participant, Token } from "./state";
 
 /**
  * Events are FACTS the server has committed. They are append-only and never edited.
@@ -27,6 +27,13 @@ export const DomainEvent = z.discriminatedUnion("type", [
     participantId: Id,
     displayName: z.string(),
     previous: z.string(),
+  }),
+  /** A participant's dice look on the table changed; `previous` is what it replaced (invariant 6, ADR 0018). */
+  z.object({
+    type: z.literal("ParticipantDiceLookSet"),
+    participantId: Id,
+    look: DiceLookOnTable.nullable(),
+    previous: DiceLookOnTable.nullable(),
   }),
   /** Carries the whole participant as it was before leaving (invariant 6, ADR 0006). */
   z.object({

@@ -62,6 +62,11 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
       };
     }
 
+    case "ParticipantDiceLookSet": {
+      const p = required(state.participants[event.participantId], event);
+      return { ...state, participants: { ...state.participants, [p.id]: { ...p, diceLook: event.look } } };
+    }
+
     case "ParticipantLeft": {
       const p = required(state.participants[event.participant.id], event);
       return { ...state, participants: { ...state.participants, [p.id]: { ...p, left: true } } };

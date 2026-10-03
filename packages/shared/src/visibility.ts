@@ -109,11 +109,13 @@ export function filterEventForViewer(
     case "RoomCreated":
     case "ParticipantJoined":
     case "ParticipantRenamed":
+    case "ParticipantDiceLookSet":
     case "ParticipantLeft":
     case "ParticipantRevoked":
     case "MapSet":
     case "GridSet":
-      // The participant list is public; leaving or removal reveals nothing hidden (ADR 0006).
+      // The participant list is public; leaving or removal reveals nothing hidden (ADR 0006). A
+      // dice look is pictures the whole table sees on that person's rolls, and names no account (ADR 0018).
       return pass;
   }
 }

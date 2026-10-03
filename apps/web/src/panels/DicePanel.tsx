@@ -171,7 +171,7 @@ export function DicePanel({
             onThrow={throwOnBoard}
           />
         )}
-        {board && <DiceLookPicker />}
+        {board && <DiceLookPicker roomId={state.roomId} />}
 
         {isGm && (
           <label className="checkbox">
