@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { PrismaClient } from "@prisma/client";
 import { afterAll, describe, expect, it } from "vitest";
 import { PostgresRoomStore } from "../src/store/postgresRoomStore";
 import { SeqConflictError } from "../src/store/roomStore";
@@ -92,5 +93,51 @@ describe.skipIf(!store)("PostgresRoomStore (docs/adr/0001-event-model.md)", () =
     expect(await store!.findRoomByInvite(oldCode)).toBeNull();
     expect(await store!.findRoomByInvite(fresh)).toBe(roomId);
     expect(await store!.getInviteCode(roomId)).toBe(fresh);
+  });
+});
+
+/**
+ * The insert-only guard lives in the database (migration 0006), so these go around the store
+ * with a raw client, as a buggy query or a manual psql session would (KAN-42, FR-REC-03).
+ */
+describe.skipIf(!store)("event log is insert-only (KAN-42, FR-REC-03)", () => {
+  const raw = url ? new PrismaClient({ datasources: { db: { url } } }) : null;
+  afterAll(async () => {
+    await raw?.$disconnect();
+  });
+  const db = () => raw!;
+
+  const roomWithEvents = async () => {
+    const roomId = randomUUID();
+    await store!.createRoom(roomId, randomUUID().slice(0, 10));
+    await store!.append(roomId, 0, [
+      { actorId: null, event: { type: "RoomCreated", name: "One" } },
+      { actorId: null, event: { type: "RoomCreated", name: "Two" } },
+    ]);
+    return roomId;
+  };
+  const count = async (roomId: string) => (await store!.loadEvents(roomId)).length;
+
+  it("rejects UPDATE, DELETE and TRUNCATE, leaving every row in place", async () => {
+    const roomId = await roomWithEvents();
+    await expect(db().$executeRaw`UPDATE events SET type = type WHERE room_id = ${roomId}::uuid`).rejects.toThrow(/append-only/);
+    await expect(db().$executeRaw`DELETE FROM events WHERE room_id = ${roomId}::uuid`).rejects.toThrow(/append-only/);
+    await expect(db().$executeRawUnsafe(`TRUNCATE events`)).rejects.toThrow(/append-only/);
+    expect(await count(roomId)).toBe(2);
+  });
+
+  it("lets a room deletion remove only its own room's events", async () => {
+    const a = await roomWithEvents();
+    const b = await roomWithEvents();
+    await expect(
+      db().$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('vtt.room_delete', ${a}, true)`;
+        await tx.$executeRaw`DELETE FROM events WHERE room_id = ${b}::uuid`;
+      }),
+    ).rejects.toThrow(/append-only/);
+    expect(await count(b)).toBe(2);
+    await store!.deleteRoom(a);
+    expect(await count(a)).toBe(0);
+    expect(await count(b)).toBe(2);
   });
 });
