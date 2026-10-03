@@ -182,3 +182,20 @@ describe("checkpoints stay with the GM (KAN-41, invariant 3)", () => {
     expect(Object.values(filterStateForViewer(r.state, alice).tokens).map((t) => t.name)).toEqual(["Goblin"]);
   });
 });
+
+describe("undo across a restore (KAN-41, ADR 0019)", () => {
+  it("drops board edits from before the restore, so none can undo across it", () => {
+    const r = furnished();
+    const goblin = tokenNamed(r.state, "Goblin").id;
+    // Move away and back: the move's end square is also where the checkpoint has the goblin.
+    r.run(gm, { type: "token.move", tokenId: goblin, to: { x: 315, y: 315 } });
+    r.run(gm, { type: "token.move", tokenId: goblin, to: { x: 35, y: 35 } });
+    const moveBack = r.log.at(-1)!.commandId!;
+    expect(undoableAction(r.state.undo, moveBack)).toBeTruthy();
+
+    r.run(gm, { type: "checkpoint.restore", checkpointId: r.state.checkpoints[0]!.id });
+    expect(undoableAction(r.state.undo, moveBack)).toBeUndefined();
+    // The restore itself stays undoable.
+    expect(undoableAction(r.state.undo, r.log.at(-1)!.commandId!)).toBeTruthy();
+  });
+});

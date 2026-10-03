@@ -36,6 +36,9 @@ import type { RoomStore } from "../store/roomStore";
  */
 const secureRandom = () => randomInt(0, 2 ** 31) / 2 ** 31;
 
+/** A checkpoint restore slower than this is logged: past it, ADR 0019 calls for a snapshot cache. */
+const RESTORE_SLOW_MS = 500;
+
 /** A connected socket bound to a participant. */
 export interface RoomClient {
   participantId: string;
@@ -309,12 +312,17 @@ export class LiveRoom {
    * replay makes the checkpoint unavailable rather than failing the whole command.
    */
   private async checkpointTables(): Promise<(checkpointId: string) => TableState | null> {
+    const started = performance.now();
     const events = await this.store.loadEvents(this.roomId);
     return (checkpointId) => {
       const checkpoint = this.state.checkpoints.find((c) => c.id === checkpointId);
       if (!checkpoint) return null;
       try {
-        return tableOf(replayTo(this.roomId, events, checkpoint.seq));
+        const table = tableOf(replayTo(this.roomId, events, checkpoint.seq));
+        // The room's queue waits on this; ADR 0019 adds a snapshot cache once it passes 500 ms.
+        const ms = performance.now() - started;
+        if (ms > RESTORE_SLOW_MS) console.warn(`[vtt] restoring a checkpoint in room ${this.roomId} took ${Math.round(ms)} ms (${events.length} events)`);
+        return table;
       } catch (err) {
         console.error(`[vtt] could not replay room ${this.roomId} to checkpoint ${checkpointId}`, err);
         return null;

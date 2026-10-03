@@ -31,12 +31,12 @@ For any non-GM viewer, `filterEventForViewer` answers `resync` for `CheckpointRe
 
 ### A restore is reversible
 
-`CheckpointRestored` joins `REVERSIBLE_EVENT_TYPES`. Its inverse is the same event type with `restored` and `previous` swapped. It is one event, so one undo entry, and undoing a wrong restore is one click.
+`CheckpointRestored` joins `REVERSIBLE_EVENT_TYPES`. Its inverse is the same event type with `restored` and `previous` swapped. It is one event, so one undo entry, and undoing a wrong restore is one click. A restore also closes the undo history for board edits made before it: their "still current" check could pass by coincidence (a token moved back onto its checkpoint square) and undo across the restore. Rulings, which live on rolls, stay undoable.
 
 ## Consequences
 
 - A restore is append-only: history before it is untouched (FR-REC-03, KAN-42).
-- Restore cost is a replay of the room's log. Room logs here are hundreds to low thousands of events. Add a snapshot cache if a restore ever takes over 500 ms.
+- Restore cost is a replay of the room's log. A restore slower than 500 ms is logged as a warning, the cue for a snapshot cache. Room logs here are hundreds to low thousands of events. Add a snapshot cache if a restore ever takes over 500 ms.
 - A `CheckpointRestored` event carries two full tables, bounded by the token, template and fog caps, and is only ever sent to GMs.
 - Old clients: the new events fail their reducer's `assertNever`. As with every event addition, web and server deploy together.
 

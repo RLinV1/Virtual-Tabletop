@@ -23,7 +23,14 @@ export function reduce(state: RoomState, event: DomainEvent, meta?: EventMeta): 
     return { ...next, undo };
   }
   // `meta` may carry only the commit time (players get no `commandId`); then there is no history to keep.
-  return meta?.commandId !== undefined ? { ...next, undo: recordUndo(state, event, { ...meta, commandId: meta.commandId }) } : next;
+  if (meta?.commandId === undefined) return next;
+  // A restore replaces the whole board, so board edits from before it can no longer be undone:
+  // their "still current" check could pass by coincidence and undo across the restore. Only
+  // rulings, which live on rolls rather than the board, stay (ADR 0019).
+  const history = event.type === "CheckpointRestored"
+    ? { ...state, undo: state.undo.filter((e) => e.events.length > 0 && e.events.every((ev) => ev.type === "RollRuled")) }
+    : state;
+  return { ...next, undo: recordUndo(history, event, { ...meta, commandId: meta.commandId }) };
 }
 
 /** `reduce` for a committed event, grouping it into its action for undo. */
