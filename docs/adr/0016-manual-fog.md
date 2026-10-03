@@ -30,6 +30,7 @@ Fog regions become room state, following the standard pattern.
 - **Owners keep their tokens.** A player whose token is under fog still sees and moves it. The board draws fog between the grid and the tokens, so it stays on top of the mask.
 - **Undo.** `FogAdded` and `FogRemoved` join `REVERSIBLE_EVENT_TYPES` as each other's inverse. Undoing an add is refused once the region is gone; undoing a removal is refused if the region is back, or if the room is already at `MAX_FOG_REGIONS`.
 - **Activity log.** "GM added a fog rectangle", "GM removed a fog polygon".
+- **Keyboard path (WCAG 2.1.1).** The board's Fog tool needs a pointer, so the GM panel has a Fog of war section that fogs the whole map, fogs a block of grid cells by column and row, and lists every region by the cells it covers with a Reveal button. It is web-only and sends the same `fog.add` / `fog.remove` commands, so the contract above is unchanged.
 
 `fog.add` / `fog.remove` are new commands and `FogAdded` / `FogRemoved` new events. No existing schema changes shape. `RoomState` gains a field that `emptyRoomState` initializes, and state is rebuilt by replaying events, so existing rooms load with `fog: {}`. The filters change behaviour for tokens and templates under fog, which only exist once fog does.
 

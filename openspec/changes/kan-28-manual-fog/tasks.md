@@ -17,6 +17,8 @@
 - [x] 3.1 Draw `state.fog` in a fog layer between grid and tokens: opaque for players, semi-transparent with outline for the GM; verify in Playwright with a GM and a player
 - [x] 3.2 Add the GM-only Fog tool (Rectangle, Polygon, Reveal) to the tool rail and its gestures in `boardView.ts`; verify in Playwright
 - [x] 3.3 Mark FR-GM-17 built in `docs/DESIGN.md`
+- [x] 3.4 Add the GM panel's Fog of war section (fog whole map, fog a block of cells, reveal from a list) so fog works by keyboard; verify with `test/fogCells.test.ts`, `test/fogPanel.test.tsx` and in Playwright by keyboard only
+- [x] 3.5 Keep the board hint clear of the tool rail in short windows, and announce it to screen readers
 
 ## 4. Verification
 

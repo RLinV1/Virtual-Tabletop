@@ -55,3 +55,18 @@ Adding and removing a fog region SHALL be undoable by the GM from the activity l
 #### Scenario: Undo an accidental reveal
 - **WHEN** the GM removes a region by mistake and then undoes it
 - **THEN** the region is back, and what it covered is withheld from players again
+
+### Requirement: Fog works without a pointer
+The GM SHALL be able to add and remove fog using only the keyboard, from a Fog of war section in the GM panel: fog the whole map, fog a block of grid cells given by column and row, and reveal any listed region. Each listed region SHALL be named by the cells it covers, and each result SHALL be announced to screen readers. The section sends the same `fog.add` and `fog.remove` commands as the board's Fog tool.
+
+#### Scenario: Fog a block of cells by keyboard
+- **WHEN** the GM types From column 3, From row 2, To column 12, To row 9 and presses Enter
+- **THEN** a rectangle covering exactly those cells is fogged, and the list shows "Rectangle · columns 3–12, rows 2–9"
+
+#### Scenario: Reveal by keyboard
+- **WHEN** the GM presses Reveal on a listed region
+- **THEN** the region is removed, the result is announced, and focus moves to the next region's Reveal button, or to the list summary if none is left
+
+#### Scenario: No map yet
+- **WHEN** the room has no battle map
+- **THEN** the section says to set a map first and offers no fog controls
