@@ -88,17 +88,30 @@ export function registerSocket(
     /** Send times of this connection's recent chat messages, oldest first. */
     let chatTimes: number[] = [];
 
-    // Handle one message at a time so a socket's messages commit in the order sent.
+    // Commands are handled one at a time so a socket's commands commit in the order sent.
+    // Ephemeral messages skip that queue: a ping must not wait behind a command still
+    // awaiting the store (KAN-39, FR-SYNC-03), and it has no ordering relation to commits.
     let queue: Promise<void> = Promise.resolve();
     socket.on(SOCKET_EVENTS.message, (raw: unknown) => {
-      queue = queue.then(async () => void (await handle(raw))).catch((err) => {
+      const parsed = ClientMessage.safeParse(raw);
+      if (parsed.success && parsed.data.type === "ephemeral") return relay(parsed.data.payload);
+      queue = queue.then(async () => void (await handle(raw, parsed))).catch((err) => {
         if (deps.logger) console.error("[vtt]", err);
         send({ type: "error", code: "bad_request", message: "Internal error" });
       });
     });
 
-    const handle = async (raw: unknown) => {
-      const parsed = ClientMessage.safeParse(raw);
+    const relay = (payload: Extract<ClientMessage, { type: "ephemeral" }>["payload"]) => {
+      const now = Date.now();
+      if (now - windowStart >= 1000) {
+        windowStart = now;
+        ephemeralCount = 0;
+      }
+      if (++ephemeralCount > EPHEMERAL_PER_SECOND) return;
+      room.relayEphemeral(client, payload);
+    };
+
+    const handle = async (raw: unknown, parsed: ReturnType<typeof ClientMessage.safeParse>) => {
       if (!parsed.success) {
         // A malformed command still needs a matching response so the browser can
         // settle its pending Apply request and show the validation error.
@@ -136,16 +149,9 @@ export function registerSocket(
           else send({ type: "rejected", clientCommandId: msg.clientCommandId, code: result.code, message: result.message });
           return;
         }
-        case "ephemeral": {
-          const now = Date.now();
-          if (now - windowStart >= 1000) {
-            windowStart = now;
-            ephemeralCount = 0;
-          }
-          if (++ephemeralCount > EPHEMERAL_PER_SECOND) return;
-          room.relayEphemeral(client, msg.payload);
+        case "ephemeral":
+          // Relayed on arrival, before queueing; never reaches here.
           return;
-        }
         case "resync":
           room.sendSnapshot(client);
           return;

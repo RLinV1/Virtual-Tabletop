@@ -2,6 +2,7 @@ import type { DiceRoll } from "./dice";
 import type { CommittedEvent, DomainEvent } from "./events";
 import { CHAT_LOG_LIMIT, ROLL_LOG_LIMIT, type RoomState } from "./state";
 import { eventMeta, recordUndo, type EventMeta } from "./undo";
+import { fogConcealsSide } from "./visibility";
 
 /**
  * Pure state transition. The ONLY way RoomState changes, on both server and client.
@@ -14,7 +15,7 @@ import { eventMeta, recordUndo, type EventMeta } from "./undo";
  * Without it, state changes the same way and the history is left alone.
  */
 export function reduce(state: RoomState, event: DomainEvent, meta?: EventMeta): RoomState {
-  const next = apply(state, event, meta?.at ?? null);
+  const next = concealFoggedSides(apply(state, event, meta?.at ?? null), event);
   if (event.type === "ActionUndone") {
     // Drops the undone action, and the entry this undo's own inverse events just opened,
     // so an undo is never itself undoable (no redo).
@@ -173,6 +174,15 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
       return { ...state, templates: rest };
     }
 
+    case "FogAdded":
+      return { ...state, fog: { ...state.fog, [event.region.id]: event.region } };
+
+    case "FogRemoved": {
+      required(state.fog[event.region.id], event);
+      const { [event.region.id]: _removed, ...rest } = state.fog;
+      return { ...state, fog: rest };
+    }
+
     // Its compensating events already restored the values; `reduce` updates the history.
     case "ActionUndone":
       return state;
@@ -202,6 +212,24 @@ function updateRoll(state: RoomState, rollId: string, update: (roll: DiceRoll) =
 
 function assertNever(x: never): never {
   throw new Error(`Unhandled event: ${JSON.stringify(x)}`);
+}
+
+/**
+ * After a change that can put a token under fog, marks every unowned fogged token hidden on the
+ * attack rolls that name it, so a later delete, reveal or rename never brings back a side players
+ * saw as Unknown (ADR 0016). Same permanence as `concealInRolls` for hidden tokens.
+ */
+function concealFoggedSides(state: RoomState, event: DomainEvent): RoomState {
+  const tokenIds =
+    event.type === "FogAdded" ? Object.keys(state.tokens)
+    : event.type === "TokenMoved" || event.type === "TokenOwnersSet" ? [event.tokenId]
+    : [];
+  let rolls = state.rolls;
+  for (const id of tokenIds) {
+    const token = state.tokens[id];
+    if (token && fogConcealsSide(state, token)) rolls = concealInRolls(rolls, id);
+  }
+  return rolls === state.rolls ? state : { ...state, rolls };
 }
 
 /**

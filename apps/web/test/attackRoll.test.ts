@@ -85,10 +85,14 @@ describe("attack section helpers (attack-targeting, FR-TAC-09)", () => {
   });
 
   it("pings only a visible target of a public roll (FR-TAC-05, FR-GM-23)", () => {
-    expect(shouldPingTarget({ hidden: false }, "public")).toBe(true);
-    expect(shouldPingTarget({ hidden: true }, "public")).toBe(false);
-    expect(shouldPingTarget({ hidden: false }, "gm")).toBe(false);
-    expect(shouldPingTarget(undefined, "public")).toBe(false);
+    const at = { x: 35, y: 35 };
+    expect(shouldPingTarget({ hidden: false, position: at }, "public", {})).toBe(true);
+    expect(shouldPingTarget({ hidden: true, position: at }, "public", {})).toBe(false);
+    expect(shouldPingTarget({ hidden: false, position: at }, "gm", {})).toBe(false);
+    expect(shouldPingTarget(undefined, "public", {})).toBe(false);
+    // Never on a fogged target: the ping would show players where it stands (ADR 0016).
+    const fog = { f: { id: "f", shape: "rect" as const, points: [{ x: 0, y: 0 }, { x: 70, y: 0 }, { x: 70, y: 70 }, { x: 0, y: 70 }] } };
+    expect(shouldPingTarget({ hidden: false, position: at }, "public", fog)).toBe(false);
   });
 });
 

@@ -347,18 +347,19 @@ Phosphor outline icon family with a consistent optical stroke; do not mix icon f
 | Hero type | Fluid 36–72px; allow wrapping rather than fixed line count |
 | Control/overlay radius | 6px / 12px |
 | Control height | 40px regular; coarse-pointer hit area at least 44×44px |
-| Borders | 1px decorative hairline; control boundary uses `#627783` |
-| Error text | `#f08a80`; original danger remains an icon/status fill only where contrast allows |
-| Primary button | Accent background, ground foreground; never parchment text on gold |
-| Focus | 2px accent outline, 2px offset; ground separation on accent-filled controls |
+| Borders | 1px decorative `--border`; control boundary uses `--border-strong` (`#6a7280`) |
+| Error text | `--danger` (`#e0685c`), 5.2:1 on panel |
+| Primary button | Accent background, `--accent-ink` bold label (4.4:1, see below) |
+| Focus | 2px `--focus` (`#e08a62`) outline, 2px offset, visible on accent-filled controls too |
 | Surface states | Hover `#202b33`, selected `#30302a`; selection also has glyph/border/ARIA state |
 | Overlay shadow | `0 16px 48px rgb(15 20 24 / 45%)` |
 | DOM layers | Board 0, controls 10, menus 20, sheet backdrop 30, sheet 40, confirmation 50 |
 
-Validate foreground/background pairs in actual use. From the specified palette, body on
-panel is 13.19:1 and muted on panel 5.87:1. Original danger on panel is only 3.89:1, and
-parchment on accent 1.76:1; neither is normal text treatment. Hairline on panel is 1.29:1
-and is decorative, not the only means of recognizing an input or selected control.
+Validate foreground/background pairs in actual use. From the shipped palette, body on
+panel is 13.8:1, muted on panel 5.8:1 and danger on panel 5.2:1. Accent ink on accent is
+4.4:1, just under the WCAG AA 4.5:1 for normal text; darkening `--accent` slightly would
+clear it (follow-up). `--border` on panel is 1.2:1 and is decorative, not the only means of
+recognizing an input or selected control; `--border-strong` (3.6:1) carries that.
 
 **Shared states:** buttons have default/hover/focus/pressed/disabled/pending; tabs and tool
 buttons add selected/pressed semantics. Pending buttons retain label/width and show a
