@@ -1,6 +1,6 @@
 import { formatAttackParties } from "./dice";
 import type { CommittedEvent, DomainEvent } from "./events";
-import type { RoomState } from "./state";
+import { MAX_FOG_REGIONS, type RoomState } from "./state";
 
 /**
  * Undo for reversible actions (FR-REC-02, FR-REC-03, ADR 0013).
@@ -24,6 +24,8 @@ export const REVERSIBLE_EVENT_TYPES = [
   "TokenStatsSet",
   "RollRuled",
   "RollDamageApplied",
+  "FogAdded",
+  "FogRemoved",
 ] as const;
 
 export type ReversibleEvent = Extract<DomainEvent, { type: (typeof REVERSIBLE_EVENT_TYPES)[number] }>;
@@ -113,6 +115,7 @@ function withLabels(
   event: ReversibleEvent,
 ): Pick<UndoEntry, "tokenNames" | "rollLabels"> {
   const { tokenNames, rollLabels } = labels;
+  if (event.type === "FogAdded" || event.type === "FogRemoved") return labels;
   if ("tokenId" in event) {
     const token = state.tokens[event.tokenId];
     return token ? { tokenNames: { ...tokenNames, [token.id]: token.name }, rollLabels } : { tokenNames, rollLabels };
@@ -155,6 +158,10 @@ export function inverseOf(event: ReversibleEvent): DomainEvent {
       return { type: "RollRuled", rollId: event.rollId, verdict: event.previous, previous: event.verdict };
     case "RollDamageApplied":
       return { type: "RollDamageUnapplied", rollId: event.rollId, amount: event.amount };
+    case "FogAdded":
+      return { type: "FogRemoved", region: event.region };
+    case "FogRemoved":
+      return { type: "FogAdded", region: event.region };
   }
 }
 
@@ -164,6 +171,17 @@ export function inverseOf(event: ReversibleEvent): DomainEvent {
  */
 export function undoConflict(state: RoomState, entry: UndoEntry): string | null {
   for (const event of entry.events) {
+    // Fog regions are never edited in place, so "still current" is just "still there" (or still gone).
+    if (event.type === "FogAdded") {
+      if (!state.fog[event.region.id]) return "Can't undo: that fog has already been removed.";
+      continue;
+    }
+    if (event.type === "FogRemoved") {
+      if (state.fog[event.region.id]) return "Can't undo: that fog is already back.";
+      // Undo must not grow the room past the cap `fog.add` enforces.
+      if (Object.keys(state.fog).length >= MAX_FOG_REGIONS) return `Can't undo: the room already has ${MAX_FOG_REGIONS} fog regions.`;
+      continue;
+    }
     if (!("tokenId" in event)) {
       // Rulings and applications only exist on rolls still in the state window (ADR 0011).
       const roll = state.rolls.find((r) => r.id === event.rollId);
@@ -211,6 +229,12 @@ export function describeUndo(entry: UndoEntry, tokens: RoomState["tokens"]): { v
   }
   const first = entry.events[0];
   if (!first) return { verb: "last action", noun: "an action" };
+  if (first.type === "FogAdded" || first.type === "FogRemoved") {
+    const what = first.region.shape === "rect" ? "fog rectangle" : "fog polygon";
+    return first.type === "FogAdded"
+      ? { verb: `add ${what}`, noun: `adding a ${what}` }
+      : { verb: `remove ${what}`, noun: `removing a ${what}` };
+  }
   if (first.type === "RollRuled" || first.type === "RollDamageApplied") {
     return { verb: `ruling on ${rollOf(first.rollId)}`, noun: `the ruling on ${rollOf(first.rollId)}` };
   }

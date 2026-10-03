@@ -211,7 +211,10 @@ a.tool-button { text-decoration: none; }
 .tool-button[aria-expanded="true"] { border-color: var(--accent); }
 .icon-count { font-variant-numeric: tabular-nums; }
 .board-hint {
-  position: absolute; bottom: var(--space-2); left: var(--space-3); margin: 0;
+  /* Starts right of the tool rail, which runs down the board's left edge and would cover it
+     in a short window. 4.25rem = the rail's labelled buttons, its padding and border. */
+  position: absolute; bottom: var(--space-2); left: calc(var(--space-3) + 4.25rem + var(--space-2)); margin: 0;
+  max-width: calc(100% - 4.25rem - 3 * var(--space-3));
   font-size: var(--fs-xs); color: var(--muted); pointer-events: none;
 }
 
@@ -2095,6 +2098,16 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 
 .departed-list { display: flex; flex-direction: column; gap: var(--space-2); }
 .departed-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: var(--fs-sm); }
+
+/* Fog of war by keyboard (FR-GM-17): fog the map or a block of cells, reveal from a list. */
+.fog-cells fieldset { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-2) 0 0; padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius); }
+.fog-cells legend { padding: 0 var(--space-1); font-size: var(--fs-sm); font-weight: 500; }
+.fog-cells-hint { margin: 0; font-size: var(--fs-xs); }
+.fog-cells-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
+.fog-cells-grid input { width: 100%; font-variant-numeric: tabular-nums; }
+.fog-count { margin: var(--space-3) 0 var(--space-1); font-size: var(--fs-sm); }
+.fog-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.fog-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: var(--fs-sm); }
 
 .resolve-all { flex-direction: row; align-items: center; justify-content: space-between; gap: var(--space-3); color: var(--text); font-weight: 500; }
 .resolve-rows { display: flex; flex-direction: column; border-top: 1px solid var(--border); }

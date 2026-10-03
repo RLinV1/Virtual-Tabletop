@@ -30,6 +30,9 @@ export const HistoryResponse = z.object({
 });
 export type HistoryResponse = z.infer<typeof HistoryResponse>;
 
+/** "rectangle" or "polygon", for fog sentences (FR-GM-17). */
+const fogLabel = (shape: "rect" | "polygon") => (shape === "rect" ? "rectangle" : "polygon");
+
 /** A board point for a sentence: at most 2 decimals, so float noise like 829.1000000000001 reads 829.1. */
 const formatPoint = (p: { x: number; y: number }) => `(${Number(p.x.toFixed(2))}, ${Number(p.y.toFixed(2))})`;
 
@@ -95,6 +98,8 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
     }
     case "TemplatePlaced": return `${actorName} placed a ${templateLabel(event.template)}${event.template.gmOnly ? " (GM only)" : ""}`;
     case "TemplateRemoved": return `${actorName} removed a ${templateLabel(event.template)}${event.template.gmOnly ? " (GM only)" : ""}`;
+    case "FogAdded": return `${actorName} added a fog ${fogLabel(event.region.shape)}`;
+    case "FogRemoved": return `${actorName} removed a fog ${fogLabel(event.region.shape)}`;
     case "ActionUndone": {
       // The undone action is still in the history just before this event (ADR 0013).
       const entry = before.undo.find((e) => e.commandId === event.commandId);
