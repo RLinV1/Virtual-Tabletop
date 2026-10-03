@@ -139,6 +139,37 @@ export const Initiative = z.object({
 });
 export type Initiative = z.infer<typeof Initiative>;
 
+/**
+ * What is on the board: the part of the state a checkpoint restores (FR-REC-02, ADR 0017).
+ * Participants, rolls, chat and history record the session and are never part of it.
+ */
+export const TableState = z.object({
+  scene: Scene,
+  tokens: z.record(Id, Token),
+  templates: z.record(Id, AreaTemplate),
+  fog: z.record(Id, FogRegion),
+  initiative: Initiative.nullable(),
+});
+export type TableState = z.infer<typeof TableState>;
+
+/** The table part of a room state. */
+export function tableOf(state: Pick<RoomState, keyof TableState>): TableState {
+  return { scene: state.scene, tokens: state.tokens, templates: state.templates, fog: state.fog, initiative: state.initiative };
+}
+
+/** Most checkpoints a room keeps; the oldest drops off past this (ADR 0017). */
+export const MAX_CHECKPOINTS = 50;
+export const MAX_CHECKPOINT_NAME = 60;
+
+/** A named restore point: the board as it was after event `seq` (FR-REC-02, ADR 0017). GM-only. */
+export const Checkpoint = z.object({
+  id: Id,
+  name: z.string().min(1).max(MAX_CHECKPOINT_NAME),
+  /** The last committed seq before the checkpoint was saved. */
+  seq: z.number().int().min(0),
+});
+export type Checkpoint = z.infer<typeof Checkpoint>;
+
 /** How many rolls the log keeps. Older ones stay in the event log, just not in state. */
 export const ROLL_LOG_LIMIT = 30;
 
@@ -178,6 +209,8 @@ export interface RoomState {
   chat: ChatMessage[];
   /** Fog regions, in the order they were added (FR-GM-17, ADR 0016). Sent to players: they are the mask. */
   fog: Record<Id, FogRegion>;
+  /** Named restore points, oldest first, capped at MAX_CHECKPOINTS (ADR 0017). GM-only. */
+  checkpoints: Checkpoint[];
   /**
    * Recent undoable actions, oldest first (FR-REC-02, ADR 0013). Derived by `reduce` from
    * committed events and their `commandId`s; GM-only (players always get an empty list).
@@ -197,6 +230,7 @@ export function emptyRoomState(roomId: Id): RoomState {
     templates: {},
     chat: [],
     fog: {},
+    checkpoints: [],
     undo: [],
   };
 }

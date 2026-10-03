@@ -5,7 +5,7 @@ Gives the GM named restore points for the table, so any combination of mistakes 
 ## ADDED Requirements
 
 ### Requirement: GM saves a named checkpoint
-The GM SHALL be able to save the current table as a checkpoint with a name of 1 to 60 characters. A checkpoint SHALL record the table as it is at that moment: the map and grid, every token (hidden ones included), placed area templates, and initiative. Players MUST NOT be able to create checkpoints.
+The GM SHALL be able to save the current table as a checkpoint with a name of 1 to 60 characters. A checkpoint SHALL record the table as it is at that moment: the map and grid, every token (hidden ones included), placed area templates, fog regions, and initiative. Players MUST NOT be able to create checkpoints.
 
 #### Scenario: GM saves a checkpoint
 - **WHEN** the GM saves a checkpoint named "Before the ambush"
@@ -20,11 +20,11 @@ The GM SHALL be able to save the current table as a checkpoint with a name of 1 
 - **THEN** the server rejects it and no checkpoint is added
 
 ### Requirement: GM restores a checkpoint
-The GM SHALL be able to restore any saved checkpoint. Restoring SHALL return the map and grid, tokens, area templates and initiative to exactly what they were when the checkpoint was saved. Restoring MUST NOT change participants, chat, dice history or the activity log. Players MUST NOT be able to restore.
+The GM SHALL be able to restore any saved checkpoint. Restoring SHALL return the map and grid, tokens, area templates, fog and initiative to exactly what they were when the checkpoint was saved. Restoring MUST NOT change participants, chat, dice history or the activity log. Players MUST NOT be able to restore.
 
 #### Scenario: Restore after many changes
 - **WHEN** the GM saves a checkpoint, then moves tokens, adds a token, deletes another, changes the map and starts initiative, and then restores the checkpoint
-- **THEN** every client's board shows the map, tokens, templates and initiative exactly as they were at the checkpoint
+- **THEN** every client's board shows the map, tokens, templates, fog and initiative exactly as they were at the checkpoint
 
 #### Scenario: Chat survives a restore
 - **WHEN** a player sends a chat message after a checkpoint and the GM then restores it

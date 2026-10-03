@@ -9,7 +9,7 @@ The ticket's success metric ("GM reverses an accidental reveal/move/condition ch
 ## What Changes
 
 - New commands (GM only): `checkpoint.create { name }` and `checkpoint.restore { checkpointId }`.
-- New events: `CheckpointCreated { checkpoint: { id, name, seq } }` and `CheckpointRestored { checkpointId, restored, previous }`, where `restored` and `previous` are the full **table state**: scene, tokens, area templates and initiative.
+- New events: `CheckpointCreated { checkpoint: { id, name, seq } }` and `CheckpointRestored { checkpointId, name, restored, previous }`, where `restored` and `previous` are the full **table state**: scene, tokens, area templates, fog and initiative.
 - A restore resets the table only. Participants, chat, dice history and the activity log stay as they are, because they record what happened rather than what is on the board.
 - The server computes a checkpoint's table state by replaying the log up to its `seq` (pure `reduce`, no snapshot needed) and hands it to `decide` through `DecideContext`. `decide` stays pure.
 - `RoomState.checkpoints`: metadata list (id, name, seq), GM-only, stripped for players by `filterStateForViewer`.
@@ -34,5 +34,5 @@ None. Undo's behaviour is unchanged; `CheckpointRestored` joins its reversible s
 - `packages/shared`: `commands.ts`, `events.ts`, `state.ts` (`checkpoints`), `decide.ts`, `reducer.ts`, `visibility.ts`, `undo.ts`, `activityLog.ts`.
 - `apps/server/src/domain/liveRoom.ts`: loads the checkpoint's table state before calling `decide` for `checkpoint.restore`.
 - `apps/web`: a Checkpoints section in the GM panel.
-- `docs/adr/`: new ADR (next free number) for checkpoints; amends ADR 0001's one-line note.
+- `docs/adr/`: new ADR 0017 for checkpoints; amends ADR 0001's one-line note.
 - The existing Postgres `checkpoints` table stays unused. The event log is the source of truth, and dropping the table is left to a later cleanup.

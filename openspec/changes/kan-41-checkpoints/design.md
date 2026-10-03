@@ -27,7 +27,7 @@
 *Alternative:* have `reduce` compute the restored table itself. Impossible: `reduce` only has the current state, not the history.
 
 ### 3. What "table" means
-`TableState = { scene, tokens, templates, initiative }`. These four describe what is on the board. `participants`, `rolls`, `chat`, `name`, `undo` and `checkpoints` are records of the session and are untouched. A restored token whose owners have since left keeps its `ownerIds`. That is harmless, because ownership by an inactive participant grants nothing.
+`TableState = { scene, tokens, templates, fog, initiative }`. These five describe what is on the board. `participants`, `rolls`, `chat`, `name`, `undo` and `checkpoints` are records of the session and are untouched. A restored token whose owners have since left keeps its `ownerIds`. That is harmless, because ownership by an inactive participant grants nothing.
 
 ### 4. Players get a resync, never the event
 `filterEventForViewer` returns `resync` for `CheckpointRestored` for every non-GM viewer. The payload holds hidden tokens and GM-only templates in both `restored` and `previous`, and filtering two nested states inside an event is error-prone. A full filtered snapshot is simpler and provably safe. `CheckpointCreated` is `redacted` for players (seq only). `filterStateForViewer` sets `checkpoints: []` for players.

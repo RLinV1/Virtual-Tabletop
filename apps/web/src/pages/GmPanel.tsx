@@ -6,6 +6,7 @@ import { loadGmToken } from "../net/identity";
 import { imageSize } from "../net/imageFile";
 import type { CommandResult, RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
+import { CheckpointsPanel } from "../panels/CheckpointsPanel";
 import { FogPanel } from "../panels/FogPanel";
 import { PanelSection } from "../ui/PanelSection";
 import type { GridDraft } from "./gridDraft";
@@ -27,7 +28,7 @@ interface Props {
   onReviewDeparture: (participantId: string) => void;
 }
 
-/** The GM's administration section: departed players to resolve, map and grid setup, then fog. */
+/** The GM's administration section: departed players to resolve, map and grid setup, fog, then checkpoints. */
 export function GmPanel({
   connection, state, token, onReviewDeparture,
   gridDraft, hasGridDraft, onGridDraftChange, onGridDraftCancel, onGridApply, gridApplying, gridError,
@@ -75,6 +76,7 @@ export function GmPanel({
         )}
       />
       <FogPanel connection={connection} state={state} />
+      <CheckpointsPanel connection={connection} state={state} />
     </>
   );
 }

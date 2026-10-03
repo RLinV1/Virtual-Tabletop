@@ -66,7 +66,7 @@ export function filterStateForViewer(state: RoomState, viewer: Participant): Roo
   // Fog regions stay: they are the mask the player's board draws, and name nothing (ADR 0016).
   // Chat is public, so `chat` stays as it is in the spread below (ADR 0015).
   // Undo is GM-only, and its entries name hidden tokens and their old values (ADR 0013).
-  return { ...state, tokens, rolls, initiative, templates, undo: [] };
+  return { ...state, tokens, rolls, initiative, templates, undo: [], checkpoints: [] };
 }
 
 export type FilteredEvent =
@@ -163,6 +163,12 @@ export function filterEventForViewer(
       return { kind: "resync" };
     case "TokenHiddenSet":
       // A reveal must deliver the whole token; a hide must remove it. A snapshot does both.
+      return { kind: "resync" };
+    case "CheckpointCreated":
+      // Checkpoints are the GM's; a player learns only that a seq passed (ADR 0017).
+      return redacted;
+    case "CheckpointRestored":
+      // Both tables hold hidden tokens and GM-only areas; a filtered snapshot carries the rest.
       return { kind: "resync" };
     case "ActionUndone":
       // Players have no undo or activity log; the compensating events before it already

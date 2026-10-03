@@ -10,6 +10,8 @@ import {
   filterStateForViewer,
   isActive,
   reduceCommitted,
+  replayTo,
+  tableOf,
   referencedAssetIds,
   type Command,
   type CommittedEvent,
@@ -21,6 +23,7 @@ import {
   type RejectionCode,
   type RoomState,
   type ServerMessage,
+  type TableState,
   type SessionEndReason,
 } from "@vtt/shared";
 import type { RoomStore } from "../store/roomStore";
@@ -137,7 +140,13 @@ export class LiveRoom {
       if (!isActive(actor)) return { ok: false, code: "forbidden", message: "You are no longer in this room" };
       // Randomness is injected, never reached for inside `decide` — that is what keeps the
       // kernel pure and the dice testable (CLAUDE.md invariant 2).
-      const decision = decide(this.state, actor, command, { newId: randomUUID, random: secureRandom });
+      const checkpointTable = command.type === "checkpoint.restore" ? await this.checkpointTables() : undefined;
+      const decision = decide(this.state, actor, command, {
+        newId: randomUUID,
+        random: secureRandom,
+        lastSeq: this.seq,
+        checkpointTable,
+      });
       if (!decision.ok) return decision;
       const committed = await this.commit(actorId, decision.events);
       return { ok: true, seq: committed.at(-1)?.seq ?? null };
@@ -221,6 +230,25 @@ export class LiveRoom {
       const deliver = payload.type === "diceDrop" ? client.send : (client.sendVolatile ?? client.send);
       deliver.call(client, { type: "ephemeral", from: sender.id, payload });
     }
+  }
+
+  /**
+   * Rebuilds a checkpoint's board by replaying the log up to its seq (ADR 0017). Runs inside the
+   * room's queue, so nothing commits between the replay and the decision. A log that won't
+   * replay makes the checkpoint unavailable rather than failing the whole command.
+   */
+  private async checkpointTables(): Promise<(checkpointId: string) => TableState | null> {
+    const events = await this.store.loadEvents(this.roomId);
+    return (checkpointId) => {
+      const checkpoint = this.state.checkpoints.find((c) => c.id === checkpointId);
+      if (!checkpoint) return null;
+      try {
+        return tableOf(replayTo(this.roomId, events, checkpoint.seq));
+      } catch (err) {
+        console.error(`[vtt] could not replay room ${this.roomId} to checkpoint ${checkpointId}`, err);
+        return null;
+      }
+    };
   }
 
   /** Appends events atomically, then reduces, broadcasts and ends any seats they close, in seq order. */
