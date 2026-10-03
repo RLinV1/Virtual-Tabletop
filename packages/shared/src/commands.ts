@@ -211,6 +211,20 @@ export const Command = z.discriminatedUnion("type", [
     participantId: Id,
     actions: z.array(DepartureAction).min(1).max(MAX_DEPARTURE_ACTIONS),
   }),
+  /**
+   * Put your own dice look on the table, or take it off with `null` (shared-dice-looks, ADR 0018).
+   * Strict: the look's pictures are never the client's to name; the server reads them from the
+   * look your account owns, and refuses any other.
+   */
+  z.object({
+    type: z.literal("participant.setDiceLook"),
+    lookId: Id.nullable(),
+  }).strict(),
+  /** GM puts a player's dice back to classic in this room (shared-dice-looks). */
+  z.object({
+    type: z.literal("participant.clearDiceLook"),
+    participantId: Id,
+  }).strict(),
   /** Send a chat message to the room (KAN-75, ADR 0015). Strict: a client can't name the sender. */
   z.object({
     type: z.literal("chat.send"),
@@ -232,12 +246,12 @@ export const Command = z.discriminatedUnion("type", [
     type: z.literal("fog.remove"),
     regionId: Id,
   }).strict(),
-  /** GM saves the board as a named restore point (FR-REC-02, ADR 0017). */
+  /** GM saves the board as a named restore point (FR-REC-02, ADR 0019). */
   z.object({
     type: z.literal("checkpoint.create"),
     name: z.string().max(200),
   }).strict(),
-  /** GM puts the board back as it was at a checkpoint (FR-REC-02, ADR 0017). */
+  /** GM puts the board back as it was at a checkpoint (FR-REC-02, ADR 0019). */
   z.object({
     type: z.literal("checkpoint.restore"),
     checkpointId: Id,

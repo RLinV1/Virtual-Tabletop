@@ -5,7 +5,7 @@ import { Modal } from "../ui/Modal";
 import { PanelSection } from "../ui/PanelSection";
 
 /**
- * Named checkpoints (KAN-41, FR-REC-02, ADR 0017): the GM saves the board under a name and can put
+ * Named checkpoints (KAN-41, FR-REC-02, ADR 0019): the GM saves the board under a name and can put
  * it back later. Restoring resets the map, tokens, areas, fog and initiative, never chat or
  * rolls, and can itself be undone from the activity log. GM-only: players never get the list.
  */

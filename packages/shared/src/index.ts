@@ -11,4 +11,7 @@ export * from "./decide";
 export * from "./visibility";
 export * from "./assets";
 export * from "./protocol";
+export * from "./auth";
+export * from "./diceLooks";
+export * from "./membership";
 export * from "./activityLog";

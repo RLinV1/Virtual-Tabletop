@@ -34,5 +34,5 @@ None. Undo's behaviour is unchanged; `CheckpointRestored` joins its reversible s
 - `packages/shared`: `commands.ts`, `events.ts`, `state.ts` (`checkpoints`), `decide.ts`, `reducer.ts`, `visibility.ts`, `undo.ts`, `activityLog.ts`.
 - `apps/server/src/domain/liveRoom.ts`: loads the checkpoint's table state before calling `decide` for `checkpoint.restore`.
 - `apps/web`: a Checkpoints section in the GM panel.
-- `docs/adr/`: new ADR 0017 for checkpoints; amends ADR 0001's one-line note.
+- `docs/adr/`: new ADR 0019 for checkpoints; amends ADR 0001's one-line note.
 - The existing Postgres `checkpoints` table stays unused. The event log is the source of truth, and dropping the table is left to a later cleanup.

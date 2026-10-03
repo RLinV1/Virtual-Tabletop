@@ -165,7 +165,7 @@ export function filterEventForViewer(
       // A reveal must deliver the whole token; a hide must remove it. A snapshot does both.
       return { kind: "resync" };
     case "CheckpointCreated":
-      // Checkpoints are the GM's; a player learns only that a seq passed (ADR 0017).
+      // Checkpoints are the GM's; a player learns only that a seq passed (ADR 0019).
       return redacted;
     case "CheckpointRestored":
       // Both tables hold hidden tokens and GM-only areas; a filtered snapshot carries the rest.
@@ -180,11 +180,13 @@ export function filterEventForViewer(
     case "RoomCreated":
     case "ParticipantJoined":
     case "ParticipantRenamed":
+    case "ParticipantDiceLookSet":
     case "ParticipantLeft":
     case "ParticipantRevoked":
     case "MapSet":
     case "GridSet":
-      // The participant list is public; leaving or removal reveals nothing hidden (ADR 0006).
+      // The participant list is public; leaving or removal reveals nothing hidden (ADR 0006). A
+      // dice look is pictures the whole table sees on that person's rolls, and names no account (ADR 0018).
       return pass;
   }
 }

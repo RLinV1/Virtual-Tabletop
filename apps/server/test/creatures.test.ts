@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { GM_TOKEN_HEADER, type LibraryAsset, type LibraryCreature, type LibraryUsageResponse } from "@vtt/shared";
+import { type LibraryAsset, type LibraryCreature, type LibraryUsageResponse } from "@vtt/shared";
 import { newGuestToken, startServer, type TestClient } from "./helpers";
 
 let server: Awaited<ReturnType<typeof startServer>>;
@@ -20,29 +20,26 @@ const PNG = Buffer.from(
 );
 const IMAGE_REJECTED = "Image must be your own token art";
 
+/** A signed-in GM: the value tests pass around is the account's session cookie. */
 async function newGm() {
-  const gmToken = newGuestToken();
-  await fetch(`${server.base}/api/gm/identify`, {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ gmToken }),
-  });
-  return gmToken;
+  return (await server.signUp()).cookie;
 }
 
-const gmFetch = (gmToken: string | null, url: string, init: { method?: string; body?: unknown } = {}) =>
+const gmFetch = (cookie: string | null, url: string, init: { method?: string; body?: unknown } = {}) =>
   fetch(server.base + url, {
     method: init.method ?? "GET",
-    headers: { "content-type": "application/json", ...(gmToken ? { [GM_TOKEN_HEADER]: gmToken } : {}) },
+    headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) },
     ...(init.body !== undefined && { body: JSON.stringify(init.body) }),
   });
 
-async function upload(gmToken: string, kind: "map" | "token", name: string) {
+async function upload(cookie: string, kind: "map" | "token", name: string) {
   const form = new FormData();
   form.append("kind", kind);
   form.append("name", name);
   form.append("width", "256");
   form.append("height", "256");
   form.append("file", new Blob([PNG], { type: "image/png" }), "a.png");
-  const res = await fetch(`${server.base}/api/library`, { method: "POST", headers: { [GM_TOKEN_HEADER]: gmToken }, body: form });
+  const res = await fetch(`${server.base}/api/library`, { method: "POST", headers: { cookie }, body: form });
   return (await res.json()) as LibraryAsset;
 }
 
@@ -82,7 +79,8 @@ describe("library creatures (library-creatures, FR-TAC-07)", () => {
   });
 
   it("answers 401 to a guest credential and 404 to another GM", async () => {
-    expect((await gmFetch(newGuestToken(), "/api/library/creatures")).status).toBe(401);
+    const guest = await fetch(`${server.base}/api/library/creatures`, { headers: { authorization: `Bearer ${newGuestToken()}` } });
+    expect(guest.status).toBe(401);
     expect((await gmFetch(null, "/api/library/creatures", { method: "POST", body: { name: "x" } })).status).toBe(401);
 
     const gmA = await newGm();
@@ -136,7 +134,7 @@ describe("library creatures (library-creatures, FR-TAC-07)", () => {
     const gm = await newGm();
     const art = await upload(gm, "token", "Goblin art");
     const goblin = (await (await create(gm, { name: "Goblin", maxHp: 7, ac: 15, imageAssetId: art.id })).json()) as LibraryCreature;
-    const creds = await server.createRoom("GM", { gmToken: gm, roomName: "Cave" });
+    const creds = await server.createRoom("GM", { cookie: gm, roomName: "Cave" });
     const client = await server.connect(creds);
     clients.push(client);
 

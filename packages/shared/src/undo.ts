@@ -164,7 +164,7 @@ export function inverseOf(event: ReversibleEvent): DomainEvent {
     case "FogRemoved":
       return { type: "FogAdded", region: event.region };
     case "CheckpointRestored":
-      // Puts back the board the restore replaced (ADR 0017).
+      // Puts back the board the restore replaced (ADR 0019).
       return { ...event, restored: event.previous, previous: event.restored };
   }
 }

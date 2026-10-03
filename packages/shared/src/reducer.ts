@@ -33,7 +33,7 @@ export function reduceCommitted(state: RoomState, committed: CommittedEvent): Ro
 
 /**
  * The room as it was right after event `seq`, folded from its log exactly as a room load does
- * (ADR 0017). `events` must be the room's log in order; later events are ignored.
+ * (ADR 0019). `events` must be the room's log in order; later events are ignored.
  */
 export function replayTo(roomId: string, events: readonly CommittedEvent[], seq: number): RoomState {
   let state = emptyRoomState(roomId);
@@ -74,6 +74,11 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
           [p.id]: { ...p, displayName: event.displayName },
         },
       };
+    }
+
+    case "ParticipantDiceLookSet": {
+      const p = required(state.participants[event.participantId], event);
+      return { ...state, participants: { ...state.participants, [p.id]: { ...p, diceLook: event.look } } };
     }
 
     case "ParticipantLeft": {
@@ -191,7 +196,7 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
       return { ...state, checkpoints: [...state.checkpoints, event.checkpoint].slice(-MAX_CHECKPOINTS) };
 
     case "CheckpointRestored":
-      // Only the board changes: participants, rolls, chat and history stay (ADR 0017).
+      // Only the board changes: participants, rolls, chat and history stay (ADR 0019).
       return { ...state, ...event.restored };
 
     case "FogAdded":

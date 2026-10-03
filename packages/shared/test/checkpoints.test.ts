@@ -21,7 +21,7 @@ import { alice, bob, gm } from "./fixtures";
 /**
  * A room the way the server runs it: every command decided against the current state with the
  * last seq and a checkpoint table rebuilt from the log, then committed with seqs and one
- * command id per batch (ADR 0013, ADR 0017).
+ * command id per batch (ADR 0013, ADR 0019).
  */
 function room() {
   let n = 0;
@@ -105,7 +105,7 @@ describe("checkpoint commands (KAN-41, FR-REC-02)", () => {
   });
 });
 
-describe("replayTo (ADR 0017)", () => {
+describe("replayTo (ADR 0019)", () => {
   it("rebuilds the room exactly as it was after a seq", () => {
     const r = furnished();
     const at = r.log.length;

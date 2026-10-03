@@ -1,5 +1,7 @@
 import type { CommittedEvent, DomainEvent } from "@vtt/shared";
+import type { IdentityStore } from "./identityStore";
 import type { LibraryStore, NewRoomOptions } from "./libraryStore";
+import type { MembershipStore } from "./membershipStore";
 
 export interface NewEvent {
   actorId: string | null;
@@ -11,6 +13,11 @@ export interface NewEvent {
 export interface CredentialRecord {
   roomId: string;
   participantId: string;
+  /**
+   * The sign-in this seat was created or kept under (ADR 0017 M4). The credential stops working
+   * when that session ends. Absent for guests who never signed in.
+   */
+  sessionHash?: string | null;
 }
 
 /** Thrown when another writer appended first. The room's in-memory seq is stale. */
@@ -28,7 +35,7 @@ export class SeqConflictError extends Error {
  *  - events are never updated or deleted, except that `deleteRoom` erases a whole room's
  *    log together with the room (ADR 0009).
  */
-export interface RoomStore extends LibraryStore {
+export interface RoomStore extends LibraryStore, IdentityStore, MembershipStore {
   createRoom(roomId: string, inviteCode: string, options?: NewRoomOptions): Promise<void>;
   roomExists(roomId: string): Promise<boolean>;
   findRoomByInvite(inviteCode: string): Promise<string | null>;
@@ -60,8 +67,8 @@ export interface RoomStore extends LibraryStore {
   recordRoomUpload(roomId: string, objectKey: string): Promise<void>;
   /**
    * Erases the room and everything scoped to it in one atomic step (ADR 0009): events,
-   * snapshots, checkpoints, credentials (revoked ones too), the invite code, asset refs and
-   * upload records. Returns the upload keys for the caller to remove from the AssetStore once
+   * snapshots, checkpoints, credentials (revoked ones too), memberships (ADR 0017), the invite
+   * code, asset refs and upload records. Returns the upload keys for the caller to remove from the AssetStore once
    * this has committed, or null when there was no such room.
    */
   deleteRoom(roomId: string): Promise<{ uploadKeys: string[] } | null>;

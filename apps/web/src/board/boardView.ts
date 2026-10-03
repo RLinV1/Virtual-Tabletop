@@ -49,6 +49,7 @@ import {
   type EffectShape,
 } from "./effects";
 import { areaOrigin, areaShape, areaSizeFromDrag, fogRegionAt, formatDistance, hitMark, measure, sweepPoints, templateMark, type BoardTool, type Mark } from "./tools";
+import { PING_MS, pingPulse } from "./ping";
 
 /** A fog region as the Fog tool sends it (FR-GM-17, ADR 0016). */
 export type FogDraft = Extract<Command, { type: "fog.add" }>["region"];
@@ -568,16 +569,16 @@ export class BoardView {
     const started = performance.now();
     this.animations.add((now) => {
       // rAF timestamps can trail performance.now() slightly on the first frame.
-      const t = Math.max(0, (now - started) / 1200);
-      if (t >= 1 || ring.destroyed) {
+      const pulse = pingPulse((now - started) / PING_MS, this.reducedMotion);
+      if (!pulse || ring.destroyed) {
         if (!ring.destroyed) ring.destroy();
         return false;
       }
       const cell = this.state?.scene.grid.cellSize ?? 70;
       ring
         .clear()
-        .circle(0, 0, cell * (0.2 + t * 1.2))
-        .stroke({ width: 4 / this.world.scale.x, color, alpha: 1 - t });
+        .circle(0, 0, cell * pulse.radiusCells)
+        .stroke({ width: 4 / this.world.scale.x, color, alpha: pulse.alpha });
       return true;
     });
     this.invalidate();

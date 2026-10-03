@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ConditionId, TokenStats } from "./conditions";
 import { DiceRoll, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
-import { AreaTemplate, ChatMessage, Checkpoint, FogRegion, Id, Initiative, MapImage, Participant, TableState, Token } from "./state";
+import { AreaTemplate, ChatMessage, Checkpoint, DiceLookOnTable, FogRegion, Id, Initiative, MapImage, Participant, TableState, Token } from "./state";
 
 /**
  * Events are FACTS the server has committed. They are append-only and never edited.
@@ -27,6 +27,13 @@ export const DomainEvent = z.discriminatedUnion("type", [
     participantId: Id,
     displayName: z.string(),
     previous: z.string(),
+  }),
+  /** A participant's dice look on the table changed; `previous` is what it replaced (invariant 6, ADR 0018). */
+  z.object({
+    type: z.literal("ParticipantDiceLookSet"),
+    participantId: Id,
+    look: DiceLookOnTable.nullable(),
+    previous: DiceLookOnTable.nullable(),
   }),
   /** Carries the whole participant as it was before leaving (invariant 6, ADR 0006). */
   z.object({
@@ -179,13 +186,13 @@ export const DomainEvent = z.discriminatedUnion("type", [
     type: z.literal("FogRemoved"),
     region: FogRegion,
   }),
-  /** The GM saved a named restore point (FR-REC-02, ADR 0017). */
+  /** The GM saved a named restore point (FR-REC-02, ADR 0019). */
   z.object({
     type: z.literal("CheckpointCreated"),
     checkpoint: Checkpoint,
   }),
   /**
-   * The GM put the board back as it was at a checkpoint (ADR 0017). Carries the board it
+   * The GM put the board back as it was at a checkpoint (ADR 0019). Carries the board it
    * replaced (invariant 6), so the restore itself can be undone. GM-only: players resync.
    */
   z.object({

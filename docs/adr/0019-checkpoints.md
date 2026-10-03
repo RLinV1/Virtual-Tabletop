@@ -1,4 +1,4 @@
-# ADR 0017: Named checkpoints
+# ADR 0019: Named checkpoints
 
 **Status:** Proposed — needs review by the Real-Time Architecture owner · **Amends:** `docs/adr/0001-event-model.md` (checkpoints), `docs/adr/0013-undo.md` (reversible set)
 **Owner:** Real-Time Architecture (Raymond) · **Changes:** `openspec/changes/kan-41-checkpoints` · **Ticket:** KAN-41 (FR-REC-02)

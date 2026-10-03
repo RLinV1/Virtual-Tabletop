@@ -67,7 +67,7 @@ describe.skipIf(!store)("PostgresRoomStore (docs/adr/0001-event-model.md)", () =
     const hash = randomUUID().replace(/-/g, "");
 
     await store!.saveCredential(hash, { roomId, participantId });
-    expect(await store!.findCredential(hash)).toEqual({ roomId, participantId });
+    expect(await store!.findCredential(hash)).toEqual({ roomId, participantId, sessionHash: null });
     expect(await store!.findCredential("unknown")).toBeNull();
     expect(await store!.findRevokedCredential(hash)).toBeNull();
 

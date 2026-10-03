@@ -13,7 +13,7 @@ import {
 } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { api } from "../net/api";
-import { loadGmToken } from "../net/identity";
+import { useAccount } from "../account/accountStore";
 import { libraryAssetId } from "../net/builtinAssets";
 import { LibraryPicker } from "../pages/LibraryPicker";
 import { TokenPreview } from "../ui/TokenPreview";
@@ -231,7 +231,7 @@ export function TokenEditor({
   const [size, setSize] = useState(String(token.size));
   const [rotation, setRotation] = useState(String(token.rotation));
   const [image, setImage] = useState({ url: token.imageUrl, assetId: token.assetId ?? null });
-  const [gmToken] = useState(loadGmToken);
+  const hasLibrary = useAccount().status === "signedIn";
   const [picking, setPicking] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -374,7 +374,7 @@ export function TokenEditor({
                 <input type="file" className="sr-only" accept="image/png,image/jpeg,image/webp" disabled={uploading}
                   onChange={(e) => void onUpload(e.target.files?.[0])} />
               </label>
-              {gmToken && <button type="button" className="secondary" disabled={uploading} onClick={() => setPicking(true)}>From library</button>}
+              {hasLibrary && <button type="button" className="secondary" disabled={uploading} onClick={() => setPicking(true)}>From library</button>}
             </div>
           </div>
         </details>
@@ -428,9 +428,9 @@ export function TokenEditor({
         </div>
       )}
     </form>
-    {isGm && gmToken && (
+    {isGm && hasLibrary && (
       <Modal open={picking} title="Choose a token image" onClose={() => setPicking(false)}>
-        <LibraryPicker gmToken={gmToken} kind="token" onPick={(asset) => {
+        <LibraryPicker kind="token" onPick={(asset) => {
           setImage({ url: asset.url, assetId: libraryAssetId(asset) });
           setPicking(false);
         }} />

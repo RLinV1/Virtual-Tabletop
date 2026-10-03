@@ -1,12 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { House } from "@phosphor-icons/react";
-import { can, type DiceVisibility, type GridSpec, type Point } from "@vtt/shared";
+import { can, type DiceVisibility, type GridSpec, type Participant, type Point } from "@vtt/shared";
 import { Board, type BoardHandle, type DiceBoard } from "../board/Board";
 import { PendingDrops, type DiceDrop } from "../board/diceDrops";
 import type { TokenDraft } from "../board/placement";
 import { Link } from "../Link";
 import type { SessionEndReason } from "@vtt/shared";
+import { useAccount } from "../account/accountStore";
+import { signInFor } from "../account/safeNext";
 import { forgetCredentials, loadCredentials, rememberRoomName } from "../net/identity";
+import type { DiceSkin } from "../ui/diceSkin";
+import { useActiveDiceLook, useDiceLooks } from "../ui/diceSkinStore";
+import { readySkin, tableSkin, usePreloadTableLooks, useShowOthersDice } from "../ui/tableLooks";
+import { ensureSeat } from "../net/seats";
+import { KeepSeatNotice } from "../ui/KeepSeatNotice";
 import { RoomConnection, useRoomSnapshot, type ConnectionStatus } from "../net/roomConnection";
 import { PanelTabs, RoomPanel, isTabId, type TabBadges, type TabId } from "../panels/RoomPanel";
 import { trayRoll, type RollThrow } from "../panels/DicePanel";
@@ -68,10 +75,21 @@ const STATUS_LABEL: Record<ConnectionStatus, string> = {
   ended: "Left the room",
 };
 
-/** Route for `/r/:roomId`: loads this browser's credential for the room and runs its connection. */
+/**
+ * Route for `/r/:roomId`: loads this browser's credential for the room and runs its connection.
+ * With none stored, a signed-in person's seat is resumed on this device (room-membership).
+ */
 export function RoomPage({ roomId }: { roomId: string }) {
-  const creds = useMemo(() => loadCredentials(roomId), [roomId]);
+  const account = useAccount();
+  const [creds, setCreds] = useState(() => loadCredentials(roomId));
+  const [resuming, setResuming] = useState<"idle" | "trying" | "failed">("idle");
   const connection = useMemo(() => (creds ? new RoomConnection(roomId, creds.guestToken) : null), [roomId, creds]);
+
+  useEffect(() => {
+    if (creds || account.status !== "signedIn" || resuming !== "idle") return;
+    setResuming("trying");
+    ensureSeat(roomId).then(setCreds, () => setResuming("failed"));
+  }, [creds, account.status, resuming, roomId]);
 
   useEffect(() => {
     if (!connection) return;
@@ -80,11 +98,19 @@ export function RoomPage({ roomId }: { roomId: string }) {
   }, [connection]);
 
   if (!creds || !connection) {
+    const waiting = account.status === "loading" || (account.status === "signedIn" && resuming !== "failed");
+    if (waiting) return <main className="centered" aria-busy="true">Opening…</main>;
     return (
       <main className="centered">
         <div className="card">
           <h1>No access to this room</h1>
           <p className="muted">Ask the GM for an invite link.</p>
+          {account.status === "signedOut" && (
+            <p className="muted">
+              Already in this room on another device? <Link href={signInFor(`/r/${roomId}`)}>Sign in</Link> to open your seat
+              here.
+            </p>
+          )}
         </div>
       </main>
     );
@@ -105,6 +131,10 @@ const ENDED_COPY: Record<SessionEndReason, { title: (room: string | null) => str
     title: (room) => `${room ?? "This room"} was deleted`,
     body: "The GM deleted this room and everything in it. It can't be reopened.",
   },
+  signed_out: {
+    title: () => "You signed out on this device",
+    body: "Your seat is kept on your account. Sign in again to come back to it, here or on any other device.",
+  },
 };
 
 /**
@@ -112,13 +142,14 @@ const ENDED_COPY: Record<SessionEndReason, { title: (room: string | null) => str
  * plain: no account prompt, per FRONTEND-CONTRACT §13.1. `roomName` is null when the page
  * loaded after the seat had already ended.
  */
-function SessionEnded({ roomName, reason }: { roomName: string | null; reason: SessionEndReason | null }) {
+function SessionEnded({ roomId, roomName, reason }: { roomId: string; roomName: string | null; reason: SessionEndReason | null }) {
   const copy = ENDED_COPY[reason ?? "left"];
   return (
     <main className="centered">
       <div className="card">
         <h1>{copy.title(roomName)}</h1>
         <p className="muted">{copy.body}</p>
+        {reason === "signed_out" && <Link href={signInFor(`/r/${roomId}`)}>Sign in again</Link>}
         <Link href="/">Go to the home page</Link>
       </div>
     </main>
@@ -302,6 +333,19 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
   const diceVisible = tab === "dice" && !(sidebarCollapsed && !compact);
   const trays = useRef({ diceVisible, playVisible });
   trays.current = { diceVisible, playVisible };
+  // Which look each public roll is drawn in (shared-dice-looks, ADR 0018): the roller's look on the
+  // table; for your own roll with none on the table (a guest seat), your browser's look, which only
+  // you see; for other people's, classic if you turned their looks off.
+  const ownLook = useActiveDiceLook();
+  const [showOthersDice] = useShowOthersDice();
+  usePreloadTableLooks(state);
+  const diceFor = useRef((_rollerId: string, _mine: boolean): DiceSkin | null => null);
+  diceFor.current = (rollerId, mine) => {
+    const onTable = connection.snapshot.state?.participants[rollerId]?.diceLook;
+    if (mine) return readySkin(onTable ? tableSkin(onTable) : ownLook);
+    return showOthersDice && onTable ? readySkin(tableSkin(onTable)) : null;
+  };
+  useSyncOwnDiceLook(connection, roomId, status === "open" ? (you ?? null) : null);
   useEffect(() => {
     const stop = connection.onRolled((roll) => {
       const mine = roll.byParticipantId === connection.snapshot.you?.id;
@@ -313,8 +357,8 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
       }
       const board = boardRef.current;
       const aim = drops.current.take(roll, performance.now()) ?? (mine ? board?.centreAim() : null);
-      // Your own roll wears your dice look, here and in your other tabs (dice-image-skins).
-      const look = { ...trayRoll(roll), skinned: mine };
+      // Every public roll wears its roller's dice look, for everyone (shared-dice-looks).
+      const look = { ...trayRoll(roll), skin: diceFor.current(roll.byParticipantId, mine) };
       // Not where it can't be animated (reduced motion, say): then it lands at once.
       const gone = () => setOnBoard((s) => without(s, roll.id));
       const thrown = !!aim && !!board?.throwDice({ rollId: roll.id, from: aim.from, to: aim.to }, look, () => land(roll.id), gone);
@@ -345,7 +389,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
   const rolling = onBoard.size > 0 || !!state?.rolls.some((r) => airborne.has(r.id) && r.byParticipantId === you?.id);
   const rollThrow: RollThrow = { airborne, rolling, justLandedId: landedId, onLanded: land, expectDrop };
 
-  if (status === "ended") return <SessionEnded roomName={state?.name ?? null} reason={endReason} />;
+  if (status === "ended") return <SessionEnded roomId={roomId} roomName={state?.name ?? null} reason={endReason} />;
 
   if (status === "unauthorized") {
     return (
@@ -454,6 +498,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
           <div className="board-notices" role="status" aria-live="polite">
             {you.role === "gm" && <DepartureNotices state={state} onReview={setReviewing} />}
             <TurnNotice state={state} you={you} onFocusToken={focusToken} />
+            <KeepSeatNotice roomId={roomId} token={token} name={you.displayName} />
           </div>
         }
         overlay={<RollCard roll={cardRoll} rollerName={(roll) => state.participants[roll.byParticipantId]?.displayName ?? "Someone"} />}
@@ -554,4 +599,30 @@ function Chevron({ pointsLeft }: { pointsLeft: boolean }) {
       <path d={pointsLeft ? "M7.5 2.5 4 6l3.5 3.5" : "M4.5 2.5 8 6l-3.5 3.5"} />
     </svg>
   );
+}
+
+/**
+ * Keeps your look on the table in step with the look you chose (shared-dice-looks, ADR 0018): when
+ * you enter the room, and whenever you choose another look, choose Classic, or edit the one in
+ * use. Only then: if the GM puts your dice back to classic, they stay classic until you choose
+ * again or come back into the room. Only for a signed-in seat kept on the account; a guest's look
+ * stays on their own screen. The server checks the look is yours; this only asks.
+ */
+function useSyncOwnDiceLook(connection: RoomConnection, roomId: string, you: Participant | null) {
+  const { looks, activeId, ready, kept } = useDiceLooks();
+  const active = looks.find((l) => l.id === activeId) ?? null;
+  const wantId = active?.id ?? null;
+  const wantVersion = active?.updatedAt ?? null;
+  // Read when needed, not a reason to sync: a change made by someone else (a GM reset) is respected.
+  const onTable = useRef(you?.diceLook ?? null);
+  onTable.current = you?.diceLook ?? null;
+  // Read as it renders: keeping the seat on the account (KeepSeatNotice) re-renders the room.
+  const seatKept = loadCredentials(roomId)?.viaAccount === true;
+  useEffect(() => {
+    if (!you || !ready || kept !== "account" || !seatKept) return;
+    const table = onTable.current;
+    const same = wantId === (table?.lookId ?? null) && (wantId === null || wantVersion === table?.version);
+    if (!same) void connection.command({ type: "participant.setDiceLook", lookId: wantId });
+    // Not on `onTable`: see above.
+  }, [connection, you?.id, ready, kept, seatKept, wantId, wantVersion]);
 }

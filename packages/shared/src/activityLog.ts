@@ -56,6 +56,11 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
     case "ParticipantRevoked": return `${actorName} removed ${event.participant.displayName} from the room`;
     case "ParticipantLeft": return `${event.participant.displayName} left the table`;
     case "ParticipantRenamed": return `${actorName} renamed ${event.previous} to ${event.displayName}`;
+    case "ParticipantDiceLookSet":
+      // Names are unique in a room, so the actor's name says whose dice these are.
+      return actorName === participantName(event.participantId)
+        ? `${actorName} ${event.look ? "changed their dice look" : "went back to classic dice"}`
+        : `${actorName} put ${participantName(event.participantId)}'s dice back to classic`;
     case "MapSet": return `${actorName} ${event.previous ? "replaced" : "set"} the map${event.gridChange ? " and grid" : ""}`;
     case "GridSet": return `${actorName} updated the grid`;
     case "TokenCreated": return `${actorName} created ${event.token.name}${event.token.hidden ? " (hidden)" : ""}`;
@@ -137,7 +142,8 @@ export function activityHistory(
   for (const committed of events) {
     if (query.before !== undefined && committed.seq >= query.before) break;
     const filtered = filterEventForViewer(committed, state, viewer);
-    if (filtered.kind === "event") {
+    // Dice looks change how rolls look, not what happened: kept out of the log as noise (ADR 0018).
+    if (filtered.kind === "event" && committed.event.type !== "ParticipantDiceLookSet") {
       const visible = filterStateForViewer(state, viewer);
       const actorName = committed.actorId === null ? "System"
         : visible.participants[committed.actorId]?.displayName

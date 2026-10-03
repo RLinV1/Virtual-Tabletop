@@ -20,7 +20,7 @@ export type ImageUploadResult =
  * (DESIGN.md §6). Files get a random name, so an object key never carries the uploader's
  * filename (asset-library: object name reveals nothing).
  */
-export function imageUploader(uploadDir: string) {
+export function imageUploader(uploadDir: string, maxBytes: number = MAX_IMAGE_BYTES) {
   const upload = multer({
     storage: multer.diskStorage({
       destination: (_req, _file, cb) => {
@@ -31,7 +31,7 @@ export function imageUploader(uploadDir: string) {
       },
       filename: (_req, file, cb) => cb(null, `${randomUUID()}${IMAGE_TYPES[file.mimetype] ?? ""}`),
     }),
-    limits: { fileSize: MAX_IMAGE_BYTES, files: 1 },
+    limits: { fileSize: maxBytes, files: 1 },
     fileFilter: (_req, file, cb) => cb(null, Boolean(IMAGE_TYPES[file.mimetype])),
   }).single("file");
 
@@ -42,7 +42,7 @@ export function imageUploader(uploadDir: string) {
         if (err instanceof multer.MulterError) {
           return resolve(
             err.code === "LIMIT_FILE_SIZE"
-              ? { ok: false, status: 413, error: "Images must be 25 MB or smaller" }
+              ? { ok: false, status: 413, error: `Images must be ${Math.round(maxBytes / (1024 * 1024))} MB or smaller` }
               : { ok: false, status: 400, error: err.message },
           );
         }

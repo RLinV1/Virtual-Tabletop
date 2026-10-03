@@ -7,7 +7,7 @@ import { canRenderGrid } from "./gridRenderLimit";
 import type { SessionEndReason } from "./protocol";
 import { inverseOf, undoableAction, undoConflict } from "./undo";
 import { concealedFrom, fogConcealsSide, isInFog, templateConcealedFrom } from "./visibility";
-import { MAX_AREA_TEMPLATES, MAX_CHECKPOINT_NAME, MAX_FOG_REGIONS, tableOf, type AreaTemplate, type Initiative, type Participant, type RoomState, type TableState, type Token } from "./state";
+import { MAX_AREA_TEMPLATES, MAX_CHECKPOINT_NAME, MAX_FOG_REGIONS, MAX_PLAYERS_PER_ROOM, tableOf, type AreaTemplate, type DiceLookOnTable, type Initiative, type Participant, type RoomState, type TableState, type Token } from "./state";
 
 export type RejectionCode = "forbidden" | "not_found" | "invalid";
 
@@ -23,11 +23,17 @@ export interface DecideContext {
    */
   random?: () => number;
   /**
-   * The board as it was at a checkpoint, rebuilt by the server from the log (ADR 0017). Filled
+   * The look the acting participant's account owns under the id their `participant.setDiceLook`
+   * names, read by the server before deciding (ADR 0018), or null when they own no such look or
+   * hold their seat as a guest. Passed in, so `decide` stays pure.
+   */
+  ownedDiceLook?: DiceLookOnTable | null;
+  /**
+   * The board as it was at a checkpoint, rebuilt by the server from the log (ADR 0019). Filled
    * only for `checkpoint.restore`; null when the checkpoint can't be rebuilt.
    */
   checkpointTable?: (checkpointId: string) => TableState | null;
-  /** The room's last committed seq: where a checkpoint saved now points (ADR 0017). */
+  /** The room's last committed seq: where a checkpoint saved now points (ADR 0019). */
   lastSeq?: number;
 }
 
@@ -508,6 +514,29 @@ export function decide(
       });
     }
 
+    case "participant.setDiceLook": {
+      // Only your own seat: there is no target to name. Only your own look: the server resolved
+      // the id against your account before this ran (ADR 0018).
+      const current = actor.diceLook ?? null;
+      if (command.lookId === null) {
+        return current ? accept({ type: "ParticipantDiceLookSet", participantId: actor.id, look: null, previous: current }) : accept();
+      }
+      const owned = ctx.ownedDiceLook ?? null;
+      if (!owned || owned.lookId !== command.lookId) return reject("forbidden", "You can only use your own dice looks.");
+      if (current?.lookId === owned.lookId && current.version === owned.version) return accept();
+      return accept({ type: "ParticipantDiceLookSet", participantId: actor.id, look: owned, previous: current });
+    }
+
+    case "participant.clearDiceLook": {
+      if (!can.administer(actor)) return forbidden();
+      const target = state.participants[command.participantId];
+      if (!target) return notFound("participant");
+      if (target.id === actor.id) return reject("invalid", "Choose Classic in your Dice panel to change your own dice.");
+      if (!isActive(target)) return reject("invalid", `${target.displayName} is no longer in this room.`);
+      if (!target.diceLook) return accept();
+      return accept({ type: "ParticipantDiceLookSet", participantId: target.id, look: null, previous: target.diceLook });
+    }
+
     case "participant.leave":
       // The room would be left without anyone who can administer it. The GM's way out is
       // the Home link, which only closes their socket (ADR 0006).
@@ -700,7 +729,7 @@ export function isDisplayNameTaken(state: RoomState, name: string, exceptId?: st
 }
 
 /** Server-side detail so the join route can pick 400 vs 409. Never sent to clients. */
-export type JoinRejectionReason = "blank" | "name_taken";
+export type JoinRejectionReason = "blank" | "room_full" | "name_taken";
 export type JoinDecision =
   | { ok: true; events: DomainEvent[] }
   | { ok: false; code: RejectionCode; message: string; reason: JoinRejectionReason };
@@ -708,18 +737,28 @@ export type JoinDecision =
 /**
  * Joining is an unauthenticated HTTP action with no actor, so it isn't a `Command`; this is its
  * `decide`. The server runs it inside the room's ordered queue, so two joins racing for one name
- * can't both pass (KAN-61).
+ * can't both pass (KAN-61), and joins racing for the last seat can't pass the cap (room-player-cap).
+ * A full room is the answer whatever the name, so nobody is asked to change a name that won't help.
  */
 export function decideJoin(state: RoomState, participant: Participant): JoinDecision {
   const displayName = participant.displayName.trim();
   if (!displayName) return { ok: false, code: "invalid", message: BLANK_NAME, reason: "blank" };
+  if (activePlayerCount(state) >= MAX_PLAYERS_PER_ROOM) {
+    return { ok: false, code: "invalid", message: ROOM_FULL_MESSAGE, reason: "room_full" };
+  }
   if (isDisplayNameTaken(state, displayName)) {
     return { ok: false, code: "invalid", message: nameTaken(displayName), reason: "name_taken" };
   }
   return { ok: true, events: [{ type: "ParticipantJoined", participant: { ...participant, displayName } }] };
 }
 
+/** Players holding a seat: the GM, and anyone who left or was removed, are not counted (room-player-cap). */
+export function activePlayerCount(state: RoomState) {
+  return Object.values(state.participants).filter((p) => p.role === "player" && isActive(p)).length;
+}
+
 const BLANK_NAME = "Display name can't be blank.";
+const ROOM_FULL_MESSAGE = `This room is full: it holds ${MAX_PLAYERS_PER_ROOM} players. Ask the GM for a seat.`;
 const nameTaken = (name: string) => `The name "${name}" is already taken in this room. Choose another name.`;
 
 /**
