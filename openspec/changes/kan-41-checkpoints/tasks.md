@@ -23,5 +23,7 @@
 
 ## 5. Verification
 
-- [ ] 5.1 In Playwright with a GM and a player context at desktop and mobile widths: save "Start", move and hide tokens, add a token, restore "Start", and confirm both boards match; then undo the restore from the activity log; take screenshots
-- [ ] 5.2 Time the success metric in Playwright: from an accidental token reveal to the table restored (via undo, and via checkpoint), and record both durations (target under 15 s) on the KAN-41 ticket
+- [x] 5.1 In Playwright with a GM and a player context at desktop and mobile widths: save "Start", move and hide tokens, add a token, restore "Start", and confirm both boards match; then undo the restore from the activity log; take screenshots
+- [x] 5.2 Time the success metric in Playwright: from an accidental token reveal to the table restored (via undo, and via checkpoint), and record both durations (target under 15 s) on the KAN-41 ticket
+
+> 5.2 result (Playwright, GM + player, 2026-10-03): after an accidental token move, Restore → confirm put the player's board back in 0.6 s from the first click (2 clicks with the Manage tab open); undoing the restore from the activity log took 0.4 s (2 clicks). Both are system time; the human part is finding the button. 1.1 stays open until the Real-Time Architecture owner accepts ADR 0017.

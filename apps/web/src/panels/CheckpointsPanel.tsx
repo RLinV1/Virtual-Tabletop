@@ -74,7 +74,7 @@ export function CheckpointsPanel({ connection, state }: { connection: RoomConnec
               <span>{c.name}</span>
               <button
                 type="button"
-                className="small secondary"
+                className="secondary"
                 disabled={busy}
                 aria-label={`Restore ${c.name}`}
                 onClick={() => setConfirming(c)}
