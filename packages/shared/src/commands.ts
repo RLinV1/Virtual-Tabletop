@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ConditionId, EMPTY_STATS, TokenStats } from "./conditions";
 import { AttackKind, DiceVisibility, MAX_ATTACK_LABEL, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
-import { AreaShape, Id, MapImage, MAX_CHAT_LENGTH } from "./state";
+import { AreaShape, Id, MapImage, MAX_CHAT_LENGTH, MAX_FOG_POINTS } from "./state";
 
 /**
  * Commands are REQUESTS from a client. The server validates and authorizes them,
@@ -211,10 +211,50 @@ export const Command = z.discriminatedUnion("type", [
     participantId: Id,
     actions: z.array(DepartureAction).min(1).max(MAX_DEPARTURE_ACTIONS),
   }),
+  /**
+   * Put your own dice look on the table, or take it off with `null` (shared-dice-looks, ADR 0018).
+   * Strict: the look's pictures are never the client's to name; the server reads them from the
+   * look your account owns, and refuses any other.
+   */
+  z.object({
+    type: z.literal("participant.setDiceLook"),
+    lookId: Id.nullable(),
+  }).strict(),
+  /** GM puts a player's dice back to classic in this room (shared-dice-looks). */
+  z.object({
+    type: z.literal("participant.clearDiceLook"),
+    participantId: Id,
+  }).strict(),
   /** Send a chat message to the room (KAN-75, ADR 0015). Strict: a client can't name the sender. */
   z.object({
     type: z.literal("chat.send"),
     text: ChatText,
+  }).strict(),
+  /**
+   * GM conceals part of the map (FR-GM-17, ADR 0016): a rectangle between two corners, or a
+   * polygon. `decide` stores a rectangle as its four corners.
+   */
+  z.object({
+    type: z.literal("fog.add"),
+    region: z.discriminatedUnion("shape", [
+      z.object({ shape: z.literal("rect"), from: Point, to: Point }).strict(),
+      z.object({ shape: z.literal("polygon"), points: z.array(Point).min(3).max(MAX_FOG_POINTS) }).strict(),
+    ]),
+  }).strict(),
+  /** GM removes one fog region, revealing what it covered (FR-GM-17). */
+  z.object({
+    type: z.literal("fog.remove"),
+    regionId: Id,
+  }).strict(),
+  /** GM saves the board as a named restore point (FR-REC-02, ADR 0019). */
+  z.object({
+    type: z.literal("checkpoint.create"),
+    name: z.string().max(200),
+  }).strict(),
+  /** GM puts the board back as it was at a checkpoint (FR-REC-02, ADR 0019). */
+  z.object({
+    type: z.literal("checkpoint.restore"),
+    checkpointId: Id,
   }).strict(),
   /** GM reverses one recent action, picked from the activity log by its `commandId` (FR-REC-02, ADR 0013). */
   z.object({

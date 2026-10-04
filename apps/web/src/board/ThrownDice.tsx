@@ -2,7 +2,6 @@ import { useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties } from 
 import type { MapImage } from "@vtt/shared";
 import { THROW_MS, throwKeyframes, throwStagger } from "../ui/diceGeometry";
 import { Die3D, dieParts, layoutDice, type TrayRoll } from "../ui/Die3D";
-import { useActiveDiceLook } from "../ui/diceSkinStore";
 import { boardDiePaths, type BoardThrow, type BoardTransform } from "./diceThrow";
 
 /** How long landed dice stay on the board, then how long they take to fade. */
@@ -65,7 +64,6 @@ export function ThrownDice({
 
 function ThrownRoll({ active, onDone }: { active: ActiveThrow; onDone: (rollId: string) => void }) {
   const root = useRef<HTMLDivElement>(null);
-  const skin = useActiveDiceLook();
   const { throw: t, roll, size, map } = active;
   // Fixed for the life of the throw: nothing here changes once the dice are in the air.
   const dice = useMemo(() => layoutDice(roll, size), []);
@@ -121,7 +119,7 @@ function ThrownRoll({ active, onDone }: { active: ActiveThrow; onDone: (rollId: 
     <div ref={root} className={roll.gmOnly ? "thrown-dice-roll private" : "thrown-dice-roll"} style={{ "--die": `${size}px` } as CSSProperties}>
       {dice.map((die, i) => {
         const at = paths[i]!.landing;
-        return <Die3D key={i} die={die} skin={roll.skinned ? skin : null} style={{ left: at.x - size / 2, top: at.y - size / 2 }} />;
+        return <Die3D key={i} die={die} skin={roll.skin ?? null} style={{ left: at.x - size / 2, top: at.y - size / 2 }} />;
       })}
     </div>
   );

@@ -30,6 +30,9 @@ export const HistoryResponse = z.object({
 });
 export type HistoryResponse = z.infer<typeof HistoryResponse>;
 
+/** "rectangle" or "polygon", for fog sentences (FR-GM-17). */
+const fogLabel = (shape: "rect" | "polygon") => (shape === "rect" ? "rectangle" : "polygon");
+
 /** A board point for a sentence: at most 2 decimals, so float noise like 829.1000000000001 reads 829.1. */
 const formatPoint = (p: { x: number; y: number }) => `(${Number(p.x.toFixed(2))}, ${Number(p.y.toFixed(2))})`;
 
@@ -53,6 +56,11 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
     case "ParticipantRevoked": return `${actorName} removed ${event.participant.displayName} from the room`;
     case "ParticipantLeft": return `${event.participant.displayName} left the table`;
     case "ParticipantRenamed": return `${actorName} renamed ${event.previous} to ${event.displayName}`;
+    case "ParticipantDiceLookSet":
+      // Names are unique in a room, so the actor's name says whose dice these are.
+      return actorName === participantName(event.participantId)
+        ? `${actorName} ${event.look ? "changed their dice look" : "went back to classic dice"}`
+        : `${actorName} put ${participantName(event.participantId)}'s dice back to classic`;
     case "MapSet": return `${actorName} ${event.previous ? "replaced" : "set"} the map${event.gridChange ? " and grid" : ""}`;
     case "GridSet": return `${actorName} updated the grid`;
     case "TokenCreated": return `${actorName} created ${event.token.name}${event.token.hidden ? " (hidden)" : ""}`;
@@ -95,6 +103,10 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
     }
     case "TemplatePlaced": return `${actorName} placed a ${templateLabel(event.template)}${event.template.gmOnly ? " (GM only)" : ""}`;
     case "TemplateRemoved": return `${actorName} removed a ${templateLabel(event.template)}${event.template.gmOnly ? " (GM only)" : ""}`;
+    case "FogAdded": return `${actorName} added a fog ${fogLabel(event.region.shape)}`;
+    case "FogRemoved": return `${actorName} removed a fog ${fogLabel(event.region.shape)}`;
+    case "CheckpointCreated": return `${actorName} saved checkpoint "${event.checkpoint.name}"`;
+    case "CheckpointRestored": return `${actorName} restored checkpoint "${event.name}"`;
     case "ActionUndone": {
       // The undone action is still in the history just before this event (ADR 0013).
       const entry = before.undo.find((e) => e.commandId === event.commandId);
@@ -130,7 +142,8 @@ export function activityHistory(
   for (const committed of events) {
     if (query.before !== undefined && committed.seq >= query.before) break;
     const filtered = filterEventForViewer(committed, state, viewer);
-    if (filtered.kind === "event") {
+    // Dice looks change how rolls look, not what happened: kept out of the log as noise (ADR 0018).
+    if (filtered.kind === "event" && committed.event.type !== "ParticipantDiceLookSet") {
       const visible = filterStateForViewer(state, viewer);
       const actorName = committed.actorId === null ? "System"
         : visible.participants[committed.actorId]?.displayName

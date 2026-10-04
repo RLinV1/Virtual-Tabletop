@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isExpectedProxyDisconnect } from "../vite.config";
+import config, { isExpectedProxyDisconnect } from "../vite.config";
 
 const err = (code: string) => Object.assign(new Error(code), { code });
 
@@ -21,5 +21,14 @@ describe("dev proxy logging (quiet-dev-proxy-disconnects)", () => {
 
   it("keeps messages that carry no error", () => {
     expect(isExpectedProxyDisconnect("ws proxy socket error:", undefined)).toBe(false);
+  });
+});
+
+describe("dev proxy keeps the browser's Host (ADR 0017 I3)", () => {
+  it("does not rewrite Host for the API or uploads, so the server's Origin check passes from any device", () => {
+    const proxy = (config as { server?: { proxy?: Record<string, unknown> } }).server?.proxy ?? {};
+    for (const path of ["/api", "/uploads"]) {
+      expect(proxy[path]).toMatchObject({ changeOrigin: false });
+    }
   });
 });

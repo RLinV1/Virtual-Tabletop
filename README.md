@@ -316,6 +316,8 @@ A GM needs to reverse accidental changes while preserving an understandable hist
 | Browser Compatibility | Current desktop Chrome, Firefox, Edge, and Safari; responsive player support on iOS Safari and Android Chrome |
 | Accessibility | Non-canvas UI targets WCAG 2.2 AA standards |
 
+**Benchmark network profile.** Each client link adds 50 ms one-way delay with ±10 ms jitter in each direction (about 100 ms RTT, a residential connection). The ephemeral target is measured at the 95th percentile from the sender's send call to each receiver's handler, by `apps/server/test/ephemeralLatency.test.ts` (KAN-39).
+
 ---
 
 ## 7. Explicitly Out of Scope

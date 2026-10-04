@@ -1,4 +1,4 @@
-import { attackLabel, formatAttackParties, MAX_ATTACK_LABEL, type AttackKind, type DiceRoll, type RoomState, type Token } from "@vtt/shared";
+import { attackLabel, formatAttackParties, isInFog, MAX_ATTACK_LABEL, type AttackKind, type DiceRoll, type Point, type RoomState, type Token } from "@vtt/shared";
 import { measure } from "../board/tools";
 
 /**
@@ -97,10 +97,13 @@ export function targetsByDistance(state: RoomState, attackerId: string): TargetO
 
 /**
  * Whether to ping the target once the roll is accepted. Only for a roll everyone sees, and never
- * on a hidden target: the ping would show players where it stands (FR-GM-23).
+ * on a hidden or fogged target: the ping would show players where it stands (FR-GM-23, ADR 0016).
  */
-export const shouldPingTarget = (target: { hidden: boolean } | undefined, visibility: "public" | "gm"): boolean =>
-  visibility === "public" && !!target && !target.hidden;
+export const shouldPingTarget = (
+  target: { hidden: boolean; position: Point } | undefined,
+  visibility: "public" | "gm",
+  fog: RoomState["fog"],
+): boolean => visibility === "public" && !!target && !target.hidden && !isInFog(fog, target.position);
 
 /** What applying a damage roll takes off: its total, and never less than nothing (ADR 0011). */
 export const damageAmount = (roll: Pick<DiceRoll, "total">): number => Math.max(0, roll.total);

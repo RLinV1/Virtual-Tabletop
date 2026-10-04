@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { isActive, pendingDepartures, type Participant, type RoomState } from "@vtt/shared";
+import { MAX_PLAYERS_PER_ROOM, isActive, pendingDepartures, type Participant, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { Modal } from "./Modal";
 import { PopoverButton } from "./Popover";
@@ -11,7 +11,8 @@ import { PopoverButton } from "./Popover";
  * longer takes a permanent slot in the sidebar. `participants` comes from the server's
  * filtered snapshot; nothing here is persisted. Only active participants are listed.
  *
- * The GM also gets Remove on each player (FR-GM-20). The confirmation is a sibling of the
+ * The GM also gets Remove on each player (FR-GM-20), and how many of the room's player seats are
+ * taken (room-player-cap): the GM is the one who can free a seat. The confirmation is a sibling of the
  * popover, not inside it: the popover closes on any press outside itself, and that would
  * unmount a modal living in it.
  */
@@ -41,11 +42,24 @@ export function ParticipantsButton({
         tourId="participants"
         buttonContent={<AvatarStack participants={participants} />}
       >
+        {/* Above the list: in a full room the list scrolls, and the count must not scroll away. */}
+        {isGm && <p className="muted small-print participant-seats">{playerSeats(participants)}</p>}
         <ul className="plain participant-list">
           {participants.map((p) => (
             <li key={p.id}>
               <span className="participant-name">{p.displayName}</span>
               {p.role === "gm" && <span className="badge">GM</span>}
+              {isGm && p.role === "player" && p.diceLook && (
+                <button
+                  type="button"
+                  className="link participant-reset-dice"
+                  aria-label={`Put ${p.displayName}'s dice back to classic`}
+                  title="Their dice look stays in their library; this room shows classic dice for them."
+                  onClick={() => void connection.command({ type: "participant.clearDiceLook", participantId: p.id })}
+                >
+                  Reset dice
+                </button>
+              )}
               {isGm && p.role === "player" && (
                 <button
                   type="button"
@@ -186,4 +200,10 @@ function AvatarStack({ participants }: { participants: Participant[] }) {
       {extra > 0 && <span className="avatar avatar-more">+{extra}</span>}
     </span>
   );
+}
+
+/** "12 of 32 player seats taken", from the active participants; the GM's seat is not counted (room-player-cap). */
+export function playerSeats(active: readonly Participant[]) {
+  const taken = active.filter((p) => p.role === "player").length;
+  return `${taken} of ${MAX_PLAYERS_PER_ROOM} player seats taken`;
 }

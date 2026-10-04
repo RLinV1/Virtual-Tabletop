@@ -2,10 +2,12 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { inactiveLabel, normalizeLegacyGridForBoard, pendingDepartures, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
 import { api } from "../net/api";
 import { libraryAssetId } from "../net/builtinAssets";
-import { loadGmToken } from "../net/identity";
+import { useAccount } from "../account/accountStore";
 import { imageSize } from "../net/imageFile";
 import type { CommandResult, RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
+import { CheckpointsPanel } from "../panels/CheckpointsPanel";
+import { FogPanel } from "../panels/FogPanel";
 import { PanelSection } from "../ui/PanelSection";
 import type { GridDraft } from "./gridDraft";
 import { GridForm } from "./GridForm";
@@ -26,14 +28,14 @@ interface Props {
   onReviewDeparture: (participantId: string) => void;
 }
 
-/** The GM's administration section: departed players to resolve, then map and grid setup. */
+/** The GM's administration section: departed players to resolve, map and grid setup, fog, then checkpoints. */
 export function GmPanel({
   connection, state, token, onReviewDeparture,
   gridDraft, hasGridDraft, onGridDraftChange, onGridDraftCancel, onGridApply, gridApplying, gridError,
 }: Props) {
   const [error, setError] = useState<string | null>(null);
-  // The library belongs to this device's GM identity; rooms made before it existed have none.
-  const [gmToken] = useState(loadGmToken);
+  // The library belongs to the signed-in account (ADR 0017).
+  const hasLibrary = useAccount().status === "signedIn";
   /** Sends a command and reports failure to `report`: the panel, or the open modal. */
   const runWith = (report: (message: string | null) => void) => async (p: Promise<CommandResult>) => {
     const result = await p;
@@ -47,7 +49,7 @@ export function GmPanel({
       <DepartedPlayers state={state} onReview={onReviewDeparture} />
       <MapSection
         token={token}
-        gmToken={gmToken}
+        hasLibrary={hasLibrary}
         onError={setError}
         onSetMap={(map, grid, report) => runWith(report)(connection.command({ type: "scene.setMap", map, grid }))}
         onGridClose={onGridDraftCancel}
@@ -67,12 +69,14 @@ export function GmPanel({
             cancelLabel={setup ? "Set up later" : "Cancel"}
             allowUnchanged={setup}
           >
-            {gmToken && state.scene.map?.assetId && (
-              <SaveGridToLibrary gmToken={gmToken} assetId={state.scene.map.assetId} grid={state.scene.grid} />
+            {hasLibrary && state.scene.map?.assetId && (
+              <SaveGridToLibrary assetId={state.scene.map.assetId} grid={state.scene.grid} />
             )}
           </GridForm>
         )}
       />
+      <FogPanel connection={connection} state={state} />
+      <CheckpointsPanel connection={connection} state={state} />
     </>
   );
 }
@@ -106,7 +110,7 @@ function DepartedPlayers({ state, onReview }: { state: RoomState; onReview: (par
 /** Set the battle map from a fresh upload or the GM's library (asset-library). */
 function MapSection(props: {
   token: string;
-  gmToken: string | null;
+  hasLibrary: boolean;
   onSetMap: (map: MapImage, grid: GridSpec | undefined, report: (message: string | null) => void) => Promise<boolean>;
   onError: (message: string | null) => void;
   onGridClose: () => void;
@@ -176,7 +180,7 @@ function MapSection(props: {
             onChange={(e) => onChange(e.target.files?.[0])}
           />
         </label>
-        {props.gmToken && (
+        {props.hasLibrary && (
           <button type="button" className="secondary" onClick={() => setPicking(true)}>
             From library
           </button>
@@ -188,7 +192,7 @@ function MapSection(props: {
           {props.gridApplying ? "Applying grid…" : "Adjust grid"}
         </button>
       </div>
-      {props.gmToken && (
+      {props.hasLibrary && (
         <Modal
           open={picking}
           title="Choose a map"
@@ -197,7 +201,7 @@ function MapSection(props: {
             setPickError(null);
           }}
         >
-          <LibraryPicker gmToken={props.gmToken} kind="map" onPick={(a) => void place(a)} />
+          <LibraryPicker kind="map" onPick={(a) => void place(a)} />
           {pickError && <p role="alert" className="error">{pickError}</p>}
         </Modal>
       )}
@@ -211,7 +215,7 @@ function MapSection(props: {
 }
 
 /** Explicitly writes the room's current grid back to the library map it came from. */
-function SaveGridToLibrary({ gmToken, assetId, grid }: { gmToken: string; assetId: string; grid: GridSpec }) {
+function SaveGridToLibrary({ assetId, grid }: { assetId: string; grid: GridSpec }) {
   const [status, setStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -228,7 +232,7 @@ function SaveGridToLibrary({ gmToken, assetId, grid }: { gmToken: string; assetI
           setStatus("saving");
           setError(null);
           try {
-            await api.library.update(gmToken, assetId, { grid });
+            await api.library.update(assetId, { grid });
             setStatus("saved");
           } catch (err) {
             setError(err instanceof Error ? err.message : "Could not save the grid");

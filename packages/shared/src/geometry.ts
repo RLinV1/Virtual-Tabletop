@@ -101,3 +101,32 @@ export function resizedTokenCenter(p: Point, fromSize: number, toSize: number, g
   const shift = ((toSize - fromSize) * grid.cellSize) / 2;
   return { x: p.x + shift, y: p.y + shift };
 }
+
+/**
+ * Signed area of a polygon (shoelace formula), in square board pixels. Zero for a degenerate
+ * polygon whose points all lie on one line (FR-GM-17).
+ */
+export function polygonArea(points: readonly Point[]): number {
+  let sum = 0;
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i]!;
+    const b = points[(i + 1) % points.length]!;
+    sum += a.x * b.y - b.x * a.y;
+  }
+  return sum / 2;
+}
+
+/**
+ * Whether `p` lies inside a polygon (even-odd ray casting). A point exactly on an edge may land
+ * either side; callers that need a firm answer (fog, FR-GM-17) treat the result as authoritative,
+ * so server and clients agree because they run this same function.
+ */
+export function pointInPolygon(p: Point, points: readonly Point[]): boolean {
+  let inside = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const a = points[i]!;
+    const b = points[j]!;
+    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}

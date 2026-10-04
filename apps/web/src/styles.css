@@ -140,8 +140,10 @@ label.inline { flex-direction: row; align-items: center; gap: 0.35rem; color: va
 /* The top bar spans both columns; the board and the panel share the row beneath it. */
 .room-topbar {
   grid-column: 1 / -1;
-  /* Three columns so the people sit dead centre whatever the two sides hold. */
-  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: var(--space-3);
+  /* Three columns so the people sit dead centre while both sides fit. The controls never
+     shrink below their own width: on a narrower bar the title gives way (it ellipsizes) and
+     the people shift left, instead of the controls spilling over them. */
+  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(max-content, 1fr); align-items: center; gap: var(--space-3);
   min-width: 0; padding: var(--space-2) var(--space-3);
   background: var(--panel); border-bottom: 1px solid var(--border);
 }
@@ -149,6 +151,13 @@ label.inline { flex-direction: row; align-items: center; gap: 0.35rem; color: va
 .topbar-start, .topbar-end { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .topbar-end { justify-content: flex-end; }
 .topbar-center { display: flex; justify-content: center; }
+/* Too narrow for one line (the GM's controls alone are ~600px): title and people on the
+   first row, the controls (Share last, still at the right) on a second, rather than the
+   controls or the title running under the people. */
+@media (max-width: 960px) {
+  .room-topbar { grid-template-columns: minmax(0, 1fr) auto; row-gap: var(--space-1); }
+  .topbar-end { grid-column: 1 / -1; flex-wrap: wrap; }
+}
 .room-title {
   margin: 0; font-size: var(--fs-md); font-weight: 700;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
@@ -211,7 +220,10 @@ a.tool-button { text-decoration: none; }
 .tool-button[aria-expanded="true"] { border-color: var(--accent); }
 .icon-count { font-variant-numeric: tabular-nums; }
 .board-hint {
-  position: absolute; bottom: var(--space-2); left: var(--space-3); margin: 0;
+  /* Starts right of the tool rail, which runs down the board's left edge and would cover it
+     in a short window. 4.25rem = the rail's labelled buttons, its padding and border. */
+  position: absolute; bottom: var(--space-2); left: calc(var(--space-3) + 4.25rem + var(--space-2)); margin: 0;
+  max-width: calc(100% - 4.25rem - 3 * var(--space-3));
   font-size: var(--fs-xs); color: var(--muted); pointer-events: none;
 }
 
@@ -248,6 +260,7 @@ a.tool-button { text-decoration: none; }
 }
 .participant-list li + li { border-top: 1px solid var(--border); }
 .participant-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.participant-seats { margin-bottom: var(--space-1); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border); }
 
 .panel {
   position: relative;
@@ -903,13 +916,7 @@ dialog.modal.dice-look-modal { width: min(40rem, calc(100vw - 2rem)); }
   }
   .panel { border-left: none; border-top: 1px solid var(--border); }
   .room > .panel { grid-row: 3; }
-  /* Too narrow for three columns: title and people on the first row, the controls (Share
-     last, still at the right) on a second, rather than spilling over the people. */
-  .room-topbar {
-    grid-template-columns: minmax(0, 1fr) auto; row-gap: var(--space-1);
-    padding: var(--space-1) var(--space-2);
-  }
-  .topbar-end { grid-column: 1 / -1; flex-wrap: wrap; }
+  .room-topbar { padding: var(--space-1) var(--space-2); }
   /* The page scrolls on a phone, not a nested panel. */
   .panel-body { width: auto; height: auto; overflow: visible; padding: 0.6rem 0.75rem; gap: var(--space-2); }
 
@@ -2095,6 +2102,23 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 
 .departed-list { display: flex; flex-direction: column; gap: var(--space-2); }
 .departed-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: var(--fs-sm); }
+/* Checkpoints (KAN-41): the name field takes the row; each saved one is a name and Restore. */
+.checkpoint-form { margin-bottom: var(--space-2); }
+.checkpoint-name { display: flex; flex: 1; min-width: 0; }
+.checkpoint-name input { flex: 1; min-width: 0; }
+.checkpoint-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.checkpoint-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: var(--fs-sm); }
+.checkpoint-row > span { min-width: 0; overflow-wrap: anywhere; }
+
+/* Fog of war by keyboard (FR-GM-17): fog the map or a block of cells, reveal from a list. */
+.fog-cells fieldset { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-2) 0 0; padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius); }
+.fog-cells legend { padding: 0 var(--space-1); font-size: var(--fs-sm); font-weight: 500; }
+.fog-cells-hint { margin: 0; font-size: var(--fs-xs); }
+.fog-cells-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
+.fog-cells-grid input { width: 100%; font-variant-numeric: tabular-nums; }
+.fog-count { margin: var(--space-3) 0 var(--space-1); font-size: var(--fs-sm); }
+.fog-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.fog-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: var(--fs-sm); }
 
 .resolve-all { flex-direction: row; align-items: center; justify-content: space-between; gap: var(--space-3); color: var(--text); font-weight: 500; }
 .resolve-rows { display: flex; flex-direction: column; border-top: 1px solid var(--border); }

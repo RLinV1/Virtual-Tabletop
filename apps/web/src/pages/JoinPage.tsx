@@ -1,19 +1,70 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { api } from "../net/api";
+import { ALREADY_MEMBER, type InviteSeatResponse } from "@vtt/shared";
+import { useAccount } from "../account/accountStore";
+import { api, ApiError } from "../net/api";
 import { gmRoomForInvite, guestRoomForInvite, newGuestToken, rememberInvite, saveCredentials } from "../net/identity";
+import { ensureSeat } from "../net/seats";
 import { navigate } from "../router";
+import { joinFailure } from "./joinFailure";
 
-/** Guest join from a shareable link (FR-PL-01). Returning guests skip straight to the room (FR-PL-02). */
+/**
+ * Join from a shareable link (FR-PL-01). No account needed, and none is asked for or promoted
+ * here (§13.1). Returning guests skip straight to the room (FR-PL-02). A signed-in person who
+ * already has a seat in this room is offered "Resume as …" instead of a second seat
+ * (room-membership).
+ */
 export function JoinPage({ inviteCode }: { inviteCode: string }) {
+  const account = useAccount();
   const [displayName, setDisplayName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  /** False for a full room: the message is not about the name (room-player-cap). */
+  const [nameIsCause, setNameIsCause] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [seat, setSeat] = useState<InviteSeatResponse | null>(null);
   const gmRoomId = useMemo(() => gmRoomForInvite(inviteCode), [inviteCode]);
 
   useEffect(() => {
     const existing = guestRoomForInvite(inviteCode);
     if (existing) navigate(`/r/${existing}`, { replace: true });
   }, [inviteCode]);
+
+  useEffect(() => {
+    if (account.status !== "signedIn") return;
+    let live = true;
+    api.inviteSeat(inviteCode).then(
+      (found) => live && setSeat(found),
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [account.status, inviteCode]);
+
+  async function resume(roomId: string) {
+    setBusy(true);
+    try {
+      await ensureSeat(roomId);
+      navigate(`/r/${roomId}`, { replace: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not open your seat");
+      setBusy(false);
+    }
+  }
+
+  if (seat) {
+    return (
+      <main className="centered">
+        <div className="card">
+          <h1>You're already at this table</h1>
+          <p className="muted">Your seat is kept on your account, so you can pick up where you left off.</p>
+          {error && <p role="alert" className="error">{error}</p>}
+          <button type="button" onClick={() => void resume(seat.roomId)} disabled={busy}>
+            {busy ? "Opening…" : `Resume as ${seat.displayName}`}
+          </button>
+        </div>
+      </main>
+    );
+  }
 
   if (gmRoomId) {
     return (
@@ -40,11 +91,23 @@ export function JoinPage({ inviteCode }: { inviteCode: string }) {
     try {
       const guestToken = newGuestToken();
       const joined = await api.joinRoom(inviteCode, { displayName, guestToken });
-      saveCredentials({ ...joined, guestToken });
+      // Signed in, the seat is kept on the account and bound to this device's sign-in (ADR 0017 M4).
+      saveCredentials({ ...joined, guestToken, ...(account.status === "signedIn" && { viaAccount: true }) });
       rememberInvite(inviteCode, joined.roomId);
       navigate(`/r/${joined.roomId}`, { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not join");
+      if (err instanceof ApiError && err.detail.code === ALREADY_MEMBER) {
+        // Joined from another tab or device meanwhile: offer that seat instead.
+        const found = await api.inviteSeat(inviteCode).catch(() => null);
+        if (found) {
+          setSeat(found);
+          setBusy(false);
+          return;
+        }
+      }
+      const failure = joinFailure(err);
+      setError(failure.message);
+      setNameIsCause(failure.nameIsCause);
       setBusy(false);
     }
   }
@@ -61,8 +124,8 @@ export function JoinPage({ inviteCode }: { inviteCode: string }) {
               setDisplayName(e.target.value);
               setError(null);
             }}
-            aria-invalid={error ? true : undefined}
-            aria-describedby={error ? "join-error" : undefined}
+            aria-invalid={error && nameIsCause ? true : undefined}
+            aria-describedby={error && nameIsCause ? "join-error" : undefined}
             required
             maxLength={40}
             autoFocus

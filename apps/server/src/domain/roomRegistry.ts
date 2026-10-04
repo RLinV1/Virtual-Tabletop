@@ -46,6 +46,32 @@ export class RoomRegistry {
     await room?.close(reason);
   }
 
+  /** Closes open connections on these seat credentials, in every loaded room (ADR 0017 M4). */
+  async closeCredentials(hashes: Iterable<string>) {
+    const set = new Set(hashes);
+    if (set.size === 0) return;
+    for (const loading of this.rooms.values()) {
+      const room = await loading.catch(() => null);
+      room?.closeCredentials(set);
+    }
+  }
+
+  /**
+   * Closes connections whose credential row is gone. Sessions ended in another process (the
+   * operator reset, ADR 0017 I5) delete their seats there; this sweep closes what was still open
+   * here.
+   */
+  async closeDeletedCredentials() {
+    const gone: string[] = [];
+    for (const loading of this.rooms.values()) {
+      const room = await loading.catch(() => null);
+      for (const hash of room?.connectedCredentials() ?? []) {
+        if (!(await this.store.findCredential(hash))) gone.push(hash);
+      }
+    }
+    await this.closeCredentials(gone);
+  }
+
   /** Forgets a room, so the next `get` reads the store again. */
   evict(roomId: string) {
     this.rooms.delete(roomId);

@@ -5,26 +5,26 @@ import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import {
   canRenderGrid,
-  GmIdentifyRequest,
   LibraryPatchRequest,
   LibraryUploadFields,
   type GmRoomSummary,
   type LibraryAsset,
   type LibraryUsageResponse,
 } from "@vtt/shared";
-import { hashToken } from "../domain/credentials";
 import { registerCreatureRoutes } from "./creatures";
 import type { AssetStore } from "../store/assetStore";
 import type { LibraryAssetRecord } from "../store/libraryStore";
 import type { RoomStore } from "../store/roomStore";
-import { resolveGm } from "./gmAuth";
+import { requireAccountOwner, resolveOwner, type Owner } from "../ownership/resolveOwner";
 import { imageUploader } from "./imageUpload";
 
 const AssetIdParam = z.uuid();
 
 /**
- * GM identity, dashboard and asset library (ADR 0004). Every route resolves the GM first;
- * an asset the caller does not own answers 404, the same as one that does not exist.
+ * The dashboard's room list and the asset library (ADR 0004, ADR 0017). Every route resolves the
+ * owner first: the signed-in account, or a legacy device identity that may read, edit and delete
+ * what it has but create nothing. An asset the caller does not own answers 404, the same as one
+ * that does not exist.
  */
 export function registerLibraryRoutes(
   app: Express,
@@ -33,14 +33,12 @@ export function registerLibraryRoutes(
   const { store, uploadDir, assets } = deps;
   const receiveImage = imageUploader(uploadDir);
 
-  /** Registers this browser's GM token. Idempotent; the server keeps only its hash. */
-  app.post("/api/gm/identify", (req, res) => {
-    void (async () => {
-      const body = GmIdentifyRequest.safeParse(req.body);
-      if (!body.success) return res.status(400).json({ error: body.error.issues });
-      await store.registerGm(hashToken(body.data.gmToken));
-      return res.status(204).end();
-    })().catch(() => res.status(500).json({ error: "Internal error" }));
+  /**
+   * Retired (ADR 0017): new GM device identities are no longer created; accounts own what a GM
+   * makes. Existing device tokens still work for what they already own.
+   */
+  app.post("/api/gm/identify", (_req, res) => {
+    res.status(410).json({ error: "Sign in to save rooms and library art" });
   });
 
   app.get("/api/gm/rooms", (req, res) => {
@@ -57,7 +55,8 @@ export function registerLibraryRoutes(
   });
 
   app.post("/api/library", (req, res) => {
-    void withGm(req, res, async (gmId) => {
+    void withGm(req, res, async (gmId, owner) => {
+      if (!requireAccountOwner(owner, res)) return;
       const upload = await receiveImage(req, res);
       if (!upload.ok) return void res.status(upload.status).json({ error: upload.error });
       const fields = LibraryUploadFields.safeParse(req.body);
@@ -133,11 +132,11 @@ export function registerLibraryRoutes(
 
   registerCreatureRoutes(app, { store, withGm });
 
-  async function withGm(req: Request, res: Response, handler: (gmId: string) => Promise<void>) {
+  async function withGm(req: Request, res: Response, handler: (gmId: string, owner: Owner) => Promise<void>) {
     try {
-      const gm = await resolveGm(req, store);
-      if (!gm) return void res.status(401).json({ error: "GM identity required" });
-      await handler(gm.gmId);
+      const owner = await resolveOwner(req, res, store);
+      if (!owner) return void res.status(401).json({ error: "Sign in to do that" });
+      await handler(owner.ownerId, owner);
     } catch {
       if (!res.headersSent) res.status(500).json({ error: "Internal error" });
     }

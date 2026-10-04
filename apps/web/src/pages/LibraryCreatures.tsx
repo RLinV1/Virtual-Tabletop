@@ -1,7 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { CreatureFields, DEFAULT_TOKEN_COLOR, type LibraryCreature } from "@vtt/shared";
 import { api } from "../net/api";
-import { getGmToken } from "../net/gm";
 import { Modal } from "../ui/Modal";
 import { TokenPreview } from "../ui/TokenPreview";
 import { creatureSummary } from "./creatureDraft";
@@ -10,7 +9,6 @@ import { LibraryPicker } from "./LibraryPicker";
 /** A creature in the library's Creatures tab (library-creatures): its art or a colour disc, name and stats. */
 export function CreatureCard(props: {
   creature: LibraryCreature;
-  gmToken: string;
   onEdit: () => void;
   onDeleted: () => void;
 }) {
@@ -22,7 +20,7 @@ export function CreatureCard(props: {
   async function remove() {
     setDeleting(true);
     try {
-      await api.library.creatures.remove(props.gmToken, creature.id);
+      await api.library.creatures.remove(creature.id);
       props.onDeleted();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Delete failed");
@@ -78,8 +76,7 @@ const optionalNumber = (value: string) => (value.trim() === "" ? null : Number(v
  */
 export function CreatureForm(props: {
   creature: LibraryCreature | null;
-  gmToken: string | null;
-  onSaved: (creature: LibraryCreature, gmToken: string) => void;
+  onSaved: (creature: LibraryCreature) => void;
   onCancel: () => void;
 }) {
   const { creature } = props;
@@ -110,12 +107,10 @@ export function CreatureForm(props: {
     setSaving(true);
     setError(null);
     try {
-      // Saving is a GM write, so this is where an identity is created if there is none.
-      const gmToken = props.gmToken ?? (await getGmToken());
       const saved = creature
-        ? await api.library.creatures.update(gmToken, creature.id, parsed.data)
-        : await api.library.creatures.create(gmToken, parsed.data);
-      props.onSaved(saved, gmToken);
+        ? await api.library.creatures.update(creature.id, parsed.data)
+        : await api.library.creatures.create(parsed.data);
+      props.onSaved(saved);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save the creature");
       setSaving(false);
@@ -144,13 +139,11 @@ export function CreatureForm(props: {
               <span className="token-name" title={image.label}>{image.label}</span>
               <button type="button" className="link" onClick={() => setImage(null)}>Remove</button>
             </div>
-          ) : props.gmToken ? (
+          ) : (
             <div className="row creature-image-choose">
               <button type="button" className="secondary" onClick={() => setPicking(true)}>Choose token art</button>
               <span className="muted">Without art it shows as a colour disc.</span>
             </div>
-          ) : (
-            <p className="muted">Upload token art on the Token Art tab to give creatures an image.</p>
           )}
         </div>
         {touched && hint && <p className="error" role="alert">{hint}</p>}
@@ -163,39 +156,36 @@ export function CreatureForm(props: {
         </div>
       </form>
       {/* Stacked over this one, outside the form so its buttons can never submit it. */}
-      {props.gmToken && (
-        <Modal open={picking} title="Choose token art" onClose={() => setPicking(false)}>
-          <LibraryPicker
-            gmToken={props.gmToken}
-            kind="token"
-            includeBuiltins={false}
-            onPick={(asset) => {
-              setImage({ assetId: asset.id, url: asset.url, label: asset.name });
-              setPicking(false);
-            }}
-          />
-        </Modal>
-      )}
+      <Modal open={picking} title="Choose token art" onClose={() => setPicking(false)}>
+        <LibraryPicker
+          kind="token"
+          includeBuiltins={false}
+          onPick={(asset) => {
+            setImage({ assetId: asset.id, url: asset.url, label: asset.name });
+            setPicking(false);
+          }}
+        />
+      </Modal>
     </>
   );
 }
 
 /** Add Token's "From creature" list (library-creatures): the GM's creatures, searchable by name. */
-export function CreaturePicker(props: { gmToken: string; onPick: (creature: LibraryCreature) => void }) {
+export function CreaturePicker(props: { onPick: (creature: LibraryCreature) => void }) {
   const [creatures, setCreatures] = useState<LibraryCreature[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
 
   useEffect(() => {
     let live = true;
-    api.library.creatures.list(props.gmToken).then(
+    api.library.creatures.list().then(
       (list) => live && setCreatures(list),
       (err: unknown) => live && setError(err instanceof Error ? err.message : "Could not load your creatures"),
     );
     return () => {
       live = false;
     };
-  }, [props.gmToken]);
+  }, []);
 
   const q = query.trim().toLowerCase();
   const shown = (creatures ?? []).filter((c) => !q || c.name.toLowerCase().includes(q));
