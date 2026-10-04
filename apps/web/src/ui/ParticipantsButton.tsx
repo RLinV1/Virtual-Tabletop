@@ -21,12 +21,17 @@ export function ParticipantsButton({
   you,
   connection,
   onReviewDeparture,
+  onViewAs,
+  viewingAs,
 }: {
   state: RoomState;
   you: Participant;
   connection: RoomConnection;
   /** Opens the token review for a participant who is no longer in the room. */
   onReviewDeparture: (participantId: string) => void;
+  /** GM only: preview the room as this player (gm-view-as-player). */
+  onViewAs?: (participantId: string) => void;
+  viewingAs?: string | null;
 }) {
   // Someone who left or was removed stays in state for history, but is no longer here (ADR 0006).
   const participants = Object.values(state.participants).filter(isActive);
@@ -49,6 +54,17 @@ export function ParticipantsButton({
             <li key={p.id}>
               <span className="participant-name">{p.displayName}</span>
               {p.role === "gm" && <span className="badge">GM</span>}
+              {isGm && p.role === "player" && onViewAs && (
+                <button
+                  type="button"
+                  className="link participant-view-as"
+                  aria-label={`View the room as ${p.displayName}`}
+                  aria-pressed={viewingAs === p.id}
+                  onClick={() => onViewAs(p.id)}
+                >
+                  View as
+                </button>
+              )}
               {isGm && p.role === "player" && p.diceLook && (
                 <button
                   type="button"
