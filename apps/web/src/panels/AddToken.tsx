@@ -160,17 +160,8 @@ function AddToken(props: {
           How many
           <input type="number" value={count} onChange={(e) => setCount(e.target.value)} required min="1" max={MAX_TOKENS_PER_CREATE} step="1" />
         </label>
-        <label>
-          Colour without art
-          <input type="color" value={color} onInput={(e) => setColor(e.currentTarget.value)} onChange={(e) => setColor(e.target.value)} />
-        </label>
-        {/* A creature fills these in; the GM can change them before placing (KAN-70). */}
-        <details className="add-token-conditions" open={conditions.length > 0}>
-          <summary>Starting conditions{conditions.length > 0 ? `: ${conditions.map((c) => conditionSpec(c).label).join(", ")}` : ""}</summary>
-          <ConditionPicker value={conditions} onChange={setConditions} />
-        </details>
         {/* Blank HP and AC fall back to the defaults shown as placeholders (token-stat-defaults). */}
-        <div className="token-setup-grid">
+        <div className="token-setup-grid token-setup-grid-3">
           <label>HP<input type="number" value={hp} onChange={(e) => setHp(e.target.value)} min="-999" max="9999" step="1" placeholder={String(defaults.hp)} /></label>
           <label>Max HP<input type="number" value={maxHp} onChange={(e) => setMaxHp(e.target.value)} min="1" max="9999" step="1" placeholder={String(defaults.maxHp)} /></label>
           <label>AC<input type="number" value={ac} onChange={(e) => setAc(e.target.value)} min="0" max="99" step="1" placeholder={String(defaults.ac)} /></label>
@@ -209,11 +200,9 @@ function AddToken(props: {
                   onChange={(e) => void onUpload(e.target.files?.[0])}
                 />
               </label>
-              {props.hasLibrary && (
-                <button type="button" className="secondary" disabled={uploading} onClick={() => setPicking(true)}>
-                  From library
-                </button>
-              )}
+              <button type="button" className="secondary" disabled={uploading} onClick={() => setPicking(true)}>
+                {props.hasLibrary ? "From library" : "Built-in art"}
+              </button>
             </div>
           )}
         </div>
@@ -222,6 +211,15 @@ function AddToken(props: {
         <details className="add-token-advanced">
           <summary>Advanced settings</summary>
           <div className="stack">
+            <label>
+              Colour without art
+              <input type="color" value={color} onInput={(e) => setColor(e.currentTarget.value)} onChange={(e) => setColor(e.target.value)} />
+            </label>
+            {/* A creature fills these in; the GM can change them before placing (KAN-70). */}
+            <details className="add-token-conditions" open={conditions.length > 0}>
+              <summary>Starting conditions{conditions.length > 0 ? `: ${conditions.map((c) => conditionSpec(c).label).join(", ")}` : ""}</summary>
+              <ConditionPicker value={conditions} onChange={setConditions} />
+            </details>
             <div className="token-setup-grid">
               <label>Size (cells)<input type="number" value={size} onChange={(e) => setSize(e.target.value)} required min="0.25" max="10" step="any" /></label>
               <label>Rotation (°)<input type="number" value={rotation} onChange={(e) => setRotation(e.target.value)} required step="any" /></label>
@@ -258,19 +256,17 @@ function AddToken(props: {
           />
         </Modal>
       )}
-      {props.hasLibrary && (
-        <Modal open={picking} title="Choose a token image" onClose={() => setPicking(false)}>
-          <LibraryPicker
-            kind="token"
-            onPick={(asset) => {
-              // The token name is left to the GM on purpose: prefilling the library name
-              // would put it in front of players (asset-library: details stay private).
-              setImage({ url: asset.url, assetId: libraryAssetId(asset), label: asset.name });
-              setPicking(false);
-            }}
-          />
-        </Modal>
-      )}
+      <Modal open={picking} title="Choose a token image" onClose={() => setPicking(false)}>
+        <LibraryPicker
+          kind="token"
+          onPick={(asset) => {
+            // The token name is left to the GM on purpose: prefilling the library name
+            // would put it in front of players (asset-library: details stay private).
+            setImage({ url: asset.url, assetId: libraryAssetId(asset), label: asset.name });
+            setPicking(false);
+          }}
+        />
+      </Modal>
     </>
   );
 }

@@ -520,6 +520,26 @@ button.small { min-height: 0; padding: 0.2rem 0.5rem; font-size: var(--fs-sm); }
 label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-size: var(--fs-sm); color: var(--text); }
 
 /* --- Chat (KAN-75) --- */
+.chat-widget { position: fixed; right: var(--space-4); bottom: var(--space-4); z-index: 50; display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-2); }
+.chat-fab {
+  position: relative; width: 3.25rem; height: 3.25rem; padding: 0; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgb(0 0 0 / 0.45);
+}
+.chat-badge {
+  position: absolute; top: -0.2rem; right: -0.2rem; min-width: 1.2rem; height: 1.2rem; padding: 0 0.25rem;
+  border-radius: 999px; background: var(--text); color: var(--bg, #000); font-size: var(--fs-xs); font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.chat-popup {
+  width: min(22rem, calc(100vw - 2 * var(--space-4))); display: flex; flex-direction: column; gap: var(--space-2);
+  padding: var(--space-3); background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--radius);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.55);
+  /* Never taller than the room above the launcher, so the header and close button stay reachable. */
+  max-height: calc(100dvh - 3.25rem - 3 * var(--space-4)); min-height: 0;
+}
+.chat-popup-header { display: flex; align-items: center; justify-content: space-between; }
+.chat-popup-header h2 { margin: 0; font-size: var(--fs-sm); color: var(--muted); }
+.chat-popup .chat-log { max-height: 18rem; flex: 1 1 auto; min-height: 4rem; }
 .chat-form { display: flex; flex-direction: column; gap: 0.4rem; margin-top: var(--space-2); }
 .chat-log { display: flex; flex-direction: column; gap: var(--space-1); max-height: 14rem; overflow-y: auto; }
 .chat-message {
@@ -597,6 +617,21 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 /* Dice thrown onto the map (throw-dice-on-board). The world layer follows the board's pan and
    zoom; the dice are placed in it in board pixels. Nothing here takes the pointer. */
 .thrown-dice { position: absolute; inset: 0; z-index: 1; overflow: hidden; pointer-events: none; }
+/* Attack and condition effects (board-effects-overlay): above the canvas, never takes input. */
+.effects-overlay { position: absolute; inset: 0; z-index: 2; overflow: hidden; pointer-events: none; }
+.effects-overlay-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.effects-overlay * { pointer-events: none; }
+.effects-anchor { position: absolute; width: 0; height: 0; }
+.effects-ring { position: absolute; border-radius: 50%; border-style: solid; border-color: currentColor; box-sizing: border-box; background: transparent; }
+.effects-glow, .effects-orb { position: absolute; border-radius: 50%; }
+.effects-veil { position: absolute; background: rgba(0, 0, 0, 0.55); }
+.effects-text, .effects-label { position: absolute; font-weight: 800; line-height: 1; white-space: nowrap; transform: translateX(-50%); text-shadow: 0 0 6px rgba(0, 0, 0, 0.9), 0 2px 0 rgba(0, 0, 0, 0.8); }
+.effects-damage { -webkit-text-stroke: 3px rgba(0, 0, 0, 0.85); paint-order: stroke fill; }
+.effects-beam { position: absolute; border-radius: 999px; background: linear-gradient(90deg, rgba(251, 146, 60, 0), #fde047 40%, #fff); box-shadow: 0 0 14px 4px rgba(249, 115, 22, 0.8); }
+.effects-slash { position: absolute; border-radius: 999px; background: linear-gradient(90deg, rgba(255, 255, 255, 0), #fff 30%, #fecaca 70%, rgba(239, 68, 68, 0)); box-shadow: 0 0 10px 2px rgba(239, 68, 68, 0.9); }
+.effects-shard { position: absolute; clip-path: polygon(0 50%, 40% 0, 100% 40%, 60% 100%); }
+.effects-miss { letter-spacing: 0.12em; }
+.effects-whiff { position: absolute; border-radius: 50%; border-style: solid; border-color: #e2e8f0 transparent transparent transparent; box-sizing: border-box; }
 .thrown-dice-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 .thrown-dice-roll { --die-shadow: rgba(0, 0, 0, 0.55); }
 .thrown-dice-roll .die3d-slot { position: absolute; }
@@ -1207,6 +1242,7 @@ dialog.modal.prep-sheet { width: min(1120px, calc(100vw - 48px)); }
 
 .token-editor { display: flex; flex-direction: column; gap: var(--space-3); }
 .token-setup-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
+.token-setup-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .token-setup-grid label { min-width: 0; }
 .token-setup-grid input { width: 100%; }
 .token-editor .stats-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); align-items: end; }
