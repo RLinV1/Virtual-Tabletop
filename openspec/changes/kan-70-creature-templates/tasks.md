@@ -22,7 +22,8 @@
 
 ## 5. Verification
 
-- [ ] 5.1 In Playwright as the GM at desktop and mobile widths: create a green "Goblin" with Prone; add 4 from creature onto a square and confirm 4 numbered green prone goblins on free squares; save an on-board token as a creature and confirm it appears in the library with the right values; in a player context confirm hidden copies never show; take screenshots
+- [x] 5.1 In Playwright as the GM at desktop and mobile widths: create a green "Goblin" with Prone; add 4 from creature onto a square and confirm 4 numbered green prone goblins on free squares; save an on-board token as a creature and confirm it appears in the library with the right values; in a player context confirm hidden copies never show; take screenshots
 
 > Progress (2026-10-04): shared, server and web are built and tested (`addSeveral.test.ts`, creature API tests, `creatureDraft.test.ts`). Playwright script, GM signed in: a green "Goblin" with Prone saved in the library; Add token → From creature → How many 4 placed Goblin, Goblin 2, Goblin 3, Goblin 4, all green, Prone, 7/7 HP, AC 15, on neighbouring squares; Save as creature from Goblin 2 opened prefilled (name, colour, Prone) and saved "Goblin scout". A nested-form bug (the Save as creature form inside the token editor's form submitted the editor) was found and fixed. Migration 0008 applies cleanly after 0001–0007 on PGlite.
-> Open: 1.1 (owner sign-off on ADR 0020); 3.1's run against a real Postgres (needs Docker; the memory store tests pass); and 5.1's mobile-width pass and player-side hidden check in the browser (desktop done; hidden copies are covered by the server test).
+> Open: 1.1 (owner sign-off on ADR 0020); 3.1's run against a real Postgres (needs Docker; the memory store tests pass).
+> 5.1 phone pass (390×844): Add token with How many 2 and Hidden fits with no horizontal scroll; Lurker and Lurker 2 placed; the player's browser received two redacted seqs and no frame mentioning "Lurker".
