@@ -153,9 +153,16 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     if (!current || current.busy) return;
     placingRef.current = { ...current, busy: true };
     setPlacing(placingRef.current);
-    const result = await connection.command({ ...current.draft, position: at });
+    // Several tokens are placed one click each, so the GM chooses every square; the server
+    // numbers the duplicates (KAN-62).
+    const left = current.draft.count ?? 1;
+    const result = await connection.command({ ...current.draft, count: 1, position: at });
     // Keep the draft on a rejection, so the GM can read why and try another square.
-    setPlacing((now) => (now?.draft !== current.draft ? now : result.ok ? null : { ...now, busy: false, error: result.message }));
+    setPlacing((now) => {
+      if (now?.draft !== current.draft) return now;
+      if (!result.ok) return { ...now, busy: false, error: result.message };
+      return left > 1 ? { draft: { ...current.draft, count: left - 1 }, busy: false, error: null } : null;
+    });
   };
   const placeRef = useRef(place);
   placeRef.current = place;
@@ -410,7 +417,8 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       {placing && (
         <div className="placement-bar">
           <p aria-live="polite">
-            Placing <strong>{placing.draft.name}</strong>: click a square on the map.
+            Placing <strong>{placing.draft.name}</strong>
+            {(placing.draft.count ?? 1) > 1 ? ` (${placing.draft.count} left)` : ""}: click a square on the map.
           </p>
           {placing.error && <p role="alert" className="error">{placing.error}</p>}
           <div className="row">

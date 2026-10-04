@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { AssetKind, LibraryAsset } from "@vtt/shared";
+import { useAccount } from "../account/accountStore";
 import { api } from "../net/api";
 import { builtinsMatching } from "../net/builtinAssets";
 
@@ -17,15 +18,18 @@ export function LibraryPicker(props: {
   includeBuiltins?: boolean;
 }) {
   const includeBuiltins = props.includeBuiltins ?? true;
-  const [assets, setAssets] = useState<LibraryAsset[] | null>(null);
+  // A signed-out GM has no library, only the built-in art (builtin-library-assets).
+  const signedIn = useAccount().status === "signedIn";
+  const [assets, setAssets] = useState<LibraryAsset[] | null>(signedIn ? null : []);
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!signedIn) return;
     api.library.list().then(setAssets, (err: unknown) =>
       setError(err instanceof Error ? err.message : "Could not load the library"),
     );
-  }, []);
+  }, [signedIn]);
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
