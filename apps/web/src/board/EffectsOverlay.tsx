@@ -43,6 +43,17 @@ function useParticleEngine(wanted: boolean): boolean {
   return ready;
 }
 
+/** Whether the page is shown, so looping glows can stop while it is hidden. */
+function usePageVisible(): boolean {
+  const [visible, setVisible] = useState(() => typeof document === "undefined" || document.visibilityState === "visible");
+  useEffect(() => {
+    const update = () => setVisible(document.visibilityState === "visible");
+    document.addEventListener("visibilitychange", update);
+    return () => document.removeEventListener("visibilitychange", update);
+  }, []);
+  return visible;
+}
+
 function useReducedMotion(): boolean {
   const [reduced, setReduced] = useState(prefersReducedMotion);
   useEffect(() => watchReducedMotion(setReduced), []);
@@ -104,6 +115,7 @@ export default function EffectsOverlay({
   );
   const particleTokens = useMemo(() => new Set(withParticles.map((t) => t.id)), [withParticles]);
   const engine = useParticleEngine(!reduced && withParticles.length > 0);
+  const pageVisible = usePageVisible();
 
   return (
     <div ref={root} className="effects-overlay" aria-hidden="true">
@@ -113,8 +125,10 @@ export default function EffectsOverlay({
             key={token.id}
             token={token}
             radius={radiusOf(token, cell)}
-            particles={engine && particleTokens.has(token.id)}
+            // Under reduced motion no particle canvas runs, even if the engine loaded earlier.
+            particles={!reduced && engine && particleTokens.has(token.id)}
             reduced={reduced}
+            pageVisible={pageVisible}
           />
         ))}
         {effects.map((e) => (
@@ -127,22 +141,22 @@ export default function EffectsOverlay({
 
 // ---------- conditions ----------
 
-function ConditionLayer({ token, radius, particles, reduced }: { token: Token; radius: number; particles: boolean; reduced: boolean }) {
+function ConditionLayer({ token, radius, particles, reduced, pageVisible }: { token: Token; radius: number; particles: boolean; reduced: boolean; pageVisible: boolean }) {
   const style: CSSProperties = { left: token.position.x, top: token.position.y };
   return (
     <div className="effects-anchor" style={style}>
       {token.conditions.map((id) => (
-        <ConditionVisualView key={id} id={id} radius={radius} particles={particles} reduced={reduced} />
+        <ConditionVisualView key={id} id={id} radius={radius} particles={particles} reduced={reduced} pageVisible={pageVisible} />
       ))}
     </div>
   );
 }
 
-function ConditionVisualView({ id, radius, particles, reduced }: { id: ConditionId; radius: number; particles: boolean; reduced: boolean }) {
+function ConditionVisualView({ id, radius, particles, reduced, pageVisible }: { id: ConditionId; radius: number; particles: boolean; reduced: boolean; pageVisible: boolean }) {
   const visual = CONDITION_VISUALS[id];
   switch (visual.kind) {
     case "particles":
-      return particles ? <TokenParticles id={id} radius={radius} /> : null;
+      return particles ? <TokenParticles id={id} radius={radius} pageVisible={pageVisible} /> : null;
     case "ring":
       return (
         <motion.div
@@ -179,13 +193,11 @@ function ConditionVisualView({ id, radius, particles, reduced }: { id: Condition
           style={{ width: radius * 2, height: radius, marginLeft: -radius, marginTop: -radius, borderRadius: `${radius}px ${radius}px 0 0` }}
         />
       );
-    case "none":
-      return null;
   }
 }
 
 /** One token's particles, in a small canvas of their own so they cost nothing elsewhere on the board. */
-function TokenParticles({ id, radius }: { id: ConditionId; radius: number }) {
+function TokenParticles({ id, radius, pageVisible }: { id: ConditionId; radius: number; pageVisible: boolean }) {
   // Fixed for as long as the condition and the token's size stay: a new object reloads the canvas.
   const options = useMemo(() => conditionParticleOptions(id, radius, false), [id, radius]);
   const key = useParticleKey();
@@ -194,7 +206,7 @@ function TokenParticles({ id, radius }: { id: ConditionId; radius: number }) {
   if (!options) return null;
   return (
     <>
-      {glow && (
+      {glow && pageVisible && (
         <motion.div
           className="effects-glow"
           style={{ width: radius * 2.6, height: radius * 2.6, marginLeft: -radius * 1.3, marginTop: -radius * 1.3, background: `radial-gradient(circle, ${glow}, transparent 70%)` }}

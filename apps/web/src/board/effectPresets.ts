@@ -16,8 +16,7 @@ export type ConditionVisual =
   | { kind: "particles" }
   | { kind: "ring"; color: string; dashed: boolean; pulse: boolean }
   | { kind: "text"; text: string; color: string }
-  | { kind: "veil" }
-  | { kind: "none" };
+  | { kind: "veil" };
 
 /** Total record: a new ConditionId without a look fails typecheck. */
 export const CONDITION_VISUALS: Record<ConditionId, ConditionVisual> = {
@@ -28,7 +27,8 @@ export const CONDITION_VISUALS: Record<ConditionId, ConditionVisual> = {
   invisible: { kind: "particles" },
   paralyzed: { kind: "particles" },
   poisoned: { kind: "particles" },
-  prone: { kind: "none" },
+  // The token art lies flattened on the canvas; the overlay adds a steady amber ring so the overlay has its own mark.
+  prone: { kind: "ring", color: "#f97316", dashed: false, pulse: false },
   restrained: { kind: "ring", color: "#a78bfa", dashed: true, pulse: false },
   stunned: { kind: "particles" },
   unconscious: { kind: "text", text: "Zz", color: "#ffffff" },

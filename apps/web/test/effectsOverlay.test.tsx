@@ -29,6 +29,10 @@ describe("effects overlay (board-effects-overlay)", () => {
     expect(html).toContain("effects-ring");
   });
 
+  it("draws a ring for prone too", () => {
+    expect(render(room([token("a", { conditions: ["prone"] })]))).toContain("effects-ring");
+  });
+
   it("draws nothing for a condition-free board", () => {
     const html = render(room([token("a")]));
     expect(html).not.toContain("effects-ring");

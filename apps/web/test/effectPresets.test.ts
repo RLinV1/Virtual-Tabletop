@@ -15,6 +15,11 @@ describe("effect presets (board-effects-overlay)", () => {
     expect(Object.keys(CONDITION_VISUALS).sort()).toEqual(CONDITIONS.map((c) => c.id).sort());
   });
 
+  it("gives every condition a mark in the overlay, prone included", () => {
+    for (const { id } of CONDITIONS) expect(CONDITION_VISUALS[id].kind, id).toMatch(/^(particles|ring|text|veil)$/);
+    expect(CONDITION_VISUALS.prone.kind).toBe("ring");
+  });
+
   it("gives particle options exactly to the particle conditions", () => {
     for (const { id } of CONDITIONS) {
       const options = conditionParticleOptions(id, 30, false);
