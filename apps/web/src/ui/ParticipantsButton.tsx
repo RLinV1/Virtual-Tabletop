@@ -23,6 +23,7 @@ export function ParticipantsButton({
   onReviewDeparture,
   onViewAs,
   viewingAs,
+  readOnly = false,
 }: {
   state: RoomState;
   you: Participant;
@@ -32,12 +33,16 @@ export function ParticipantsButton({
   /** GM only: preview the room as this player (gm-view-as-player). */
   onViewAs?: (participantId: string) => void;
   viewingAs?: string | null;
+  /** The GM is previewing as a player (gm-view-as-player): nothing here may change the room. */
+  readOnly?: boolean;
 }) {
   // Someone who left or was removed stays in state for history, but is no longer here (ADR 0006).
   const participants = Object.values(state.participants).filter(isActive);
   const count = participants.length;
   const [removing, setRemoving] = useState<Participant | null>(null);
   const isGm = you.role === "gm";
+  // A Remove dialog that was open when the preview started closes with it.
+  if (readOnly && removing) setRemoving(null);
 
   return (
     <>
@@ -65,7 +70,7 @@ export function ParticipantsButton({
                   View as
                 </button>
               )}
-              {isGm && p.role === "player" && p.diceLook && (
+              {isGm && !readOnly && p.role === "player" && p.diceLook && (
                 <button
                   type="button"
                   className="link participant-reset-dice"
@@ -76,7 +81,7 @@ export function ParticipantsButton({
                   Reset dice
                 </button>
               )}
-              {isGm && p.role === "player" && (
+              {isGm && !readOnly && p.role === "player" && (
                 <button
                   type="button"
                   className="link danger participant-remove"
@@ -90,7 +95,7 @@ export function ParticipantsButton({
           ))}
         </ul>
       </PopoverButton>
-      {isGm && (
+      {isGm && !readOnly && (
         <RemoveParticipant
           connection={connection}
           state={state}

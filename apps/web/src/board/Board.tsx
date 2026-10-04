@@ -17,6 +17,8 @@ interface Props {
   state: RoomState;
   you: Participant;
   gridPreview: GridSpec | null;
+  /** The GM is previewing as a player (gm-view-as-player): no tool, drag, placement or targeting. Pan and zoom still work. */
+  readOnly?: boolean;
   /** Plain React controls shown top left, before Fit (e.g. the participants button). */
   toolbar?: ReactNode;
   /** Notices pinned to the top right of the board, e.g. the GM's "Sam left the table". */
@@ -90,7 +92,7 @@ function isTyping(target: EventTarget | null) {
 }
 
 /** The PixiJS board plus its React toolbar and notices; Pixi objects stay inside `BoardView`. */
-export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, toolbar, notices, overlay, landedRollId, onPickTarget }, ref) {
+export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, readOnly = false, toolbar, notices, overlay, landedRollId, onPickTarget }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<BoardView | null>(null);
   /** GM only: false shows everything through the fog (this browser remembers it). */
@@ -98,8 +100,8 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   const hasFog = Object.keys(state.fog).length > 0;
   /** Strikes waiting for their thrown dice to land, by roll id, oldest first (KAN-76). */
   const waitingStrikes = useRef(new Map<string, { effect: AttackEffect; timer: number }>());
-  const latest = useRef({ state, you, gridPreview, onPickTarget, gmFog: true });
-  latest.current = { state, you, gridPreview, onPickTarget, gmFog };
+  const latest = useRef({ state, you, gridPreview, onPickTarget, gmFog: true, readOnly: false });
+  latest.current = { state, you, gridPreview, onPickTarget, gmFog, readOnly };
   const [tool, setTool] = useState<BoardTool>({ kind: "select" });
   const [toolOptions, setToolOptions] = useState<ToolOptions>(DEFAULT_TOOL_OPTIONS);
   const toolRef = useRef(tool);
@@ -211,6 +213,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       if (disposed) return view.destroy();
       viewRef.current = view;
       view.setGmFogShown(latest.current.gmFog);
+      view.setReadOnly(latest.current.readOnly);
       view.setGridPreview(latest.current.gridPreview);
       view.update(latest.current.state, latest.current.you);
       view.setTool(toolRef.current);
@@ -277,6 +280,15 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     window.clearTimeout(strike.timer);
     viewRef.current?.playAttackEffect(strike.effect);
   }, [landedRollId]);
+
+  useEffect(() => {
+    viewRef.current?.setReadOnly(readOnly);
+    if (readOnly) {
+      // Nothing to place, aim or draw while previewing.
+      setPlacing(null);
+      setTool({ kind: "select" });
+    }
+  }, [readOnly]);
 
   useEffect(() => {
     viewRef.current?.setGmFogShown(gmFog);
@@ -410,6 +422,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
         )}
       </div>
       {gridPreview && <p className="grid-preview-label" role="status">Preview · Not applied</p>}
+      {!readOnly && (
       <ToolRail
         active={tool.kind}
         options={toolOptions}
@@ -425,6 +438,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
         }}
         onClear={() => viewRef.current?.clearMarks()}
       />
+      )}
       {overlay}
       {notices}
       {placing && (

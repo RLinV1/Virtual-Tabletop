@@ -401,7 +401,8 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
     const timer = window.setTimeout(() => setCardRollId(null), ROLL_POPUP_MS);
     return () => window.clearTimeout(timer);
   }, [cardRollId]);
-  const cardRoll = cardRollId ? state?.rolls.find((r) => r.id === cardRollId) : undefined;
+  // The card shows only rolls the viewed player could see, so a GM-only roll vanishes when a preview starts.
+  const cardRoll = cardRollId ? (preview?.state ?? state)?.rolls.find((r) => r.id === cardRollId) : undefined;
   // Your dice are still showing: on the board until they fade, or in a private tray until they land.
   const rolling = onBoard.size > 0 || !!state?.rolls.some((r) => airborne.has(r.id) && r.byParticipantId === you?.id);
   const rollThrow: RollThrow = { airborne, rolling, justLandedId: landedId, onLanded: land, expectDrop };
@@ -461,7 +462,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
           <h1 className="room-title">{state.name}</h1>
         </div>
         <div className="topbar-center">
-          <ParticipantsButton state={state} you={you} connection={connection} onReviewDeparture={setReviewing} onViewAs={setViewAs} viewingAs={viewAs} />
+          <ParticipantsButton state={state} you={you} connection={shownConnection} onReviewDeparture={setReviewing} onViewAs={setViewAs} viewingAs={viewAs} readOnly={!!preview} />
         </div>
         <div className="topbar-end">
           {!compact && (
@@ -509,6 +510,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
         connection={shownConnection}
         state={shownState!}
         you={shownYou!}
+        readOnly={!!preview}
         gridPreview={you.role === "gm" && !preview ? gridPreview : null}
         onPickTarget={pickTarget}
         landedRollId={landedId}
@@ -520,7 +522,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
             <KeepSeatNotice roomId={roomId} token={token} name={you.displayName} />
           </div>
         }
-        overlay={<RollCard roll={cardRoll} rollerName={(roll) => state.participants[roll.byParticipantId]?.displayName ?? "Someone"} />}
+        overlay={<RollCard roll={cardRoll} rollerName={(roll) => shownState!.participants[roll.byParticipantId]?.displayName ?? "Someone"} />}
       />
       <aside className="panel" id="room-panel" tabIndex={-1} aria-label="Room controls">
         {!compact && (

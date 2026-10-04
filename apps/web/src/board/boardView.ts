@@ -265,6 +265,7 @@ export class BoardView {
   private fogTexture: Texture | null = null;
   /** The fog drift loop is in `animations`. */
   private gmFogShown = true;
+  private readOnly = false;
   private fogLoopRegistered = false;
   private lastFogDraw = 0;
   private fogOffset = { x: 0, y: 0 };
@@ -587,6 +588,15 @@ export class BoardView {
     // A grid change moves the squares under a still pointer.
     if (this.placement) this.redrawGhost();
     this.syncConditionLoop();
+    this.invalidate();
+  }
+
+  /** Previewing as a player (gm-view-as-player): tokens take no pointer input, so nothing can be dragged or aimed. */
+  setReadOnly(readOnly: boolean) {
+    if (this.readOnly === readOnly) return;
+    this.readOnly = readOnly;
+    for (const view of this.tokens.values()) view.drawnKey = "";
+    if (this.initialized && this.state && this.you) this.syncTokens();
     this.invalidate();
   }
 
@@ -1430,7 +1440,7 @@ export class BoardView {
 
   private drawToken(view: TokenView, token: Token, grid: GridSpec, you: Participant) {
     const owned = token.ownerIds.includes(you.id);
-    const movable = can.moveToken(you, token);
+    const movable = !this.readOnly && can.moveToken(you, token);
     const focused = this.focusedId === token.id;
     const active = this.activeTokenId() === token.id;
     const key = JSON.stringify([
@@ -1809,7 +1819,7 @@ export class BoardView {
   private onTokenDown = (e: FederatedPointerEvent, tokenId: string) => {
     // With a tool active or a token being placed, let the press reach the stage so e.g. a
     // measurement starts here, or the new token can go on an occupied square.
-    if (e.button !== 0 || this.tool.kind !== "select" || this.placement) return;
+    if (this.readOnly || e.button !== 0 || this.tool.kind !== "select" || this.placement) return;
     e.stopPropagation();
     const view = this.tokens.get(tokenId);
     if (!view) return;
