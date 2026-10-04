@@ -1,19 +1,30 @@
 import type { CommandResult, RoomConnection } from "./roomConnection";
 
 /**
- * A read-only view of a connection, for the GM previewing the room as a player (gm-view-as-player).
- * Everything reads through to the real connection, but nothing is sent: commands are refused
- * locally and ephemeral messages (pings, drag previews) are dropped, so no command or relay ever
- * goes out in the previewed player's name or the GM's while looking through their eyes.
+ * A connection that refuses to send while `isReadOnly()` is true (gm-view-as-player). Everything
+ * reads through to the real connection; commands are refused locally and ephemeral messages
+ * (pings, drag previews) are dropped, so nothing ever goes out in the previewed player's name or
+ * the GM's while the GM looks through that player's eyes. `isReadOnly` is read on every call, so
+ * the same object serves before, during and after a preview: nothing that holds it has to be
+ * rebuilt when the preview starts or ends.
  */
-export function previewConnection(connection: RoomConnection, name: string): RoomConnection {
+export function guardedConnection(connection: RoomConnection, isReadOnly: () => boolean, name = "a player"): RoomConnection {
   const refused = async (): Promise<CommandResult> => ({ ok: false, code: "forbidden", message: `Previewing as ${name}. Go back to the GM view to make changes.` });
   return new Proxy(connection, {
     get(target, prop) {
-      if (prop === "command") return refused;
-      if (prop === "ephemeral" || prop === "preview" || prop === "endPreview") return () => {};
       const value = Reflect.get(target, prop, target);
+      if (prop === "command") return (...args: Parameters<RoomConnection["command"]>) => (isReadOnly() ? refused() : target.command(...args));
+      if (prop === "ephemeral" || prop === "preview" || prop === "endPreview") {
+        return (...args: unknown[]) => {
+          if (!isReadOnly()) (value as (...a: unknown[]) => void).apply(target, args);
+        };
+      }
       return typeof value === "function" ? value.bind(target) : value;
     },
   });
+}
+
+/** A connection that is read-only for as long as it exists: the panels' view during a preview. */
+export function previewConnection(connection: RoomConnection, name: string): RoomConnection {
+  return guardedConnection(connection, () => true, name);
 }

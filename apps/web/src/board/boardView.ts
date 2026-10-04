@@ -1499,6 +1499,8 @@ export class BoardView {
 
   /** A page that becomes visible again restarts any loop that stopped while it was hidden. */
   private onVisibilityChange = () => {
+    // Browsers pause animation frames in a hidden tab, so the drift clock must not count the pause.
+    if (document.visibilityState === "hidden") this.lastFogDraw = 0;
     this.syncConditionLoop();
     this.syncFogLoop();
   };

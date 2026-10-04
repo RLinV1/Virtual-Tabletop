@@ -2242,3 +2242,4 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
   border: 2px solid var(--accent); border-radius: var(--radius); box-shadow: 0 8px 28px rgb(0 0 0 / 0.55);
 }
 .participant-view-as { margin-left: auto; }
+.preview-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; display: contents; }

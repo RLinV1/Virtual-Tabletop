@@ -237,8 +237,11 @@ export function RoomPanel({
   return (
     <div className="tabbed">
       {compact && <PanelTabs isGm={isGm} tab={tab} badges={tabBadges} onTab={(t) => onTab(t)} />}
-      <div role="tabpanel" id={TAB_PANEL_ID} aria-labelledby={tabButtonId(tab)} tabIndex={0} className="tabpanel" inert={readOnly}>
-        {sections[tab === "gm" && !isGm ? "play" : tab]}
+      <div role="tabpanel" id={TAB_PANEL_ID} aria-labelledby={tabButtonId(tab)} tabIndex={0} className="tabpanel">
+        {/* A disabled fieldset turns every control off but leaves the content readable by screen readers (gm-view-as-player). */}
+        <fieldset className="preview-fieldset" disabled={readOnly}>
+          {sections[tab === "gm" && !isGm ? "play" : tab]}
+        </fieldset>
       </div>
     </div>
   );

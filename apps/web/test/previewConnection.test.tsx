@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { emptyRoomState, filterStateForViewer, type Participant, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../src/net/roomConnection";
-import { previewConnection } from "../src/net/previewConnection";
+import { guardedConnection, previewConnection } from "../src/net/previewConnection";
 import { PreviewBanner } from "../src/ui/PreviewBanner";
 
 const gm: Participant = { id: "gm", role: "gm", displayName: "GM" };
@@ -54,5 +54,26 @@ describe("GM view as player (gm-view-as-player)", () => {
     const html = renderToStaticMarkup(<PreviewBanner name="Aria" onExit={() => {}} />);
     expect(html).toContain("Viewing as <strong>Aria</strong>");
     expect(html).toContain("Back to GM view");
+  });
+
+  it("guards only while the read-only flag is set, with the same object before, during and after", async () => {
+    const { connection, sent } = fakeConnection();
+    let readOnly = false;
+    const guarded = guardedConnection(connection, () => readOnly, "Aria");
+    await guarded.command({ type: "chat.send", text: "live" });
+    guarded.ephemeral({ type: "ping", at: { x: 1, y: 2 } });
+    expect(sent.command).toHaveBeenCalledTimes(1);
+    expect(sent.ephemeral).toHaveBeenCalledTimes(1);
+
+    readOnly = true;
+    const refused = await guarded.command({ type: "chat.send", text: "blocked" });
+    guarded.ephemeral({ type: "ping", at: { x: 3, y: 4 } });
+    expect(refused).toMatchObject({ ok: false, code: "forbidden" });
+    expect(sent.command).toHaveBeenCalledTimes(1);
+    expect(sent.ephemeral).toHaveBeenCalledTimes(1);
+
+    readOnly = false;
+    await guarded.command({ type: "chat.send", text: "live again" });
+    expect(sent.command).toHaveBeenCalledTimes(2);
   });
 });

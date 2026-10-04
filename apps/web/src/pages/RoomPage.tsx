@@ -508,7 +508,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
           canvas or reset the viewer's zoom and pan. */}
       <Board
         ref={boardRef}
-        connection={shownConnection}
+        connection={connection}
         state={shownState!}
         you={shownYou!}
         readOnly={!!preview}
@@ -604,7 +604,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
         </div>
       </aside>
       {/* Read-only while previewing: the same refusing connection and the viewed player's state. */}
-      <ChatPanel connection={shownConnection} state={shownState!} />
+      <ChatPanel connection={shownConnection} state={shownState!} you={shownYou!} readOnly={!!preview} />
       {preview && <PreviewBanner name={preview.you.displayName} onExit={() => setViewAs(null)} />}
       {guideOpen && <GuideTour role={you.role} onClose={closeGuide} />}
       {you.role === "gm" && (
