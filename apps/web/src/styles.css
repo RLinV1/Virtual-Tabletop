@@ -534,10 +534,12 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
   width: min(22rem, calc(100vw - 2 * var(--space-4))); display: flex; flex-direction: column; gap: var(--space-2);
   padding: var(--space-3); background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--radius);
   box-shadow: 0 8px 28px rgb(0 0 0 / 0.55);
+  /* Never taller than the room above the launcher, so the header and close button stay reachable. */
+  max-height: calc(100dvh - 3.25rem - 3 * var(--space-4)); min-height: 0;
 }
 .chat-popup-header { display: flex; align-items: center; justify-content: space-between; }
 .chat-popup-header h2 { margin: 0; font-size: var(--fs-sm); color: var(--muted); }
-.chat-popup .chat-log { max-height: 18rem; }
+.chat-popup .chat-log { max-height: 18rem; flex: 1 1 auto; min-height: 4rem; }
 .chat-form { display: flex; flex-direction: column; gap: 0.4rem; margin-top: var(--space-2); }
 .chat-log { display: flex; flex-direction: column; gap: var(--space-1); max-height: 14rem; overflow-y: auto; }
 .chat-message {

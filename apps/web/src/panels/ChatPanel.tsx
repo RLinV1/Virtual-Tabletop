@@ -3,6 +3,16 @@ import { ChatCircleText, X } from "@phosphor-icons/react";
 import { MAX_CHAT_LENGTH, type ChatMessage, type RoomState } from "@vtt/shared";
 import { useRoomSnapshot, type RoomConnection } from "../net/roomConnection";
 
+/**
+ * Messages after the newest one seen, by identity. The log is capped, so a new message can push the
+ * oldest out and leave the length unchanged; a seen message that has left the log means everything
+ * now in it is newer.
+ */
+export function unreadCount(chat: readonly { id: string }[], seenId: string | null): number {
+  const seenAt = seenId === null ? -1 : chat.findIndex((m) => m.id === seenId);
+  return seenAt === -1 ? chat.length : chat.length - 1 - seenAt;
+}
+
 /** The committed time in the viewer's locale, or empty when the message has none (KAN-75). */
 function timeLabel(at: string | null): string {
   const date = at ? new Date(at) : null;
@@ -23,11 +33,15 @@ export function ChatPanel({ connection, state }: { connection: RoomConnection; s
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
-  /** Messages seen so far; anything beyond this count while closed is unread. */
-  const [seen, setSeen] = useState(state.chat.length);
+  /**
+   * The newest message seen so far. Unread is counted after it by identity, not by length: the log
+   * is capped, so a new message can push the oldest out and leave the length unchanged.
+   */
+  const [seenId, setSeenId] = useState<string | null>(state.chat.at(-1)?.id ?? null);
   const log = useRef<HTMLUListElement>(null);
+  const launcher = useRef<HTMLButtonElement>(null);
   const newest = state.chat.at(-1)?.id;
-  const unread = open ? 0 : Math.max(0, state.chat.length - seen);
+  const unread = open ? 0 : unreadCount(state.chat, seenId);
 
   // Keep the newest message in view when one arrives, and on first show.
   useEffect(() => {
@@ -36,8 +50,8 @@ export function ChatPanel({ connection, state }: { connection: RoomConnection; s
   }, [newest, open]);
 
   useEffect(() => {
-    if (open) setSeen(state.chat.length);
-  }, [open, state.chat.length]);
+    if (open) setSeenId(newest ?? null);
+  }, [open, newest]);
 
   const online = status === "open";
   const canSend = online && !busy && text.trim() !== "";
@@ -64,7 +78,13 @@ export function ChatPanel({ connection, state }: { connection: RoomConnection; s
         <section className="chat-popup" aria-label="Chat">
           <header className="chat-popup-header">
             <h2>Chat</h2>
-            <button type="button" className="icon-button" aria-label="Close chat" onClick={() => setOpen(false)}>
+            <button type="button" className="icon-button" aria-label="Close chat"
+              onClick={() => {
+                setOpen(false);
+                // The button unmounts with the popup, so hand focus to the launcher.
+                launcher.current?.focus();
+              }}
+            >
               <X size={16} aria-hidden />
             </button>
           </header>
@@ -100,6 +120,7 @@ export function ChatPanel({ connection, state }: { connection: RoomConnection; s
         </section>
       )}
       <button
+        ref={launcher}
         type="button"
         className="chat-fab"
         aria-label={unread > 0 ? `Chat, ${unread} unread` : "Chat"}
