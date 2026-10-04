@@ -7,7 +7,7 @@ Every time the GM starts an encounter, the Start encounter popup is empty and th
 - **Initiative saved on the token.** When the GM starts an encounter, each score they enter is saved on that token in the room. The score stays after the encounter ends and across sessions, like HP and conditions.
 - **Popup still shows.** The Start encounter popup opens as before, but each token's field is pre-filled with its saved score. The GM can accept, edit or clear any of them before starting. Tokens with no saved score start empty.
 - **Edits update the saved value.** Starting an encounter saves every score typed in the popup, replacing the old saved value. A token left blank does not get a turn and keeps whatever score it had.
-- **Undoable and append-only.** The event records each replaced value, so history stays intact and undo restores earlier scores (invariants 5 and 6).
+- **Append-only.** The event records each replaced value, so history stays intact (invariant 6). Initiative events are not part of undo today.
 - **Shared schema change.** Adds `initiative` to the token and a `scores` list to the `InitiativeStarted` event, so this needs a new ADR and review by the Real-Time Architecture owner.
 
 ## Non-goals

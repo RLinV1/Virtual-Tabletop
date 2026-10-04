@@ -10,7 +10,7 @@
 - [x] 2.2 `reduce` applies scores to tokens on `InitiativeStarted`
 - [x] 2.3 (Dropped: initiative events are not part of undo today; `previous` is recorded in the event)
 - [x] 2.4 Confirm `filterStateForViewer` and `filterEventForViewer` keep hidden tokens' scores private; add to `visibility.test.ts`
-- [x] 2.5 Unit tests in `packages/shared/test`: save, replace, token left out, undo, old event without `scores`
+- [x] 2.5 Unit tests in `packages/shared/test`: save, replace, token left out, old event without `scores`
 
 ## 3. Server
 

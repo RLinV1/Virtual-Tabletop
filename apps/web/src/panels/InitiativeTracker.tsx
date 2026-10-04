@@ -4,7 +4,7 @@ import type { RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
 import { PanelSection } from "../ui/PanelSection";
 import { pendingRulings } from "./attackRoll";
-import { initiativeEntries, initiativeFieldValue } from "./initiativeFields";
+import { initiativeEntries, initiativeFieldValue, invalidInitiative } from "./initiativeFields";
 
 /**
  * Turn order (FR-GM-21).
@@ -32,6 +32,10 @@ export function InitiativeTracker({
   const [setupOpen, setSetupOpen] = useState(false);
 
   const start = async () => {
+    const invalid = invalidInitiative(scores, tokens);
+    if (invalid.length > 0) {
+      return setError(`Initiative must be a whole number from -99 to 999: ${invalid.map((t) => (tokens.find((x) => x.id === t.id)?.name ?? "token")).join(", ")}`);
+    }
     const entries = initiativeEntries(scores, tokens);
     if (entries.length === 0) return setError("Give at least one token an initiative score");
     const result = await connection.command({ type: "initiative.start", entries });
