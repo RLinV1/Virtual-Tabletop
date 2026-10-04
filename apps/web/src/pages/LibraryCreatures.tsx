@@ -35,7 +35,7 @@ export function CreatureCard(props: {
       <div className="asset-thumb token">
         {creature.imageUrl
           ? <img src={creature.imageUrl} alt="" loading="lazy" />
-          : <span className="creature-disc" style={{ background: DEFAULT_TOKEN_COLOR }} aria-hidden="true" />}
+          : <span className="creature-disc" style={{ background: creature.color }} aria-hidden="true" />}
       </div>
       <strong className="asset-name" title={creature.name}>{creature.name}</strong>
       <span className="muted asset-meta">{creatureSummary(creature)}</span>
@@ -222,7 +222,7 @@ export function CreaturePicker(props: { onPick: (creature: LibraryCreature) => v
             <button type="button" className="picker-item" onClick={() => props.onPick(c)} title={c.name}>
               {c.imageUrl
                 ? <img src={c.imageUrl} alt="" loading="lazy" className="round" />
-                : <span className="creature-disc" style={{ background: DEFAULT_TOKEN_COLOR }} aria-hidden="true" />}
+                : <span className="creature-disc" style={{ background: c.color }} aria-hidden="true" />}
               <span>{c.name}</span>
               <span className="muted small-print">{creatureSummary(c)}</span>
             </button>

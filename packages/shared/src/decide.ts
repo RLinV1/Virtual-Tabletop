@@ -137,7 +137,7 @@ export function decide(
       // numbered against the room and the copies before it.
       const positions = spreadPositions(
         command.position, command.size, command.count, state.scene.grid, state.scene.map,
-        Object.values(state.tokens).map((t) => t.position),
+        Object.values(state.tokens).map((t) => ({ position: t.position, size: t.size })),
       );
       let named = state;
       const events: DomainEvent[] = positions.map((position) => {

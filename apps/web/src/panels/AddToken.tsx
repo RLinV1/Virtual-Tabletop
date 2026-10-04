@@ -9,6 +9,7 @@ import { CreaturePicker } from "../pages/LibraryCreatures";
 import { LibraryPicker } from "../pages/LibraryPicker";
 import { Modal } from "../ui/Modal";
 import { TokenPreview } from "../ui/TokenPreview";
+import { ConditionPicker } from "./ConditionMarker";
 import { statsWithDefaults } from "./tokenDefaults";
 
 const TOKEN_COLORS = ["#c0392b", "#2980b9", "#27ae60", "#8e44ad", "#d35400", "#16a085"];
@@ -157,11 +158,11 @@ function AddToken(props: {
           How many
           <input type="number" value={count} onChange={(e) => setCount(e.target.value)} required min="1" max={MAX_TOKENS_PER_CREATE} step="1" />
         </label>
-        {conditions.length > 0 && (
-          <p className="muted small-print">Starts with: {conditions.map((c) => conditionSpec(c).label).join(", ")}.{" "}
-            <button type="button" className="link" onClick={() => setConditions([])}>Clear</button>
-          </p>
-        )}
+        {/* A creature fills these in; the GM can change them before placing (KAN-70). */}
+        <details className="add-token-conditions" open={conditions.length > 0}>
+          <summary>Starting conditions{conditions.length > 0 ? `: ${conditions.map((c) => conditionSpec(c).label).join(", ")}` : ""}</summary>
+          <ConditionPicker value={conditions} onChange={setConditions} />
+        </details>
         {/* Blank HP and AC fall back to the defaults shown as placeholders (token-stat-defaults). */}
         <div className="token-setup-grid">
           <label>HP<input type="number" value={hp} onChange={(e) => setHp(e.target.value)} min="-999" max="9999" step="1" placeholder={String(defaults.hp)} /></label>

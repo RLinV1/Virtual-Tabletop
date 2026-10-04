@@ -16,7 +16,21 @@ describe("spreadPositions (KAN-70)", () => {
   });
 
   it("skips squares that already hold a token", () => {
-    expect(spreadPositions(c(4, 4), 1, 3, grid, map, [c(3, 3)])).toEqual([c(4, 4), c(4, 3), c(5, 3)]);
+    expect(spreadPositions(c(4, 4), 1, 3, grid, map, [{ position: c(3, 3), size: 1 }])).toEqual([c(4, 4), c(4, 3), c(5, 3)]);
+  });
+
+  it("skips a square an off-grid token only partly covers", () => {
+    // A token at (295, 245) covers 260..330 × 210..280, which overlaps cell (3, 3)'s 210..280.
+    const out = spreadPositions(c(4, 4), 1, 2, grid, map, [{ position: { x: 295, y: 245 }, size: 1 }]);
+    expect(out[1]).not.toEqual(c(3, 3));
+  });
+
+  it("keeps a large copy's whole footprint on the map", () => {
+    // Size 2 (140 px) from the top-left: no copy may hang over the edge.
+    for (const p of spreadPositions({ x: 70, y: 70 }, 2, 4, grid, map, [])) {
+      expect(p.x - 70).toBeGreaterThanOrEqual(0);
+      expect(p.y - 70).toBeGreaterThanOrEqual(0);
+    }
   });
 
   it("stays on the map at a corner", () => {
