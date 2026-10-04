@@ -164,10 +164,17 @@ export class LiveRoom {
         command.type === "participant.setDiceLook" && command.lookId ? await this.ownedDiceLook(actorId, command.lookId) : null;
       // Only a GM restoring a checkpoint that exists pays for the replay; anything else is refused
       // by `decide` with its usual message, without reading the log under the room's queue.
-      const checkpointTable =
-        command.type === "checkpoint.restore" && can.administer(actor) && this.state.checkpoints.some((c) => c.id === command.checkpointId)
-          ? await this.checkpointTables()
-          : undefined;
+      let checkpointTable: ((checkpointId: string) => TableState | null) | undefined;
+      if (command.type === "checkpoint.restore" && can.administer(actor) && this.state.checkpoints.some((c) => c.id === command.checkpointId)) {
+        try {
+          checkpointTable = await this.checkpointTables();
+        } catch (err) {
+          // The store failed, not the replay: answer this restore so the GM's request settles,
+          // and say it may work on a retry (unlike a log that won't replay).
+          console.error(`[vtt] could not load the log of room ${this.roomId} for a checkpoint restore`, err);
+          return { ok: false, code: "invalid", message: "Couldn't read the room's history to restore that checkpoint. Try again." };
+        }
+      }
       const decision = decide(this.state, actor, command, {
         newId: randomUUID,
         random: secureRandom,

@@ -97,6 +97,14 @@ describe("checkpoints over the wire (KAN-41, FR-REC-02)", () => {
     expect(reads).toBe(0);
     server.store.loadEvents = loads;
 
+    // A store that fails while reading the log answers the restore itself, and the room carries on.
+    server.store.loadEvents = async () => { throw new Error("disk on fire"); };
+    expect(await gm.command({ type: "checkpoint.restore", checkpointId })).toMatchObject({
+      type: "rejected", code: "invalid", message: expect.stringContaining("Try again"),
+    });
+    server.store.loadEvents = loads;
+    await ok(gm.command({ type: "checkpoint.create", name: "Still works" }));
+
     const before = await server.store.loadEvents(gm.state.roomId);
     await ok(gm.command({ type: "checkpoint.restore", checkpointId }));
     const after = await server.store.loadEvents(gm.state.roomId);
