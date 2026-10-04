@@ -16,6 +16,6 @@
 ## 4. Docs and close out
 
 - [x] 4.1 Add an "Enforcement" paragraph to `docs/adr/0009-room-deletion.md` and point the `schema.prisma` header comment to the trigger; verify the links resolve
-- [ ] 4.2 Run `npm run lint && npm run typecheck && npm test` without and with `DATABASE_URL`; verify all pass
+- [x] 4.2 Run `npm run lint && npm run typecheck && npm test` without and with `DATABASE_URL`; verify all pass
 
-> Verification note: Docker was not available on the dev machine, so 1.1, 1.2, 2.1 and 3.1–3.2 were verified by applying migrations 0001–0007 to PGlite (Postgres in WebAssembly) and running the same UPDATE / DELETE / TRUNCATE / cross-room / room-deletion statements. The Postgres test cases are in the suite and run whenever `DATABASE_URL` is set; CI does not start Postgres today. 4.2 stays open until the suite has run once with `DATABASE_URL` against a real Postgres.
+> Verification: on 2026-10-03 migrations 0001–0007 applied cleanly to Postgres 17 (`docker compose up -d postgres`, `prisma migrate deploy`); `TRUNCATE events` is rejected by the trigger; with `DATABASE_URL` set the whole suite passes (server: 297 passed, 1 skipped for Redis), including the insert-only and cross-room cases. Earlier the same SQL was also checked on PGlite. CI still does not start Postgres, so these cases skip there.
