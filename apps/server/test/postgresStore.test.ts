@@ -136,6 +136,14 @@ describe.skipIf(!store)("event log is insert-only (KAN-42, FR-REC-03)", () => {
       }),
     ).rejects.toThrow(/append-only/);
     expect(await count(b)).toBe(2);
+    // The opt-in alone is not enough: deleting events while the room stays fails at commit.
+    await expect(
+      db().$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('vtt.room_delete', ${a}, true)`;
+        await tx.$executeRaw`DELETE FROM events WHERE room_id = ${a}::uuid AND seq = 2`;
+      }),
+    ).rejects.toThrow(/only with their room/);
+    expect(await count(a)).toBe(2);
     await store!.deleteRoom(a);
     expect(await count(a)).toBe(0);
     expect(await count(b)).toBe(2);
