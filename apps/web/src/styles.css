@@ -1131,6 +1131,8 @@ dialog.modal {
 dialog.modal::backdrop { background: rgba(6, 8, 11, 0.62); }
 /* Both room and library use the same focused sample editor. */
 dialog.modal.grid-editor-modal { width: min(68rem, calc(100vw - 2rem)); }
+/* Preparing a new map (KAN-59): aligning a grid is a comparison that needs width (contract §13.3). */
+dialog.modal.prep-sheet { width: min(1120px, calc(100vw - 48px)); }
 .grid-editor { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
 .map-grid-preview { min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
 .grid-instruction { margin: 0; font-size: var(--fs-sm); color: var(--text); }
@@ -1170,6 +1172,8 @@ dialog.modal.grid-editor-modal { width: min(68rem, calc(100vw - 2rem)); }
 .grid-actions button { min-height: 44px; }
 @media (max-width: 720px) {
   dialog.modal.grid-editor-modal { width: calc(100vw - 1rem); max-height: calc(100dvh - 1rem); }
+  dialog.modal.prep-sheet { width: calc(100vw - 1rem); max-height: calc(100dvh - 1rem); }
+  .prep-sheet .modal-body { max-height: calc(100dvh - 1rem); padding-inline: var(--space-3); }
   .grid-editor-modal .modal-body { max-height: calc(100dvh - 1rem); padding-inline: var(--space-3); }
   .map-grid-canvas { height: clamp(10rem, 34dvh, 24rem); }
   .map-grid-toolbar { gap: var(--space-1); }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { inactiveLabel, normalizeLegacyGridForBoard, pendingDepartures, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
+import { inactiveLabel, pendingDepartures, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
 import { api } from "../net/api";
 import { libraryAssetId } from "../net/builtinAssets";
 import { useAccount } from "../account/accountStore";
@@ -12,6 +12,7 @@ import { PanelSection } from "../ui/PanelSection";
 import type { GridDraft } from "./gridDraft";
 import { GridForm } from "./GridForm";
 import { LibraryPicker } from "./LibraryPicker";
+import { prepCommand, prepDirty, startPrep, type MapPrep } from "./mapPrep";
 
 interface Props {
   connection: RoomConnection;
@@ -49,12 +50,13 @@ export function GmPanel({
       <DepartedPlayers state={state} onReview={onReviewDeparture} />
       <MapSection
         token={token}
+        currentGrid={state.scene.grid}
         hasLibrary={hasLibrary}
         onError={setError}
         onSetMap={(map, grid, report) => runWith(report)(connection.command({ type: "scene.setMap", map, grid }))}
         onGridClose={onGridDraftCancel}
         gridApplying={gridApplying}
-        grid={(close, setup) => (
+        grid={(close) => (
           <GridForm
             key={JSON.stringify([state.scene.map, state.scene.grid])}
             grid={state.scene.grid}
@@ -66,8 +68,6 @@ export function GmPanel({
             onApply={async (grid) => { if (await onGridApply(grid)) close(); }}
             applying={gridApplying}
             error={gridError}
-            cancelLabel={setup ? "Set up later" : "Cancel"}
-            allowUnchanged={setup}
           >
             {hasLibrary && state.scene.map?.assetId && (
               <SaveGridToLibrary assetId={state.scene.map.assetId} grid={state.scene.grid} />
@@ -107,22 +107,63 @@ function DepartedPlayers({ state, onReview }: { state: RoomState; onReview: (par
   );
 }
 
-/** Set the battle map from a fresh upload or the GM's library (asset-library). */
+/**
+ * Set the battle map from a fresh upload or the GM's library (asset-library). A new map is
+ * prepared privately first (KAN-59): the image and its grid are a draft in this browser until
+ * Apply map sends them as one command, so the table never sees a half-aligned scene.
+ */
 function MapSection(props: {
   token: string;
+  /** The room's grid, where a map with no saved grid starts its draft. */
+  currentGrid: GridSpec;
   hasLibrary: boolean;
   onSetMap: (map: MapImage, grid: GridSpec | undefined, report: (message: string | null) => void) => Promise<boolean>;
   onError: (message: string | null) => void;
   onGridClose: () => void;
   gridApplying: boolean;
-  /** The grid form, shown in its own modal; `close` dismisses it after a successful apply. */
-  grid: (close: () => void, setup: boolean) => ReactNode;
+  /** The live map's grid form, shown in its own modal; `close` dismisses it after a successful apply. */
+  grid: (close: () => void) => ReactNode;
 }) {
   const [busy, setBusy] = useState(false);
   const [picking, setPicking] = useState(false);
   const [pickError, setPickError] = useState<string | null>(null);
   const [gridOpen, setGridOpen] = useState(false);
-  const [setup, setSetup] = useState(false);
+  /** The map being prepared, or null. Only this browser has it until Apply. */
+  const [prep, setPrep] = useState<MapPrep | null>(null);
+  const [prepError, setPrepError] = useState<string | null>(null);
+  const [applyingMap, setApplyingMap] = useState(false);
+  const uploadRef = useRef<HTMLInputElement>(null);
+  const libraryRef = useRef<HTMLButtonElement>(null);
+  /**
+   * The control that started the draft, for focus to return to. Tracked by hand: the upload
+   * input is disabled while it uploads, which drops focus before the dialog can note an opener.
+   */
+  const prepOpener = useRef<HTMLElement | null>(null);
+  /** Asking "Discard changes?" before throwing away an edited draft. */
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const discardPrep = () => {
+    setConfirmDiscard(false);
+    setPrep(null);
+    setPrepError(null);
+  };
+  /** Every way out of the overlay comes here: an edited draft asks first. */
+  const requestClosePrep = () => {
+    if (applyingMap) return;
+    if (prep && prepDirty(prep)) setConfirmDiscard(true);
+    else discardPrep();
+  };
+  const applyPrep = async () => {
+    if (!prep || applyingMap) return;
+    const command = prepCommand(prep);
+    if (!command) return setPrepError("Fix the grid before applying the map.");
+    setApplyingMap(true);
+    try {
+      // One command: the map and its grid reach the table together (ADR 0004).
+      if (await props.onSetMap(command.map, command.grid, setPrepError)) discardPrep();
+    } finally {
+      setApplyingMap(false);
+    }
+  };
   const gridOpenRef = useRef(false);
   useEffect(() => { gridOpenRef.current = gridOpen; }, [gridOpen]);
   // A compact-layout switch can unmount the editor without a dialog close event.
@@ -141,10 +182,10 @@ function MapSection(props: {
     try {
       const { url } = await api.upload(file, props.token);
       const { width, height } = await imageSize(url);
-      if (await props.onSetMap({ url, width, height }, undefined, props.onError)) {
-        setSetup(true);
-        setGridOpen(true);
-      }
+      // Nothing is sent yet: the upload becomes a private draft (KAN-59).
+      props.onError(null);
+      prepOpener.current = uploadRef.current;
+      setPrep(startPrep({ url, width, height }, undefined, props.currentGrid));
     } catch (err) {
       props.onError(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -152,18 +193,14 @@ function MapSection(props: {
     }
   }
 
-  // Placing copies the saved grid into the room in the same event (ADR 0004); later
-  // library edits never reach back into this room.
-  const place = async (asset: LibraryAsset) => {
+  // A library map starts its draft from its saved grid; Apply copies it into the room in the
+  // same event (ADR 0004), and later library edits never reach back into this room.
+  const place = (asset: LibraryAsset) => {
     const map = { url: asset.url, width: asset.width, height: asset.height, assetId: libraryAssetId(asset) };
-    const grid = asset.grid ? normalizeLegacyGridForBoard(asset.grid, map) : undefined;
-    if (await props.onSetMap(map, grid, setPickError)) {
-      setPicking(false);
-      if (!asset.grid) {
-        setSetup(true);
-        setGridOpen(true);
-      }
-    }
+    setPicking(false);
+    setPickError(null);
+    prepOpener.current = libraryRef.current;
+    setPrep(startPrep(map, asset.grid, props.currentGrid));
   };
 
   return (
@@ -172,21 +209,25 @@ function MapSection(props: {
         <label className="upload-button secondary">
           <span>{busy ? "Uploading…" : "Upload map"}</span>
           <input
+            ref={uploadRef}
             type="file"
             className="sr-only"
             accept="image/png,image/jpeg,image/webp"
             disabled={busy}
             aria-label="Upload battle map"
-            onChange={(e) => onChange(e.target.files?.[0])}
+            onChange={(e) => {
+              void onChange(e.target.files?.[0]);
+              // Cleared, so picking the same file again (after cancelling its draft) still fires.
+              e.target.value = "";
+            }}
           />
         </label>
         {props.hasLibrary && (
-          <button type="button" className="secondary" onClick={() => setPicking(true)}>
+          <button ref={libraryRef} type="button" className="secondary" onClick={() => setPicking(true)}>
             From library
           </button>
         )}
         <button type="button" className="secondary" data-tour="gm-grid" disabled={props.gridApplying} onClick={() => {
-          setSetup(false);
           setGridOpen(true);
         }}>
           {props.gridApplying ? "Applying grid…" : "Adjust grid"}
@@ -201,14 +242,51 @@ function MapSection(props: {
             setPickError(null);
           }}
         >
-          <LibraryPicker kind="map" onPick={(a) => void place(a)} />
+          <LibraryPicker kind="map" onPick={place} />
           {pickError && <p role="alert" className="error">{pickError}</p>}
         </Modal>
       )}
-      <Modal open={gridOpen} title={setup ? "Set up grid" : "Edit grid"} className="grid-editor-modal" onClose={() => {
+      <Modal
+        open={prep !== null}
+        title="Prepare map"
+        className="prep-sheet"
+        onClose={requestClosePrep}
+        onAfterClose={() => prepOpener.current?.focus()}
+      >
+        {prep && (
+          <>
+            <p className="muted">Only you can see this map until you apply it. Line up the grid, then apply.</p>
+            <GridForm
+              key={prep.map.url}
+              grid={prep.initial}
+              map={prep.map}
+              draft={prep.draft}
+              hasDraft={prepDirty(prep)}
+              onChange={(draft) => setPrep((now) => (now ? { ...now, draft } : now))}
+              onCancel={requestClosePrep}
+              onApply={applyPrep}
+              applying={applyingMap}
+              error={prepError}
+              submitLabel="Apply map"
+              busyLabel="Applying map…"
+              allowUnchanged
+            />
+          </>
+        )}
+      </Modal>
+      <Modal open={confirmDiscard} title="Discard this map?" onClose={() => setConfirmDiscard(false)}>
+        <div className="stack">
+          <p>You changed the grid for this map. Discard the map and your changes? The table still has its current map.</p>
+          <div className="row button-row">
+            <button type="button" onClick={discardPrep}>Discard</button>
+            <button type="button" className="secondary" onClick={() => setConfirmDiscard(false)}>Keep editing</button>
+          </div>
+        </div>
+      </Modal>
+      <Modal open={gridOpen} title="Edit grid" className="grid-editor-modal" onClose={() => {
         if (!props.gridApplying) closeGrid();
       }}>
-        {props.grid(closeGrid, setup)}
+        {props.grid(closeGrid)}
       </Modal>
     </PanelSection>
   );
