@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DICE_SHEET, DieName } from "./diceLooks";
 import type { UndoEntry } from "./undo";
 import { ConditionId, TokenStats } from "./conditions";
 import { DiceRoll } from "./dice";
@@ -9,6 +10,29 @@ export type Id = z.infer<typeof Id>;
 
 export const Role = z.enum(["gm", "player"]);
 export type Role = z.infer<typeof Role>;
+
+/**
+ * One die's picture in a dice look on the table (shared-dice-looks, ADR 0018). The address is
+ * always one the server stored, never a client's: only `/uploads/…` parses.
+ */
+export const DiceFaceOnTable = z.object({
+  url: z.string().max(2048).regex(/^\/uploads\/[A-Za-z0-9._-]+$/),
+  width: z.number().int().positive().max(DICE_SHEET.width),
+  height: z.number().int().positive().max(DICE_SHEET.height),
+});
+
+/**
+ * A participant's dice look as the whole room draws it (shared-dice-looks, ADR 0018): which look
+ * it is and which version, so the owner's browser can tell it is current, and its pictures. No
+ * name, owner or account: the table needs only what it draws.
+ */
+export const DiceLookOnTable = z.object({
+  lookId: Id,
+  /** The look's last change, in ms, as the server stored it. */
+  version: z.number().int().nonnegative(),
+  faces: z.partialRecord(DieName, DiceFaceOnTable),
+});
+export type DiceLookOnTable = z.infer<typeof DiceLookOnTable>;
 
 export const Participant = z.object({
   id: Id,
@@ -21,6 +45,8 @@ export const Participant = z.object({
   left: z.boolean().optional(),
   /** Set when the GM removed them (FR-GM-20, ADR 0006). Same rules as `left`; optional for old data. */
   revoked: z.boolean().optional(),
+  /** Their dice look, drawn on their public rolls for everyone (ADR 0018). Nullish so older logs replay. */
+  diceLook: DiceLookOnTable.nullish(),
 });
 export type Participant = z.infer<typeof Participant>;
 
@@ -77,6 +103,12 @@ export type AreaShape = z.infer<typeof AreaShape>;
 export const MAX_AREA_TEMPLATES = 200;
 
 /**
+ * Most active players a room holds; the GM is not counted (room-player-cap). Four times the
+ * README's 8-player target. Joins past it are refused, so an invite link can't add seats without end.
+ */
+export const MAX_PLAYERS_PER_ROOM = 32;
+
+/**
  * A placed area-of-effect template (FR-TAC-06, ADR 0007). Positions are board coordinates
  * (invariant 8); `size` is in grid units so a grid change rescales it the same way for
  * everyone. The outline is derived from these fields, never stored.
@@ -96,6 +128,27 @@ export const AreaTemplate = z.object({
   gmOnly: z.boolean(),
 });
 export type AreaTemplate = z.infer<typeof AreaTemplate>;
+
+/** How a fog region was drawn (FR-GM-17, ADR 0016). Both are stored as polygons. */
+export const FogShape = z.enum(["rect", "polygon"]);
+export type FogShape = z.infer<typeof FogShape>;
+
+/** Most fog regions a room holds at once, so one GM can't grow state without bound. */
+export const MAX_FOG_REGIONS = 100;
+/** Most corners one fog polygon may have. */
+export const MAX_FOG_POINTS = 64;
+
+/**
+ * A fogged region of the map (FR-GM-17, ADR 0016). `points` are board coordinates (invariant 8);
+ * a rectangle is stored as its four corners, so every reader handles one geometry. Tokens and
+ * templates under it are withheld from players (`concealedFrom` in visibility.ts).
+ */
+export const FogRegion = z.object({
+  id: Id,
+  shape: FogShape,
+  points: z.array(Point).min(3).max(MAX_FOG_POINTS),
+});
+export type FogRegion = z.infer<typeof FogRegion>;
 
 /**
  * The authoritative state of one room. Produced only by folding committed events
@@ -117,6 +170,37 @@ export const Initiative = z.object({
   round: z.number().int().min(1),
 });
 export type Initiative = z.infer<typeof Initiative>;
+
+/**
+ * What is on the board: the part of the state a checkpoint restores (FR-REC-02, ADR 0019).
+ * Participants, rolls, chat and history record the session and are never part of it.
+ */
+export const TableState = z.object({
+  scene: Scene,
+  tokens: z.record(Id, Token),
+  templates: z.record(Id, AreaTemplate),
+  fog: z.record(Id, FogRegion),
+  initiative: Initiative.nullable(),
+});
+export type TableState = z.infer<typeof TableState>;
+
+/** The table part of a room state. */
+export function tableOf(state: Pick<RoomState, keyof TableState>): TableState {
+  return { scene: state.scene, tokens: state.tokens, templates: state.templates, fog: state.fog, initiative: state.initiative };
+}
+
+/** Most checkpoints a room keeps; the oldest drops off past this (ADR 0019). */
+export const MAX_CHECKPOINTS = 50;
+export const MAX_CHECKPOINT_NAME = 60;
+
+/** A named restore point: the board as it was after event `seq` (FR-REC-02, ADR 0019). GM-only. */
+export const Checkpoint = z.object({
+  id: Id,
+  name: z.string().min(1).max(MAX_CHECKPOINT_NAME),
+  /** The last committed seq before the checkpoint was saved. */
+  seq: z.number().int().min(0),
+});
+export type Checkpoint = z.infer<typeof Checkpoint>;
 
 /** How many rolls the log keeps. Older ones stay in the event log, just not in state. */
 export const ROLL_LOG_LIMIT = 30;
@@ -155,6 +239,10 @@ export interface RoomState {
   templates: Record<Id, AreaTemplate>;
   /** Most recent chat messages, oldest first, public to the whole room (KAN-75, ADR 0015). Capped at CHAT_LOG_LIMIT. */
   chat: ChatMessage[];
+  /** Fog regions, in the order they were added (FR-GM-17, ADR 0016). Sent to players: they are the mask. */
+  fog: Record<Id, FogRegion>;
+  /** Named restore points, oldest first, capped at MAX_CHECKPOINTS (ADR 0019). GM-only. */
+  checkpoints: Checkpoint[];
   /**
    * Recent undoable actions, oldest first (FR-REC-02, ADR 0013). Derived by `reduce` from
    * committed events and their `commandId`s; GM-only (players always get an empty list).
@@ -173,6 +261,8 @@ export function emptyRoomState(roomId: Id): RoomState {
     rolls: [],
     templates: {},
     chat: [],
+    fog: {},
+    checkpoints: [],
     undo: [],
   };
 }

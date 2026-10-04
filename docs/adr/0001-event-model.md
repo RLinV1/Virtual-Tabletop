@@ -51,7 +51,7 @@ Rate-limited per socket. Still filtered (drag previews of hidden tokens are not 
 ## Consequences
 - Undo (FR-REC-02) becomes "append the inverse event", because every event carries its prior value.
 - Activity log (FR-REC-01) is a projection over the events table.
-- Checkpoints = named `seq` + snapshot; restore appends a `CheckpointRestored`-style event rather than truncating.
+- Checkpoints = named `seq`; restore appends a `CheckpointRestored` event rather than truncating, with the board rebuilt by replaying the log (see ADR 0019).
 - Snapshot-on-reconnect is O(state) per reconnect; fine for 1 GM + 8 players. Optimize later with
   "send events since lastSeq" if benchmarks require it.
 - **Single process per room.** Horizontal scaling needs sticky routing of a room to one instance.

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { Token } from "@vtt/shared";
+import type { ServerMessage, Token } from "@vtt/shared";
 import { startServer, type TestClient, viewFor } from "./helpers";
 
 let server: Awaited<ReturnType<typeof startServer>>;
@@ -426,5 +426,63 @@ describe("dice drops (ADR 0014, FR-TAC-09)", () => {
     // The ping sent after it arrives; the forged drop never does.
     const first = await bob.waitFor((m) => m.type === "ephemeral");
     expect(first.type === "ephemeral" && first.payload.type).toBe("ping");
+  });
+});
+
+describe("target pings (KAN-34, FR-TAC-05)", () => {
+  const isEphemeral = (m: ServerMessage): m is Extract<ServerMessage, { type: "ephemeral" }> => m.type === "ephemeral";
+  const ping = (x: number, y = 10) => ({ type: "ping" as const, at: { x, y } });
+  async function withMap() {
+    const room = await setup();
+    await room.gm.command({ type: "scene.setMap", map: { url: "/uploads/m.png", width: 1000, height: 800 } });
+    await room.alice.waitForSeq(room.gm.seq);
+    await room.bob.waitForSeq(room.gm.seq);
+    return room;
+  }
+
+  it("shows a ping to the GM and the other player, never back to the sender", async () => {
+    const { gm, alice, bob } = await withMap();
+    alice.send({ type: "ephemeral", payload: ping(100) });
+    expect(await gm.waitFor(isEphemeral)).toEqual({ type: "ephemeral", from: alice.participantId, payload: ping(100) });
+    expect(await bob.waitFor(isEphemeral)).toEqual({ type: "ephemeral", from: alice.participantId, payload: ping(100) });
+    bob.send({ type: "ephemeral", payload: ping(200) });
+    expect((await alice.waitFor(isEphemeral)).from).toBe(bob.participantId);
+    await expect(bob.waitFor(isEphemeral, 200)).rejects.toThrow(/Timed out/);
+  });
+
+  it("is never persisted: no seq, nothing in a fresh snapshot or the activity log", async () => {
+    const { gm, alice, bob, bobCreds, gmCreds } = await withMap();
+    const seqBefore = alice.seq;
+    alice.send({ type: "ephemeral", payload: ping(321, 123) });
+    await bob.waitFor(isEphemeral);
+    const ack = await alice.command({ type: "dice.roll", expression: "1d20" });
+    expect(ack.type === "ack" && ack.seq).toBe(seqBefore + 1);
+    // A reconnecting client starts from a snapshot that carries nothing of it.
+    bob.close();
+    const again = await server.connect(bobCreds);
+    clients.push(again);
+    expect(JSON.stringify(again.state)).not.toContain('"ping"');
+    expect(again.rawLog.join("\n")).not.toContain('"ping"');
+    const history = await fetch(`${server.base}/api/rooms/${gm.state.roomId}/history`, {
+      headers: { authorization: `Bearer ${gmCreds.guestToken}` },
+    }).then((r) => r.text());
+    expect(history).not.toMatch(/ping/i);
+  });
+
+  it("drops a ping off the map, or before there is a map", async () => {
+    const { gm, alice, bob } = await setup();
+    // No map yet: the ping goes nowhere.
+    alice.send({ type: "ephemeral", payload: ping(10) });
+    // Barrier: Alice's socket is read in order, so once her next command is answered the
+    // server has already handled (and dropped) that ping, before the map exists.
+    await alice.command({ type: "token.move", tokenId: "00000000-0000-4000-8000-000000000000", to: { x: 1, y: 1 } });
+    await gm.command({ type: "scene.setMap", map: { url: "/uploads/m.png", width: 1000, height: 800 } });
+    await bob.waitForSeq(gm.seq);
+    // Off the map: dropped too. The valid ping after it is the first one anyone receives.
+    alice.send({ type: "ephemeral", payload: ping(5000) });
+    alice.send({ type: "ephemeral", payload: ping(-1) });
+    alice.send({ type: "ephemeral", payload: ping(500) });
+    expect((await bob.waitFor(isEphemeral)).payload).toEqual(ping(500));
+    expect((await gm.waitFor(isEphemeral)).payload).toEqual(ping(500));
   });
 });

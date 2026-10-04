@@ -109,3 +109,17 @@ describe("MemoryRoomStore command ids (ADR 0013)", () => {
     expect(loaded.map((e) => e.commandId)).toEqual([undefined, "cmd-1"]);
   });
 });
+
+describe("recovery only appends (KAN-42, FR-REC-03)", () => {
+  it("keeps every earlier event unchanged after an undo, adding the compensation at the end", async () => {
+    const { gm, alice, rogue } = await setup();
+    await alice.command({ type: "token.move", tokenId: rogue, to: { x: 300, y: 100 } });
+    await gm.waitForSeq(alice.seq);
+    const before = await store.loadEvents(gm.state.roomId);
+    await gm.command({ type: "history.undo", commandId: lastUndoable(gm) });
+    const after = await store.loadEvents(gm.state.roomId);
+    expect(after.slice(0, before.length)).toEqual(before);
+    const added = after.slice(before.length).map((c) => c.event);
+    expect(added).toContainEqual(expect.objectContaining({ type: "TokenMoved", tokenId: rogue, to: { x: 100, y: 100 } }));
+  });
+});

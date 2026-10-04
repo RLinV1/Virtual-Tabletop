@@ -1,6 +1,7 @@
 import { randomInt, randomUUID } from "node:crypto";
 import {
   can,
+  concealedFrom,
   decide,
   decideJoin,
   emptyRoomState,
@@ -9,9 +10,13 @@ import {
   filterStateForViewer,
   isActive,
   reduceCommitted,
+  replayTo,
+  tableOf,
   referencedAssetIds,
   type Command,
   type CommittedEvent,
+  type DiceLookOnTable,
+  type DieName,
   type DomainEvent,
   type EphemeralPayload,
   type JoinDecision,
@@ -20,6 +25,7 @@ import {
   type RejectionCode,
   type RoomState,
   type ServerMessage,
+  type TableState,
   type SessionEndReason,
 } from "@vtt/shared";
 import type { RoomStore } from "../store/roomStore";
@@ -30,9 +36,14 @@ import type { RoomStore } from "../store/roomStore";
  */
 const secureRandom = () => randomInt(0, 2 ** 31) / 2 ** 31;
 
+/** A checkpoint restore slower than this is logged: past it, ADR 0019 calls for a snapshot cache. */
+const RESTORE_SLOW_MS = 500;
+
 /** A connected socket bound to a participant. */
 export interface RoomClient {
   participantId: string;
+  /** The seat credential this connection presented, so it can be closed when that credential ends (ADR 0017 M4). */
+  credentialHash?: string;
   /** Reliable, ordered delivery: snapshots, committed events, acks. */
   send(message: ServerMessage): void;
   /**
@@ -45,8 +56,14 @@ export interface RoomClient {
   close(): void;
 }
 
-/** A join decision, or the room was deleted while the join waited in the queue (ADR 0009). */
-export type JoinResult = JoinDecision | { ok: false; code: "not_found"; message: string; reason?: undefined };
+/**
+ * A join decision, or the room was deleted while the join waited in the queue (ADR 0009), or the
+ * signed-in person already holds a seat here or was removed (ADR 0017 M1).
+ */
+export type JoinResult =
+  | JoinDecision
+  | { ok: false; code: "not_found"; message: string; reason?: undefined }
+  | { ok: false; code: "already_member" | "removed"; message: string; reason?: undefined };
 
 export type SubmitResult =
   | { ok: true; seq: number | null }
@@ -119,6 +136,11 @@ export class LiveRoom {
     return p ? endReason(p) : null;
   }
 
+  /** The room's GM seat, for its owner resuming on another device (ADR 0017 M2). */
+  gmParticipant(): Participant | undefined {
+    return Object.values(this.state.participants).find((p) => p.role === "gm" && isActive(p));
+  }
+
   /** The participant, only while they are still in the room (ADR 0006). */
   activeParticipant(id: string): Participant | undefined {
     const p = this.state.participants[id];
@@ -135,8 +157,31 @@ export class LiveRoom {
       // committed can't run after it (ADR 0006).
       if (!isActive(actor)) return { ok: false, code: "forbidden", message: "You are no longer in this room" };
       // Randomness is injected, never reached for inside `decide` — that is what keeps the
-      // kernel pure and the dice testable (CLAUDE.md invariant 2).
-      const decision = decide(this.state, actor, command, { newId: randomUUID, random: secureRandom });
+      // kernel pure and the dice testable (CLAUDE.md invariant 2). So is the actor's own dice
+      // look, read here from the stores (ADR 0018), the pre-decide lookup ADR 0004 anticipated,
+      // and a checkpoint's board, rebuilt from the log (ADR 0019).
+      const ownedDiceLook =
+        command.type === "participant.setDiceLook" && command.lookId ? await this.ownedDiceLook(actorId, command.lookId) : null;
+      // Only a GM restoring a checkpoint that exists pays for the replay; anything else is refused
+      // by `decide` with its usual message, without reading the log under the room's queue.
+      let checkpointTable: ((checkpointId: string) => TableState | null) | undefined;
+      if (command.type === "checkpoint.restore" && can.administer(actor) && this.state.checkpoints.some((c) => c.id === command.checkpointId)) {
+        try {
+          checkpointTable = await this.checkpointTables();
+        } catch (err) {
+          // The store failed, not the replay: answer this restore so the GM's request settles,
+          // and say it may work on a retry (unlike a log that won't replay).
+          console.error(`[vtt] could not load the log of room ${this.roomId} for a checkpoint restore`, err);
+          return { ok: false, code: "invalid", message: "Couldn't read the room's history to restore that checkpoint. Try again." };
+        }
+      }
+      const decision = decide(this.state, actor, command, {
+        newId: randomUUID,
+        random: secureRandom,
+        ownedDiceLook,
+        lastSeq: this.seq,
+        checkpointTable,
+      });
       if (!decision.ok) return decision;
       const committed = await this.commit(actorId, decision.events);
       return { ok: true, seq: committed.at(-1)?.seq ?? null };
@@ -144,14 +189,45 @@ export class LiveRoom {
   }
 
   /**
-   * Guest join (FR-PL-01). Decided and committed in one queue step, so two joins racing for
-   * the same display name can't both pass the uniqueness check (KAN-61).
+   * The dice look `lookId` as the room would draw it, only when it belongs to the account that
+   * holds this participant's seat (ADR 0018). Null for a guest seat, or a look that isn't theirs.
    */
-  join(participant: Participant): Promise<JoinResult> {
+  private async ownedDiceLook(participantId: string, lookId: string): Promise<DiceLookOnTable | null> {
+    const member = await this.store.findMemberByParticipant(this.roomId, participantId);
+    const user = member ? await this.store.findUserById(member.userId) : null;
+    const look = user ? await this.store.findDiceLook(lookId, user.ownerId) : null;
+    if (!look) return null;
+    const faces: DiceLookOnTable["faces"] = {};
+    for (const [die, face] of Object.entries(look.faces) as [DieName, NonNullable<(typeof look.faces)[DieName]>][]) {
+      faces[die] = { url: face.url, width: face.width, height: face.height };
+    }
+    return { lookId: look.id, version: Date.parse(look.updatedAt), faces };
+  }
+
+  /**
+   * Invite join (FR-PL-01). Decided and committed in one queue step, so two joins racing for
+   * the same display name can't both pass the uniqueness check (KAN-61).
+   *
+   * A signed-in join (`userId`) also keeps the seat on the account, in the same step, so two joins
+   * from one account can't both get a seat (ADR 0017 M1). The account's existing seat decides:
+   * still active, refused (`already_member`); removed by the GM, refused (`removed`); left, the
+   * new seat replaces it.
+   */
+  join(participant: Participant, userId?: string): Promise<JoinResult> {
     return this.runExclusive(async (): Promise<JoinResult> => {
       if (this.isClosed) return { ok: false, code: "not_found", message: "This room has been deleted" };
+      if (userId) {
+        const existing = await this.store.findMember(this.roomId, userId);
+        const seat = existing ? this.state.participants[existing.participantId] : undefined;
+        if (seat && isActive(seat)) {
+          return { ok: false, code: "already_member", message: `You're already in this room as ${seat.displayName}` };
+        }
+        if (seat?.revoked) return { ok: false, code: "removed", message: "You were removed from this room" };
+      }
       const decision = decideJoin(this.state, participant);
-      if (decision.ok) await this.commit(participant.id, decision.events);
+      if (!decision.ok) return decision;
+      await this.commit(participant.id, decision.events);
+      if (userId) await this.store.putMember({ roomId: this.roomId, participantId: participant.id, userId });
       return decision;
     });
   }
@@ -173,6 +249,24 @@ export class LiveRoom {
     }
     this.clients.add(client);
     this.sendSnapshot(client);
+  }
+
+  /**
+   * Closes the connections that presented these credentials: their device's sign-in ended
+   * (ADR 0017 M4). The seat itself stays; the person resumes it after signing in again.
+   */
+  closeCredentials(hashes: ReadonlySet<string>) {
+    for (const client of [...this.clients]) {
+      if (!client.credentialHash || !hashes.has(client.credentialHash)) continue;
+      this.clients.delete(client);
+      client.send({ type: "sessionEnded", reason: "signed_out" });
+      client.close();
+    }
+  }
+
+  /** The seat credentials of the open connections, for the sweep that finds deleted ones. */
+  connectedCredentials(): string[] {
+    return [...this.clients].flatMap((c) => (c.credentialHash ? [c.credentialHash] : []));
   }
 
   detach(client: RoomClient) {
@@ -207,16 +301,45 @@ export class LiveRoom {
     }
     // A dice drop only makes sense on the map: one off it, or with no map, is a forged payload.
     if (payload.type === "diceDrop" && !onMap(this.state.scene.map, payload.from, payload.to)) return;
+    // A ping points at the map: one off it, or with no map yet, has nothing to point at (KAN-34).
+    if (payload.type === "ping" && !onMap(this.state.scene.map, payload.at)) return;
     for (const client of this.clients) {
       if (client === from) continue;
       const viewer = this.state.participants[client.participantId];
       if (!viewer || !isActive(viewer)) continue;
-      if (token?.hidden && viewer.role !== "gm") continue;
+      // A token the viewer may not see, or one dragged into fog they don't own, sends them nothing:
+      // the preview point would trace it through the concealed area (FR-GM-17, ADR 0016).
+      if (token && concealedFrom(this.state.fog, token, viewer)) continue;
+      if (token && payload.type === "tokenDragPreview" && concealedFrom(this.state.fog, { ...token, position: payload.at }, viewer)) continue;
       // A dice drop is one message per throw, not pointer chatter, and a lost one shows the throw
       // in the wrong place: it is delivered reliably, still unsequenced (ADR 0014).
       const deliver = payload.type === "diceDrop" ? client.send : (client.sendVolatile ?? client.send);
       deliver.call(client, { type: "ephemeral", from: sender.id, payload });
     }
+  }
+
+  /**
+   * Rebuilds a checkpoint's board by replaying the log up to its seq (ADR 0019). Runs inside the
+   * room's queue, so nothing commits between the replay and the decision. A log that won't
+   * replay makes the checkpoint unavailable rather than failing the whole command.
+   */
+  private async checkpointTables(): Promise<(checkpointId: string) => TableState | null> {
+    const started = performance.now();
+    const events = await this.store.loadEvents(this.roomId);
+    return (checkpointId) => {
+      const checkpoint = this.state.checkpoints.find((c) => c.id === checkpointId);
+      if (!checkpoint) return null;
+      try {
+        const table = tableOf(replayTo(this.roomId, events, checkpoint.seq));
+        // The room's queue waits on this; ADR 0019 adds a snapshot cache once it passes 500 ms.
+        const ms = performance.now() - started;
+        if (ms > RESTORE_SLOW_MS) console.warn(`[vtt] restoring a checkpoint in room ${this.roomId} took ${Math.round(ms)} ms (${events.length} events)`);
+        return table;
+      } catch (err) {
+        console.error(`[vtt] could not replay room ${this.roomId} to checkpoint ${checkpointId}`, err);
+        return null;
+      }
+    };
   }
 
   /** Appends events atomically, then reduces, broadcasts and ends any seats they close, in seq order. */

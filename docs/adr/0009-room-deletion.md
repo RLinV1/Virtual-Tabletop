@@ -21,6 +21,10 @@ ADR 0001 says events are append-only and are never updated or deleted (invariant
 
 Invariant 5 holds for every room that exists. **Deleting a room erases its whole log as one unit, and it is the only operation allowed to remove events.** Nothing trims, rewrites or partially deletes a live room's log. Undo is still a compensating event. The `RoomStore` contract and the `schema.prisma` header say this.
 
+### Enforcement (KAN-42)
+
+Migration `0007_events_insert_only` adds triggers on `events`: every `UPDATE` and `TRUNCATE` fails, and a `DELETE` fails unless the same transaction has set `vtt.room_delete` to that row's room id. `PostgresRoomStore.deleteRoom` sets it with `set_config(..., true)` as the first statement of its transaction, so the opt-in covers one room and ends with the transaction. The opt-in is not trusted on its own: a deferred constraint trigger checks at commit that every deleted event's room was deleted in the same transaction, and the foreign key already refuses removing a room that still has events, so only a whole log can go, and only with its room. The rule holds for any client of the database, not only this server; a migration that truly must rewrite events drops and recreates the triggers inside itself.
+
 ### Who may delete
 
 Only the GM identity that owns the room (ADR 0004 `rooms.owner_gm_id`, resolved by `resolveGm`) may delete it, through `DELETE /api/rooms/:roomId`.

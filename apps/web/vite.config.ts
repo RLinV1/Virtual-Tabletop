@@ -32,9 +32,12 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true, // reachable from phones on the same Wi-Fi for Player Board testing
+    // Host is kept as the browser sent it (no `changeOrigin`): the server only honours the session
+    // cookie on writes whose Origin names the host they were sent to (ADR 0016 I3), and the
+    // string shorthand would rewrite Host to the server's, refusing every phone on the LAN.
     proxy: {
-      "/api": server,
-      "/uploads": server,
+      "/api": { target: server, changeOrigin: false },
+      "/uploads": { target: server, changeOrigin: false },
       "/socket.io": { target: server, ws: true },
     },
   },

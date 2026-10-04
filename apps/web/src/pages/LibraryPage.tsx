@@ -3,15 +3,13 @@ import { DEFAULT_GRID, normalizeLegacyGridForBoard, type AssetKind, type Library
 import { Link } from "../Link";
 import { api } from "../net/api";
 import { builtinsMatching } from "../net/builtinAssets";
-import { getGmToken } from "../net/gm";
-import { isRecognised, loadGmToken } from "../net/identity";
 import { imageSize, nameFromFile } from "../net/imageFile";
-import { navigate } from "../router";
 import { Modal } from "../ui/Modal";
-import { AccountMenu } from "./AccountPages";
+import { AccountMenu } from "../account/AccountPages";
+import { RequireAccount } from "../account/RequireAccount";
 import { GridForm } from "./GridForm";
 import { CreatureCard, CreatureForm } from "./LibraryCreatures";
-import { DiceLookCards, DiceLookModal } from "./DiceLooks";
+import { DiceLookCards, DiceLookModal, DiceSignInLine, SaveBrowserLooksOffer } from "./DiceLooks";
 import { createDiceLook } from "../ui/diceSkinStore";
 import { toGridDraft } from "./gridDraft";
 
@@ -32,23 +30,19 @@ const TABS: { tab: Tab; label: string }[] = [
 const wantsDice = () => new URLSearchParams(location.search).get("tab") === "dice";
 
 /**
- * The library is a GM surface, so it follows the dashboard's entry rule (gm-dashboard): a
- * browser that is not recognised goes to sign-in first. Replace, not push, so Back from
- * sign-in does not land on this redirect again.
+ * The signed-in person's library, whether they host or only play (asset-library). It follows the
+ * dashboard's entry rule (gm-dashboard): signed out goes to sign-in first.
  *
- * Dice looks are the exception: every player has dice, and looks live in the browser with no
- * GM data involved, so the Dice tab opens for anyone, on its own.
+ * Dice looks are the exception: every player has dice, so the Dice tab opens on its own for a
+ * signed-out browser, with the looks kept in that browser (dice-looks).
  */
 export function LibraryPage() {
-  const [recognised] = useState(isRecognised);
-  const [diceOnly] = useState(() => !recognised && wantsDice());
-
-  useEffect(() => {
-    if (!recognised && !diceOnly) navigate("/signin", { replace: true });
-  }, [recognised, diceOnly]);
-
-  if (diceOnly) return <DiceLibrary />;
-  return recognised ? <Library /> : null;
+  const [diceOnly] = useState(wantsDice);
+  return (
+    <RequireAccount signedOut={diceOnly ? <DiceLibrary /> : undefined}>
+      <Library />
+    </RequireAccount>
+  );
 }
 
 /** The Dice tab alone, for a player who isn't a GM here: the same toolbar, grid and editor. */
@@ -69,6 +63,7 @@ function DiceLibrary() {
           New dice look
         </button>
       </div>
+      <DiceSignInLine />
       <DiceLookCards query={query} onEdit={setEditing} />
       <DiceLookModal lookId={editing} onClose={() => setEditing(null)} />
     </main>
@@ -77,10 +72,8 @@ function DiceLibrary() {
 
 /** The GM's maps, token art and creatures, managed before a session (asset-library, library-creatures). */
 function Library() {
-  const [gmToken, setGmToken] = useState<string | null>(loadGmToken);
-  // No GM identity yet means nothing uploaded yet: an empty library, with nothing to fetch.
-  const [assets, setAssets] = useState<LibraryAsset[] | null>(gmToken ? null : []);
-  const [creatures, setCreatures] = useState<LibraryCreature[] | null>(gmToken ? null : []);
+  const [assets, setAssets] = useState<LibraryAsset[] | null>(null);
+  const [creatures, setCreatures] = useState<LibraryCreature[] | null>(null);
   const [tab, setTab] = useState<Tab>(() => (wantsDice() ? "dice" : "map"));
   const kind: AssetKind = tab === "map" ? "map" : "token";
   const [query, setQuery] = useState("");
@@ -94,21 +87,18 @@ function Library() {
   const [gridSaving, setGridSaving] = useState(false);
 
   useEffect(() => {
-    // Reading the library never creates a GM identity (asset-library); the first upload does.
-    if (!gmToken) return;
     let live = true;
-    api.library.list(gmToken).then(
+    api.library.list().then(
       (list) => live && setAssets(list),
       (err: unknown) => live && setError(err instanceof Error ? err.message : "Could not load the library"),
     );
-    api.library.creatures.list(gmToken).then(
+    api.library.creatures.list().then(
       (list) => live && setCreatures(list),
       (err: unknown) => live && setError(err instanceof Error ? err.message : "Could not load your creatures"),
     );
     return () => {
       live = false;
     };
-    // Only the token present on arrival is listed; one created by an upload starts empty.
   }, []);
 
   const shown = useMemo(() => {
@@ -172,8 +162,7 @@ function Library() {
         ) : (
           <UploadButton
             kind={kind}
-            onUploaded={(token, a) => {
-              setGmToken(token);
+            onUploaded={(a) => {
               setAssets((all) => [a, ...(all ?? [])]);
               if (a.kind === "map" && !a.grid) setGridTarget(a);
             }}
@@ -183,7 +172,10 @@ function Library() {
       </div>
 
       {tab === "dice" ? (
-        <DiceLookCards query={query} onEdit={setDiceTarget} />
+        <>
+          <SaveBrowserLooksOffer />
+          <DiceLookCards query={query} onEdit={setDiceTarget} />
+        </>
       ) : tab === "creature" ? (
         <>
           {!creatures && !error && <p className="muted" aria-busy="true">Loading…</p>}
@@ -195,12 +187,10 @@ function Library() {
             </p>
           )}
           <ul className="plain asset-grid" role="tabpanel">
-            {gmToken &&
-              shownCreatures.map((creature) => (
+            {shownCreatures.map((creature) => (
                 <CreatureCard
                   key={creature.id}
                   creature={creature}
-                  gmToken={gmToken}
                   onEdit={() => setCreatureTarget(creature)}
                   onDeleted={() => setCreatures((all) => (all ?? []).filter((c) => c.id !== creature.id))}
                 />
@@ -218,12 +208,10 @@ function Library() {
             </p>
           )}
           <ul className="plain asset-grid" role="tabpanel">
-            {gmToken &&
-              shown.map((asset) => (
+            {shown.map((asset) => (
                 <AssetCard
                   key={asset.id}
                   asset={asset}
-                  gmToken={gmToken}
                   onChanged={replace}
                   onEditGrid={() => setGridTarget(asset)}
                   onDeleted={() => {
@@ -258,10 +246,8 @@ function Library() {
           <CreatureForm
             key={creatureTarget === "new" ? "new" : creatureTarget.id}
             creature={creatureTarget === "new" ? null : creatureTarget}
-            gmToken={gmToken}
             onCancel={() => setCreatureTarget(null)}
-            onSaved={(saved, token) => {
-              setGmToken(token);
+            onSaved={(saved) => {
               setCreatures((all) => [saved, ...(all ?? []).filter((c) => c.id !== saved.id)]);
               setCreatureTarget(null);
             }}
@@ -274,11 +260,10 @@ function Library() {
       <Modal open={gridTarget !== null} title={gridTarget?.grid ? "Edit grid" : "Set up grid"} className="grid-editor-modal" onClose={() => {
         if (!gridSaving) setGridTarget(null);
       }}>
-        {gmToken && gridTarget && (
+        {gridTarget && (
           <LibraryGridEditor
             key={JSON.stringify([gridTarget.id, gridTarget.url, gridTarget.width, gridTarget.height, gridTarget.grid])}
             asset={gridTarget}
-            gmToken={gmToken}
             saving={gridSaving}
             onSavingChange={setGridSaving}
             onCancel={() => setGridTarget(null)}
@@ -313,7 +298,7 @@ function BuiltinCard({ asset }: { asset: LibraryAsset }) {
 
 function UploadButton(props: {
   kind: AssetKind;
-  onUploaded: (gmToken: string, asset: LibraryAsset) => void;
+  onUploaded: (asset: LibraryAsset) => void;
   onError: (message: string | null) => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -323,9 +308,7 @@ function UploadButton(props: {
     props.onError(null);
     try {
       const { width, height } = await imageSize(file);
-      // An upload is a GM write, so this is where the identity is created if there is none.
-      const gmToken = await getGmToken();
-      props.onUploaded(gmToken, await api.library.upload(gmToken, file, { kind: props.kind, name: nameFromFile(file), width, height }));
+      props.onUploaded(await api.library.upload(file, { kind: props.kind, name: nameFromFile(file), width, height }));
     } catch (err) {
       props.onError(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -357,12 +340,11 @@ type DeleteState =
 
 function AssetCard(props: {
   asset: LibraryAsset;
-  gmToken: string;
   onChanged: (asset: LibraryAsset) => void;
   onEditGrid: () => void;
   onDeleted: () => void;
 }) {
-  const { asset, gmToken } = props;
+  const { asset } = props;
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(asset.name);
   const [del, setDel] = useState<DeleteState>({ step: "idle" });
@@ -372,7 +354,7 @@ function AssetCard(props: {
     const trimmed = name.trim();
     if (!trimmed || trimmed === asset.name) return setEditing(false);
     try {
-      props.onChanged(await api.library.update(gmToken, asset.id, { name: trimmed }));
+      props.onChanged(await api.library.update(asset.id, { name: trimmed }));
       setEditing(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Rename failed");
@@ -384,7 +366,7 @@ function AssetCard(props: {
     setDel({ step: "checking" });
     try {
       // Ask the server who uses it now, so the warning is never stale (asset-library).
-      const { rooms, creatures } = await api.library.usage(gmToken, asset.id);
+      const { rooms, creatures } = await api.library.usage(asset.id);
       setDel({ step: "confirm", rooms, creatures });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not check where this is used");
@@ -395,7 +377,7 @@ function AssetCard(props: {
   async function confirmDelete() {
     setDel({ step: "deleting" });
     try {
-      await api.library.remove(gmToken, asset.id);
+      await api.library.remove(asset.id);
       props.onDeleted();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Delete failed");
@@ -486,9 +468,8 @@ function AssetCard(props: {
  * A library map's grid, edited without a room (asset-library: Edit a map's grid in the
  * library). Saving writes only the library copy; rooms keep the grid they placed.
  */
-function LibraryGridEditor({ asset, gmToken, onCancel, onSaved, saving, onSavingChange }: {
+function LibraryGridEditor({ asset, onCancel, onSaved, saving, onSavingChange }: {
   asset: LibraryAsset;
-  gmToken: string;
   onCancel: () => void;
   onSaved: (asset: LibraryAsset, currentEditor: boolean) => void;
   saving: boolean;
@@ -527,7 +508,7 @@ function LibraryGridEditor({ asset, gmToken, onCancel, onSaved, saving, onSaving
           onSavingChange(true);
           setError(null);
           try {
-            const saved = await api.library.update(gmToken, asset.id, { grid });
+            const saved = await api.library.update(asset.id, { grid });
             onSaved(saved, active.current);
           } catch (err) {
             if (active.current) setError(err instanceof Error ? err.message : "Could not save the grid");
