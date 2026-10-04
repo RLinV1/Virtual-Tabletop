@@ -11,6 +11,8 @@ import { AreaShape, Id, MapImage, MAX_CHAT_LENGTH, MAX_FOG_POINTS } from "./stat
  */
 /** Colour of a new token when none is given; the Add token preview draws the same disc. */
 export const DEFAULT_TOKEN_COLOR = "#c0392b";
+/** Most copies one `token.create` may place (KAN-70). */
+export const MAX_TOKENS_PER_CREATE = 20;
 
 /** Upper bound on tokens resolved in one `participant.resolveDeparture`. */
 export const MAX_DEPARTURE_ACTIONS = 200;
@@ -86,6 +88,10 @@ export const Command = z.discriminatedUnion("type", [
     assetId: Id.nullable().default(null),
     ownerIds: z.array(Id).default([]),
     hidden: z.boolean().default(false),
+    /** Conditions the token starts with, e.g. from a creature (KAN-70). */
+    conditions: z.array(ConditionId).max(12).default([]),
+    /** Place this many copies in one action, numbered and spread over free squares (KAN-70). */
+    count: z.number().int().min(1).max(MAX_TOKENS_PER_CREATE).default(1),
   }),
   z.object({
     type: z.literal("token.move"),

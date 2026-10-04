@@ -8,7 +8,7 @@ import {
   type User,
 } from "@prisma/client";
 import { randomUUID } from "node:crypto";
-import type { AssetKind, CommittedEvent, DieName, DomainEvent, GmRoomSummary, GridSpec, LegacySummary } from "@vtt/shared";
+import { ConditionId, DEFAULT_TOKEN_COLOR, type AssetKind, type CommittedEvent, type DieName, type DomainEvent, type GmRoomSummary, type GridSpec, type LegacySummary } from "@vtt/shared";
 import {
   EmailTakenError,
   type EndedSessions,
@@ -638,6 +638,8 @@ function toCreatureRecord(row: LibraryCreature & { image: { url: string } | null
     size: row.size,
     maxHp: row.maxHp,
     ac: row.ac,
+    color: row.color ?? DEFAULT_TOKEN_COLOR,
+    conditions: row.conditions.filter((c): c is ConditionId => ConditionId.safeParse(c).success),
     imageAssetId: row.imageAssetId,
     imageUrl: row.image?.url ?? null,
     createdAt: row.createdAt.toISOString(),

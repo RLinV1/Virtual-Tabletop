@@ -130,3 +130,40 @@ export function pointInPolygon(p: Point, points: readonly Point[]): boolean {
   }
   return inside;
 }
+
+/**
+ * Where `count` tokens of `sizeInCells` go when placed together on `origin` (KAN-70): the first on
+ * `origin`, the rest on the nearest free spots, ring by ring outward in a fixed order (row by row
+ * within a ring), one footprint apart. A spot is free when no token centre in `occupied` (or an
+ * earlier copy) lies inside its footprint, and it stays on the map when there is one. If the map
+ * runs out of room, the remaining copies share `origin`. Pure, so `decide` can call it.
+ */
+export function spreadPositions(
+  origin: Point,
+  sizeInCells: number,
+  count: number,
+  grid: GridSpec,
+  map: { width: number; height: number } | null,
+  occupied: readonly Point[],
+): Point[] {
+  const step = sizeInCells * grid.cellSize;
+  const taken = [...occupied];
+  const free = (p: Point) => !taken.some((o) => Math.abs(o.x - p.x) < step / 2 && Math.abs(o.y - p.y) < step / 2);
+  const onMap = (p: Point) => !map || (p.x >= 0 && p.y >= 0 && p.x <= map.width && p.y <= map.height);
+  const out: Point[] = [origin];
+  taken.push(origin);
+  const maxRing = map ? Math.ceil(Math.max(map.width, map.height) / step) : 20;
+  for (let ring = 1; out.length < count && ring <= maxRing; ring++) {
+    for (let dy = -ring; dy <= ring && out.length < count; dy++) {
+      for (let dx = -ring; dx <= ring && out.length < count; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue;
+        const p = { x: origin.x + dx * step, y: origin.y + dy * step };
+        if (!onMap(p) || !free(p)) continue;
+        out.push(p);
+        taken.push(p);
+      }
+    }
+  }
+  while (out.length < count) out.push(origin);
+  return out;
+}

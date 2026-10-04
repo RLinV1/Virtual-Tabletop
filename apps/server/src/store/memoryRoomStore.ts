@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { CommittedEvent, DieName, GmRoomSummary, GridSpec, LegacySummary } from "@vtt/shared";
+import { DEFAULT_TOKEN_COLOR, type CommittedEvent, type DieName, type GmRoomSummary, type GridSpec, type LegacySummary } from "@vtt/shared";
 import {
   EmailTakenError,
   type EndedSessions,
@@ -466,6 +466,11 @@ export class MemoryRoomStore implements RoomStore {
 
   private withImage(creature: NewCreatureRecord): LibraryCreatureRecord {
     const image = creature.imageAssetId ? this.assets.get(creature.imageAssetId) : undefined;
-    return { ...structuredClone(creature), imageUrl: image?.url ?? null };
+    return {
+      ...structuredClone(creature),
+      color: creature.color ?? DEFAULT_TOKEN_COLOR,
+      conditions: creature.conditions ?? [],
+      imageUrl: image?.url ?? null,
+    };
   }
 }

@@ -16,6 +16,8 @@ import { api } from "../net/api";
 import { useAccount } from "../account/accountStore";
 import { libraryAssetId } from "../net/builtinAssets";
 import { LibraryPicker } from "../pages/LibraryPicker";
+import { CreatureForm } from "../pages/LibraryCreatures";
+import { creatureFromToken, type CreaturePrefill } from "../pages/creatureDraft";
 import { TokenPreview } from "../ui/TokenPreview";
 import { ConditionMarker, ConditionPicker } from "./ConditionMarker";
 import type { TokenDraft } from "../board/placement";
@@ -241,6 +243,15 @@ export function TokenEditor({
   const [ownerId, setOwnerId] = useState(token.ownerIds[0] ?? "");
   const [hidden, setHidden] = useState(token.hidden);
   const [confirming, setConfirming] = useState<"save" | "delete" | null>(null);
+  /** Save as creature (KAN-70): the token as it is now, as a new library creature's starting values. */
+  const [creaturePrefill, setCreaturePrefill] = useState<CreaturePrefill | null>(null);
+  const [creatureStatus, setCreatureStatus] = useState("");
+  const openSaveAsCreature = async () => {
+    setCreatureStatus("");
+    // Its art comes along only when it is the GM's own token art; an unreadable library means none.
+    const ownArt = await api.library.list().catch(() => []);
+    setCreaturePrefill(creatureFromToken(token, ownArt));
+  };
   const [busy, setBusy] = useState(false);
 
   const num = (v: string) => (v.trim() === "" ? null : Number(v));
@@ -411,6 +422,11 @@ export function TokenEditor({
         </div>
       ) : (
         <div className="token-editor-actions">
+          {isGm && hasLibrary && (
+            <button type="button" className="secondary token-save-creature" onClick={() => void openSaveAsCreature()}>
+              Save as creature
+            </button>
+          )}
           {isGm && (
             <button
               type="button"
@@ -428,6 +444,23 @@ export function TokenEditor({
         </div>
       )}
     </form>
+    {/* Outside the editor's form: a form nested in a form would submit the editor instead. */}
+    {isGm && hasLibrary && (
+      <Modal open={creaturePrefill !== null} title="Save as creature" onClose={() => setCreaturePrefill(null)}>
+        {creaturePrefill && (
+          <CreatureForm
+            creature={null}
+            prefill={creaturePrefill}
+            onCancel={() => setCreaturePrefill(null)}
+            onSaved={(saved) => {
+              setCreaturePrefill(null);
+              setCreatureStatus(`Saved ${saved.name} to your library.`);
+            }}
+          />
+        )}
+      </Modal>
+    )}
+    <span role="status" className="sr-only">{creatureStatus}</span>
     {isGm && hasLibrary && (
       <Modal open={picking} title="Choose a token image" onClose={() => setPicking(false)}>
         <LibraryPicker kind="token" onPick={(asset) => {
