@@ -161,6 +161,8 @@ interface Props {
   onPlaceToken: (draft: TokenDraft) => void;
   /** True on narrow screens, where the tab buttons sit above the panel instead of in the top bar. */
   compact: boolean;
+  /** The GM is previewing as a player (gm-view-as-player): the panels' controls do nothing. */
+  readOnly?: boolean;
   tab: TabId;
   onTab: (tab: TabId) => void;
   /** GM only: open the review of a departed player's tokens (KAN-58). */
@@ -177,7 +179,7 @@ export function RoomPanel({
   connection, state, you, token, onFocusToken, onPlaceToken,
   attackPick, onAttackPick, attackReset, rollThrow, onPickOnBoard, onShowPing, diceBoard, attackVisibility, onAttackVisibility,
   gridDraft, hasGridDraft, onGridDraftChange, onGridDraftCancel, onGridApply, gridApplying, gridError,
-  compact, tab, onTab, onReviewDeparture, tabBadges,
+  compact, tab, onTab, onReviewDeparture, tabBadges, readOnly,
 }: Props) {
   const isGm = you.role === "gm";
   useQuietAttackSection(state, you);
@@ -237,7 +239,7 @@ export function RoomPanel({
   return (
     <div className="tabbed">
       {compact && <PanelTabs isGm={isGm} tab={tab} badges={tabBadges} onTab={(t) => onTab(t)} />}
-      <div role="tabpanel" id={TAB_PANEL_ID} aria-labelledby={tabButtonId(tab)} tabIndex={0} className="tabpanel">
+      <div role="tabpanel" id={TAB_PANEL_ID} aria-labelledby={tabButtonId(tab)} tabIndex={0} className="tabpanel" inert={readOnly}>
         {sections[tab === "gm" && !isGm ? "play" : tab]}
       </div>
     </div>

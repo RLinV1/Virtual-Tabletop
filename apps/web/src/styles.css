@@ -2197,3 +2197,12 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 .picker-item .creature-disc { width: 100%; }
 .creature-image-choose { flex-wrap: wrap; gap: var(--space-2); align-items: center; }
 .creature-image-choose button { white-space: nowrap; }
+
+/* The GM previewing the room as a player (gm-view-as-player): always visible, never read-only. */
+.preview-banner {
+  position: fixed; left: 50%; bottom: var(--space-4); transform: translateX(-50%); z-index: 60;
+  display: flex; align-items: center; gap: var(--space-3); max-width: calc(100vw - 2 * var(--space-4));
+  padding: var(--space-2) var(--space-3); background: var(--panel); color: var(--text);
+  border: 2px solid var(--accent); border-radius: var(--radius); box-shadow: 0 8px 28px rgb(0 0 0 / 0.55);
+}
+.participant-view-as { margin-left: auto; }
