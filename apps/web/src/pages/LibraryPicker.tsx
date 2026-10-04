@@ -25,10 +25,25 @@ export function LibraryPicker(props: {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!signedIn) return;
-    api.library.list().then(setAssets, (err: unknown) =>
-      setError(err instanceof Error ? err.message : "Could not load the library"),
+    let active = true;
+    if (!signedIn) {
+      // Signing out must not leave the account's private art on screen.
+      setAssets([]);
+      return () => {
+        active = false;
+      };
+    }
+    api.library.list().then(
+      (next) => {
+        if (active) setAssets(next);
+      },
+      (err: unknown) => {
+        if (active) setError(err instanceof Error ? err.message : "Could not load the library");
+      },
     );
+    return () => {
+      active = false;
+    };
   }, [signedIn]);
 
   const shown = useMemo(() => {
