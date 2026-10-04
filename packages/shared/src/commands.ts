@@ -246,6 +246,16 @@ export const Command = z.discriminatedUnion("type", [
     type: z.literal("fog.remove"),
     regionId: Id,
   }).strict(),
+  /** GM saves the board as a named restore point (FR-REC-02, ADR 0019). */
+  z.object({
+    type: z.literal("checkpoint.create"),
+    name: z.string().max(200),
+  }).strict(),
+  /** GM puts the board back as it was at a checkpoint (FR-REC-02, ADR 0019). */
+  z.object({
+    type: z.literal("checkpoint.restore"),
+    checkpointId: Id,
+  }).strict(),
   /** GM reverses one recent action, picked from the activity log by its `commandId` (FR-REC-02, ADR 0013). */
   z.object({
     type: z.literal("history.undo"),

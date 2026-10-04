@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activityHistory, DomainEvent, filterEventForViewer, formatActivity, HistoryQuery, HistoryResponse,
+import { activityHistory, DomainEvent, filterEventForViewer, formatActivity, HistoryQuery, HistoryResponse, tableOf,
   type CommittedEvent, type DomainEventType } from "../src";
 import { alice, baseRoom, gm, withToken } from "./fixtures";
 
@@ -47,6 +47,8 @@ describe("Human-readable activity formatter (FR-REC-01)", () => {
     // An action no longer in the undo history; undo.test.ts covers the named form (ADR 0013).
     FogAdded: [{ type: "FogAdded", region: fogRect }, "Mara added a fog rectangle"],
     FogRemoved: [{ type: "FogRemoved", region: { ...fogRect, shape: "polygon" } }, "Mara removed a fog polygon"],
+    CheckpointCreated: [{ type: "CheckpointCreated", checkpoint: { id: "c1", name: "Before the ambush", seq: 4 } }, 'Mara saved checkpoint "Before the ambush"'],
+    CheckpointRestored: [{ type: "CheckpointRestored", checkpointId: "c1", name: "Before the ambush", restored: tableOf(state), previous: tableOf(state) }, 'Mara restored checkpoint "Before the ambush"'],
     ActionUndone: [{ type: "ActionUndone", commandId: "gone" }, "Mara undid an action"],
   };
   it.each(Object.entries(cases))("formats %s", (_type, [event, sentence]) => {

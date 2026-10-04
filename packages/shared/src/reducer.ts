@@ -1,6 +1,6 @@
 import type { DiceRoll } from "./dice";
 import type { CommittedEvent, DomainEvent } from "./events";
-import { CHAT_LOG_LIMIT, ROLL_LOG_LIMIT, type RoomState } from "./state";
+import { CHAT_LOG_LIMIT, MAX_CHECKPOINTS, ROLL_LOG_LIMIT, emptyRoomState, type RoomState } from "./state";
 import { eventMeta, recordUndo, type EventMeta } from "./undo";
 import { fogConcealsSide } from "./visibility";
 
@@ -23,12 +23,32 @@ export function reduce(state: RoomState, event: DomainEvent, meta?: EventMeta): 
     return { ...next, undo };
   }
   // `meta` may carry only the commit time (players get no `commandId`); then there is no history to keep.
-  return meta?.commandId !== undefined ? { ...next, undo: recordUndo(state, event, { ...meta, commandId: meta.commandId }) } : next;
+  if (meta?.commandId === undefined) return next;
+  // A restore replaces the whole board, so board edits from before it can no longer be undone:
+  // their "still current" check could pass by coincidence and undo across the restore. Only
+  // rulings, which live on rolls rather than the board, stay (ADR 0019).
+  const history = event.type === "CheckpointRestored"
+    ? { ...state, undo: state.undo.filter((e) => e.events.length > 0 && e.events.every((ev) => ev.type === "RollRuled")) }
+    : state;
+  return { ...next, undo: recordUndo(history, event, { ...meta, commandId: meta.commandId }) };
 }
 
 /** `reduce` for a committed event, grouping it into its action for undo. */
 export function reduceCommitted(state: RoomState, committed: CommittedEvent): RoomState {
   return reduce(state, committed.event, eventMeta(committed));
+}
+
+/**
+ * The room as it was right after event `seq`, folded from its log exactly as a room load does
+ * (ADR 0019). `events` must be the room's log in order; later events are ignored.
+ */
+export function replayTo(roomId: string, events: readonly CommittedEvent[], seq: number): RoomState {
+  let state = emptyRoomState(roomId);
+  for (const committed of events) {
+    if (committed.seq > seq) break;
+    state = reduceCommitted(state, committed);
+  }
+  return state;
 }
 
 /**
@@ -178,6 +198,13 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
       const { [event.template.id]: _removed, ...rest } = state.templates;
       return { ...state, templates: rest };
     }
+
+    case "CheckpointCreated":
+      return { ...state, checkpoints: [...state.checkpoints, event.checkpoint].slice(-MAX_CHECKPOINTS) };
+
+    case "CheckpointRestored":
+      // Only the board changes: participants, rolls, chat and history stay (ADR 0019).
+      return { ...state, ...event.restored };
 
     case "FogAdded":
       return { ...state, fog: { ...state.fog, [event.region.id]: event.region } };

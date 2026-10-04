@@ -10,6 +10,8 @@ import {
   filterStateForViewer,
   isActive,
   reduceCommitted,
+  replayTo,
+  tableOf,
   referencedAssetIds,
   type Command,
   type CommittedEvent,
@@ -23,6 +25,7 @@ import {
   type RejectionCode,
   type RoomState,
   type ServerMessage,
+  type TableState,
   type SessionEndReason,
 } from "@vtt/shared";
 import type { RoomStore } from "../store/roomStore";
@@ -32,6 +35,9 @@ import type { RoomStore } from "../store/roomStore";
  * be predictable from other rolls the way `Math.random` is.
  */
 const secureRandom = () => randomInt(0, 2 ** 31) / 2 ** 31;
+
+/** A checkpoint restore slower than this is logged: past it, ADR 0019 calls for a snapshot cache. */
+const RESTORE_SLOW_MS = 500;
 
 /** A connected socket bound to a participant. */
 export interface RoomClient {
@@ -152,10 +158,30 @@ export class LiveRoom {
       if (!isActive(actor)) return { ok: false, code: "forbidden", message: "You are no longer in this room" };
       // Randomness is injected, never reached for inside `decide` — that is what keeps the
       // kernel pure and the dice testable (CLAUDE.md invariant 2). So is the actor's own dice
-      // look, read here from the stores (ADR 0018), the pre-decide lookup ADR 0004 anticipated.
+      // look, read here from the stores (ADR 0018), the pre-decide lookup ADR 0004 anticipated,
+      // and a checkpoint's board, rebuilt from the log (ADR 0019).
       const ownedDiceLook =
         command.type === "participant.setDiceLook" && command.lookId ? await this.ownedDiceLook(actorId, command.lookId) : null;
-      const decision = decide(this.state, actor, command, { newId: randomUUID, random: secureRandom, ownedDiceLook });
+      // Only a GM restoring a checkpoint that exists pays for the replay; anything else is refused
+      // by `decide` with its usual message, without reading the log under the room's queue.
+      let checkpointTable: ((checkpointId: string) => TableState | null) | undefined;
+      if (command.type === "checkpoint.restore" && can.administer(actor) && this.state.checkpoints.some((c) => c.id === command.checkpointId)) {
+        try {
+          checkpointTable = await this.checkpointTables();
+        } catch (err) {
+          // The store failed, not the replay: answer this restore so the GM's request settles,
+          // and say it may work on a retry (unlike a log that won't replay).
+          console.error(`[vtt] could not load the log of room ${this.roomId} for a checkpoint restore`, err);
+          return { ok: false, code: "invalid", message: "Couldn't read the room's history to restore that checkpoint. Try again." };
+        }
+      }
+      const decision = decide(this.state, actor, command, {
+        newId: randomUUID,
+        random: secureRandom,
+        ownedDiceLook,
+        lastSeq: this.seq,
+        checkpointTable,
+      });
       if (!decision.ok) return decision;
       const committed = await this.commit(actorId, decision.events);
       return { ok: true, seq: committed.at(-1)?.seq ?? null };
@@ -290,6 +316,30 @@ export class LiveRoom {
       const deliver = payload.type === "diceDrop" ? client.send : (client.sendVolatile ?? client.send);
       deliver.call(client, { type: "ephemeral", from: sender.id, payload });
     }
+  }
+
+  /**
+   * Rebuilds a checkpoint's board by replaying the log up to its seq (ADR 0019). Runs inside the
+   * room's queue, so nothing commits between the replay and the decision. A log that won't
+   * replay makes the checkpoint unavailable rather than failing the whole command.
+   */
+  private async checkpointTables(): Promise<(checkpointId: string) => TableState | null> {
+    const started = performance.now();
+    const events = await this.store.loadEvents(this.roomId);
+    return (checkpointId) => {
+      const checkpoint = this.state.checkpoints.find((c) => c.id === checkpointId);
+      if (!checkpoint) return null;
+      try {
+        const table = tableOf(replayTo(this.roomId, events, checkpoint.seq));
+        // The room's queue waits on this; ADR 0019 adds a snapshot cache once it passes 500 ms.
+        const ms = performance.now() - started;
+        if (ms > RESTORE_SLOW_MS) console.warn(`[vtt] restoring a checkpoint in room ${this.roomId} took ${Math.round(ms)} ms (${events.length} events)`);
+        return table;
+      } catch (err) {
+        console.error(`[vtt] could not replay room ${this.roomId} to checkpoint ${checkpointId}`, err);
+        return null;
+      }
+    };
   }
 
   /** Appends events atomically, then reduces, broadcasts and ends any seats they close, in seq order. */
