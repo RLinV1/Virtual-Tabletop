@@ -234,7 +234,7 @@ role. Kill the server and, with Postgres configured, the room is still there.
 over real sockets, and 3 Postgres store tests that run when a database is configured.
 
 **Not built yet.** GM accounts (room creation is still open to anyone), automatic grid
-detection, UVTT import and export, walls, portals, fog of war, line of sight, the movement
+detection, UVTT import and export, walls, portals, line of sight, the movement
 ruler, drawing overlays, AoE templates, undo, the activity log, encounter templates, and
 guest revocation.
 
@@ -330,7 +330,7 @@ with no security value.
 | FR-GM-14 | GM and player roles | `Participant.role` | B |
 | FR-GM-15 | Server-side authorization | `decide()` | B |
 | FR-GM-16 | Token visibility controls | `token.setHidden` + filters | B |
-| FR-GM-17 | Manual fog of war | Scene fog regions | D |
+| FR-GM-17 | Manual fog of war | `fog.*` + filters (ADR 0016) | B |
 | FR-GM-18 | Interactive portal states | Portal state in geometry | D |
 | FR-GM-19 | Dynamic line of sight | Pixi masking + raycast | D |
 | FR-GM-20 | Guest revocation, invite regeneration | `credentials.revoked_at` | D |

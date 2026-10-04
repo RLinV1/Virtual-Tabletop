@@ -11,8 +11,11 @@ export interface TrayRoll {
   dice: number[];
   /** Thrown in the GM's private colours. */
   gmOnly?: boolean;
-  /** The viewer's own public roll: drawn in their skin, if they have one (dice-image-skins). */
-  skinned?: boolean;
+  /**
+   * The look to draw it in: the roller's look on the table, or the viewer's own browser look for
+   * their own roll (shared-dice-looks). Absent or null draws classic dice.
+   */
+  skin?: DiceSkin | null;
 }
 
 /** Light from over the viewer's left shoulder, so the face turned to them is the brightest. */

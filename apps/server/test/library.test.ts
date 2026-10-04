@@ -19,21 +19,15 @@ const PNG = Buffer.from(
   "base64",
 );
 
+/** A signed-in GM: the value tests pass around is the account's session cookie. */
 async function newGm() {
-  const gmToken = newGuestToken();
-  const res = await fetch(`${server.base}/api/gm/identify`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ gmToken }),
-  });
-  expect(res.status).toBe(204);
-  return gmToken;
+  return (await server.signUp()).cookie;
 }
 
-const gmFetch = (gmToken: string | null, url: string, init: RequestInit = {}) =>
+const gmFetch = (cookie: string | null, url: string, init: RequestInit = {}) =>
   fetch(server.base + url, {
     ...init,
-    headers: { ...(init.headers as Record<string, string>), ...(gmToken ? { [GM_TOKEN_HEADER]: gmToken } : {}) },
+    headers: { ...(init.headers as Record<string, string>), ...(cookie ? { cookie } : {}) },
   });
 
 async function upload(
@@ -59,46 +53,20 @@ async function uploadOk(gmToken: string, fields: Parameters<typeof upload>[1], f
 const usage = async (gmToken: string, id: string) =>
   ((await (await gmFetch(gmToken, `/api/library/${id}/usage`)).json()) as LibraryUsageResponse).rooms;
 
-describe("GM device identity (gm-home)", () => {
-  it("rejects GM endpoints without a registered token", async () => {
+describe("owners: accounts, and legacy device identities (gm-home, ADR 0017)", () => {
+  it("rejects GM endpoints with no session and no known device token", async () => {
     expect((await gmFetch(null, "/api/gm/rooms")).status).toBe(401);
-    expect((await gmFetch(newGuestToken(), "/api/library")).status).toBe(401);
+    const unknown = await fetch(`${server.base}/api/library`, { headers: { [GM_TOKEN_HEADER]: newGuestToken() } });
+    expect(unknown.status).toBe(401);
   });
 
-  it("registers idempotently", async () => {
-    const gmToken = await newGm();
-    const again = await fetch(`${server.base}/api/gm/identify`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ gmToken }),
-    });
-    expect(again.status).toBe(204);
-    expect((await gmFetch(gmToken, "/api/library")).status).toBe(200);
-  });
-
-  it("lets a stored token the server forgot re-register (gm-identity-recovery)", async () => {
-    // A browser token from before a wipe: never registered with this store.
-    const stored = newGuestToken();
-    expect((await gmFetch(stored, "/api/library")).status).toBe(401);
+  it("no longer registers device identities", async () => {
     const res = await fetch(`${server.base}/api/gm/identify`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ gmToken: stored }),
+      body: JSON.stringify({ gmToken: newGuestToken() }),
     });
-    expect(res.status).toBe(204);
-    expect((await gmFetch(stored, "/api/library")).status).toBe(200);
-  });
-
-  it("keeps owned rooms when a known token is re-registered (gm-identity-recovery)", async () => {
-    const gmToken = await newGm();
-    await server.createRoom("GM", { gmToken, roomName: "Keep me" });
-    await fetch(`${server.base}/api/gm/identify`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ gmToken }),
-    });
-    const rooms = (await (await gmFetch(gmToken, "/api/gm/rooms")).json()) as GmRoomSummary[];
-    expect(rooms.map((r) => r.name)).toEqual(["Keep me"]);
+    expect(res.status).toBe(410);
   });
 
   it("rejects a room guest credential on library endpoints", async () => {
@@ -112,10 +80,10 @@ describe("GM dashboard (gm-home)", () => {
   it("lists only the caller's rooms, most recently active first", async () => {
     const gmA = await newGm();
     const gmB = await newGm();
-    await server.createRoom("GM", { gmToken: gmA, roomName: "Older" });
+    await server.createRoom("GM", { cookie: gmA, roomName: "Older" });
     await new Promise((r) => setTimeout(r, 5));
-    await server.createRoom("GM", { gmToken: gmA, roomName: "Newer" });
-    await server.createRoom("GM", { gmToken: gmB, roomName: "Not yours" });
+    await server.createRoom("GM", { cookie: gmA, roomName: "Newer" });
+    await server.createRoom("GM", { cookie: gmB, roomName: "Not yours" });
     await server.createRoom("GM", { roomName: "Unowned" });
 
     const rooms = (await (await gmFetch(gmA, "/api/gm/rooms")).json()) as GmRoomSummary[];
@@ -244,7 +212,7 @@ describe("editing a map's grid in the library (asset-library, FR-GM-04)", () => 
 
 describe("in-use tracking (asset-library: Warn before deleting an asset in use)", () => {
   async function gmInRoom(roomName: string, gmToken: string) {
-    const creds = await server.createRoom("GM", { gmToken, roomName });
+    const creds = await server.createRoom("GM", { cookie: gmToken, roomName });
     const client = await server.connect(creds);
     clients.push(client);
     return { client, creds };
