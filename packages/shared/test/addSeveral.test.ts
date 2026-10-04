@@ -44,6 +44,23 @@ describe("spreadPositions (KAN-70)", () => {
     expect(second).toEqual({ x: 140, y: 140 });
   });
 
+  it("bounds the search for a schema-valid tiny token outside the map", () => {
+    const command = Command.parse({ type: "token.create", name: "Tiny", position: { x: -1000, y: -1000 }, size: 0.000001, count: 2 });
+    if (command.type !== "token.create") throw new Error("Expected token.create");
+    expect(spreadPositions(command.position, command.size, command.count, grid, map, []))
+      .toEqual([command.position, command.position]);
+  });
+
+  it("falls back after the bounded search when nearby squares are occupied", () => {
+    const origin = c(4, 4);
+    expect(spreadPositions(origin, 1, 20, grid, null, [{ position: origin, size: 100 }]))
+      .toEqual(Array.from({ length: 20 }, () => origin));
+  });
+
+  it("visits the sides of a ring in row order", () => {
+    expect(spreadPositions(c(4, 4), 1, 9, grid, map, []))
+      .toEqual([c(4, 4), c(3, 3), c(4, 3), c(5, 3), c(3, 4), c(5, 4), c(3, 5), c(4, 5), c(5, 5)]);
+  });
   it("shares the origin once the map is full", () => {
     const tiny = { width: 70, height: 70 };
     expect(spreadPositions(c(0, 0), 1, 3, grid, tiny, [])).toEqual([c(0, 0), c(0, 0), c(0, 0)]);

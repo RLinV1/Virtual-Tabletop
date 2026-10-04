@@ -141,7 +141,7 @@ export function CreatureForm(props: {
         <p className="muted small-print">Placed creatures start at full HP.</p>
         <label className="creature-color">
           Colour without art
-          <input type="color" value={color} onChange={(e) => setColor(e.target.value)} />
+          <input type="color" value={color} onInput={(e) => setColor(e.currentTarget.value)} onChange={(e) => setColor(e.target.value)} />
         </label>
         <div className="stack">
           <span className="field-label">Starts with</span>

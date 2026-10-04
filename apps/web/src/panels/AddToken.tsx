@@ -56,6 +56,7 @@ export function AddTokenButton({
           players={players}
           token={token}
           hasLibrary={hasLibrary}
+          defaultColor={TOKEN_COLORS[Object.keys(state.tokens).length % TOKEN_COLORS.length]!}
           onAdd={(draft) => {
             // A creature brings its own colour; otherwise the next one from the palette.
             pending.current = { ...draft, color: draft.color ?? TOKEN_COLORS[Object.keys(state.tokens).length % TOKEN_COLORS.length] };
@@ -77,6 +78,7 @@ function AddToken(props: {
   players: { id: string; displayName: string }[];
   token: string;
   hasLibrary: boolean;
+  defaultColor: string;
   /** The form is complete; the token is created once the GM picks its square on the board. */
   onAdd: (draft: TokenDraft) => void;
 }) {
@@ -89,8 +91,8 @@ function AddToken(props: {
   const [maxHp, setMaxHp] = useState("");
   const [ac, setAc] = useState("");
   const [image, setImage] = useState<TokenImage | null>(null);
-  /** Set by a creature (KAN-70); unset, the palette picks one. */
-  const [color, setColor] = useState<string | undefined>(undefined);
+  /** Starts with the next palette colour, editable or replaced by a creature (KAN-70). */
+  const [color, setColor] = useState(props.defaultColor);
   const [conditions, setConditions] = useState<ConditionId[]>([]);
   const [count, setCount] = useState("1");
   const [picking, setPicking] = useState(false);
@@ -157,6 +159,10 @@ function AddToken(props: {
         <label className="add-token-count">
           How many
           <input type="number" value={count} onChange={(e) => setCount(e.target.value)} required min="1" max={MAX_TOKENS_PER_CREATE} step="1" />
+        </label>
+        <label>
+          Colour without art
+          <input type="color" value={color} onInput={(e) => setColor(e.currentTarget.value)} onChange={(e) => setColor(e.target.value)} />
         </label>
         {/* A creature fills these in; the GM can change them before placing (KAN-70). */}
         <details className="add-token-conditions" open={conditions.length > 0}>

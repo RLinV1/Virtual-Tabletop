@@ -29,6 +29,7 @@ The GM token editor prefills the existing creature form from the token. The imag
 - A creature still never reaches the room: nothing about which creature a token came from is recorded or sent to players (ADR 0012).
 - Twenty tokens in one command is one `append` of twenty rows, one transaction.
 - When the map is full, copies pile on the chosen square; visible, and fixable by dragging.
+- Placement searches at most 20 rings (1,680 perimeter candidates), independent of map dimensions and token size. After that budget is exhausted, remaining copies share the chosen square. This bounds synchronous server work for tiny footprints and off-map origins.
 
 ## Alternatives considered
 
