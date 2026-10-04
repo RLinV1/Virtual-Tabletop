@@ -49,6 +49,7 @@ import {
   type EffectShape,
 } from "./effects";
 import { areaOrigin, areaShape, areaSizeFromDrag, fogRegionAt, formatDistance, hitMark, measure, sweepPoints, templateMark, type BoardTool, type Mark } from "./tools";
+import { aimExpiry, expiredAims } from "./aims";
 import { PING_MS, pingPulse } from "./ping";
 
 /** A fog region as the Fog tool sends it (FR-GM-17, ADR 0016). */
@@ -457,9 +458,7 @@ export class BoardView {
         this.dirty = true;
       }
     }
-    for (const [from, aim] of this.aims) {
-      if (now > aim.expires) this.clearAim(from);
-    }
+    for (const from of expiredAims(this.aims, now)) this.clearAim(from);
     if (this.dirty && this.marksScale !== this.world.scale.x) this.redrawMarks();
     if (this.dirty) {
       this.app.render();
@@ -623,7 +622,7 @@ export class BoardView {
     text.text = `${label} aiming`;
     text.scale.set(px);
     text.position.set(preview.origin.x + 6 * px, preview.origin.y + 6 * px);
-    aim.expires = performance.now() + 1000;
+    aim.expires = aimExpiry(performance.now());
     this.invalidate();
   }
 

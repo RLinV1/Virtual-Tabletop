@@ -22,14 +22,15 @@
 ## 4. Web
 
 - [x] 4.1 Add the `line` branch to `areaShape()` and line snapping; verify `boardTools.test.ts` cases: 12-cell line on a 5 ft grid = 60 ft, corners at the right offsets for 1- and 2-cell width, Alt keeps a free origin
-- [x] 4.2 Add "Line" to the Area shapes in `ToolRail.tsx` with a 5/10 ft width toggle shown only for lines; verify keyboard focus order and that the toggle has an accessible name
-- [x] 4.3 Send aim previews through `connection.preview("aim", ...)` during an Area drag, and send `null` on place and on Escape; draw received previews dashed with the sender's name, keyed by sender, expiring 1 s after the last update; verify `npm run typecheck` and a unit test of the expiry bookkeeping
+- [x] 4.2 Add "Line" to the Area shapes in `ToolRail.tsx` with a width toggle shown only for lines; verify keyboard focus order and that the toggle has an accessible name (a 1/2-square width select named "Line width"; Tab goes Line → size → line width → GM only)
+- [x] 4.3 Send aim previews through `connection.preview("aim", ...)` during an Area drag, and send `null` on place and on Escape; draw received previews dashed with the sender's name, keyed by sender, expiring 1 s after the last update; verify `npm run typecheck` and a unit test of the expiry bookkeeping (expiry in `board/aims.ts`, tested in `aims.test.ts`)
 
 ## 5. Verification
 
 - [x] 5.1 Run `npm run lint && npm run typecheck && npm test`; verify all pass
-- [ ] 5.2 In Playwright with a GM and a player context: the player aims a cone and the GM sees the dashed preview follow it; the player places it and the GM sees the solid template; the GM aims a GM-only circle and the player sees nothing; a 60 ft line places correctly; take screenshots at desktop and mobile widths
+- [x] 5.2 In Playwright with a GM and a player context: the player aims a cone and the GM sees the dashed preview follow it; the player places it and the GM sees the solid template; the GM aims a GM-only circle and the player sees nothing; a 60 ft line places correctly; take screenshots at desktop and mobile widths
 - [x] 5.3 After KAN-39's benchmark exists, add `templatePreview` to it and confirm p95 ≤150 ms
 
 > Progress (2026-10-04): built and tested (shared line tests, server aim-preview tests incl. GM-only aims and their clears, forged and off-map aims, aims from under fog; web line geometry). KAN-39's coalescing sender carries the aim; the latency benchmark now sends aims too (300/300 received, p95 ≈ 126 ms). Playwright script at 1280×800: the GM saw "Alice aiming" on a faint cone during her drag (5 aim frames); placing it committed one template; the GM's GM-only aim and its clear reached the player as 0 frames; a 2-square line placed as `line:105:10` and showed on the player's board. The aim-preview clear for a GM-only aim carries `gmOnly` so players never learn of it (added beyond the design, in ADR 0021).
-> Open: 0.1 (agree ownership and merge order with Antonio, KAN-35's owner, and KAN-32 in progress), 1.1 (owner sign-off on ADR 0021), 5.2's mobile-width pass.
+> 5.2 phone pass (390×844): the Line shape and its width select fit on screen with no horizontal scroll. Seen on the way: main's "Keep this seat on your account?" notice covers the tool rail on phones until dismissed (not part of this change).
+> Open: 0.1 (agree ownership and merge order with Antonio, KAN-35's owner, and KAN-32 in progress) and 1.1 (owner sign-off on ADR 0021).
