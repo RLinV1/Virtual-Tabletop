@@ -38,9 +38,12 @@ export const EphemeralPayload = z.discriminatedUnion("type", [
       width: z.number().positive().max(1000).optional(),
       gmOnly: z.boolean(),
     }).nullable(),
-    /** On a clear, whether the aim being cleared was GM-only, so players don't even learn of it. */
+    /**
+     * On a clear, whether the aim being cleared was GM-only, so players don't even learn of it.
+     * Required on a clear: the server must never guess, or a GM's clear could reach players.
+     */
     gmOnly: z.boolean().optional(),
-  }),
+  }).refine((p) => p.preview !== null || p.gmOnly !== undefined, { message: "A cleared aim must say whether it was GM-only", path: ["gmOnly"] }),
 ]);
 export type EphemeralPayload = z.infer<typeof EphemeralPayload>;
 

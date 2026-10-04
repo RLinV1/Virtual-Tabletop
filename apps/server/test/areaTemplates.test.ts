@@ -86,7 +86,7 @@ describe("template aim previews (KAN-35, FR-TAC-06)", () => {
     expect((await gm.waitFor(isEphemeral)).payload).toEqual(aim());
     expect(JSON.stringify(bob.state)).toBe(before);
     // Aim, then place: exactly one event, at the next seq.
-    alice.send({ type: "ephemeral", payload: { type: "templatePreview", preview: null } });
+    alice.send({ type: "ephemeral", payload: { type: "templatePreview", preview: null, gmOnly: false } });
     const placed = await alice.command(cone);
     expect(placed).toMatchObject({ type: "ack", seq: seq + 1 });
     await bob.waitForSeq(alice.seq);
@@ -100,6 +100,14 @@ describe("template aim previews (KAN-35, FR-TAC-06)", () => {
     gm.send({ type: "ephemeral", payload: marker(1) });
     expect((await alice.waitFor(isEphemeral)).payload).toEqual(marker(1));
     expect((await bob.waitFor(isEphemeral)).payload).toEqual(marker(1));
+  });
+
+  it("refuses a clear that doesn't say whether its aim was GM-only", async () => {
+    const { gm, alice, bob } = await withMap();
+    gm.send({ type: "ephemeral", payload: { type: "templatePreview", preview: null } as unknown as EphemeralPayload });
+    gm.send({ type: "ephemeral", payload: marker(3) });
+    expect((await alice.waitFor(isEphemeral)).payload).toEqual(marker(3));
+    expect((await bob.waitFor(isEphemeral)).payload).toEqual(marker(3));
   });
 
   it("drops a player's forged GM-only aim, and an aim off the map", async () => {

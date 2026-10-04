@@ -22,7 +22,7 @@ ADR 0007 made placed area templates room state (circle, cone, box) and left two 
 An aim follows the rules for the area it would place:
 
 - A GM-only aim from a player is dropped (only the GM places GM-only areas, ADR 0007).
-- A GM-only aim, and the clear of one (`gmOnly: true` on the null payload), reach GMs only, so players never learn the GM was aiming.
+- A GM-only aim, and the clear of one (`gmOnly: true` on the null payload), reach GMs only, so players never learn the GM was aiming. The schema requires `gmOnly` on every clear, so the server never has to guess.
 - An aim whose origin is off the map, or sent with no map, is dropped.
 - An aim from under fog reaches no player but its sender (`templateConcealedFrom`, ADR 0016).
 
