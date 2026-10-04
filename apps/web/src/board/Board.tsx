@@ -401,7 +401,6 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
           <button
             type="button"
             className="tool-button"
-            aria-pressed={!gmFog}
             onClick={() => setGmFog(!gmFog)}
             title={gmFog ? "See everything: hide the fog tint on your view" : "Show the fog tint on your view again"}
           >

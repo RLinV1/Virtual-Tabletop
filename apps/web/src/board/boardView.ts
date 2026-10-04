@@ -444,9 +444,10 @@ export class BoardView {
       for (const view of this.tokens.values()) view.drawnKey = "";
       if (this.state && this.you) this.syncTokens();
       this.syncConditionLoop();
+      this.syncFogLoop();
       this.invalidate();
     });
-    document.addEventListener("visibilitychange", this.syncConditionLoop);
+    document.addEventListener("visibilitychange", this.onVisibilityChange);
     this.invalidate();
   }
 
@@ -552,7 +553,7 @@ export class BoardView {
     this.attackFx = [];
     this.loopRegistered = false;
     this.stopMotionWatch?.();
-    document.removeEventListener("visibilitychange", this.syncConditionLoop);
+    document.removeEventListener("visibilitychange", this.onVisibilityChange);
     this.viewListeners.clear();
     this.hostObserver?.disconnect();
     this.app.canvas.removeEventListener("wheel", this.onWheel);
@@ -955,20 +956,18 @@ export class BoardView {
     const gm = this.you?.role === "gm";
     const px = 1 / this.world.scale.x;
     const cell = state.scene.grid.cellSize;
-    if (!this.fogTexture) {
-      this.fogTexture = Texture.from(makeFogCanvas());
-      this.fogTexture.source.style.addressMode = "repeat";
-    }
-    const cloud = this.fogTexture;
+    // "See everything": the GM's tint is switched off and only a faint outline marks each region.
+    const tint = !gm || this.gmFogShown;
+    const hasRegions = Object.keys(state.fog).length > 0 || this.pendingFog.length > 0;
+    // The cloud texture is made on first need, so a board with no fog never pays for it.
+    const cloud = tint && hasRegions ? this.fogCloud() : null;
     // The clouds drift across the board; the texture tiles seamlessly, so any offset is fine.
     const matrix = new Matrix().scale(FOG_CLOUD_SCALE, FOG_CLOUD_SCALE).translate(this.fogOffset.x, this.fogOffset.y);
     const fillAlpha = gm ? FOG_GM_ALPHA : 1;
-    // "See everything": the GM's tint is switched off and only a faint outline marks each region.
-    const tint = !gm || this.gmFogShown;
     const draw = (points: Point[], pending: boolean) => {
       const flat = points.flatMap((p) => [p.x, p.y]);
-      if (tint) g.poly(flat).fill({ texture: cloud, matrix, textureSpace: "global", alpha: fillAlpha });
-      if (!gm) g.poly(flat).stroke({ width: 2 * FOG_BLEED_CELLS * cell, join: "miter", texture: cloud, matrix, textureSpace: "global", alpha: 1 });
+      if (tint) g.poly(flat).fill({ texture: cloud!, matrix, textureSpace: "global", alpha: fillAlpha });
+      if (!gm) g.poly(flat).stroke({ width: 2 * FOG_BLEED_CELLS * cell, join: "miter", texture: cloud!, matrix, textureSpace: "global", alpha: 1 });
       if (gm) edge.poly(flat).stroke({ width: 2 * px, color: FOG_EDGE, alpha: (pending ? 0.5 : 0.9) * (tint ? 1 : 0.4) });
     };
     for (const region of Object.values(state.fog)) {
@@ -978,15 +977,30 @@ export class BoardView {
     this.syncFogLoop();
   }
 
-  /** Runs the fog drift only while fog exists, the page is shown and motion is allowed. */
+  /** The seamless cloud texture, drawn once on first use. */
+  private fogCloud(): Texture {
+    if (!this.fogTexture) {
+      this.fogTexture = Texture.from(makeFogCanvas());
+      this.fogTexture.source.style.addressMode = "repeat";
+    }
+    return this.fogTexture;
+  }
+
+  /**
+   * Runs the fog drift only while fog exists, the page is shown, motion is allowed, and the
+   * fill is drawn: a GM who switched the tint off sees no drift, so there is nothing to animate.
+   */
   private fogLoopWanted() {
     const any = Object.keys(this.state?.fog ?? {}).length > 0 || this.pendingFog.length > 0;
-    return any && document.visibilityState === "visible" && !this.reducedMotion;
+    const tinted = this.you?.role !== "gm" || this.gmFogShown;
+    return any && tinted && document.visibilityState === "visible" && !this.reducedMotion;
   }
 
   private syncFogLoop() {
     if (!this.initialized || this.fogLoopRegistered || !this.fogLoopWanted()) return;
     this.fogLoopRegistered = true;
+    // So the first frame after a pause does not apply the whole pause as drift.
+    this.lastFogDraw = 0;
     this.animations.add(this.fogLoop);
     this.schedule();
   }
@@ -1492,6 +1506,12 @@ export class BoardView {
     for (const view of this.tokens.values()) if (view.looping && view.container.visible) loopingTokens++;
     return conditionLoopWanted({ loopingTokens, pageVisible: document.visibilityState === "visible", reducedMotion: this.reducedMotion });
   }
+
+  /** A page that becomes visible again restarts any loop that stopped while it was hidden. */
+  private onVisibilityChange = () => {
+    this.syncConditionLoop();
+    this.syncFogLoop();
+  };
 
   /** Runs the condition loop only while a visible token has a moving effect, the page is shown and motion is allowed. */
   private syncConditionLoop = () => {
