@@ -16,7 +16,7 @@ ADR 0007 made placed templates room state: `AreaTemplate { id, shape, origin, to
 ## Decisions
 
 ### 1. Line as a polygon in the existing geometry
-A line is a rectangle from `origin` along the aim direction: length `size`, width `width ?? unitsPerCell`, centred on the aim axis. `areaShape()` gains a `line` branch returning four points. It reuses the box branch's `at(along, across)` helper with half-width `w/2` instead of `length/2`.
+A line is a rectangle from `origin` along the aim direction: length `size`, width `width ?? unitsPerCell` (both in grid units), centred on the aim axis. `areaShape()` gains a `line` branch returning four points. Like the other shapes it converts grid units to pixels first, `widthPx = ((width ?? unitsPerCell) / unitsPerCell) × cellSize`, then reuses the box branch's `at(along, across)` helper with `widthPx / 2` across instead of `length / 2`.
 
 *Alternative:* model a line as a thin box. Rejected: a box is a square of side `size`, so it cannot take a separate width, and its near edge is centred on the origin rather than the line starting at it.
 
