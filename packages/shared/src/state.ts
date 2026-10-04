@@ -92,6 +92,11 @@ export const Token = z.object({
   stats: TokenStats,
   /** Status conditions, rendered by shape and abbreviation, never colour alone (FR-TAC-08). */
   conditions: z.array(ConditionId).max(12),
+  /**
+   * The score the GM last gave this token when starting an encounter. It outlives the encounter
+   * so the next Start encounter dialog can pre-fill it. Absent or null means none yet.
+   */
+  initiative: z.number().int().min(-99).max(999).nullish(),
 });
 export type Token = z.infer<typeof Token>;
 

@@ -119,6 +119,13 @@ export const DomainEvent = z.discriminatedUnion("type", [
     type: z.literal("InitiativeStarted"),
     initiative: Initiative,
     previous: Initiative.nullable(),
+    /**
+     * The scores the GM entered, saved on their tokens, each with the value it replaced.
+     * Absent on events from before scores were saved.
+     */
+    scores: z
+      .array(z.object({ tokenId: Id, score: z.number().int(), previous: z.number().int().nullable() }))
+      .optional(),
   }),
   z.object({
     type: z.literal("InitiativeAdvanced"),

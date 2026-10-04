@@ -4,6 +4,7 @@ import type { RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
 import { PanelSection } from "../ui/PanelSection";
 import { pendingRulings } from "./attackRoll";
+import { initiativeEntries, initiativeFieldValue } from "./initiativeFields";
 
 /**
  * Turn order (FR-GM-21).
@@ -31,9 +32,7 @@ export function InitiativeTracker({
   const [setupOpen, setSetupOpen] = useState(false);
 
   const start = async () => {
-    const entries = tokens
-      .map((t) => ({ tokenId: t.id, score: Number(scores[t.id] ?? "") }))
-      .filter((e) => Number.isFinite(e.score) && (scores[e.tokenId] ?? "") !== "");
+    const entries = initiativeEntries(scores, tokens);
     if (entries.length === 0) return setError("Give at least one token an initiative score");
     const result = await connection.command({ type: "initiative.start", entries });
     setError(result.ok ? null : result.message);
@@ -74,7 +73,9 @@ export function InitiativeTracker({
               void start();
             }}
           >
-            <p className="muted init-hint">Type each token's initiative. Highest goes first. Tokens left empty won't get a turn.</p>
+            <p className="muted init-hint">
+              Type each token's initiative. Highest goes first. Scores are saved on the tokens and filled in next time. Tokens left empty won't get a turn.
+            </p>
             <ul className="plain init-setup">
               {tokens.map((t, i) => (
                 <li key={t.id}>
@@ -88,7 +89,7 @@ export function InitiativeTracker({
                     inputMode="numeric"
                     placeholder="Init"
                     autoFocus={i === 0}
-                    value={scores[t.id] ?? ""}
+                    value={initiativeFieldValue(scores, t)}
                     onChange={(e) => setScores((s) => ({ ...s, [t.id]: e.target.value }))}
                     aria-label={`Initiative for ${t.name}`}
                   />
