@@ -7,7 +7,7 @@ import { canRenderGrid } from "./gridRenderLimit";
 import type { SessionEndReason } from "./protocol";
 import { inverseOf, undoableAction, undoConflict } from "./undo";
 import { concealedFrom, fogConcealsSide, isInFog, templateConcealedFrom } from "./visibility";
-import { MAX_AREA_TEMPLATES, MAX_CHECKPOINT_NAME, MAX_FOG_REGIONS, MAX_PLAYERS_PER_ROOM, tableOf, type AreaTemplate, type DiceLookOnTable, type Initiative, type Participant, type RoomState, type TableState, type Token } from "./state";
+import { MAX_AREA_TEMPLATES, MAX_LINE_WIDTH_CELLS, MAX_CHECKPOINT_NAME, MAX_FOG_REGIONS, MAX_PLAYERS_PER_ROOM, tableOf, type AreaTemplate, type DiceLookOnTable, type Initiative, type Participant, type RoomState, type TableState, type Token } from "./state";
 
 export type RejectionCode = "forbidden" | "not_found" | "invalid";
 
@@ -464,6 +464,11 @@ export function decide(
       if (Object.keys(state.templates).length >= MAX_AREA_TEMPLATES) {
         return reject("invalid", `A room can hold at most ${MAX_AREA_TEMPLATES} area templates. Remove some first.`);
       }
+      // A width only means something on a line, and at most 10 cells of this room's grid (KAN-35).
+      const width = command.shape === "line" ? command.width : undefined;
+      if (width !== undefined && width > MAX_LINE_WIDTH_CELLS * state.scene.grid.unitsPerCell) {
+        return reject("invalid", `A line is at most ${MAX_LINE_WIDTH_CELLS * state.scene.grid.unitsPerCell} ${state.scene.grid.unitLabel} wide.`);
+      }
       return accept({
         type: "TemplatePlaced",
         template: {
@@ -472,6 +477,7 @@ export function decide(
           origin: command.origin,
           toward: command.toward,
           size: command.size,
+          ...(width !== undefined && { width }),
           ownerId: actor.id,
           gmOnly: command.gmOnly,
         },

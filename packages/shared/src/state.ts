@@ -96,11 +96,13 @@ export const Token = z.object({
 export type Token = z.infer<typeof Token>;
 
 /** Shapes an area template can take (FR-TAC-06). */
-export const AreaShape = z.enum(["circle", "cone", "box"]);
+export const AreaShape = z.enum(["circle", "cone", "box", "line"]);
 export type AreaShape = z.infer<typeof AreaShape>;
 
 /** Most area templates a room holds at once, so one client can't grow state without bound. */
 export const MAX_AREA_TEMPLATES = 200;
+/** Widest a line template may be, in cells of the room's grid (KAN-35). */
+export const MAX_LINE_WIDTH_CELLS = 10;
 
 /**
  * Most active players a room holds; the GM is not counted (room-player-cap). Four times the
@@ -120,8 +122,13 @@ export const AreaTemplate = z.object({
   origin: Point,
   /** The point it was aimed at; equal to `origin` for an unaimed placement (points right). */
   toward: Point,
-  /** Circle radius, cone length or box side, in grid units (e.g. 20 for 20 ft). */
+  /** Circle radius, cone length, box side or line length, in grid units (e.g. 20 for 20 ft). */
   size: z.number().positive().max(1000),
+  /**
+   * A line's width in grid units (KAN-35, ADR 0021); one cell when absent. Ignored by the other
+   * shapes. Optional so events from before lines still parse.
+   */
+  width: z.number().positive().max(1000).optional(),
   /** Who placed it. They and the GM may remove it. */
   ownerId: Id,
   /** GM-only templates are never sent to players (FR-GM-23), like hidden tokens. */

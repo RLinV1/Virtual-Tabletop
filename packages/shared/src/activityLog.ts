@@ -48,8 +48,14 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
   const rollLabel = (roll: DiceRoll | undefined) =>
     roll?.attack ? `${formatAttackParties(roll.attack)} (${roll.expression}: ${roll.total})` : "an earlier roll";
   /** "20 ft cone", in the room grid's units. */
-  const templateLabel = (t: { shape: string; size: number }) =>
-    `${Number(t.size.toFixed(2))} ${before.scene.grid.unitLabel} ${t.shape}`;
+  const unit = before.scene.grid.unitLabel;
+  const templateLabel = (t: { shape: string; size: number; width?: number }) => {
+    const label = `${Number(t.size.toFixed(2))} ${unit} ${t.shape}`;
+    // A line says its width when it isn't the usual one cell (KAN-35).
+    return t.shape === "line" && t.width !== undefined && t.width !== before.scene.grid.unitsPerCell
+      ? `${label}, ${Number(t.width.toFixed(2))} ${unit} wide`
+      : label;
+  };
   switch (event.type) {
     case "RoomCreated": return `${actorName} created room ${event.name}`;
     case "ParticipantJoined": return `${actorName} joined the room as ${event.participant.role === "gm" ? "GM" : "a player"}`;

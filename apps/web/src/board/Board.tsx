@@ -170,6 +170,9 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       dragPreview: (tokenId, at) => connection.preview(`drag:${tokenId}`, { type: "tokenDragPreview", tokenId, at }),
       dragEnd: (tokenId, at) => connection.endPreview(`drag:${tokenId}`, at && { type: "tokenDragPreview", tokenId, at }),
       ping: (at) => connection.ephemeral({ type: "ping", at }),
+      // Aiming is shared live and coalesced like drags (KAN-35, KAN-39); the clear goes at once.
+      aimPreview: (preview) => connection.preview("aim", { type: "templatePreview", preview }),
+      aimEnd: (gmOnly) => connection.endPreview("aim", { type: "templatePreview", preview: null, gmOnly }),
       placeTemplate: async (template) => {
         const result = await connection.command({ type: "template.place", ...template });
         if (!result.ok) console.warn("Area rejected:", result.message);
@@ -211,6 +214,9 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     const stopEphemeral = connection.onEphemeral((_from, payload) => {
       if (payload.type === "ping") view.showPing(payload.at, 0x3498db);
       else if (payload.type === "tokenDragPreview") view.showDragPreview(payload.tokenId, payload.at);
+      else if (payload.type === "templatePreview") {
+        view.showAimPreview(_from, payload.preview, latest.current.state.participants[_from]?.displayName ?? "Someone");
+      }
     });
 
     // Live events only, already filtered for this viewer; a snapshot never gets here (KAN-76).

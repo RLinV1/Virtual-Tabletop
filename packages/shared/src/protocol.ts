@@ -3,7 +3,7 @@ import { Command, DEFAULT_TOKEN_COLOR } from "./commands";
 import { CommittedEvent } from "./events";
 import { GridSpec, Point } from "./geometry";
 import { TokenStats, type ConditionId } from "./conditions";
-import { Id, Participant, Token, type RoomState } from "./state";
+import { AreaShape, Id, Participant, Token, type RoomState } from "./state";
 import type { RejectionCode } from "./decide";
 
 /**
@@ -23,6 +23,27 @@ export const EphemeralPayload = z.discriminatedUnion("type", [
    * `expression` (as the server formats it) only pairs it with that roll.
    */
   z.object({ type: z.literal("diceDrop"), expression: z.string().min(1).max(32), from: Point, to: Point }),
+  /**
+   * An area template being aimed (KAN-35, ADR 0021), so the others watch it take shape. Null
+   * clears it (placed or cancelled). One per sender; receivers also drop it a second after the
+   * last update. Never persisted: only `template.place` commits.
+   */
+  z.object({
+    type: z.literal("templatePreview"),
+    preview: z.object({
+      shape: AreaShape,
+      origin: Point,
+      toward: Point,
+      size: z.number().positive().max(1000),
+      width: z.number().positive().max(1000).optional(),
+      gmOnly: z.boolean(),
+    }).nullable(),
+    /**
+     * On a clear, whether the aim being cleared was GM-only, so players don't even learn of it.
+     * Required on a clear: the server must never guess, or a GM's clear could reach players.
+     */
+    gmOnly: z.boolean().optional(),
+  }).refine((p) => p.preview !== null || p.gmOnly !== undefined, { message: "A cleared aim must say whether it was GM-only", path: ["gmOnly"] }),
 ]);
 export type EphemeralPayload = z.infer<typeof EphemeralPayload>;
 

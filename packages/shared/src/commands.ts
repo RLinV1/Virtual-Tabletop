@@ -195,6 +195,8 @@ export const Command = z.discriminatedUnion("type", [
     origin: Point,
     toward: Point,
     size: z.number().positive().max(1000),
+    /** A line's width in grid units; one cell when left out (KAN-35). */
+    width: z.number().positive().max(1000).optional(),
     gmOnly: z.boolean().default(false),
   }),
   /** Remove a placed template. Its owner or the GM. */
