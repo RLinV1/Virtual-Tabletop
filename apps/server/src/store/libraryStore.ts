@@ -1,4 +1,4 @@
-import type { AssetKind, DieName, GmRoomSummary, GridSpec, LegacySummary } from "@vtt/shared";
+import type { AssetKind, ConditionId, DieName, GmRoomSummary, GridSpec, LegacySummary } from "@vtt/shared";
 
 /** A stored library asset (ADR 0004). `objectKey` is the AssetStore key; it never leaves the server. */
 export interface LibraryAssetRecord {
@@ -22,13 +22,18 @@ export interface LibraryCreatureRecord {
   size: number;
   maxHp: number | null;
   ac: number | null;
+  /** Disc colour for imageless tokens (KAN-70). Rows from before it read as the default. */
+  color: string;
+  /** Conditions placed tokens start with (KAN-70). */
+  conditions: ConditionId[];
   imageAssetId: string | null;
   imageUrl: string | null;
   createdAt: string;
 }
 
-export type NewCreatureRecord = Omit<LibraryCreatureRecord, "imageUrl">;
-export type CreaturePatch = Partial<Pick<LibraryCreatureRecord, "name" | "size" | "maxHp" | "ac" | "imageAssetId">>;
+/** Colour and conditions may be left out: the store fills in the defaults (KAN-70). */
+export type NewCreatureRecord = Omit<LibraryCreatureRecord, "imageUrl" | "color" | "conditions"> & Partial<Pick<LibraryCreatureRecord, "color" | "conditions">>;
+export type CreaturePatch = Partial<Pick<LibraryCreatureRecord, "name" | "size" | "maxHp" | "ac" | "color" | "conditions" | "imageAssetId">>;
 
 /** The creature would link to token art that does not exist (or was deleted mid-request). */
 export class CreatureImageMissingError extends Error {

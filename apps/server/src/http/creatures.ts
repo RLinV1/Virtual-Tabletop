@@ -95,6 +95,8 @@ function toWire(record: LibraryCreatureRecord): LibraryCreature {
     size: record.size,
     maxHp: record.maxHp,
     ac: record.ac,
+    color: record.color,
+    conditions: record.conditions,
     imageAssetId: record.imageAssetId,
     imageUrl: record.imageUrl,
     createdAt: record.createdAt,

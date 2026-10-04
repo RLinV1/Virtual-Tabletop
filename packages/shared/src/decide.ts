@@ -2,7 +2,7 @@ import type { Command, DepartureAction } from "./commands";
 import { MIN_HP } from "./conditions";
 import { formatExpression, parseDiceExpression, rollDice, type AttackContext } from "./dice";
 import type { DomainEvent } from "./events";
-import { isSnapped, polygonArea, resizedTokenCenter, snapTokenCenter, type GridSpec, type Point } from "./geometry";
+import { isSnapped, polygonArea, resizedTokenCenter, snapTokenCenter, spreadPositions, type GridSpec, type Point } from "./geometry";
 import { canRenderGrid } from "./gridRenderLimit";
 import type { SessionEndReason } from "./protocol";
 import { inverseOf, undoableAction, undoConflict } from "./undo";
@@ -132,13 +132,20 @@ export function decide(
       if (command.stats.hp !== null && command.stats.maxHp !== null && command.stats.hp > command.stats.maxHp) {
         return reject("invalid", "Current HP cannot exceed maximum HP");
       }
-      return accept({
-        type: "TokenCreated",
-        token: {
+      if (new Set(command.conditions).size !== command.conditions.length) return reject("invalid", "A condition is listed twice.");
+      // Several copies are one action (KAN-70): spread over the nearest free squares, each
+      // numbered against the room and the copies before it.
+      const positions = spreadPositions(
+        command.position, command.size, command.count, state.scene.grid, state.scene.map,
+        Object.values(state.tokens).map((t) => ({ position: t.position, size: t.size })),
+      );
+      let named = state;
+      const events: DomainEvent[] = positions.map((position) => {
+        const token: Token = {
           id: ctx.newId(),
           // Duplicates are numbered, not rejected: placing five goblins is routine (KAN-62).
-          name: uniqueTokenName(state, command.name),
-          position: command.position,
+          name: uniqueTokenName(named, command.name),
+          position,
           size: command.size,
           rotation: normalizeRotation(command.rotation),
           color: command.color,
@@ -147,9 +154,12 @@ export function decide(
           ownerIds: command.ownerIds,
           hidden: command.hidden,
           stats: command.stats,
-          conditions: [],
-        },
+          conditions: command.conditions,
+        };
+        named = { ...named, tokens: { ...named.tokens, [token.id]: token } };
+        return { type: "TokenCreated", token };
       });
+      return accept(...events);
     }
 
     case "token.move": {

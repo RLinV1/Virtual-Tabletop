@@ -130,3 +130,47 @@ export function pointInPolygon(p: Point, points: readonly Point[]): boolean {
   }
   return inside;
 }
+
+/**
+ * Where `count` tokens of `sizeInCells` go when placed together on `origin` (KAN-70): the first on
+ * `origin`, the rest on the nearest free spots, ring by ring outward in a fixed order (row by row
+ * within a ring), one footprint apart. A spot is free when its footprint overlaps no token in
+ * `occupied` (or an earlier copy), whatever their size, and its whole footprint lies on the map
+ * when there is one. When space or the search budget runs out, remaining copies share `origin`. Pure, so
+ * `decide` can call it.
+ */
+export function spreadPositions(
+  origin: Point,
+  sizeInCells: number,
+  count: number,
+  grid: GridSpec,
+  map: { width: number; height: number } | null,
+  occupied: readonly { position: Point; size: number }[],
+): Point[] {
+  const step = sizeInCells * grid.cellSize;
+  const taken = occupied.map((o) => ({ p: o.position, half: (o.size * grid.cellSize) / 2 }));
+  // Footprints are squares; they overlap when both axis distances are under the summed half-sides.
+  const free = (p: Point) => !taken.some((o) => Math.abs(o.p.x - p.x) < o.half + step / 2 && Math.abs(o.p.y - p.y) < o.half + step / 2);
+  const onMap = (p: Point) =>
+    !map || (p.x - step / 2 >= 0 && p.y - step / 2 >= 0 && p.x + step / 2 <= map.width && p.y + step / 2 <= map.height);
+  const out: Point[] = [origin];
+  taken.push({ p: origin, half: step / 2 });
+  // Bound server work independently of caller-controlled dimensions and token size.
+  // Twenty rings visit at most 1,680 perimeter candidates.
+  const maxRing = Math.min(20, map ? Math.ceil(Math.max(map.width, map.height) / step) : 20);
+  for (let ring = 1; out.length < count && ring <= maxRing; ring++) {
+    for (let dy = -ring; dy <= ring && out.length < count; dy++) {
+      // Interior rows contain only the left and right perimeter points.
+      const stride = Math.abs(dy) === ring ? 1 : 2 * ring;
+      for (let dx = -ring; dx <= ring && out.length < count; dx += stride) {
+
+        const p = { x: origin.x + dx * step, y: origin.y + dy * step };
+        if (!onMap(p) || !free(p)) continue;
+        out.push(p);
+        taken.push({ p, half: step / 2 });
+      }
+    }
+  }
+  while (out.length < count) out.push(origin);
+  return out;
+}

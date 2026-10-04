@@ -128,7 +128,8 @@ for (const [label, store] of stores) {
       const gmA = await s().registerGm(randomUUID());
       const gmB = await s().registerGm(randomUUID());
       const c = creature(gmA);
-      expect(await s().createCreature(c)).toEqual({ ...c, imageUrl: null });
+      // Colour and conditions left out read back as the defaults (KAN-70).
+      expect(await s().createCreature(c)).toEqual({ ...c, color: "#c0392b", conditions: [], imageUrl: null });
 
       expect((await s().listCreatures(gmA)).map((x) => x.id)).toEqual([c.id]);
       expect(await s().listCreatures(gmB)).toEqual([]);

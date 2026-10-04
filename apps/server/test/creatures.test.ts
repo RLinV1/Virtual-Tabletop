@@ -160,3 +160,43 @@ describe("library creatures (library-creatures, FR-TAC-07)", () => {
     expect(usage.rooms.map((r) => r.name)).toEqual(["Cave"]);
   });
 });
+
+describe("creature colour, conditions and adding several (KAN-70)", () => {
+  it("saves and edits a creature's colour and starting conditions", async () => {
+    const gm = await newGm();
+    const res = await create(gm, { name: "Goblin", color: "#2e7d32", conditions: ["prone"] });
+    expect(res.status).toBe(201);
+    const goblin = (await res.json()) as LibraryCreature;
+    expect(goblin).toMatchObject({ color: "#2e7d32", conditions: ["prone"] });
+    const patched = await gmFetch(gm, `/api/library/creatures/${goblin.id}`, { method: "PATCH", body: { conditions: ["prone", "poisoned"] } });
+    expect(await patched.json()).toMatchObject({ color: "#2e7d32", conditions: ["prone", "poisoned"] });
+    // Without them, a creature reads back with the defaults.
+    expect((await (await create(gm, { name: "Rubble" })).json()) as LibraryCreature).toMatchObject({ color: "#c0392b", conditions: [] });
+  });
+
+  it("refuses a bad colour, an unknown condition, a duplicate, or 13 conditions", async () => {
+    const gm = await newGm();
+    for (const body of [
+      { name: "X", color: "green" },
+      { name: "X", conditions: ["sleepy"] },
+      { name: "X", conditions: ["prone", "prone"] },
+      { name: "X", conditions: Array(13).fill("prone") },
+    ]) expect((await create(gm, body)).status).toBe(400);
+    expect(await list(gm)).toEqual([]);
+  });
+
+  it("adds hidden copies in one command; players get only redacted seqs", async () => {
+    const gmCreds = await server.createRoom();
+    const gm = await server.connect(gmCreds);
+    const player = await server.connect(await server.join(gmCreds.inviteCode, "Alice"));
+    clients.push(gm, player);
+    const before = player.rawLog.length;
+    const ack = await gm.command({ type: "token.create", name: "Goblin", position: { x: 35, y: 35 }, count: 3, hidden: true });
+    expect(ack.type).toBe("ack");
+    expect(Object.values(gm.state.tokens).map((t) => t.name).sort()).toEqual(["Goblin", "Goblin 2", "Goblin 3"]);
+    await player.waitForSeq(gm.seq);
+    const got = player.rawLog.slice(before).map((r) => JSON.parse(r) as { type: string });
+    expect(got.map((m) => m.type)).toEqual(["redacted", "redacted", "redacted"]);
+    expect(player.rawLog.slice(before).join("")).not.toContain("Goblin");
+  });
+});

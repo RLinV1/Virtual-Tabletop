@@ -160,6 +160,10 @@ model LibraryCreature {
   size         Float
   maxHp        Int?     @map("max_hp")
   ac           Int?
+  /// Disc colour for imageless tokens (KAN-70); null on rows from before it, read as the default.
+  color        String?
+  /// Conditions placed tokens start with (KAN-70).
+  conditions   String[] @default([])
   imageAssetId String?  @map("image_asset_id") @db.Uuid
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 

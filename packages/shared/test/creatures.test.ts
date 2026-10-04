@@ -22,7 +22,7 @@ describe("library creature schemas (library-creatures, FR-TAC-07)", () => {
 
   it("needs only a name, defaulting size to 1 and the rest to none", () => {
     expect(CreateCreatureRequest.parse({ name: "Rubble" })).toEqual({
-      name: "Rubble", size: 1, maxHp: null, ac: null, imageAssetId: null,
+      name: "Rubble", size: 1, maxHp: null, ac: null, color: "#c0392b", conditions: [], imageAssetId: null,
     });
   });
 

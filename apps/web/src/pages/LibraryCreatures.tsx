@@ -1,9 +1,10 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { CreatureFields, DEFAULT_TOKEN_COLOR, type LibraryCreature } from "@vtt/shared";
+import { CreatureFields, DEFAULT_TOKEN_COLOR, type ConditionId, type LibraryCreature } from "@vtt/shared";
+import { ConditionPicker } from "../panels/ConditionMarker";
 import { api } from "../net/api";
 import { Modal } from "../ui/Modal";
 import { TokenPreview } from "../ui/TokenPreview";
-import { creatureSummary } from "./creatureDraft";
+import { creatureSummary, type CreaturePrefill } from "./creatureDraft";
 import { LibraryPicker } from "./LibraryPicker";
 
 /** A creature in the library's Creatures tab (library-creatures): its art or a colour disc, name and stats. */
@@ -34,7 +35,7 @@ export function CreatureCard(props: {
       <div className="asset-thumb token">
         {creature.imageUrl
           ? <img src={creature.imageUrl} alt="" loading="lazy" />
-          : <span className="creature-disc" style={{ background: DEFAULT_TOKEN_COLOR }} aria-hidden="true" />}
+          : <span className="creature-disc" style={{ background: creature.color }} aria-hidden="true" />}
       </div>
       <strong className="asset-name" title={creature.name}>{creature.name}</strong>
       <span className="muted asset-meta">{creatureSummary(creature)}</span>
@@ -76,16 +77,21 @@ const optionalNumber = (value: string) => (value.trim() === "" ? null : Number(v
  */
 export function CreatureForm(props: {
   creature: LibraryCreature | null;
+  /** Values for a new creature, e.g. from a token on the board (Save as creature, KAN-70). */
+  prefill?: CreaturePrefill;
   onSaved: (creature: LibraryCreature) => void;
   onCancel: () => void;
 }) {
   const { creature } = props;
-  const [name, setName] = useState(creature?.name ?? "");
-  const [size, setSize] = useState(String(creature?.size ?? 1));
-  const [maxHp, setMaxHp] = useState(creature?.maxHp == null ? "" : String(creature.maxHp));
-  const [ac, setAc] = useState(creature?.ac == null ? "" : String(creature.ac));
+  const from = creature ?? props.prefill ?? null;
+  const [name, setName] = useState(from?.name ?? "");
+  const [size, setSize] = useState(String(from?.size ?? 1));
+  const [maxHp, setMaxHp] = useState(from?.maxHp == null ? "" : String(from.maxHp));
+  const [ac, setAc] = useState(from?.ac == null ? "" : String(from.ac));
+  const [color, setColor] = useState(from?.color ?? DEFAULT_TOKEN_COLOR);
+  const [conditions, setConditions] = useState<ConditionId[]>(from?.conditions ?? []);
   const [image, setImage] = useState<{ assetId: string; url: string; label: string } | null>(
-    creature?.imageAssetId && creature.imageUrl ? { assetId: creature.imageAssetId, url: creature.imageUrl, label: "Current art" } : null,
+    from?.imageAssetId && from.imageUrl ? { assetId: from.imageAssetId, url: from.imageUrl, label: creature ? "Current art" : "Token's art" } : null,
   );
   const [picking, setPicking] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -96,6 +102,8 @@ export function CreatureForm(props: {
     size: size.trim() === "" ? Number.NaN : Number(size),
     maxHp: optionalNumber(maxHp),
     ac: optionalNumber(ac),
+    color,
+    conditions,
     imageAssetId: image?.assetId ?? null,
   });
   const hint = parsed.success ? null : FIELD_HINTS[String(parsed.error.issues[0]?.path[0])] ?? "Check the values above.";
@@ -131,11 +139,19 @@ export function CreatureForm(props: {
           <label>AC<input type="number" value={ac} onChange={(e) => setAc(e.target.value)} min="0" max="99" step="1" /></label>
         </div>
         <p className="muted small-print">Placed creatures start at full HP.</p>
+        <label className="creature-color">
+          Colour without art
+          <input type="color" value={color} onInput={(e) => setColor(e.currentTarget.value)} onChange={(e) => setColor(e.target.value)} />
+        </label>
+        <div className="stack">
+          <span className="field-label">Starts with</span>
+          <ConditionPicker value={conditions} onChange={setConditions} />
+        </div>
         <div className="stack token-image-field">
           <span className="field-label">Image</span>
           {image ? (
             <div className="row token-image-chosen">
-              <TokenPreview url={image.url} color={DEFAULT_TOKEN_COLOR} />
+              <TokenPreview url={image.url} color={color} />
               <span className="token-name" title={image.label}>{image.label}</span>
               <button type="button" className="link" onClick={() => setImage(null)}>Remove</button>
             </div>
@@ -206,7 +222,7 @@ export function CreaturePicker(props: { onPick: (creature: LibraryCreature) => v
             <button type="button" className="picker-item" onClick={() => props.onPick(c)} title={c.name}>
               {c.imageUrl
                 ? <img src={c.imageUrl} alt="" loading="lazy" className="round" />
-                : <span className="creature-disc" style={{ background: DEFAULT_TOKEN_COLOR }} aria-hidden="true" />}
+                : <span className="creature-disc" style={{ background: c.color }} aria-hidden="true" />}
               <span>{c.name}</span>
               <span className="muted small-print">{creatureSummary(c)}</span>
             </button>

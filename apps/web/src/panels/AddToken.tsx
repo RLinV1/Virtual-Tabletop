@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { DEFAULT_TOKEN_COLOR, isActive, type RoomState } from "@vtt/shared";
+import { DEFAULT_TOKEN_COLOR, MAX_TOKENS_PER_CREATE, conditionSpec, isActive, type ConditionId, type RoomState } from "@vtt/shared";
 import type { TokenDraft } from "../board/placement";
 import { api } from "../net/api";
 import { useAccount } from "../account/accountStore";
@@ -9,6 +9,7 @@ import { CreaturePicker } from "../pages/LibraryCreatures";
 import { LibraryPicker } from "../pages/LibraryPicker";
 import { Modal } from "../ui/Modal";
 import { TokenPreview } from "../ui/TokenPreview";
+import { ConditionPicker } from "./ConditionMarker";
 import { statsWithDefaults } from "./tokenDefaults";
 
 const TOKEN_COLORS = ["#c0392b", "#2980b9", "#27ae60", "#8e44ad", "#d35400", "#16a085"];
@@ -55,8 +56,10 @@ export function AddTokenButton({
           players={players}
           token={token}
           hasLibrary={hasLibrary}
+          defaultColor={TOKEN_COLORS[Object.keys(state.tokens).length % TOKEN_COLORS.length]!}
           onAdd={(draft) => {
-            pending.current = { ...draft, color: TOKEN_COLORS[Object.keys(state.tokens).length % TOKEN_COLORS.length] };
+            // A creature brings its own colour; otherwise the next one from the palette.
+            pending.current = { ...draft, color: draft.color ?? TOKEN_COLORS[Object.keys(state.tokens).length % TOKEN_COLORS.length] };
             setOpen(false);
           }}
         />
@@ -75,6 +78,7 @@ function AddToken(props: {
   players: { id: string; displayName: string }[];
   token: string;
   hasLibrary: boolean;
+  defaultColor: string;
   /** The form is complete; the token is created once the GM picks its square on the board. */
   onAdd: (draft: TokenDraft) => void;
 }) {
@@ -87,6 +91,10 @@ function AddToken(props: {
   const [maxHp, setMaxHp] = useState("");
   const [ac, setAc] = useState("");
   const [image, setImage] = useState<TokenImage | null>(null);
+  /** Starts with the next palette colour, editable or replaced by a creature (KAN-70). */
+  const [color, setColor] = useState(props.defaultColor);
+  const [conditions, setConditions] = useState<ConditionId[]>([]);
+  const [count, setCount] = useState("1");
   const [picking, setPicking] = useState(false);
   const [pickingCreature, setPickingCreature] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -120,6 +128,7 @@ function AddToken(props: {
             size: Number(size), rotation: Number(rotation),
             stats: defaults,
             imageUrl: image?.url ?? null, assetId: image?.assetId ?? null,
+            color, conditions, count: Number(count),
           });
         }}
       >
@@ -146,6 +155,20 @@ function AddToken(props: {
             Duplicate names are numbered automatically, e.g. Goblin 2.
           </span>
         </label>
+        {/* Several at once are one action: numbered, on the nearest free squares (KAN-70). */}
+        <label className="add-token-count">
+          How many
+          <input type="number" value={count} onChange={(e) => setCount(e.target.value)} required min="1" max={MAX_TOKENS_PER_CREATE} step="1" />
+        </label>
+        <label>
+          Colour without art
+          <input type="color" value={color} onInput={(e) => setColor(e.currentTarget.value)} onChange={(e) => setColor(e.target.value)} />
+        </label>
+        {/* A creature fills these in; the GM can change them before placing (KAN-70). */}
+        <details className="add-token-conditions" open={conditions.length > 0}>
+          <summary>Starting conditions{conditions.length > 0 ? `: ${conditions.map((c) => conditionSpec(c).label).join(", ")}` : ""}</summary>
+          <ConditionPicker value={conditions} onChange={setConditions} />
+        </details>
         {/* Blank HP and AC fall back to the defaults shown as placeholders (token-stat-defaults). */}
         <div className="token-setup-grid">
           <label>HP<input type="number" value={hp} onChange={(e) => setHp(e.target.value)} min="-999" max="9999" step="1" placeholder={String(defaults.hp)} /></label>
@@ -168,7 +191,7 @@ function AddToken(props: {
           <span className="field-label">Image</span>
           {image ? (
             <div className="row token-image-chosen">
-              <TokenPreview url={image.url} color={DEFAULT_TOKEN_COLOR} hidden={hidden} />
+              <TokenPreview url={image.url} color={color ?? DEFAULT_TOKEN_COLOR} hidden={hidden} />
               <span className="token-name" title={image.label}>{image.label}</span>
               <button type="button" className="link" onClick={() => setImage(null)}>
                 Remove
@@ -228,6 +251,8 @@ function AddToken(props: {
               setMaxHp(draft.stats.maxHp === null ? "" : String(draft.stats.maxHp));
               setAc(draft.stats.ac === null ? "" : String(draft.stats.ac));
               setImage(draft.image && { ...draft.image, label: creature.name });
+              setColor(draft.color);
+              setConditions(draft.conditions);
               setPickingCreature(false);
             }}
           />

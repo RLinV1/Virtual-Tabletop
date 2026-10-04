@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { Command } from "./commands";
+import { Command, DEFAULT_TOKEN_COLOR } from "./commands";
 import { CommittedEvent } from "./events";
 import { GridSpec, Point } from "./geometry";
-import { TokenStats } from "./conditions";
+import { TokenStats, type ConditionId } from "./conditions";
 import { AreaShape, Id, Participant, Token, type RoomState } from "./state";
 import type { RejectionCode } from "./decide";
 
@@ -231,6 +231,10 @@ export const CreatureFields = z.object({
   size: Token.shape.size,
   maxHp: TokenStats.shape.maxHp,
   ac: TokenStats.shape.ac,
+  /** The disc colour its tokens get when they have no image (KAN-70). */
+  color: Token.shape.color,
+  /** Conditions its tokens start with, e.g. Prone (KAN-70). No duplicates. */
+  conditions: Token.shape.conditions.refine((c) => new Set(c).size === c.length, { message: "A condition is listed twice" }),
   /** The GM's own token art, or null for a plain colour disc. */
   imageAssetId: z.uuid().nullable(),
 });
@@ -239,6 +243,8 @@ export const CreateCreatureRequest = CreatureFields.extend({
   size: Token.shape.size.default(1),
   maxHp: TokenStats.shape.maxHp.default(null),
   ac: TokenStats.shape.ac.default(null),
+  color: Token.shape.color.default(DEFAULT_TOKEN_COLOR),
+  conditions: CreatureFields.shape.conditions.default([]),
   imageAssetId: z.uuid().nullable().default(null),
 });
 export type CreateCreatureRequest = z.infer<typeof CreateCreatureRequest>;
@@ -254,6 +260,8 @@ export interface LibraryCreature {
   size: number;
   maxHp: number | null;
   ac: number | null;
+  color: string;
+  conditions: ConditionId[];
   imageAssetId: string | null;
   /** Resolved from the linked token art; null when there is none or it was deleted. */
   imageUrl: string | null;
