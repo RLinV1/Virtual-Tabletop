@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { ChatCircleText, X } from "@phosphor-icons/react";
 import { MAX_CHAT_LENGTH, type ChatMessage, type RoomState } from "@vtt/shared";
 import { useRoomSnapshot, type RoomConnection } from "../net/roomConnection";
-import { PanelSection } from "../ui/PanelSection";
 
 /** The committed time in the viewer's locale, or empty when the message has none (KAN-75). */
 function timeLabel(at: string | null): string {
@@ -10,7 +10,8 @@ function timeLabel(at: string | null): string {
 }
 
 /**
- * Room chat (KAN-75, ADR 0015): the most recent messages, oldest first, and a box to add one.
+ * Room chat (KAN-75, ADR 0015): a floating button at the bottom right of the screen that opens a
+ * popup with the most recent messages, oldest first, and a box to add one.
  *
  * Message text is rendered as plain React children, never as markup. The input's `maxLength`
  * is only a hint; the server validates the text and sets the sender, so nothing here decides
@@ -21,14 +22,22 @@ export function ChatPanel({ connection, state }: { connection: RoomConnection; s
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
+  /** Messages seen so far; anything beyond this count while closed is unread. */
+  const [seen, setSeen] = useState(state.chat.length);
   const log = useRef<HTMLUListElement>(null);
   const newest = state.chat.at(-1)?.id;
+  const unread = open ? 0 : Math.max(0, state.chat.length - seen);
 
   // Keep the newest message in view when one arrives, and on first show.
   useEffect(() => {
     const el = log.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [newest]);
+  }, [newest, open]);
+
+  useEffect(() => {
+    if (open) setSeen(state.chat.length);
+  }, [open, state.chat.length]);
 
   const online = status === "open";
   const canSend = online && !busy && text.trim() !== "";
@@ -50,7 +59,15 @@ export function ChatPanel({ connection, state }: { connection: RoomConnection; s
   };
 
   return (
-    <PanelSection id="chat" title="Chat">
+    <div className="chat-widget" data-tour="chat">
+      {open && (
+        <section className="chat-popup" aria-label="Chat">
+          <header className="chat-popup-header">
+            <h2>Chat</h2>
+            <button type="button" className="icon-button" aria-label="Close chat" onClick={() => setOpen(false)}>
+              <X size={16} aria-hidden />
+            </button>
+          </header>
       {state.chat.length === 0 ? (
         <p className="muted">No messages yet.</p>
       ) : (
@@ -80,7 +97,19 @@ export function ChatPanel({ connection, state }: { connection: RoomConnection; s
         </div>
         {error && <p id="chat-error" role="alert" className="error">{error}</p>}
       </form>
-    </PanelSection>
+        </section>
+      )}
+      <button
+        type="button"
+        className="chat-fab"
+        aria-label={unread > 0 ? `Chat, ${unread} unread` : "Chat"}
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <ChatCircleText size={24} weight="fill" aria-hidden />
+        {unread > 0 && <span className="chat-badge" aria-hidden>{unread > 9 ? "9+" : unread}</span>}
+      </button>
+    </div>
   );
 }
 
