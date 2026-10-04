@@ -29,10 +29,13 @@ export function InitiativeTracker({
   const tokens = Object.values(state.tokens);
   const [scores, setScores] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  /** Tokens whose typed score the last Start refused, so their fields can say so. */
+  const [invalidIds, setInvalidIds] = useState<string[]>([]);
   const [setupOpen, setSetupOpen] = useState(false);
 
   const start = async () => {
     const invalid = invalidInitiative(scores, tokens);
+    setInvalidIds(invalid.map((t) => t.id));
     if (invalid.length > 0) {
       return setError(`Initiative must be a whole number from -99 to 999: ${invalid.map((t) => (tokens.find((x) => x.id === t.id)?.name ?? "token")).join(", ")}`);
     }
@@ -89,18 +92,23 @@ export function InitiativeTracker({
                   </label>
                   <input
                     id={`init-${t.id}`}
+                    aria-invalid={invalidIds.includes(t.id) || undefined}
+                    aria-describedby={invalidIds.includes(t.id) ? "init-error" : undefined}
                     type="number"
                     inputMode="numeric"
                     placeholder="Init"
                     autoFocus={i === 0}
                     value={initiativeFieldValue(scores, t)}
-                    onChange={(e) => setScores((s) => ({ ...s, [t.id]: e.target.value }))}
+                    onChange={(e) => {
+                      setScores((s) => ({ ...s, [t.id]: e.target.value }));
+                      setInvalidIds((ids) => ids.filter((id) => id !== t.id));
+                    }}
                     aria-label={`Initiative for ${t.name}`}
                   />
                 </li>
               ))}
             </ul>
-            {error && <p role="alert" className="error">{error}</p>}
+            {error && <p id="init-error" role="alert" className="error">{error}</p>}
             <button type="submit">Start encounter</button>
           </form>
         </Modal>
