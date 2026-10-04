@@ -15,6 +15,7 @@ import { readySkin, tableSkin, usePreloadTableLooks, useShowOthersDice } from ".
 import { ensureSeat } from "../net/seats";
 import { KeepSeatNotice } from "../ui/KeepSeatNotice";
 import { RoomConnection, useRoomSnapshot, type ConnectionStatus } from "../net/roomConnection";
+import { ChatPanel } from "../panels/ChatPanel";
 import { PanelTabs, RoomPanel, isTabId, type TabBadges, type TabId } from "../panels/RoomPanel";
 import { trayRoll, type RollThrow } from "../panels/DicePanel";
 import { outcomeKey, pendingRulings } from "../panels/attackRoll";
@@ -602,6 +603,8 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
           </SectionCollapseProvider>
         </div>
       </aside>
+      {/* Read-only while previewing: the same refusing connection and the viewed player's state. */}
+      <ChatPanel connection={shownConnection} state={shownState!} />
       {preview && <PreviewBanner name={preview.you.displayName} onExit={() => setViewAs(null)} />}
       {guideOpen && <GuideTour role={you.role} onClose={closeGuide} />}
       {you.role === "gm" && (
