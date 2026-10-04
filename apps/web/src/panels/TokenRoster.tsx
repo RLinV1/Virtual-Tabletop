@@ -385,7 +385,7 @@ export function TokenEditor({
                 <input type="file" className="sr-only" accept="image/png,image/jpeg,image/webp" disabled={uploading}
                   onChange={(e) => void onUpload(e.target.files?.[0])} />
               </label>
-              {hasLibrary && <button type="button" className="secondary" disabled={uploading} onClick={() => setPicking(true)}>From library</button>}
+              <button type="button" className="secondary" disabled={uploading} onClick={() => setPicking(true)}>{hasLibrary ? "From library" : "Built-in art"}</button>
             </div>
           </div>
         </details>
@@ -461,7 +461,7 @@ export function TokenEditor({
       </Modal>
     )}
     <span role="status" className="sr-only">{creatureStatus}</span>
-    {isGm && hasLibrary && (
+    {isGm && (
       <Modal open={picking} title="Choose a token image" onClose={() => setPicking(false)}>
         <LibraryPicker kind="token" onPick={(asset) => {
           setImage({ url: asset.url, assetId: libraryAssetId(asset) });
