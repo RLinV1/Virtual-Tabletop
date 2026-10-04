@@ -1,0 +1,509 @@
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { motion } from "framer-motion";
+import Particles, { initParticlesEngine } from "@tsparticles/react";
+import { loadSlim } from "@tsparticles/slim";
+import type { ConditionId, RoomState, Token } from "@vtt/shared";
+import type { BoardTransform } from "./diceThrow";
+import {
+  CONDITION_GLOW,
+  CONDITION_VISUALS,
+  IMPACT_S,
+  SPARK_REACH,
+  STRIKE_FLIGHT_S,
+  conditionParticleOptions,
+  particleBox,
+  particleConditions,
+  pickEmitterTokens,
+  sparkVectors,
+} from "./effectPresets";
+import { attackPlan, prefersReducedMotion, watchReducedMotion, type AttackEffect } from "./effects";
+
+/** An attack effect the overlay is playing, until its plan duration is over. */
+export interface OverlayEffect {
+  id: number;
+  effect: AttackEffect;
+}
+
+/** The board's token radius, matching `drawToken`: the edge of the disc, in board pixels. */
+const radiusOf = (token: Token, cellSize: number) => (token.size * cellSize) / 2 - 2;
+
+let engineReady: Promise<void> | null = null;
+/** The particle engine, started once for the whole page with only the slim feature set. */
+function useParticleEngine(wanted: boolean): boolean {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    if (!wanted) return;
+    engineReady ??= initParticlesEngine(loadSlim);
+    let live = true;
+    engineReady.then(() => live && setReady(true), () => {});
+    return () => {
+      live = false;
+    };
+  }, [wanted]);
+  return ready;
+}
+
+function useReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(prefersReducedMotion);
+  useEffect(() => watchReducedMotion(setReduced), []);
+  return reduced;
+}
+
+/**
+ * Attack and condition effects (board-effects-overlay): a DOM layer over the Pixi canvas. Its one
+ * inner element follows the board's world transform, so everything inside sits in board
+ * coordinates and pans and zooms with the map. It reads only the viewer's own state, takes no
+ * input, and is hidden from assistive technology: badges and the activity log say the same things.
+ */
+export default function EffectsOverlay({
+  state,
+  effects,
+  subscribe,
+  onDone,
+  isGm,
+}: {
+  state: RoomState;
+  effects: OverlayEffect[];
+  /** Follow the board's world transform; returns the unsubscribe. */
+  subscribe: (fn: (view: BoardTransform) => void) => () => void;
+  /** An effect's time is up and it can go. */
+  onDone: (id: number) => void;
+  isGm: boolean;
+}) {
+  const root = useRef<HTMLDivElement>(null);
+  const world = useRef<HTMLDivElement>(null);
+  const reduced = useReducedMotion();
+  /** The board point at the middle of the view, for ranking which tokens get particles. */
+  const [centre, setCentre] = useState({ x: 0, y: 0 });
+  const lastCentre = useRef(0);
+  const cell = state.scene.grid.cellSize;
+
+  useLayoutEffect(
+    () =>
+      subscribe((view) => {
+        if (world.current) world.current.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.scale})`;
+        const now = performance.now();
+        const el = root.current;
+        // Recomputed at most every 250 ms while the view moves.
+        if (!el || now - lastCentre.current < 250) return;
+        lastCentre.current = now;
+        setCentre({ x: (el.clientWidth / 2 - view.x) / view.scale, y: (el.clientHeight / 2 - view.y) / view.scale });
+      }),
+    [subscribe],
+  );
+
+  // Only tokens in the viewer's own state, and never one hidden from a player.
+  const visible = useMemo(
+    () => Object.values(state.tokens).filter((t) => isGm || !t.hidden),
+    [state.tokens, isGm],
+  );
+  const conditioned = useMemo(() => visible.filter((t) => t.conditions.length > 0), [visible]);
+  const withParticles = useMemo(
+    () => pickEmitterTokens(conditioned.filter((t) => particleConditions(t.conditions).length > 0), centre),
+    [conditioned, centre],
+  );
+  const particleTokens = useMemo(() => new Set(withParticles.map((t) => t.id)), [withParticles]);
+  const engine = useParticleEngine(!reduced && withParticles.length > 0);
+
+  return (
+    <div ref={root} className="effects-overlay" aria-hidden="true">
+      <div ref={world} className="effects-overlay-world">
+        {conditioned.map((token) => (
+          <ConditionLayer
+            key={token.id}
+            token={token}
+            radius={radiusOf(token, cell)}
+            particles={engine && particleTokens.has(token.id)}
+            reduced={reduced}
+          />
+        ))}
+        {effects.map((e) => (
+          <AttackEffectView key={e.id} entry={e} state={state} cell={cell} reduced={reduced} isGm={isGm} onDone={onDone} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------- conditions ----------
+
+function ConditionLayer({ token, radius, particles, reduced }: { token: Token; radius: number; particles: boolean; reduced: boolean }) {
+  const style: CSSProperties = { left: token.position.x, top: token.position.y };
+  return (
+    <div className="effects-anchor" style={style}>
+      {token.conditions.map((id) => (
+        <ConditionVisualView key={id} id={id} radius={radius} particles={particles} reduced={reduced} />
+      ))}
+    </div>
+  );
+}
+
+function ConditionVisualView({ id, radius, particles, reduced }: { id: ConditionId; radius: number; particles: boolean; reduced: boolean }) {
+  const visual = CONDITION_VISUALS[id];
+  switch (visual.kind) {
+    case "particles":
+      return particles ? <TokenParticles id={id} radius={radius} /> : null;
+    case "ring":
+      return (
+        <motion.div
+          className="effects-ring"
+          style={{
+            width: radius * 2 + 10,
+            height: radius * 2 + 10,
+            marginLeft: -radius - 5,
+            marginTop: -radius - 5,
+            borderColor: visual.color,
+            borderStyle: visual.dashed ? "dashed" : "solid",
+            borderWidth: Math.max(2, radius * 0.07),
+            boxShadow: `0 0 ${radius * 0.4}px ${visual.color}`,
+          }}
+          animate={reduced || !visual.pulse ? undefined : { scale: [1, 1.07, 1], opacity: [0.65, 1, 0.65] }}
+          transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
+        />
+      );
+    case "text":
+      return (
+        <motion.span
+          className="effects-text"
+          style={{ left: radius * 0.4, top: -radius * 1.5, fontSize: radius * 0.8, color: visual.color }}
+          animate={reduced ? undefined : { y: [0, -radius * 0.4, 0], opacity: [0.5, 1, 0.5], rotate: [-6, 6, -6] }}
+          transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
+        >
+          {visual.text}
+        </motion.span>
+      );
+    case "veil":
+      return (
+        <div
+          className="effects-veil"
+          style={{ width: radius * 2, height: radius, marginLeft: -radius, marginTop: -radius, borderRadius: `${radius}px ${radius}px 0 0` }}
+        />
+      );
+    case "none":
+      return null;
+  }
+}
+
+/** One token's particles, in a small canvas of their own so they cost nothing elsewhere on the board. */
+function TokenParticles({ id, radius }: { id: ConditionId; radius: number }) {
+  // Fixed for as long as the condition and the token's size stay: a new object reloads the canvas.
+  const options = useMemo(() => conditionParticleOptions(id, radius, false), [id, radius]);
+  const key = useParticleKey();
+  const box = particleBox(radius);
+  const glow = CONDITION_GLOW[id];
+  if (!options) return null;
+  return (
+    <>
+      {glow && (
+        <motion.div
+          className="effects-glow"
+          style={{ width: radius * 2.6, height: radius * 2.6, marginLeft: -radius * 1.3, marginTop: -radius * 1.3, background: `radial-gradient(circle, ${glow}, transparent 70%)` }}
+          animate={{ opacity: [0.5, 1, 0.5] }}
+          transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+        />
+      )}
+      <Particles
+        id={`fx-${id}-${Math.round(radius)}-${key}`}
+        options={options}
+        style={{ position: "absolute", left: box.offsetX, top: box.offsetY, width: box.width, height: box.height }}
+      />
+    </>
+  );
+}
+
+/** A unique number for each mounted canvas: tsparticles finds its element by id. */
+let nextParticleKey = 0;
+function useParticleKey(): number {
+  const key = useRef<number | null>(null);
+  key.current ??= nextParticleKey++;
+  return key.current;
+}
+
+// ---------- attacks ----------
+
+function AttackEffectView({
+  entry,
+  state,
+  cell,
+  reduced,
+  isGm,
+  onDone,
+}: {
+  entry: OverlayEffect;
+  state: RoomState;
+  cell: number;
+  reduced: boolean;
+  isGm: boolean;
+  onDone: (id: number) => void;
+}) {
+  const { effect, id } = entry;
+  const plan = attackPlan(effect, reduced);
+  useEffect(() => {
+    const timer = window.setTimeout(() => onDone(id), plan.durationMs);
+    return () => window.clearTimeout(timer);
+  }, [id, plan.durationMs, onDone]);
+
+  const find = (tokenId: string) => {
+    const token = state.tokens[tokenId];
+    // A token that left the viewer's state, or is hidden from a player, ends the effect at once.
+    return token && (isGm || !token.hidden) ? token : null;
+  };
+  const target = find(effect.kind === "strike" ? effect.toId : effect.tokenId);
+  const source = effect.kind === "strike" ? find(effect.fromId) : null;
+  if (!target || (effect.kind === "strike" && !source)) return null;
+  const r = radiusOf(target, cell);
+  const at = target.position;
+
+  switch (effect.kind) {
+    case "strike":
+      return <Strike from={source!.position} to={at} r={r} reduced={reduced} />;
+    case "hit":
+      return <Hit at={at} r={r} seed={id} reduced={reduced} />;
+    case "miss":
+      return <Miss at={at} r={r} reduced={reduced} />;
+    case "damage":
+      return <Damage at={at} r={r} amount={effect.amount} reduced={reduced} />;
+  }
+}
+
+/** Embers shed behind the projectile: a delay in flight time, and a sideways drift in orb widths. */
+const EMBERS = [
+  { lag: 0.04, drift: 0.8 }, { lag: 0.08, drift: -1.1 }, { lag: 0.12, drift: 1.5 }, { lag: 0.16, drift: -0.6 },
+  { lag: 0.2, drift: 1.0 }, { lag: 0.24, drift: -1.4 }, { lag: 0.28, drift: 0.5 }, { lag: 0.32, drift: -0.9 },
+];
+
+function Strike({ from, to, r, reduced }: { from: { x: number; y: number }; to: { x: number; y: number }; r: number; reduced: boolean }) {
+  if (reduced) return <Marker at={to} r={r} color="#fbbf24" />;
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const dist = Math.hypot(dx, dy) || 1;
+  const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+  const nx = -dy / dist;
+  const ny = dx / dist;
+  const dot = Math.max(12, r * 0.42);
+  const beam = Math.max(4, r * 0.14);
+  return (
+    <>
+      {/* Muzzle flash at the attacker. */}
+      <motion.div
+        className="effects-orb"
+        style={{ left: from.x, top: from.y, width: r * 1.6, height: r * 1.6, marginLeft: -r * 0.8, marginTop: -r * 0.8, background: "radial-gradient(circle, #fff, rgba(251, 191, 36, 0.8) 40%, rgba(251, 191, 36, 0) 70%)" }}
+        initial={{ scale: 0.2, opacity: 1 }}
+        animate={{ scale: 1.4, opacity: 0 }}
+        transition={{ duration: 0.3, ease: "easeOut" }}
+      />
+      {/* A hot streak that lashes from attacker to target and fades. */}
+      <motion.div
+        className="effects-beam"
+        style={{ left: from.x, top: from.y, width: dist, height: beam, marginTop: -beam / 2, rotate: angle, transformOrigin: "0 50%" }}
+        initial={{ scaleX: 0, opacity: 1 }}
+        animate={{ scaleX: [0, 1, 1], opacity: [1, 1, 0] }}
+        transition={{ duration: STRIKE_FLIGHT_S + 0.2, ease: "easeOut", times: [0, 0.55, 1] }}
+      />
+      {EMBERS.map(({ lag, drift }, i) => (
+        <motion.div
+          key={i}
+          className="effects-orb"
+          style={{ left: from.x, top: from.y, width: dot * 0.45, height: dot * 0.45, marginLeft: -dot * 0.225, marginTop: -dot * 0.225, background: i % 2 ? "#fde047" : "#fb923c", boxShadow: `0 0 ${dot * 0.8}px #f97316` }}
+          initial={{ x: 0, y: 0, opacity: 0 }}
+          animate={{ x: dx + nx * dot * drift, y: dy + ny * dot * drift, opacity: [0, 0.95, 0], scale: [1, 0.8, 0.2] }}
+          transition={{ duration: STRIKE_FLIGHT_S + 0.15, delay: lag, ease: "easeIn", times: [0, 0.4, 1] }}
+        />
+      ))}
+      <motion.div
+        className="effects-orb"
+        style={{ left: from.x, top: from.y, width: dot, height: dot, marginLeft: -dot / 2, marginTop: -dot / 2, background: "radial-gradient(circle, #fff 20%, #fde047 45%, #f97316 75%)", boxShadow: `0 0 ${dot * 2}px ${dot * 0.8}px rgba(249, 115, 22, 0.9)` }}
+        initial={{ x: 0, y: 0, scale: 0.6 }}
+        animate={{ x: dx, y: dy, scale: [0.6, 1.5, 1.2] }}
+        transition={{ duration: STRIKE_FLIGHT_S, ease: [0.5, 0, 0.9, 0.6] }}
+      />
+      <Impact at={to} r={r} seed={3} delay={STRIKE_FLIGHT_S} palette={["#fff7ed", "#fde047", "#fb923c", "#ef4444"]} count={16} slashes={false} />
+    </>
+  );
+}
+
+/**
+ * A layered impact: white core flash, two shockwave rings, a ring of sparks with long and short
+ * rays, tumbling shards, and optional crossed slash marks. All of it plays inside `IMPACT_S`.
+ */
+function Impact({ at, r, seed, delay, palette, count, slashes }: { at: { x: number; y: number }; r: number; seed: number; delay: number; palette: string[]; count: number; slashes: boolean }) {
+  const sparks = useMemo(() => sparkVectors(count, seed), [count, seed]);
+  const shards = useMemo(() => sparkVectors(7, seed + 5), [seed]);
+  const size = Math.max(5, r * 0.15);
+  const ringWidth = Math.max(2, r * 0.09);
+  const accent = palette[2]!;
+  return (
+    <>
+      <motion.div
+        className="effects-orb"
+        style={{ left: at.x, top: at.y, width: r * 2.4, height: r * 2.4, marginLeft: -r * 1.2, marginTop: -r * 1.2, background: `radial-gradient(circle, ${palette[0]}, ${accent}55 45%, transparent 70%)` }}
+        initial={{ scale: 0.2, opacity: 0 }}
+        animate={{ scale: [0.2, 1.1, 1.5], opacity: [0, 1, 0] }}
+        transition={{ duration: IMPACT_S, delay, ease: "easeOut", times: [0, 0.25, 1] }}
+      />
+      {[0, 0.08].map((extra, i) => (
+        <motion.div
+          key={i}
+          className="effects-ring"
+          style={{ left: at.x, top: at.y, width: r * 2, height: r * 2, marginLeft: -r, marginTop: -r, borderColor: palette[i + 1], borderWidth: ringWidth * (i ? 0.6 : 1.2), boxShadow: `0 0 ${r * 0.3}px ${palette[i + 1]}` }}
+          initial={{ scale: 0.3, opacity: 0 }}
+          animate={{ scale: [0.3, 1.7 + i * 0.5], opacity: [1, 0] }}
+          transition={{ duration: IMPACT_S, delay: delay + extra, ease: "easeOut" }}
+        />
+      ))}
+      {slashes &&
+        [-38, 38].map((deg, i) => (
+          <motion.div
+            key={deg}
+            className="effects-slash"
+            style={{ left: at.x, top: at.y, width: r * 2.8, height: Math.max(4, r * 0.14), marginLeft: -r * 1.4, marginTop: -r * 0.07, rotate: deg }}
+            initial={{ scaleX: 0, opacity: 1 }}
+            animate={{ scaleX: [0, 1, 1], opacity: [1, 1, 0] }}
+            transition={{ duration: IMPACT_S, delay: delay + i * 0.07, ease: "easeOut", times: [0, 0.35, 1] }}
+          />
+        ))}
+      {sparks.map((v, i) => {
+        const reach = r * 1.9 * SPARK_REACH[i % SPARK_REACH.length]!;
+        const color = palette[i % palette.length]!;
+        return (
+          <motion.div
+            key={i}
+            className="effects-orb"
+            style={{ left: at.x, top: at.y, width: size, height: size, marginLeft: -size / 2, marginTop: -size / 2, background: color, boxShadow: `0 0 ${size * 2.5}px ${color}` }}
+            initial={{ x: 0, y: 0, opacity: 0, scale: 1 }}
+            animate={{ x: v.x * reach, y: v.y * reach + r * 0.25, opacity: [0, 1, 0], scale: [1, 1.4, 0.1] }}
+            transition={{ duration: IMPACT_S * 1.1, delay, ease: "easeOut" }}
+          />
+        );
+      })}
+      {shards.map((v, i) => {
+        const reach = r * (1.1 + (i % 3) * 0.3);
+        return (
+          <motion.div
+            key={`s${i}`}
+            className="effects-shard"
+            style={{ left: at.x, top: at.y, width: size * 1.6, height: size * 0.7, marginLeft: -size * 0.8, marginTop: -size * 0.35, background: palette[(i + 1) % palette.length] }}
+            initial={{ x: 0, y: 0, opacity: 0, rotate: 0 }}
+            animate={{ x: v.x * reach, y: v.y * reach + r * 0.5, opacity: [0, 1, 0], rotate: (i % 2 ? 1 : -1) * 320 }}
+            transition={{ duration: IMPACT_S * 1.2, delay, ease: "easeOut" }}
+          />
+        );
+      })}
+    </>
+  );
+}
+
+function Hit({ at, r, seed, reduced }: { at: { x: number; y: number }; r: number; seed: number; reduced: boolean }) {
+  if (reduced) return <Marker at={at} r={r} color="#ef4444" />;
+  return (
+    <>
+      {/* A red flash over the whole token, then the layered impact. */}
+      <motion.div
+        className="effects-orb"
+        style={{ left: at.x, top: at.y, width: r * 2, height: r * 2, marginLeft: -r, marginTop: -r, background: "#ef4444", mixBlendMode: "screen" }}
+        initial={{ opacity: 0.85, scale: 1 }}
+        animate={{ opacity: [0.85, 0.2, 0.6, 0], scale: [1, 1.15, 1.05, 1.2] }}
+        transition={{ duration: 0.45, ease: "easeOut", times: [0, 0.2, 0.4, 1] }}
+      />
+      <Impact at={at} r={r} seed={seed} delay={0} palette={["#ffffff", "#fecaca", "#ef4444", "#b91c1c"]} count={18} slashes />
+    </>
+  );
+}
+
+function Miss({ at, r, reduced }: { at: { x: number; y: number }; r: number; reduced: boolean }) {
+  if (reduced) return <Marker at={at} r={r} color="#cbd5e1" label="Miss" />;
+  const size = r * 2.6;
+  return (
+    <>
+      {[0, 1].map((i) => {
+        const s = size * (1 - i * 0.18);
+        return (
+          <motion.div
+            key={i}
+            className="effects-whiff"
+            style={{ left: at.x, top: at.y, width: s, height: s, marginLeft: -s / 2, marginTop: -s / 2, borderWidth: Math.max(3, r * (0.14 - i * 0.05)), borderColor: i ? "#94a3b8 transparent transparent transparent" : undefined }}
+            initial={{ rotate: -150 + i * 40, opacity: 0, scale: 0.8 }}
+            animate={{ rotate: 70, opacity: [0, 1, 0], scale: [0.8, 1.15, 1.3] }}
+            transition={{ duration: 0.6, delay: i * 0.06, ease: "easeOut" }}
+          />
+        );
+      })}
+      {/* Dust kicked up where the blow lands short. */}
+      {[-1, 0, 1].map((side) => (
+        <motion.div
+          key={side}
+          className="effects-orb"
+          style={{ left: at.x, top: at.y + r * 0.6, width: r * 0.5, height: r * 0.5, marginLeft: -r * 0.25, marginTop: -r * 0.25, background: "radial-gradient(circle, rgba(226, 232, 240, 0.8), transparent 70%)" }}
+          initial={{ x: 0, y: 0, opacity: 0, scale: 0.4 }}
+          animate={{ x: side * r * 1.1, y: -r * 0.2, opacity: [0, 0.9, 0], scale: [0.4, 1.3, 1.8] }}
+          transition={{ duration: 0.7, delay: 0.1, ease: "easeOut" }}
+        />
+      ))}
+      <motion.span
+        className="effects-label effects-miss"
+        style={{ left: at.x, top: at.y - r, fontSize: Math.max(20, r * 0.7), color: "#e2e8f0" }}
+        initial={{ y: 0, opacity: 0, scale: 0.4, rotate: -8 }}
+        animate={{ y: -r * 0.9, opacity: [0, 1, 1, 0], scale: [0.4, 1.35, 1, 1], rotate: [-8, 5, -3, 0] }}
+        transition={{ duration: 0.85, ease: "easeOut", times: [0, 0.2, 0.7, 1] }}
+      >
+        MISS
+      </motion.span>
+    </>
+  );
+}
+
+function Damage({ at, r, amount, reduced }: { at: { x: number; y: number }; r: number; amount: number; reduced: boolean }) {
+  // Bigger blows get a bigger, hotter number.
+  const weight = Math.min(1, amount / 20);
+  const size = Math.max(28, r * (1.1 + weight * 0.7));
+  const color = weight > 0.6 ? "#ff3b2f" : weight > 0.3 ? "#ff6b3d" : "#ffb347";
+  if (reduced) {
+    return (
+      <span className="effects-label" style={{ left: at.x, top: at.y - r, fontSize: size, color }}>
+        −{amount}
+      </span>
+    );
+  }
+  return (
+    <>
+      <motion.div
+        className="effects-orb"
+        style={{ left: at.x, top: at.y - r, width: size * 3, height: size * 3, marginLeft: -size * 1.5, marginTop: -size * 1.5, background: `radial-gradient(circle, ${color}aa, transparent 65%)` }}
+        initial={{ scale: 0.2, opacity: 0 }}
+        animate={{ scale: [0.2, 1, 1.3], opacity: [0, 0.9, 0] }}
+        transition={{ duration: 0.6, ease: "easeOut" }}
+      />
+      <motion.span
+        className="effects-label effects-damage"
+        style={{ left: at.x, top: at.y - r, fontSize: size, color }}
+        initial={{ y: 0, scale: 0.2, opacity: 0, rotate: -10 }}
+        animate={{
+          y: [0, -r * 0.2, -r * 1.5],
+          scale: [0.2, 1.8, 1.1, 1.1],
+          opacity: [0, 1, 1, 0],
+          rotate: [-10, 6, -2, 0],
+        }}
+        transition={{ duration: 1.4, ease: "easeOut", times: [0, 0.15, 0.7, 1] }}
+      >
+        −{amount}
+      </motion.span>
+    </>
+  );
+}
+
+/** A still marker on the target for reduced motion: it appears and goes with the plan's duration. */
+function Marker({ at, r, color, label }: { at: { x: number; y: number }; r: number; color: string; label?: string }) {
+  return (
+    <>
+      <div
+        className="effects-ring"
+        style={{ left: at.x, top: at.y, width: r * 2.2, height: r * 2.2, marginLeft: -r * 1.1, marginTop: -r * 1.1, borderColor: color, borderWidth: 4 }}
+      />
+      {label && (
+        <span className="effects-label" style={{ left: at.x, top: at.y - r, fontSize: Math.max(16, r * 0.5), color }}>
+          {label}
+        </span>
+      )}
+    </>
+  );
+}

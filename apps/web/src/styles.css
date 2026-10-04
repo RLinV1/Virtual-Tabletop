@@ -597,6 +597,21 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 /* Dice thrown onto the map (throw-dice-on-board). The world layer follows the board's pan and
    zoom; the dice are placed in it in board pixels. Nothing here takes the pointer. */
 .thrown-dice { position: absolute; inset: 0; z-index: 1; overflow: hidden; pointer-events: none; }
+/* Attack and condition effects (board-effects-overlay): above the canvas, never takes input. */
+.effects-overlay { position: absolute; inset: 0; z-index: 2; overflow: hidden; pointer-events: none; }
+.effects-overlay-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.effects-overlay * { pointer-events: none; }
+.effects-anchor { position: absolute; width: 0; height: 0; }
+.effects-ring { position: absolute; border-radius: 50%; border-style: solid; border-color: currentColor; box-sizing: border-box; background: transparent; }
+.effects-glow, .effects-orb { position: absolute; border-radius: 50%; }
+.effects-veil { position: absolute; background: rgba(0, 0, 0, 0.55); }
+.effects-text, .effects-label { position: absolute; font-weight: 800; line-height: 1; white-space: nowrap; transform: translateX(-50%); text-shadow: 0 0 6px rgba(0, 0, 0, 0.9), 0 2px 0 rgba(0, 0, 0, 0.8); }
+.effects-damage { -webkit-text-stroke: 3px rgba(0, 0, 0, 0.85); paint-order: stroke fill; }
+.effects-beam { position: absolute; border-radius: 999px; background: linear-gradient(90deg, rgba(251, 146, 60, 0), #fde047 40%, #fff); box-shadow: 0 0 14px 4px rgba(249, 115, 22, 0.8); }
+.effects-slash { position: absolute; border-radius: 999px; background: linear-gradient(90deg, rgba(255, 255, 255, 0), #fff 30%, #fecaca 70%, rgba(239, 68, 68, 0)); box-shadow: 0 0 10px 2px rgba(239, 68, 68, 0.9); }
+.effects-shard { position: absolute; clip-path: polygon(0 50%, 40% 0, 100% 40%, 60% 100%); }
+.effects-miss { letter-spacing: 0.12em; }
+.effects-whiff { position: absolute; border-radius: 50%; border-style: solid; border-color: #e2e8f0 transparent transparent transparent; box-sizing: border-box; }
 .thrown-dice-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 .thrown-dice-roll { --die-shadow: rgba(0, 0, 0, 0.55); }
 .thrown-dice-roll .die3d-slot { position: absolute; }

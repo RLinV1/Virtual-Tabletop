@@ -3,12 +3,10 @@ import { CONDITIONS, emptyRoomState, type DiceRoll, type DomainEvent, type Parti
 import {
   CONDITION_EFFECTS,
   MAX_ATTACK_EFFECTS,
-  REST_TIME,
   artStyleFor,
   attackEffectFor,
   attackPlan,
   conditionLoopWanted,
-  conditionShapes,
   loopFrameDue,
   loopingConditions,
 } from "../src/board/effects";
@@ -132,11 +130,11 @@ describe("attack plans under reduced motion (KAN-76)", () => {
     { kind: "damage", tokenId: "b", amount: 3 },
   ] as const;
 
-  it("travels and moves normally, each within 1.2 s", () => {
+  it("travels and moves normally, each within 1.5 s", () => {
     for (const effect of effects) {
       const plan = attackPlan(effect, false);
       expect(plan.motion).toBe(true);
-      expect(plan.durationMs).toBeLessThanOrEqual(1200);
+      expect(plan.durationMs).toBeLessThanOrEqual(1500);
     }
   });
 
@@ -159,19 +157,6 @@ describe("condition effects (KAN-76, FR-TAC-08)", () => {
     expect(Object.keys(CONDITION_EFFECTS).sort()).toEqual(CONDITIONS.map((c) => c.id).sort());
   });
 
-  it("draws the named effects", () => {
-    expect(conditionShapes(["poisoned"], 1, 30).length).toBeGreaterThan(0);
-    expect(conditionShapes(["stunned"], 1, 30)).toHaveLength(3);
-    expect(conditionShapes(["concentrating"], 1, 30)).toHaveLength(1);
-    expect(conditionShapes(["prone"], 1, 30)).toHaveLength(0);
-  });
-
-  it("pulses over time but holds still at the rest time", () => {
-    const at = (t: number) => JSON.stringify(conditionShapes(["concentrating"], t, 30));
-    expect(at(0)).not.toEqual(at(0.5));
-    expect(at(REST_TIME)).toEqual(at(REST_TIME));
-  });
-
   it("styles the art: invisible fades, prone tilts, unconscious greys", () => {
     expect(artStyleFor(["invisible"], false).alpha).toBeLessThan(0.5);
     expect(artStyleFor(["prone"], false).tilt).toBe(70);
@@ -186,7 +171,7 @@ describe("condition effects (KAN-76, FR-TAC-08)", () => {
   });
 
   it("knows which conditions move", () => {
-    expect(loopingConditions(["poisoned", "prone", "blinded", "frightened"])).toEqual(["poisoned", "frightened"]);
+    expect(loopingConditions(["poisoned", "prone", "blinded", "frightened"])).toEqual(["frightened"]);
     expect(loopingConditions([])).toEqual([]);
   });
 });

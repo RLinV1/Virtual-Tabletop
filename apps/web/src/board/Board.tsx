@@ -1,15 +1,19 @@
 import { CornersOut } from "@phosphor-icons/react";
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
+import { Suspense, forwardRef, lazy, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
 import { DEFAULT_TOKEN_COLOR, EMPTY_STATS, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { DEFAULT_TOOL_OPTIONS, ToolRail, toolFor, type ToolOptions } from "../ui/ToolRail";
 import { canAnimateDice, type TrayRoll } from "../ui/Die3D";
 import { ThrownDice, type ActiveThrow } from "./ThrownDice";
 import { BoardView } from "./boardView";
-import { MAX_ATTACK_EFFECTS, attackEffectFor, type AttackEffect } from "./effects";
+import { MAX_ATTACK_EFFECTS, attackEffectFor, attackPlan, prefersReducedMotion, type AttackEffect } from "./effects";
+import type { OverlayEffect } from "./EffectsOverlay";
 import { boardDieSize, centreThrow, onMap, throwLanding, type BoardThrow, type BoardTransform } from "./diceThrow";
 import { autoPlacementPoint, type PlacementGhost, type TokenDraft } from "./placement";
 import type { BoardTool } from "./tools";
+
+/** Loaded when the first effect or condition needs it, so the board paints before the libraries arrive. */
+const EffectsOverlay = lazy(() => import("./EffectsOverlay"));
 
 interface Props {
   connection: RoomConnection;
@@ -131,6 +135,20 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     throwsRef.current = next;
     setThrows(next);
   };
+  /** Attack effects the React overlay is playing, oldest first (board-effects-overlay). */
+  const [overlayEffects, setOverlayEffects] = useState<OverlayEffect[]>([]);
+  const nextEffectId = useRef(0);
+  const dropEffect = useCallback((id: number) => setOverlayEffects((all) => (all.some((e) => e.id === id) ? all.filter((e) => e.id !== id) : all)), []);
+  /** The hit shake is the board's; everything else is the overlay's. */
+  const playEffect = (effect: AttackEffect) => {
+    viewRef.current?.playAttackEffect(effect);
+    const id = nextEffectId.current++;
+    setOverlayEffects((all) => [...all, { id, effect }].slice(-MAX_ATTACK_EFFECTS));
+    // Also removed here, so an effect that waited for the overlay to load never plays late.
+    window.setTimeout(() => dropEffect(id), attackPlan(effect, prefersReducedMotion()).durationMs + 300);
+  };
+  const playEffectRef = useRef(playEffect);
+  playEffectRef.current = playEffect;
   const followView = useCallback((fn: (view: BoardTransform) => void) => viewRef.current?.onViewChange(fn) ?? (() => {}), []);
   const throwDone = useCallback((rollId: string) => {
     const done = throwsRef.current.filter((t) => t.throw.rollId === rollId);
@@ -237,11 +255,11 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
         }
         const timer = window.setTimeout(() => {
           waitingStrikes.current.delete(rollId);
-          viewRef.current?.playAttackEffect(effect);
+          playEffectRef.current(effect);
         }, STRIKE_WAIT_MS);
         waitingStrikes.current.set(rollId, { effect, timer });
       } else {
-        viewRef.current?.playAttackEffect(effect);
+        playEffectRef.current(effect);
       }
     });
 
@@ -270,7 +288,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     if (!landedRollId || !strike) return;
     waiting.delete(landedRollId);
     window.clearTimeout(strike.timer);
-    viewRef.current?.playAttackEffect(strike.effect);
+    playEffectRef.current(strike.effect);
   }, [landedRollId]);
 
   useEffect(() => {
@@ -381,6 +399,11 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   return (
     <div className="board" data-tour="board">
       <div ref={hostRef} className="board-canvas" />
+      {(overlayEffects.length > 0 || Object.values(state.tokens).some((t) => t.conditions.length > 0)) && (
+        <Suspense fallback={null}>
+          <EffectsOverlay state={state} effects={overlayEffects} subscribe={followView} onDone={dropEffect} isGm={you.role === "gm"} />
+        </Suspense>
+      )}
       {throws.length > 0 && <ThrownDice throws={throws} subscribe={followView} onDone={throwDone} />}
       <div className="board-toolbar">
         {toolbar}
