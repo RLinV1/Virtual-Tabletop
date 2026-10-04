@@ -1,4 +1,4 @@
-import { normalizeGridOffsets, normalizeLegacyGridForBoard, type Command, type GridSpec, type MapImage } from "@vtt/shared";
+import { normalizeLegacyGridForBoard, type Command, type GridSpec, type MapImage } from "@vtt/shared";
 import { gridsEqual, parseGridDraft, toGridDraft, type GridDraft } from "./gridDraft";
 
 /**
@@ -14,10 +14,11 @@ export interface MapPrep {
 
 /**
  * A fresh draft for `map`: a library map's saved grid when it has one, otherwise the room's
- * current grid (offsets normalised), since the GM usually lines that up next.
+ * current grid, since the GM usually lines that up next. Either way it is fitted to this map
+ * (offsets normalised, cells at least the map's minimum), so the untouched draft is valid.
  */
 export function startPrep(map: MapImage, savedGrid: GridSpec | null | undefined, currentGrid: GridSpec): MapPrep {
-  const initial = savedGrid ? normalizeLegacyGridForBoard(savedGrid, map) : normalizeGridOffsets(currentGrid);
+  const initial = normalizeLegacyGridForBoard(savedGrid ?? currentGrid, map);
   return { map, initial, draft: toGridDraft(initial) };
 }
 

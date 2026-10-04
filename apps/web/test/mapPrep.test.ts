@@ -29,3 +29,13 @@ describe("private map preparation (KAN-59)", () => {
     expect(prepCommand({ ...prep, draft: { ...prep.draft, cellSize: "" } })).toBeNull();
   });
 });
+
+describe("a draft fits its map (KAN-59)", () => {
+  it("raises a room grid too fine for the new map, so the untouched draft is valid and clean", () => {
+    const huge = { url: "/uploads/huge.png", width: 100000, height: 100000 }; // minimum cell ≈ 4 px
+    const prep = startPrep(huge, undefined, { ...DEFAULT_GRID, cellSize: 1 });
+    expect(prep.initial.cellSize).toBeGreaterThan(1);
+    expect(prepCommand(prep)).not.toBeNull();
+    expect(prepDirty(prep)).toBe(false);
+  });
+});

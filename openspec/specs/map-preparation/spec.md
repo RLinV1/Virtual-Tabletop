@@ -17,11 +17,11 @@ When the GM uploads a map or picks one from the library, the room SHALL NOT chan
 - **THEN** the preparation overlay opens showing that map with its saved grid, and the room is unchanged
 
 ### Requirement: Apply publishes map and grid as one action
-Applying the draft SHALL replace the room's map and grid in a single committed action. After Apply, every client SHALL show the new map with the applied grid, and the activity log SHALL show one entry for it.
+Applying the draft SHALL replace the room's map and grid in a single committed action. After Apply, every client SHALL show the new map with the applied grid. The activity log SHALL show an entry for the map and grid change, and a separate entry for each token the new grid re-snaps.
 
 #### Scenario: Apply
 - **WHEN** the GM aligns the grid on a draft map and clicks Apply map
-- **THEN** every client shows the new map with that grid, and the room's history gains exactly one entry for the change
+- **THEN** every client shows the new map with that grid, and the room's history gains an entry for the change plus one for each token the new grid re-snaps
 
 #### Scenario: Apply rejected
 - **WHEN** the GM applies a draft whose grid would draw too many lines for the map

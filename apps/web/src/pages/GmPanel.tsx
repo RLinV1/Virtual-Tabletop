@@ -139,6 +139,8 @@ function MapSection(props: {
    * input is disabled while it uploads, which drops focus before the dialog can note an opener.
    */
   const prepOpener = useRef<HTMLElement | null>(null);
+  /** Bumped when a library map is picked, so an upload still in flight can't replace that draft. */
+  const prepGeneration = useRef(0);
   /** Asking "Discard changes?" before throwing away an edited draft. */
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const discardPrep = () => {
@@ -179,9 +181,12 @@ function MapSection(props: {
   async function onChange(file: File | undefined) {
     if (!file) return;
     setBusy(true);
+    const generation = ++prepGeneration.current;
     try {
       const { url } = await api.upload(file, props.token);
       const { width, height } = await imageSize(url);
+      // Another map was chosen meanwhile: keep that draft and its grid edits.
+      if (generation !== prepGeneration.current) return;
       // Nothing is sent yet: the upload becomes a private draft (KAN-59).
       props.onError(null);
       prepOpener.current = uploadRef.current;
@@ -199,6 +204,7 @@ function MapSection(props: {
     const map = { url: asset.url, width: asset.width, height: asset.height, assetId: libraryAssetId(asset) };
     setPicking(false);
     setPickError(null);
+    prepGeneration.current++;
     prepOpener.current = libraryRef.current;
     setPrep(startPrep(map, asset.grid, props.currentGrid));
   };
@@ -223,7 +229,7 @@ function MapSection(props: {
           />
         </label>
         {props.hasLibrary && (
-          <button ref={libraryRef} type="button" className="secondary" onClick={() => setPicking(true)}>
+          <button ref={libraryRef} type="button" className="secondary" disabled={busy} onClick={() => setPicking(true)}>
             From library
           </button>
         )}
