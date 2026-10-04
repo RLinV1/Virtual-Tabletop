@@ -20,6 +20,8 @@ export type BoardTool =
       shape: AreaShape;
       /** Size for a click without a drag, in grid units, e.g. 20 (ft). */
       size: number;
+      /** A line's width in cells: 1 (5 ft on a 5 ft grid) or 2 (KAN-35). */
+      lineCells: 1 | 2;
       /** GM only: place it where players can't see it (ADR 0007). */
       gmOnly: boolean;
     }
@@ -55,11 +57,11 @@ export type Mark =
   | { kind: "measure"; from: Point; to: Point; free: boolean }
   | { kind: "draw"; shape: Exclude<DrawShape, "brush">; color: number; from: Point; to: Point }
   | { kind: "stroke"; color: number; points: Point[] }
-  | { kind: "area"; shape: AreaShape; size: number; origin: Point; toward: Point; free: boolean; gmOnly?: boolean };
+  | { kind: "area"; shape: AreaShape; size: number; origin: Point; toward: Point; free: boolean; gmOnly?: boolean; width?: number };
 
 /** A placed, shared template as a mark, for drawing and hit testing. Its origin is already snapped. */
 export function templateMark(t: AreaTemplate): Extract<Mark, { kind: "area" }> {
-  return { kind: "area", shape: t.shape, size: t.size, origin: t.origin, toward: t.toward, free: true, gmOnly: t.gmOnly };
+  return { kind: "area", shape: t.shape, size: t.size, origin: t.origin, toward: t.toward, free: true, gmOnly: t.gmOnly, width: t.width };
 }
 
 export function snapToCellCenter(p: Point, grid: GridSpec): Point {
@@ -103,7 +105,7 @@ export type AreaGeometry =
  * that starts at the origin (the middle of its near side) and extends toward `toward`, as a
  * 5e cube does. A zero-length aim points right.
  */
-export function areaShape(shape: AreaShape, origin: Point, toward: Point, size: number, grid: GridSpec): AreaGeometry {
+export function areaShape(shape: AreaShape, origin: Point, toward: Point, size: number, grid: GridSpec, width?: number): AreaGeometry {
   const length = (size / grid.unitsPerCell) * grid.cellSize;
   if (shape === "circle") return { kind: "circle", center: origin, radius: length };
 
@@ -118,6 +120,11 @@ export function areaShape(shape: AreaShape, origin: Point, toward: Point, size: 
   });
 
   if (shape === "cone") return { kind: "polygon", points: [origin, at(length, -length / 2), at(length, length / 2)] };
+  if (shape === "line") {
+    // Starts at the origin and runs `size` toward the aim, `width` across (one cell by default) (KAN-35).
+    const half = (((width ?? grid.unitsPerCell) / grid.unitsPerCell) * grid.cellSize) / 2;
+    return { kind: "polygon", points: [at(0, -half), at(length, -half), at(length, half), at(0, half)] };
+  }
   const h = length / 2;
   return { kind: "polygon", points: [at(0, -h), at(length, -h), at(length, h), at(0, h)] };
 }
@@ -189,7 +196,7 @@ export function hitMark(mark: Mark, p: Point, tolerance: number, grid: GridSpec)
     case "stroke":
       return mark.points.some((a, i) => distanceToSegment(p, a, mark.points[i + 1] ?? a) <= tolerance);
     case "area": {
-      const shape = areaShape(mark.shape, areaOrigin(mark.origin, grid, mark.free), mark.toward, mark.size, grid);
+      const shape = areaShape(mark.shape, areaOrigin(mark.origin, grid, mark.free), mark.toward, mark.size, grid, mark.width);
       if (shape.kind === "circle") return Math.hypot(p.x - shape.center.x, p.y - shape.center.y) <= shape.radius + tolerance;
       return nearPolygon(p, shape.points, tolerance);
     }

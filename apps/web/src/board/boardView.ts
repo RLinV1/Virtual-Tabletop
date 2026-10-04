@@ -54,6 +54,9 @@ import { PING_MS, pingPulse } from "./ping";
 /** A fog region as the Fog tool sends it (FR-GM-17, ADR 0016). */
 export type FogDraft = Extract<Command, { type: "fog.add" }>["region"];
 
+/** An area being aimed, as sent to the others (KAN-35); mirrors the `templatePreview` payload. */
+export type AimPreview = { shape: AreaTemplate["shape"]; origin: Point; toward: Point; size: number; width?: number; gmOnly: boolean };
+
 export interface BoardCallbacks {
   /** Commit a move. Resolves false if the server rejected it. */
   moveToken(tokenId: string, to: Point): Promise<boolean>;
@@ -66,7 +69,11 @@ export interface BoardCallbacks {
   dragEnd(tokenId: string, at: Point | null): void;
   ping(at: Point): void;
   /** Place a shared area template (ADR 0007). Resolves false if the server rejected it. */
-  placeTemplate(template: { shape: AreaTemplate["shape"]; origin: Point; toward: Point; size: number; gmOnly: boolean }): Promise<boolean>;
+  placeTemplate(template: { shape: AreaTemplate["shape"]; origin: Point; toward: Point; size: number; width?: number; gmOnly: boolean }): Promise<boolean>;
+  /** The area being aimed, as others should see it (KAN-35); the connection coalesces these. */
+  aimPreview(preview: AimPreview): void;
+  /** Aiming stopped (placed or cancelled): clear it for the others. */
+  aimEnd(gmOnly: boolean): void;
   /** Resolves false if the server rejected the removal. */
   removeTemplate(templateId: string): Promise<boolean>;
   /** GM: fog a region (FR-GM-17). Resolves false if the server rejected it. */
@@ -254,6 +261,8 @@ export class BoardView {
   private fxLayer = new Container();
   private tokens = new Map<string, TokenView>();
   private ghosts = new Map<string, { g: Graphics; expires: number }>();
+  /** Other participants' areas being aimed, by sender (KAN-35). Each fades 1 s after its last update. */
+  private aims = new Map<string, { view: Container; expires: number }>();
 
   private state: RoomState | null = null;
   private you: Participant | null = null;
@@ -448,6 +457,9 @@ export class BoardView {
         this.dirty = true;
       }
     }
+    for (const [from, aim] of this.aims) {
+      if (now > aim.expires) this.clearAim(from);
+    }
     if (this.dirty && this.marksScale !== this.world.scale.x) this.redrawMarks();
     if (this.dirty) {
       this.app.render();
@@ -456,7 +468,7 @@ export class BoardView {
     this.dirty = false;
     // Cleared only now, so changes made while drawing this frame don't queue another.
     this.frame = 0;
-    if (this.animations.size > 0 || this.ghosts.size > 0 || this.pendingSize) this.schedule();
+    if (this.animations.size > 0 || this.ghosts.size > 0 || this.aims.size > 0 || this.pendingSize) this.schedule();
   };
 
   /** In the frame that draws it, so DOM layered over the canvas moves with the picture. */
@@ -584,6 +596,46 @@ export class BoardView {
     this.invalidate();
   }
 
+  /**
+   * Another participant's area being aimed (KAN-35): a translucent outline with their name at the
+   * origin, replaced on each update and gone a second after the last one. Null clears it.
+   */
+  showAimPreview(from: string, preview: AimPreview | null, label: string) {
+    if (!preview || !this.state) return this.clearAim(from);
+    let aim = this.aims.get(from);
+    if (!aim) {
+      const view = new Container();
+      view.addChild(new Graphics());
+      view.addChild(new Text({ text: "", style: { fill: 0xffffff, fontSize: 13, fontFamily: BOARD_FONT, fontWeight: "600", stroke: { color: 0x000000, width: 4 } } }));
+      this.fxLayer.addChild(view);
+      aim = { view, expires: 0 };
+      this.aims.set(from, aim);
+    }
+    const [g, text] = aim.view.children as [Graphics, Text];
+    const grid = this.state.scene.grid;
+    const px = 1 / this.world.scale.x;
+    const shape = areaShape(preview.shape, preview.origin, preview.toward, preview.size, grid, preview.width);
+    g.clear();
+    if (shape.kind === "circle") g.circle(shape.center.x, shape.center.y, shape.radius);
+    else g.poly(shape.points.flatMap((p) => [p.x, p.y]));
+    const color = preview.gmOnly ? GM_AREA_COLOR : AREA_COLOR;
+    g.fill({ color, alpha: 0.1 }).stroke({ width: 2 * px, color, alpha: 0.6 });
+    text.text = `${label} aiming`;
+    text.scale.set(px);
+    text.position.set(preview.origin.x + 6 * px, preview.origin.y + 6 * px);
+    aim.expires = performance.now() + 1000;
+    this.invalidate();
+  }
+
+  private clearAim(from: string) {
+    const aim = this.aims.get(from);
+    if (!aim) return;
+    aim.view.destroy({ children: true });
+    this.aims.delete(from);
+    this.dirty = true;
+    this.invalidate();
+  }
+
   showDragPreview(tokenId: string, at: Point) {
     const token = this.state?.tokens[tokenId];
     if (!token || !this.state) return;
@@ -638,6 +690,7 @@ export class BoardView {
   /** Switch the active tool. Changing tool drops the last measurement and any drag in progress. */
   setTool(tool: BoardTool) {
     if (tool.kind !== this.tool.kind || (tool.kind === "fog" && this.tool.kind === "fog" && tool.mode !== this.tool.mode)) {
+      if (this.gesture && this.tool.kind === "area") this.callbacks.aimEnd(this.tool.gmOnly);
       this.measurement = null;
       this.gesture = null;
       this.fogPoints = [];
@@ -780,6 +833,7 @@ export class BoardView {
     } else if (tool.kind === "draw" && tool.shape !== "brush" && dragged) {
       this.addMark({ kind: "draw", shape: tool.shape, color: tool.color, from, to });
     } else if (tool.kind === "area") {
+      this.callbacks.aimEnd(tool.gmOnly);
       const area = this.areaFromGesture(gesture, tool);
       if (area?.kind === "area" && this.state) this.placeArea(area, tool.gmOnly);
     } else if (tool.kind === "fog" && tool.mode === "rect" && dragged) {
@@ -882,7 +936,7 @@ export class BoardView {
     const pending = { ...area, origin, free: true, gmOnly };
     this.pendingAreas.push(pending);
     this.callbacks
-      .placeTemplate({ shape: area.shape, origin, toward: area.toward, size: area.size, gmOnly })
+      .placeTemplate({ shape: area.shape, origin, toward: area.toward, size: area.size, width: area.width, gmOnly })
       .then(
         (ok) => {
           // Refused: nothing will arrive to clear, so stop waiting for it.
@@ -911,7 +965,8 @@ export class BoardView {
     const size = dragged ? areaSizeFromDrag(origin, to, grid, free) : tool.size;
     // A click aims right from the snapped origin, not at the raw press point beside it.
     const toward = dragged ? to : { x: origin.x + 1, y: origin.y };
-    return { kind: "area", shape: tool.shape, size, origin: from, toward, free, gmOnly: tool.gmOnly };
+    const width = tool.shape === "line" ? tool.lineCells * grid.unitsPerCell : undefined;
+    return { kind: "area", shape: tool.shape, size, origin: from, toward, free, gmOnly: tool.gmOnly, width };
   }
 
   /** Remove every mark the eraser touches on its way from `from` to `at`. */
@@ -1123,7 +1178,7 @@ export class BoardView {
       }
       case "area": {
         const origin = areaOrigin(mark.origin, grid, mark.free);
-        const shape = areaShape(mark.shape, origin, mark.toward, mark.size, grid);
+        const shape = areaShape(mark.shape, origin, mark.toward, mark.size, grid, mark.width);
         if (shape.kind === "circle") g.circle(shape.center.x, shape.center.y, shape.radius);
         else g.poly(shape.points.flatMap((p) => [p.x, p.y]));
         // Translucent, so tokens under the area stay visible.
@@ -1731,6 +1786,14 @@ export class BoardView {
       const step = Math.hypot(gesture.to.x - last.x, gesture.to.y - last.y) * this.world.scale.x;
       const brushing = this.tool.kind === "draw" && this.tool.shape === "brush";
       if (brushing && step >= BRUSH_STEP_PX && gesture.path.length < MAX_STROKE_POINTS) gesture.path.push(gesture.to);
+      // Aiming an area: the others see it take shape (KAN-35).
+      if (this.tool.kind === "area" && this.state) {
+        const area = this.areaFromGesture(gesture, this.tool);
+        if (area?.kind === "area") {
+          const origin = areaOrigin(area.origin, this.state.scene.grid, area.free);
+          this.callbacks.aimPreview({ shape: area.shape, origin, toward: area.toward, size: area.size, width: area.width, gmOnly: this.tool.gmOnly });
+        }
+      }
       this.redrawOverlay();
     } else if (this.drag) {
       const view = this.tokens.get(this.drag.tokenId);

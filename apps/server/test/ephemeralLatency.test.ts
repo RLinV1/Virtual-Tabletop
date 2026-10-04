@@ -11,6 +11,7 @@ import { BENCHMARK_PROFILE, startLatencyProxy } from "./latencyProxy";
  */
 const TARGET_P95_MS = 150;
 const MESSAGES = 100; // of each kind
+const KINDS = 3;
 const SEND_EVERY_MS = 33; // ~30 messages a second, under the server's 40/s per-connection cap
 
 let cleanup: Array<() => unknown> = [];
@@ -38,7 +39,7 @@ describe.skipIf(process.env.VTT_SKIP_BENCH === "1")("ephemeral latency benchmark
     expect(performance.now() - started).toBeGreaterThanOrEqual(2 * (BENCHMARK_PROFILE.delayMs - BENCHMARK_PROFILE.jitterMs));
   });
 
-  it(`delivers pings and drag previews within ${TARGET_P95_MS} ms at p95 under the benchmark profile`, async () => {
+  it(`delivers pings, drag previews and area aims within ${TARGET_P95_MS} ms at p95 under the benchmark profile`, async () => {
     const server = await startServer();
     cleanup.push(() => server.close());
     const port = Number(new URL(server.base).port);
@@ -65,7 +66,8 @@ describe.skipIf(process.env.VTT_SKIP_BENCH === "1")("ephemeral latency benchmark
 
     // Message i carries i in `at.x`, so a receiver can match it to its send time.
     const sentAt = new Map<string, number>();
-    const key = (p: EphemeralPayload) => `${p.type}:${p.type === "diceDrop" ? p.to.x : p.at.x}`;
+    const key = (p: EphemeralPayload) =>
+      `${p.type}:${p.type === "diceDrop" ? p.to.x : p.type === "templatePreview" ? (p.preview?.origin.x ?? -1) : p.at.x}`;
     const latencies = new Map<TestClient, number[]>([[gm, []], [bob, []]]);
     for (const [receiver, values] of latencies) {
       receiver.onMessage((msg: ServerMessage) => {
@@ -75,11 +77,14 @@ describe.skipIf(process.env.VTT_SKIP_BENCH === "1")("ephemeral latency benchmark
       });
     }
 
-    for (let i = 1; i <= MESSAGES * 2; i++) {
-      const n = Math.ceil(i / 2);
-      const payload: EphemeralPayload = i % 2 === 1
+    // Pings, drag previews and area aims (KAN-35), interleaved.
+    for (let i = 1; i <= MESSAGES * KINDS; i++) {
+      const n = Math.ceil(i / KINDS);
+      const payload: EphemeralPayload = i % KINDS === 1
         ? { type: "ping", at: { x: n, y: 10 } }
-        : { type: "tokenDragPreview", tokenId: fighter.id, at: { x: n, y: 10 } };
+        : i % KINDS === 2
+          ? { type: "tokenDragPreview", tokenId: fighter.id, at: { x: n, y: 10 } }
+          : { type: "templatePreview", preview: { shape: "cone", origin: { x: n, y: 10 }, toward: { x: n + 100, y: 10 }, size: 15, gmOnly: false } };
       sentAt.set(key(payload), performance.now());
       alice.send({ type: "ephemeral", payload });
       await new Promise((r) => setTimeout(r, SEND_EVERY_MS));
@@ -91,9 +96,9 @@ describe.skipIf(process.env.VTT_SKIP_BENCH === "1")("ephemeral latency benchmark
       const who = receiver === gm ? "GM" : "Bob";
       const p50 = percentile(values, 50);
       const p95 = percentile(values, 95);
-      console.log(`[bench] ${who}: ${values.length}/${MESSAGES * 2} received, p50 ${p50.toFixed(1)} ms, p95 ${p95.toFixed(1)} ms, max ${Math.max(...values).toFixed(1)} ms`);
+      console.log(`[bench] ${who}: ${values.length}/${MESSAGES * KINDS} received, p50 ${p50.toFixed(1)} ms, p95 ${p95.toFixed(1)} ms, max ${Math.max(...values).toFixed(1)} ms`);
       // Drag previews are volatile and may drop under backpressure; nearly all should arrive.
-      expect(values.length).toBeGreaterThanOrEqual(MESSAGES * 2 * 0.9);
+      expect(values.length).toBeGreaterThanOrEqual(MESSAGES * KINDS * 0.9);
       expect(p95).toBeLessThanOrEqual(TARGET_P95_MS);
     }
   }, 30_000);
