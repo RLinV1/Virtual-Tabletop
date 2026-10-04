@@ -201,3 +201,20 @@ describe("Fog tool hit testing (FR-GM-17)", () => {
     expect(fogRegionAt(fog, { x: 300, y: 300 })).toBeNull();
   });
 });
+
+describe("line templates (KAN-35, FR-TAC-06)", () => {
+  const grid = { ...DEFAULT_GRID }; // 70 px cells, 5 ft each
+  it("runs from the origin toward the aim, one cell wide by default", () => {
+    const shape = areaShape("line", { x: 0, y: 0 }, { x: 100, y: 0 }, 60, grid);
+    // 60 ft = 12 cells = 840 px long; 5 ft = 70 px wide, centred on the aim axis.
+    expect(shape).toEqual({ kind: "polygon", points: [{ x: 0, y: -35 }, { x: 840, y: -35 }, { x: 840, y: 35 }, { x: 0, y: 35 }] });
+  });
+
+  it("takes a 10 ft width", () => {
+    const shape = areaShape("line", { x: 0, y: 0 }, { x: 0, y: 100 }, 30, grid, 10);
+    if (shape.kind !== "polygon") throw new Error("expected a polygon");
+    const xs = shape.points.map((p) => Math.round(p.x));
+    expect(Math.max(...xs) - Math.min(...xs)).toBe(140);
+    expect(Math.max(...shape.points.map((p) => Math.round(p.y)))).toBe(420);
+  });
+});

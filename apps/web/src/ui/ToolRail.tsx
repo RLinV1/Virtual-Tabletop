@@ -6,13 +6,13 @@ import { AREA_SIZES, DRAW_COLORS, type AreaShape, type BoardTool, type DrawShape
 /** The options each tool remembers while another tool is active. */
 export interface ToolOptions {
   draw: { shape: DrawShape; color: number };
-  area: { shape: AreaShape; size: number; gmOnly: boolean };
+  area: { shape: AreaShape; size: number; lineCells: 1 | 2; gmOnly: boolean };
   fog: { mode: FogMode };
 }
 
 export const DEFAULT_TOOL_OPTIONS: ToolOptions = {
   draw: { shape: "brush", color: DRAW_COLORS[0].value },
-  area: { shape: "circle", size: 20, gmOnly: false },
+  area: { shape: "circle", size: 20, lineCells: 1, gmOnly: false },
   fog: { mode: "rect" },
 };
 
@@ -46,6 +46,7 @@ const AREA_SHAPES: { shape: AreaShape; label: string; icon: ReactNode }[] = [
   { shape: "circle", label: "Circle", icon: <Circle size={16} aria-hidden="true" /> },
   { shape: "cone", label: "Cone", icon: <Triangle size={16} aria-hidden="true" style={{ rotate: "90deg" }} /> },
   { shape: "box", label: "Box", icon: <Square size={16} aria-hidden="true" /> },
+  { shape: "line", label: "Line", icon: <LineSegment size={16} aria-hidden="true" /> },
 ];
 
 /** Build the board tool for a rail choice, using that tool's remembered options. */
@@ -167,6 +168,19 @@ export function ToolRail({
               ))}
             </select>
           </label>
+          {options.area.shape === "line" && (
+            <label className="tool-size">
+              <span className="sr-only">Line width</span>
+              <select
+                title="Line width"
+                value={options.area.lineCells}
+                onChange={(e) => onOptions({ ...options, area: { ...options.area, lineCells: Number(e.target.value) === 2 ? 2 : 1 } })}
+              >
+                <option value={1}>1 square wide</option>
+                <option value={2}>2 squares wide</option>
+              </select>
+            </label>
+          )}
           {isGm && (
             <label className="tool-check" title="Players won't see areas placed while this is on">
               <input

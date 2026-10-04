@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  AreaTemplate,
+  formatActivity,
   filterEventForViewer,
   filterStateForViewer,
   MAX_AREA_TEMPLATES,
@@ -90,6 +92,34 @@ describe("shared area templates (FR-TAC-06, ADR 0007)", () => {
 
   it("rejects a malformed template command before decide (zod at the trust boundary)", () => {
     expect(() => attempt(baseRoom(), alice, place({ size: -5 }))).toThrow();
-    expect(() => attempt(baseRoom(), alice, { ...place(), shape: "line" } as unknown as CommandInput)).toThrow();
+    expect(() => attempt(baseRoom(), alice, { ...place(), shape: "hexagon" } as unknown as CommandInput)).toThrow();
+    expect(() => attempt(baseRoom(), alice, place({ shape: "line", width: 0 }))).toThrow();
+  });
+});
+
+describe("line templates (KAN-35, FR-TAC-06)", () => {
+  it("places a line with a width, one cell when left out", () => {
+    const wide = run(baseRoom(), alice, place({ shape: "line", size: 60, width: 10 }));
+    expect(Object.values(wide.state.templates)[0]).toMatchObject({ shape: "line", size: 60, width: 10 });
+    const plain = run(baseRoom(), alice, place({ shape: "line", size: 60 }));
+    expect(Object.values(plain.state.templates)[0]).not.toHaveProperty("width");
+  });
+
+  it("refuses a line wider than 10 cells, and ignores width on other shapes", () => {
+    expect(attempt(baseRoom(), alice, place({ shape: "line", size: 30, width: 55 }))).toMatchObject({ ok: false, code: "invalid" });
+    expect(attempt(baseRoom(), alice, place({ shape: "line", size: 30, width: 50 })).ok).toBe(true);
+    const cone = run(baseRoom(), alice, place({ shape: "cone", width: 10 }));
+    expect(Object.values(cone.state.templates)[0]).not.toHaveProperty("width");
+  });
+
+  it("still reads a template placed before lines existed", () => {
+    expect(AreaTemplate.safeParse({ id: "t", shape: "cone", origin: { x: 0, y: 0 }, toward: { x: 1, y: 0 }, size: 15, ownerId: "p", gmOnly: false }).success).toBe(true);
+  });
+
+  it("logs a line's length, and its width when it isn't one cell", () => {
+    const state = baseRoom();
+    const line = (width?: number) => ({ id: "t", shape: "line" as const, origin: { x: 0, y: 0 }, toward: { x: 1, y: 0 }, size: 60, ownerId: alice.id, gmOnly: false, ...(width && { width }) });
+    expect(formatActivity({ type: "TemplatePlaced", template: line() }, "Pat", state)).toBe("Pat placed a 60 ft line");
+    expect(formatActivity({ type: "TemplatePlaced", template: line(10) }, "Pat", state)).toBe("Pat placed a 60 ft line, 10 ft wide");
   });
 });
