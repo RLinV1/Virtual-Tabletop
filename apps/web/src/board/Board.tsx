@@ -1,8 +1,9 @@
-import { CornersOut } from "@phosphor-icons/react";
+import { CornersOut, Eye, EyeSlash } from "@phosphor-icons/react";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
 import { DEFAULT_TOKEN_COLOR, EMPTY_STATS, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { DEFAULT_TOOL_OPTIONS, ToolRail, toolFor, type ToolOptions } from "../ui/ToolRail";
+import { isBoolean, usePersistentState } from "../ui/usePersistentState";
 import { canAnimateDice, type TrayRoll } from "../ui/Die3D";
 import { ThrownDice, type ActiveThrow } from "./ThrownDice";
 import { BoardView } from "./boardView";
@@ -92,10 +93,13 @@ function isTyping(target: EventTarget | null) {
 export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, toolbar, notices, overlay, landedRollId, onPickTarget }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<BoardView | null>(null);
+  /** GM only: false shows everything through the fog (this browser remembers it). */
+  const [gmFog, setGmFog] = usePersistentState("vtt.ui.gmFog", true, isBoolean);
+  const hasFog = Object.keys(state.fog).length > 0;
   /** Strikes waiting for their thrown dice to land, by roll id, oldest first (KAN-76). */
   const waitingStrikes = useRef(new Map<string, { effect: AttackEffect; timer: number }>());
-  const latest = useRef({ state, you, gridPreview, onPickTarget });
-  latest.current = { state, you, gridPreview, onPickTarget };
+  const latest = useRef({ state, you, gridPreview, onPickTarget, gmFog: true });
+  latest.current = { state, you, gridPreview, onPickTarget, gmFog };
   const [tool, setTool] = useState<BoardTool>({ kind: "select" });
   const [toolOptions, setToolOptions] = useState<ToolOptions>(DEFAULT_TOOL_OPTIONS);
   const toolRef = useRef(tool);
@@ -206,6 +210,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     view.init().then(() => {
       if (disposed) return view.destroy();
       viewRef.current = view;
+      view.setGmFogShown(latest.current.gmFog);
       view.setGridPreview(latest.current.gridPreview);
       view.update(latest.current.state, latest.current.you);
       view.setTool(toolRef.current);
@@ -272,6 +277,10 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     window.clearTimeout(strike.timer);
     viewRef.current?.playAttackEffect(strike.effect);
   }, [landedRollId]);
+
+  useEffect(() => {
+    viewRef.current?.setGmFogShown(gmFog);
+  }, [gmFog, state.fog, connection]);
 
   useEffect(() => {
     viewRef.current?.setGridPreview(gridPreview);
@@ -388,6 +397,18 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
           <CornersOut size={16} aria-hidden="true" />
           Fit
         </button>
+        {you.role === "gm" && hasFog && (
+          <button
+            type="button"
+            className="tool-button"
+            aria-pressed={!gmFog}
+            onClick={() => setGmFog(!gmFog)}
+            title={gmFog ? "See everything: hide the fog tint on your view" : "Show the fog tint on your view again"}
+          >
+            {gmFog ? <Eye size={16} aria-hidden="true" /> : <EyeSlash size={16} aria-hidden="true" />}
+            {gmFog ? "Fog on" : "Fog off"}
+          </button>
+        )}
       </div>
       {gridPreview && <p className="grid-preview-label" role="status">Preview · Not applied</p>}
       <ToolRail

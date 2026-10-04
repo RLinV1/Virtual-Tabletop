@@ -4,6 +4,7 @@ import {
   ColorMatrixFilter,
   Container,
   Graphics,
+  Matrix,
   Sprite,
   Text,
   Texture,
@@ -48,6 +49,7 @@ import {
   type AttackEffect,
   type EffectShape,
 } from "./effects";
+import { makeFogCanvas } from "./fogTexture";
 import { areaOrigin, areaShape, areaSizeFromDrag, fogRegionAt, formatDistance, hitMark, measure, sweepPoints, templateMark, type BoardTool, type Mark } from "./tools";
 import { aimExpiry, expiredAims } from "./aims";
 import { PING_MS, pingPulse } from "./ping";
@@ -102,7 +104,14 @@ const GHOST_ID = "placement-ghost";
 /** How close (screen pixels) a click must be to a polygon's first corner to close it. */
 const FOG_CLOSE_PX = 12;
 /** Fog colour. Players see it opaque; the GM sees it at FOG_GM_ALPHA with an outline (FR-GM-17). */
-const FOG_COLOR = 0x0b0d12;
+const FOG_COLOR = 0xc4c9ce;
+/** Fog is drawn this far past its edge in grid cells, so no seam shows at a region's border or the map's. */
+const FOG_BLEED_CELLS = 0.06;
+/** How fast the clouds drift, in board pixels per second, and how often the drift is redrawn. */
+const FOG_DRIFT_PX_PER_S = 38;
+const FOG_DRIFT_INTERVAL_MS = 1000 / 20;
+/** The cloud texture is drawn this many times larger than its 512 px tile, so clouds span several cells. */
+const FOG_CLOUD_SCALE = 2.5;
 const FOG_GM_ALPHA = 0.5;
 const FOG_EDGE = 0x9fb3c8;
 /** How close (screen pixels) the eraser has to come to a line to erase it. */
@@ -249,6 +258,16 @@ export class BoardView {
    * on top, and anything else under fog is not in a player's state at all (ADR 0016).
    */
   private fogGraphics = new Graphics();
+  /** The GM's fog outlines, kept apart so the fog's feathering never blurs them. */
+  private fogEdgeGraphics = new Graphics();
+  private fogLayer = new Container();
+  /** The cloudy fog texture, made on first use and repeated across every region. */
+  private fogTexture: Texture | null = null;
+  /** The fog drift loop is in `animations`. */
+  private gmFogShown = true;
+  private fogLoopRegistered = false;
+  private lastFogDraw = 0;
+  private fogOffset = { x: 0, y: 0 };
   private tokenLayer = new Container();
   /** The viewer's own measure, draw and area marks (KAN-69); never sent anywhere. */
   private markLayer = new Container();
@@ -372,7 +391,10 @@ export class BoardView {
     this.measureLabel.visible = false;
     this.markLayer.addChild(this.marksGraphics, this.overlayGraphics, this.measureLabel);
     this.fogGraphics.eventMode = "none";
-    this.world.addChild(this.mapSprite, this.grid, this.fogGraphics, this.tokenLayer, this.markLayer, this.fxLayer);
+    this.fogEdgeGraphics.eventMode = "none";
+    this.fogLayer.eventMode = "none";
+    this.fogLayer.addChild(this.fogGraphics, this.fogEdgeGraphics);
+    this.world.addChild(this.mapSprite, this.grid, this.fogLayer, this.tokenLayer, this.markLayer, this.fxLayer);
     this.fxLayer.addChild(this.ghostFootprint);
     this.app.stage.addChild(this.world);
 
@@ -564,6 +586,19 @@ export class BoardView {
     // A grid change moves the squares under a still pointer.
     if (this.placement) this.redrawGhost();
     this.syncConditionLoop();
+    this.invalidate();
+  }
+
+  /** GM only: false hides the fog tint entirely, leaving a faint outline, so the GM sees everything. */
+  setGmFogShown(shown: boolean) {
+    if (this.gmFogShown === shown) return;
+    this.gmFogShown = shown;
+    if (this.initialized) this.invalidateFog();
+  }
+
+  private invalidateFog() {
+    this.drawnFog = null;
+    this.redrawFog();
     this.invalidate();
   }
 
@@ -915,19 +950,62 @@ export class BoardView {
     const state = this.state;
     this.drawnFog = state?.fog ?? null;
     const g = this.fogGraphics.clear();
+    const edge = this.fogEdgeGraphics.clear();
     if (!state) return;
     const gm = this.you?.role === "gm";
     const px = 1 / this.world.scale.x;
+    const cell = state.scene.grid.cellSize;
+    if (!this.fogTexture) {
+      this.fogTexture = Texture.from(makeFogCanvas());
+      this.fogTexture.source.style.addressMode = "repeat";
+    }
+    const cloud = this.fogTexture;
+    // The clouds drift across the board; the texture tiles seamlessly, so any offset is fine.
+    const matrix = new Matrix().scale(FOG_CLOUD_SCALE, FOG_CLOUD_SCALE).translate(this.fogOffset.x, this.fogOffset.y);
+    const fillAlpha = gm ? FOG_GM_ALPHA : 1;
+    // "See everything": the GM's tint is switched off and only a faint outline marks each region.
+    const tint = !gm || this.gmFogShown;
     const draw = (points: Point[], pending: boolean) => {
       const flat = points.flatMap((p) => [p.x, p.y]);
-      g.poly(flat).fill({ color: FOG_COLOR, alpha: gm ? FOG_GM_ALPHA : 1 });
-      if (gm) g.poly(flat).stroke({ width: 2 * px, color: FOG_EDGE, alpha: pending ? 0.5 : 0.9 });
+      if (tint) g.poly(flat).fill({ texture: cloud, matrix, textureSpace: "global", alpha: fillAlpha });
+      if (!gm) g.poly(flat).stroke({ width: 2 * FOG_BLEED_CELLS * cell, join: "miter", texture: cloud, matrix, textureSpace: "global", alpha: 1 });
+      if (gm) edge.poly(flat).stroke({ width: 2 * px, color: FOG_EDGE, alpha: (pending ? 0.5 : 0.9) * (tint ? 1 : 0.4) });
     };
     for (const region of Object.values(state.fog)) {
       if (!this.removingFog.has(region.id)) draw(region.points, false);
     }
     for (const region of this.pendingFog) draw(fogDraftPoints(region), true);
+    this.syncFogLoop();
   }
+
+  /** Runs the fog drift only while fog exists, the page is shown and motion is allowed. */
+  private fogLoopWanted() {
+    const any = Object.keys(this.state?.fog ?? {}).length > 0 || this.pendingFog.length > 0;
+    return any && document.visibilityState === "visible" && !this.reducedMotion;
+  }
+
+  private syncFogLoop() {
+    if (!this.initialized || this.fogLoopRegistered || !this.fogLoopWanted()) return;
+    this.fogLoopRegistered = true;
+    this.animations.add(this.fogLoop);
+    this.schedule();
+  }
+
+  private fogLoop = (now: number) => {
+    if (!this.fogLoopWanted()) {
+      this.fogLoopRegistered = false;
+      return false;
+    }
+    if (now - this.lastFogDraw < FOG_DRIFT_INTERVAL_MS) {
+      this.stepSkipped = true;
+      return true;
+    }
+    const dt = this.lastFogDraw === 0 ? 0 : (now - this.lastFogDraw) / 1000;
+    this.lastFogDraw = now;
+    this.fogOffset = { x: this.fogOffset.x + FOG_DRIFT_PX_PER_S * dt, y: this.fogOffset.y + FOG_DRIFT_PX_PER_S * 0.35 * dt };
+    this.redrawFog();
+    return true;
+  };
 
   /** Send an area to the table; show it until the server's answer arrives. */
   private placeArea(area: Extract<Mark, { kind: "area" }>, gmOnly: boolean) {
