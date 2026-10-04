@@ -4,7 +4,7 @@ import type { RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
 import { PanelSection } from "../ui/PanelSection";
 import { pendingRulings } from "./attackRoll";
-import { initiativeEntries, initiativeFieldValue, invalidInitiative } from "./initiativeFields";
+import { initiativeEntries, initiativeFieldValue, invalidInitiative, invalidMessage } from "./initiativeFields";
 
 /**
  * Turn order (FR-GM-21).
@@ -37,7 +37,7 @@ export function InitiativeTracker({
     const invalid = invalidInitiative(scores, tokens);
     setInvalidIds(invalid.map((t) => t.id));
     if (invalid.length > 0) {
-      return setError(`Initiative must be a whole number from -99 to 999: ${invalid.map((t) => (tokens.find((x) => x.id === t.id)?.name ?? "token")).join(", ")}`);
+      return setError(invalidMessage(invalid.map((t) => tokens.find((x) => x.id === t.id)?.name ?? "token")));
     }
     const entries = initiativeEntries(scores, tokens);
     if (entries.length === 0) return setError("Give at least one token an initiative score");
@@ -100,8 +100,14 @@ export function InitiativeTracker({
                     autoFocus={i === 0}
                     value={initiativeFieldValue(scores, t)}
                     onChange={(e) => {
-                      setScores((s) => ({ ...s, [t.id]: e.target.value }));
-                      setInvalidIds((ids) => ids.filter((id) => id !== t.id));
+                      const next = { ...scores, [t.id]: e.target.value };
+                      setScores(next);
+                      // Once a score was refused, keep the flagged fields and the message in step with the edits.
+                      if (invalidIds.length > 0) {
+                        const stillInvalid = invalidInitiative(next, tokens);
+                        setInvalidIds(stillInvalid.map((x) => x.id));
+                        setError(stillInvalid.length > 0 ? invalidMessage(stillInvalid.map((x) => tokens.find((y) => y.id === x.id)?.name ?? "token")) : null);
+                      }
                     }}
                     aria-label={`Initiative for ${t.name}`}
                   />

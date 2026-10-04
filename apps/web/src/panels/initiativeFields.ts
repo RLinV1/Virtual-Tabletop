@@ -28,3 +28,8 @@ export function initiativeEntries(typed: Record<string, string>, tokens: readonl
     .filter((e) => e.text !== "" && isValidScore(e.text))
     .map((e) => ({ tokenId: e.tokenId, score: Number(e.text) }));
 }
+
+/** The error shown when typed scores are refused, naming the tokens so the GM knows which fields to fix. */
+export function invalidMessage(names: readonly string[]): string {
+  return `Initiative must be a whole number from -99 to 999: ${names.join(", ")}`;
+}
