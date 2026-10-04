@@ -162,7 +162,12 @@ export class LiveRoom {
       // and a checkpoint's board, rebuilt from the log (ADR 0019).
       const ownedDiceLook =
         command.type === "participant.setDiceLook" && command.lookId ? await this.ownedDiceLook(actorId, command.lookId) : null;
-      const checkpointTable = command.type === "checkpoint.restore" ? await this.checkpointTables() : undefined;
+      // Only a GM restoring a checkpoint that exists pays for the replay; anything else is refused
+      // by `decide` with its usual message, without reading the log under the room's queue.
+      const checkpointTable =
+        command.type === "checkpoint.restore" && can.administer(actor) && this.state.checkpoints.some((c) => c.id === command.checkpointId)
+          ? await this.checkpointTables()
+          : undefined;
       const decision = decide(this.state, actor, command, {
         newId: randomUUID,
         random: secureRandom,

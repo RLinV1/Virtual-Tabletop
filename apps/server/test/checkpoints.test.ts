@@ -88,6 +88,14 @@ describe("checkpoints over the wire (KAN-41, FR-REC-02)", () => {
     const checkpointId = gm.state.checkpoints[0]!.id;
     expect(await alice.command({ type: "checkpoint.create", name: "Mine" })).toMatchObject({ type: "rejected", code: "forbidden" });
     expect(await alice.command({ type: "checkpoint.restore", checkpointId })).toMatchObject({ type: "rejected", code: "forbidden" });
+    // A refused restore never reads the log.
+    const loads = server.store.loadEvents.bind(server.store);
+    let reads = 0;
+    server.store.loadEvents = async (roomId) => { reads++; return loads(roomId); };
+    expect(await alice.command({ type: "checkpoint.restore", checkpointId })).toMatchObject({ type: "rejected", code: "forbidden" });
+    expect(await gm.command({ type: "checkpoint.restore", checkpointId: "00000000-0000-4000-8000-000000000000" })).toMatchObject({ type: "rejected", code: "not_found" });
+    expect(reads).toBe(0);
+    server.store.loadEvents = loads;
 
     const before = await server.store.loadEvents(gm.state.roomId);
     await ok(gm.command({ type: "checkpoint.restore", checkpointId }));
