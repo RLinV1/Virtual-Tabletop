@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ChatCircleText, X } from "@phosphor-icons/react";
-import { MAX_CHAT_LENGTH, type ChatMessage, type RoomState } from "@vtt/shared";
+import { MAX_CHAT_LENGTH, type ChatMessage, type Participant, type RoomState } from "@vtt/shared";
 import { useRoomSnapshot, type RoomConnection } from "../net/roomConnection";
 
 /**
@@ -27,8 +27,21 @@ function timeLabel(at: string | null): string {
  * is only a hint; the server validates the text and sets the sender, so nothing here decides
  * who said what.
  */
-export function ChatPanel({ connection, state }: { connection: RoomConnection; state: RoomState }) {
-  const { status, you } = useRoomSnapshot(connection);
+export function ChatPanel({
+  connection,
+  state,
+  you: viewer,
+  readOnly = false,
+}: {
+  connection: RoomConnection;
+  state: RoomState;
+  /** Who is looking, when that is not the connection's own seat: the GM previewing as a player. */
+  you?: Participant;
+  /** The GM is previewing as a player (gm-view-as-player): messages are shown but cannot be sent. */
+  readOnly?: boolean;
+}) {
+  const { status, you: self } = useRoomSnapshot(connection);
+  const you = viewer ?? self;
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -54,7 +67,7 @@ export function ChatPanel({ connection, state }: { connection: RoomConnection; s
   }, [open, newest]);
 
   const online = status === "open";
-  const canSend = online && !busy && text.trim() !== "";
+  const canSend = online && !readOnly && !busy && text.trim() !== "";
 
   const send = async (e: FormEvent) => {
     e.preventDefault();
@@ -108,7 +121,8 @@ export function ChatPanel({ connection, state }: { connection: RoomConnection; s
               setError(null);
             }}
             maxLength={MAX_CHAT_LENGTH}
-            placeholder={online ? "Say something…" : "Offline"}
+            disabled={readOnly}
+            placeholder={readOnly ? "Chat is read-only while previewing" : online ? "Say something…" : "Offline"}
             autoComplete="off"
             aria-invalid={error !== null}
             aria-describedby={error ? "chat-error" : undefined}

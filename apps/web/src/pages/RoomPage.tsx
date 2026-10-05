@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { House } from "@phosphor-icons/react";
-import { can, type DiceVisibility, type GridSpec, type Participant, type Point } from "@vtt/shared";
+import { can, filterStateForViewer, isActive, type DiceVisibility, type GridSpec, type Participant, type Point } from "@vtt/shared";
 import { Board, type BoardHandle, type DiceBoard } from "../board/Board";
 import { PendingDrops, type DiceDrop } from "../board/diceDrops";
 import type { TokenDraft } from "../board/placement";
@@ -30,6 +30,8 @@ import { TurnNotice } from "../ui/TurnNotice";
 import { RollCard } from "../ui/RollCard";
 import { SectionCollapseProvider } from "../ui/PanelSection";
 import { ParticipantsButton } from "../ui/ParticipantsButton";
+import { PreviewBanner } from "../ui/PreviewBanner";
+import { previewConnection } from "../net/previewConnection";
 import { ShareButton } from "../ui/ShareButton";
 import { GuideIcon, GuideTour } from "../ui/GuideTour";
 import { isBoolean, usePersistentState } from "../ui/usePersistentState";
@@ -161,6 +163,21 @@ function SessionEnded({ roomId, roomName, reason }: { roomId: string; roomName: 
 function Room({ roomId, connection, token }: { roomId: string; connection: RoomConnection; token: string }) {
   const { status, state, you, seq, endReason, refusal } = useRoomSnapshot(connection);
   const [reviewing, setReviewing] = useState<string | null>(null);
+  // The GM previewing the room as one player (gm-view-as-player): the same filter the server
+  // applies, run here on the GM's full state. Read-only: its connection refuses every command.
+  const [viewAs, setViewAs] = useState<string | null>(null);
+  const viewed = viewAs ? state?.participants[viewAs] : undefined;
+  const preview = useMemo(
+    () => (state && you?.role === "gm" && viewed && viewed.role === "player" && isActive(viewed) ? { you: viewed, state: filterStateForViewer(state, viewed) } : null),
+    [state, you?.role, viewed],
+  );
+  useEffect(() => {
+    if (viewAs && !preview && state) setViewAs(null);
+  }, [viewAs, preview, state]);
+  const shownConnection = useMemo(
+    () => (preview ? previewConnection(connection, preview.you.displayName) : connection),
+    [connection, preview?.you.id, preview?.you.displayName],
+  );
 
   // The seat is gone for good, on every tab that shared it: forget it, so the invite link
   // offers the join form rather than bouncing back to a room that refuses us (ADR 0006).
@@ -385,7 +402,8 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
     const timer = window.setTimeout(() => setCardRollId(null), ROLL_POPUP_MS);
     return () => window.clearTimeout(timer);
   }, [cardRollId]);
-  const cardRoll = cardRollId ? state?.rolls.find((r) => r.id === cardRollId) : undefined;
+  // The card shows only rolls the viewed player could see, so a GM-only roll vanishes when a preview starts.
+  const cardRoll = cardRollId ? (preview?.state ?? state)?.rolls.find((r) => r.id === cardRollId) : undefined;
   // Your dice are still showing: on the board until they fade, or in a private tray until they land.
   const rolling = onBoard.size > 0 || !!state?.rolls.some((r) => airborne.has(r.id) && r.byParticipantId === you?.id);
   const rollThrow: RollThrow = { airborne, rolling, justLandedId: landedId, onLanded: land, expectDrop };
@@ -412,6 +430,8 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
   // The rail is a desktop affordance. On a phone the panel is already below the board, so
   // the remembered preference is ignored there and applies again once the window widens.
   const collapsed = sidebarCollapsed && !compact;
+  const shownState = preview?.state ?? state;
+  const shownYou = preview?.you ?? you;
 
   return (
     <div className={["room", compact && "compact", collapsed && "sidebar-collapsed"].filter(Boolean).join(" ")}>
@@ -434,7 +454,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
         <div className="topbar-start">
           {/* The GM has rooms, a library and "Create room" to get back to, all on the GM
               dashboard; a player came from an invite and just closes the tab (room-navigation). */}
-          {you.role === "gm" && (
+          {you.role === "gm" && !preview && (
             <Link href="/gm-dashboard" className="tool-button" title="Back to your GM dashboard">
               <House size={16} aria-hidden="true" />
               Home
@@ -443,7 +463,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
           <h1 className="room-title">{state.name}</h1>
         </div>
         <div className="topbar-center">
-          <ParticipantsButton state={state} you={you} connection={connection} onReviewDeparture={setReviewing} />
+          <ParticipantsButton state={state} you={you} connection={shownConnection} onReviewDeparture={setReviewing} onViewAs={setViewAs} viewingAs={viewAs} readOnly={!!preview} />
         </div>
         <div className="topbar-end">
           {!compact && (
@@ -462,7 +482,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
               }}
             />
           )}
-          {you.role === "gm" && <ActivityLog roomId={state.roomId} token={token} seq={seq} state={state} connection={connection} />}
+          {you.role === "gm" && !preview && <ActivityLog roomId={state.roomId} token={token} seq={seq} state={state} connection={connection} />}
           <button
             ref={guideButtonRef}
             type="button"
@@ -481,7 +501,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
             Guide
           </button>
           {/* Last, in the top-right corner: visible with the sidebar shown or hidden. */}
-          {you.role === "gm" && <ShareButton roomId={roomId} token={token} />}
+          {you.role === "gm" && !preview && <ShareButton roomId={roomId} token={token} />}
         </div>
       </header>
       {/* Same element, same position in both states: collapsing must never remount the
@@ -489,20 +509,21 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
       <Board
         ref={boardRef}
         connection={connection}
-        state={state}
-        you={you}
-        gridPreview={you.role === "gm" ? gridPreview : null}
+        state={shownState!}
+        you={shownYou!}
+        readOnly={!!preview}
+        gridPreview={you.role === "gm" && !preview ? gridPreview : null}
         onPickTarget={pickTarget}
         landedRollId={landedId}
         notices={
           // Always mounted, so screen readers register the live region before a notice lands in it.
           <div className="board-notices" role="status" aria-live="polite">
-            {you.role === "gm" && <DepartureNotices state={state} onReview={setReviewing} />}
-            <TurnNotice state={state} you={you} onFocusToken={focusToken} />
+            {you.role === "gm" && !preview && <DepartureNotices state={state} onReview={setReviewing} />}
+            <TurnNotice state={shownState!} you={shownYou!} onFocusToken={focusToken} />
             <KeepSeatNotice roomId={roomId} token={token} name={you.displayName} />
           </div>
         }
-        overlay={<RollCard roll={cardRoll} rollerName={(roll) => state.participants[roll.byParticipantId]?.displayName ?? "Someone"} />}
+        overlay={<RollCard roll={cardRoll} rollerName={(roll) => shownState!.participants[roll.byParticipantId]?.displayName ?? "Someone"} />}
       />
       <aside className="panel" id="room-panel" tabIndex={-1} aria-label="Room controls">
         {!compact && (
@@ -533,9 +554,9 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
             </span>
             {/* A div, not a p: Leave table renders its confirmation <dialog> in here. */}
             <div className="whoami">
-              You are <strong>{you.displayName}</strong> ({you.role === "gm" ? "GM" : "player"})
+              You are <strong>{shownYou!.displayName}</strong> ({shownYou!.role === "gm" ? "GM" : "player"})
               {/* Players only: the GM can't leave their own room; Home is their way out. */}
-              {you.role === "player" && (
+              {shownYou!.role === "player" && !preview && (
                 <>
                   {" · "}
                   <LeaveTable connection={connection} state={state} you={you} />
@@ -550,9 +571,10 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
           */}
           <SectionCollapseProvider>
             <RoomPanel
-              connection={connection}
-              state={state}
-              you={you}
+              connection={shownConnection}
+              state={shownState!}
+              you={shownYou!}
+              readOnly={!!preview}
               token={token}
               onFocusToken={focusToken}
               attackPick={attackPick}
@@ -581,7 +603,9 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
           </SectionCollapseProvider>
         </div>
       </aside>
-      <ChatPanel connection={connection} state={state} />
+      {/* Read-only while previewing: the same refusing connection and the viewed player's state. */}
+      <ChatPanel connection={shownConnection} state={shownState!} you={shownYou!} readOnly={!!preview} />
+      {preview && <PreviewBanner name={preview.you.displayName} onExit={() => setViewAs(null)} />}
       {guideOpen && <GuideTour role={you.role} onClose={closeGuide} />}
       {you.role === "gm" && (
         <ResolveDepartureModal

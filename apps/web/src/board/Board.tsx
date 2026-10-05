@@ -1,8 +1,10 @@
-import { CornersOut } from "@phosphor-icons/react";
+import { CornersOut, Eye, EyeSlash } from "@phosphor-icons/react";
 import { Suspense, forwardRef, lazy, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
 import { DEFAULT_TOKEN_COLOR, EMPTY_STATS, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
+import { guardedConnection } from "../net/previewConnection";
 import { DEFAULT_TOOL_OPTIONS, ToolRail, toolFor, type ToolOptions } from "../ui/ToolRail";
+import { isBoolean, usePersistentState } from "../ui/usePersistentState";
 import { canAnimateDice, type TrayRoll } from "../ui/Die3D";
 import { ThrownDice, type ActiveThrow } from "./ThrownDice";
 import { BoardView } from "./boardView";
@@ -20,6 +22,8 @@ interface Props {
   state: RoomState;
   you: Participant;
   gridPreview: GridSpec | null;
+  /** The GM is previewing as a player (gm-view-as-player): no tool, drag, placement or targeting. Pan and zoom still work. */
+  readOnly?: boolean;
   /** Plain React controls shown top left, before Fit (e.g. the participants button). */
   toolbar?: ReactNode;
   /** Notices pinned to the top right of the board, e.g. the GM's "Sam left the table". */
@@ -93,13 +97,19 @@ function isTyping(target: EventTarget | null) {
 }
 
 /** The PixiJS board plus its React toolbar and notices; Pixi objects stay inside `BoardView`. */
-export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, toolbar, notices, overlay, landedRollId, onPickTarget }, ref) {
+export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, readOnly = false, toolbar, notices, overlay, landedRollId, onPickTarget }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<BoardView | null>(null);
+  /** GM only: false shows everything through the fog (this browser remembers it). */
+  const [gmFog, setGmFog] = usePersistentState("vtt.ui.gmFog", true, isBoolean);
+  const hasFog = Object.keys(state.fog).length > 0;
   /** Strikes waiting for their thrown dice to land, by roll id, oldest first (KAN-76). */
   const waitingStrikes = useRef(new Map<string, { effect: AttackEffect; timer: number }>());
-  const latest = useRef({ state, you, gridPreview, onPickTarget });
-  latest.current = { state, you, gridPreview, onPickTarget };
+  const latest = useRef({ state, you, gridPreview, onPickTarget, gmFog: true, readOnly: false });
+  latest.current = { state, you, gridPreview, onPickTarget, gmFog, readOnly };
+  // Sends nothing while previewing as a player, whatever the board is asked to do. Stable for as
+  // long as the connection is, so entering and leaving a preview never rebuilds the board view.
+  const guarded = useMemo(() => guardedConnection(connection, () => latest.current.readOnly), [connection]);
   const [tool, setTool] = useState<BoardTool>({ kind: "select" });
   const [toolOptions, setToolOptions] = useState<ToolOptions>(DEFAULT_TOOL_OPTIONS);
   const toolRef = useRef(tool);
@@ -174,7 +184,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     // Several tokens are placed one click each, so the GM chooses every square; the server
     // numbers the duplicates (KAN-62).
     const left = current.draft.count ?? 1;
-    const result = await connection.command({ ...current.draft, count: 1, position: at });
+    const result = await guarded.command({ ...current.draft, count: 1, position: at });
     // Keep the draft on a rejection, so the GM can read why and try another square.
     setPlacing((now) => {
       if (now?.draft !== current.draft) return now;
@@ -188,33 +198,33 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   useEffect(() => {
     const view = new BoardView(hostRef.current!, {
       moveToken: async (tokenId, to) => {
-        const result = await connection.command({ type: "token.move", tokenId, to });
+        const result = await guarded.command({ type: "token.move", tokenId, to });
         if (!result.ok) console.warn("Move rejected:", result.message);
         return result.ok;
       },
-      dragPreview: (tokenId, at) => connection.preview(`drag:${tokenId}`, { type: "tokenDragPreview", tokenId, at }),
-      dragEnd: (tokenId, at) => connection.endPreview(`drag:${tokenId}`, at && { type: "tokenDragPreview", tokenId, at }),
-      ping: (at) => connection.ephemeral({ type: "ping", at }),
+      dragPreview: (tokenId, at) => guarded.preview(`drag:${tokenId}`, { type: "tokenDragPreview", tokenId, at }),
+      dragEnd: (tokenId, at) => guarded.endPreview(`drag:${tokenId}`, at && { type: "tokenDragPreview", tokenId, at }),
+      ping: (at) => guarded.ephemeral({ type: "ping", at }),
       // Aiming is shared live and coalesced like drags (KAN-35, KAN-39); the clear goes at once.
-      aimPreview: (preview) => connection.preview("aim", { type: "templatePreview", preview }),
-      aimEnd: (gmOnly) => connection.endPreview("aim", { type: "templatePreview", preview: null, gmOnly }),
+      aimPreview: (preview) => guarded.preview("aim", { type: "templatePreview", preview }),
+      aimEnd: (gmOnly) => guarded.endPreview("aim", { type: "templatePreview", preview: null, gmOnly }),
       placeTemplate: async (template) => {
-        const result = await connection.command({ type: "template.place", ...template });
+        const result = await guarded.command({ type: "template.place", ...template });
         if (!result.ok) console.warn("Area rejected:", result.message);
         return result.ok;
       },
       removeTemplate: async (templateId) => {
-        const result = await connection.command({ type: "template.remove", templateId });
+        const result = await guarded.command({ type: "template.remove", templateId });
         if (!result.ok) console.warn("Area removal rejected:", result.message);
         return result.ok;
       },
       addFog: async (region) => {
-        const result = await connection.command({ type: "fog.add", region });
+        const result = await guarded.command({ type: "fog.add", region });
         if (!result.ok) console.warn("Fog rejected:", result.message);
         return result.ok;
       },
       removeFog: async (regionId) => {
-        const result = await connection.command({ type: "fog.remove", regionId });
+        const result = await guarded.command({ type: "fog.remove", regionId });
         if (!result.ok) console.warn("Fog removal rejected:", result.message);
         return result.ok;
       },
@@ -231,6 +241,8 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     view.init().then(() => {
       if (disposed) return view.destroy();
       viewRef.current = view;
+      view.setGmFogShown(latest.current.gmFog);
+      view.setReadOnly(latest.current.readOnly);
       view.setGridPreview(latest.current.gridPreview);
       view.update(latest.current.state, latest.current.you);
       view.setTool(toolRef.current);
@@ -297,6 +309,19 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     window.clearTimeout(strike.timer);
     playEffectRef.current(strike.effect);
   }, [landedRollId]);
+
+  useEffect(() => {
+    viewRef.current?.setReadOnly(readOnly);
+    if (readOnly) {
+      // Nothing to place, aim or draw while previewing.
+      setPlacing(null);
+      setTool({ kind: "select" });
+    }
+  }, [readOnly]);
+
+  useEffect(() => {
+    viewRef.current?.setGmFogShown(gmFog);
+  }, [gmFog, state.fog, connection]);
 
   useEffect(() => {
     viewRef.current?.setGridPreview(gridPreview);
@@ -418,8 +443,20 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
           <CornersOut size={16} aria-hidden="true" />
           Fit
         </button>
+        {you.role === "gm" && hasFog && (
+          <button
+            type="button"
+            className="tool-button"
+            onClick={() => setGmFog(!gmFog)}
+            title={gmFog ? "See everything: hide the fog tint on your view" : "Show the fog tint on your view again"}
+          >
+            {gmFog ? <Eye size={16} aria-hidden="true" /> : <EyeSlash size={16} aria-hidden="true" />}
+            {gmFog ? "Fog on" : "Fog off"}
+          </button>
+        )}
       </div>
       {gridPreview && <p className="grid-preview-label" role="status">Preview · Not applied</p>}
+      {!readOnly && (
       <ToolRail
         active={tool.kind}
         options={toolOptions}
@@ -435,6 +472,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
         }}
         onClear={() => viewRef.current?.clearMarks()}
       />
+      )}
       {overlay}
       {notices}
       {placing && (
