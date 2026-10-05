@@ -8,7 +8,7 @@
 - `npm test`: 1,156 passed (399 shared, 314 server, 441 web, 2 benchmark); one intentional store test skipped. Benchmark p95 130.8 / 133.1 ms, below 150 ms.
 - Final `npm run lint`, `npm run typecheck`, `npm run build`: passed. After the final UI adjustments, all 15 targeted creature/placement web tests passed.
 - Browser: created a local test account and Wounded Ogre at 30/59 HP, AC 11, with Greatclub (1d20+6 to hit / 2d8+4 damage); saved it and selected it from Add Token. The picker showed current HP and one attack. Final placement/Attack interaction stalled in the browser tool, so that interaction is not claimed as manually verified; command/batch placement and attack copying/visibility have automated coverage.
-- ADRs 0020/0023 remain proposed pending the architecture owner's explicit review; no sign-off is recorded here.
+- ADR 0023 records the user's explicit implementation/merge authorization after CodeRabbit identified its stale proposed status. No separate review or sign-off is claimed. ADR 0020's historical sign-off entry remains unchanged.
 
 ## Review fixes
 

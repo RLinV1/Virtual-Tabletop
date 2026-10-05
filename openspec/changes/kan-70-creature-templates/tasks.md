@@ -33,7 +33,7 @@
 - [x] 6.1 Preserve optional starting HP through creature schemas, both stores and API; add migration 0009 and ADR 0023.
 - [x] 6.2 Expose Starting HP in the creature form; Save as creature preserves current HP and From creature copies it, including zero/negative HP. Old templates keep the full-health default.
 - [x] 6.3 Verify HP validation, template edit/delete independence, player-safe batch placement, form prefill, and real Postgres persistence; run lint, typecheck, tests and build.
-- [ ] 6.4 Architecture owner review of ADR 0023 (no approval inferred).
+- [x] 6.4 Record the user's explicit authorization to implement saved attacks and merge after CodeRabbit review in ADR 0023; no separate review is claimed.
 - [x] 6.5 Persist named attacks in the library, copy them to token.create, use copied attacks in the Attack panel, and include current browser edits in Save as creature.
 - [x] 6.6 Withhold copied attacks from nonowners in snapshots/create/delete events; resync on ownership changes. Cover schemas, both stores, placement, independence, privacy and browser attack overrides in tests.
 - [x] 6.7 Add Place all automatically for remaining copies as one command while keeping manual per-copy placement.
