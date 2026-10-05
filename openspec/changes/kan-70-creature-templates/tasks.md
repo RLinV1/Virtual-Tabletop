@@ -10,7 +10,7 @@
 
 ## 3. Server
 
-- [ ] 3.1 Prisma migration adding `library_creatures.color` (nullable text) and `conditions` (text array, default empty); update both creature stores and routes; verify `apps/server/test/creatures.test.ts` gains cases for colour and conditions round trip, invalid colour, unknown condition, 13 conditions, and an old row reading back with defaults
+- [x] 3.1 Prisma migration adding `library_creatures.color` (nullable text) and `conditions` (text array, default empty); update both creature stores and routes; verify `apps/server/test/creatures.test.ts` gains cases for colour and conditions round trip, invalid colour, unknown condition, 13 conditions, and an old row reading back with defaults
 - [x] 3.2 Integration test: the GM adds 3 hidden goblins in one command; the GM sees 3 tokens and players receive only redacted seqs; verify with `npm test --workspace=@vtt/server -- -t "KAN-70"`
 
 ## 4. Web
@@ -32,7 +32,7 @@
 
 - [x] 6.1 Preserve optional starting HP through creature schemas, both stores and API; add migration 0009 and ADR 0023.
 - [x] 6.2 Expose Starting HP in the creature form; Save as creature preserves current HP and From creature copies it, including zero/negative HP. Old templates keep the full-health default.
-- [ ] 6.3 Verify HP validation, template edit/delete independence, player-safe batch placement, form prefill, and real Postgres persistence; run lint, typecheck, tests and build.
+- [x] 6.3 Verify HP validation, template edit/delete independence, player-safe batch placement, form prefill, and real Postgres persistence; run lint, typecheck, tests and build.
 - [ ] 6.4 Architecture owner review of ADR 0023 (no approval inferred).
 - [x] 6.5 Persist named attacks in the library, copy them to token.create, use copied attacks in the Attack panel, and include current browser edits in Save as creature.
 - [x] 6.6 Withhold copied attacks from nonowners in snapshots/create/delete events; resync on ownership changes. Cover schemas, both stores, placement, independence, privacy and browser attack overrides in tests.

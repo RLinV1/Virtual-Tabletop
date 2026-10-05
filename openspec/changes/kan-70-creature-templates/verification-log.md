@@ -1,5 +1,15 @@
 # KAN-70 verification — 2026-10-04
 
+## Completion verification — 2026-10-05
+
+- Current main already includes the original colour, conditions, Save as creature and count work (PR 73). Jira was still To Do.
+- Added starting HP and named attacks; added automatic batch placement while keeping manual per-copy placement.
+- Applied all ten migrations to an isolated PostgreSQL 16 database. Real Postgres store tests now passed, including legacy defaults and starting HP/attack round trips.
+- `npm test`: 1,156 passed (399 shared, 314 server, 441 web, 2 benchmark); one intentional store test skipped. Benchmark p95 130.8 / 133.1 ms, below 150 ms.
+- Final `npm run lint`, `npm run typecheck`, `npm run build`: passed. After the final UI adjustments, all 15 targeted creature/placement web tests passed.
+- Browser: created a local test account and Wounded Ogre at 30/59 HP, AC 11, with Greatclub (1d20+6 to hit / 2d8+4 damage); saved it and selected it from Add Token. The picker showed current HP and one attack. Final placement/Attack interaction stalled in the browser tool, so that interaction is not claimed as manually verified; command/batch placement and attack copying/visibility have automated coverage.
+- ADRs 0020/0023 remain proposed pending the architecture owner's explicit review; no sign-off is recorded here.
+
 ## Review fixes
 
 - Bound batch placement to 20 rings / 1,680 perimeter candidates regardless of map dimensions or token size, with deterministic origin fallback. Regression tests cover a schema-valid tiny off-map token, an occupied search area, and perimeter traversal order.
