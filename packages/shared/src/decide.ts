@@ -4,6 +4,7 @@ import { formatExpression, parseDiceExpression, rollDice, type AttackContext } f
 import type { DomainEvent } from "./events";
 import { isSnapped, polygonArea, resizedTokenCenter, snapTokenCenter, spreadPositions, type GridSpec, type Point } from "./geometry";
 import { canRenderGrid } from "./gridRenderLimit";
+import { adjustMapTokens } from "./mapTokenAdjustment";
 import type { SessionEndReason } from "./protocol";
 import { inverseOf, undoableAction, undoConflict } from "./undo";
 import { concealedFrom, fogConcealsSide, isInFog, templateConcealedFrom } from "./visibility";
@@ -96,23 +97,28 @@ export function decide(
   ctx: DecideContext,
 ): Decision {
   switch (command.type) {
-    case "scene.setMap":
+    case "scene.setMap": {
       if (!can.administer(actor)) return forbidden();
-      if (!canRenderGrid((command.grid ?? state.scene.grid).cellSize, command.map)) {
+      const grid = command.grid ?? state.scene.grid;
+      if (!canRenderGrid(grid.cellSize, command.map)) {
         return reject("invalid", "Grid cell size creates too many lines for this map.");
       }
-      // One event, not MapSet + GridSet: a library map and its grid are one undoable step (ADR 0004).
-      return accept(
-        command.grid
-          ? {
-              type: "MapSet",
-              map: command.map,
-              previous: state.scene.map,
-              gridChange: { grid: command.grid, previous: state.scene.grid },
-            }
-          : { type: "MapSet", map: command.map, previous: state.scene.map },
-        ...(command.grid ? resnapToGrid(state, command.grid) : []),
+      const adjustment = adjustMapTokens(
+        Object.values(state.tokens), state.scene.map, command.map, state.scene.grid, grid, command.tokenPolicy,
       );
+      if (!adjustment.ok) {
+        const token = state.tokens[adjustment.tokenId]!;
+        return reject("invalid", `${token.name}'s ${adjustment.footprint} px footprint cannot fit this ${command.map.width} × ${command.map.height} px map. Use a larger map, reduce the grid cell size, or reduce the token's size.`);
+      }
+      // Map, effective grid and adjusted positions are one reversible fact (ADR 0023).
+      return accept({
+        type: "MapSet",
+        map: command.map,
+        previous: state.scene.map,
+        gridChange: { grid, previous: state.scene.grid },
+        tokenChanges: adjustment.changes,
+      });
+    }
 
     case "scene.setGrid":
       if (!can.administer(actor)) return forbidden();

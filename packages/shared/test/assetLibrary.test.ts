@@ -45,6 +45,7 @@ describe("placing a library map (asset-library: Place a library asset in a room)
       map: libraryMap,
       previous: null,
       gridChange: { grid: libraryGrid, previous: DEFAULT_GRID },
+      tokenChanges: [],
     });
     expect(state.scene).toEqual({ map: libraryMap, grid: libraryGrid });
   });
@@ -69,7 +70,7 @@ describe("placing a library map (asset-library: Place a library asset in a room)
       type: "scene.setMap",
       map: { url: "/uploads/b.png", width: 50, height: 50 },
     });
-    expect(events[0]).not.toHaveProperty("gridChange");
+    expect(events[0]).toMatchObject({ gridChange: { grid: libraryGrid, previous: libraryGrid }, tokenChanges: [] });
     expect(state.scene.grid).toEqual(libraryGrid);
   });
 });

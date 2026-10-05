@@ -18,6 +18,7 @@ import { MAX_FOG_REGIONS, tableOf, type RoomState } from "./state";
 export const UNDO_HISTORY_LIMIT = 20;
 
 export const REVERSIBLE_EVENT_TYPES = [
+  "MapSet",
   "TokenMoved",
   "TokenHiddenSet",
   "TokenConditionsSet",
@@ -29,7 +30,14 @@ export const REVERSIBLE_EVENT_TYPES = [
   "CheckpointRestored",
 ] as const;
 
-export type ReversibleEvent = Extract<DomainEvent, { type: (typeof REVERSIBLE_EVENT_TYPES)[number] }>;
+type MapSetEvent = Extract<DomainEvent, { type: "MapSet" }>;
+type CompleteMapSet = MapSetEvent & {
+  gridChange: NonNullable<MapSetEvent["gridChange"]>;
+  tokenChanges: NonNullable<MapSetEvent["tokenChanges"]>;
+};
+export type ReversibleEvent =
+  | Exclude<Extract<DomainEvent, { type: (typeof REVERSIBLE_EVENT_TYPES)[number] }>, MapSetEvent>
+  | CompleteMapSet;
 
 export interface UndoEntry {
   /** The action's `commandId` (or `seq:<n>` for an event from before undo existed). */
@@ -65,6 +73,7 @@ export interface EventMeta {
 
 /** Whether an event type can take part in an undoable action. */
 export function isReversible(event: DomainEvent): event is ReversibleEvent {
+  if (event.type === "MapSet") return event.gridChange !== undefined && event.tokenChanges !== undefined;
   return (REVERSIBLE_EVENT_TYPES as readonly string[]).includes(event.type);
 }
 
@@ -116,6 +125,14 @@ function withLabels(
   event: ReversibleEvent,
 ): Pick<UndoEntry, "tokenNames" | "rollLabels"> {
   const { tokenNames, rollLabels } = labels;
+  if (event.type === "MapSet") {
+    const names = { ...tokenNames };
+    for (const change of event.tokenChanges) {
+      const token = state.tokens[change.tokenId];
+      if (token) names[token.id] = token.name;
+    }
+    return { tokenNames: names, rollLabels };
+  }
   if (event.type === "FogAdded" || event.type === "FogRemoved" || event.type === "CheckpointRestored") return labels;
   if ("tokenId" in event) {
     const token = state.tokens[event.tokenId];
@@ -147,6 +164,14 @@ function canUndo(entry: UndoEntry): boolean {
 /** The compensating event that restores what `event` replaced (invariant 6). */
 export function inverseOf(event: ReversibleEvent): DomainEvent {
   switch (event.type) {
+    case "MapSet":
+      return {
+        type: "MapSet",
+        map: event.previous,
+        previous: event.map,
+        gridChange: { grid: event.gridChange.previous, previous: event.gridChange.grid },
+        tokenChanges: event.tokenChanges.map((change) => ({ tokenId: change.tokenId, from: change.to, to: change.from })),
+      };
     case "TokenMoved":
       return { type: "TokenMoved", tokenId: event.tokenId, from: event.to, to: event.from };
     case "TokenHiddenSet":
@@ -175,6 +200,17 @@ export function inverseOf(event: ReversibleEvent): DomainEvent {
  */
 export function undoConflict(state: RoomState, entry: UndoEntry): string | null {
   for (const event of entry.events) {
+    if (event.type === "MapSet") {
+      if (!sameValue(state.scene.map, event.map)) return "Can't undo: the map has changed since.";
+      if (!sameValue(state.scene.grid, event.gridChange.grid)) return "Can't undo: the grid has changed since.";
+      for (const change of event.tokenChanges) {
+        const token = state.tokens[change.tokenId];
+        const name = token?.name ?? entry.tokenNames[change.tokenId] ?? "That token";
+        if (!token) return `Can't undo: ${name} no longer exists.`;
+        if (token.position.x !== change.to.x || token.position.y !== change.to.y) return `Can't undo: ${name} has changed since.`;
+      }
+      continue;
+    }
     if (event.type === "CheckpointRestored") {
       // A whole-board swap: undo only while the board is still exactly what the restore made it.
       if (!sameValue(tableOf(state), event.restored)) return `Can't undo: the board has changed since "${event.name}" was restored.`;
@@ -248,6 +284,12 @@ export function describeUndo(entry: UndoEntry, tokens: RoomState["tokens"]): { v
   }
   const first = entry.events[0];
   if (!first) return { verb: "last action", noun: "an action" };
+  if (first.type === "MapSet") {
+    const count = first.tokenChanges.length;
+    const positions = count ? ` and ${count} token position${count === 1 ? "" : "s"}` : "";
+    const action = first.map ? first.previous ? "map replacement" : "map placement" : "map removal";
+    return { verb: `${action}${positions}`, noun: `the ${action}${positions}` };
+  }
   if (first.type === "CheckpointRestored") {
     return { verb: `restore of "${first.name}"`, noun: `restoring checkpoint "${first.name}"` };
   }

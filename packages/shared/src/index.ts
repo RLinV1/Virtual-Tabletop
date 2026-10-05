@@ -1,6 +1,7 @@
 export * from "./conditions";
 export * from "./dice";
 export * from "./geometry";
+export * from "./mapTokenAdjustment";
 export * from "./gridRenderLimit";
 export * from "./state";
 export * from "./commands";

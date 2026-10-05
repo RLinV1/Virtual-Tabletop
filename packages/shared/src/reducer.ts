@@ -99,8 +99,14 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
       return { ...state, participants: { ...state.participants, [p.id]: { ...p, revoked: true } } };
     }
 
-    case "MapSet":
-      return { ...state, scene: { ...state.scene, map: event.map, grid: event.gridChange?.grid ?? state.scene.grid } };
+    case "MapSet": {
+      const tokens = { ...state.tokens };
+      for (const change of event.tokenChanges ?? []) {
+        const token = required(tokens[change.tokenId], event);
+        tokens[token.id] = { ...token, position: change.to };
+      }
+      return { ...state, scene: { ...state.scene, map: event.map, grid: event.gridChange?.grid ?? state.scene.grid }, tokens };
+    }
 
     case "GridSet":
       return { ...state, scene: { ...state.scene, grid: event.grid } };
@@ -264,6 +270,7 @@ function assertNever(x: never): never {
 function concealFoggedSides(state: RoomState, event: DomainEvent): RoomState {
   const tokenIds =
     event.type === "FogAdded" ? Object.keys(state.tokens)
+    : event.type === "MapSet" ? (event.tokenChanges ?? []).map((change) => change.tokenId)
     : event.type === "TokenMoved" || event.type === "TokenOwnersSet" ? [event.tokenId]
     : [];
   let rolls = state.rolls;
