@@ -266,6 +266,36 @@ describe("tactical panels (FR-GM-21, FR-GM-22, FR-TAC-07)", () => {
     expect(alice.rawLog.join("")).not.toContain("Ambusher");
   });
 
+  it("saves initiative scores on tokens, across the encounter and a reconnect, without leaking hidden ones (ADR 0022)", async () => {
+    const { gm, alice, gmCreds } = await setup();
+    await gm.command({ type: "token.create", name: "Guard", position: { x: 35, y: 35 }, ownerIds: [] });
+    await gm.command({ type: "token.create", name: "Ambusher", position: { x: 105, y: 35 }, ownerIds: [], hidden: true });
+    await alice.waitForSeq(gm.seq);
+    const byName = (c: TestClient, name: string) => tokens(c).find((t) => t.name === name);
+    const guard = byName(gm, "Guard")!;
+    const ambusher = byName(gm, "Ambusher")!;
+
+    await gm.command({
+      type: "initiative.start",
+      entries: [{ tokenId: guard.id, score: 14 }, { tokenId: ambusher.id, score: 19 }],
+    });
+    await gm.command({ type: "initiative.end" });
+    await alice.waitForSeq(gm.seq);
+
+    expect(byName(gm, "Guard")!.initiative).toBe(14);
+    expect(byName(gm, "Ambusher")!.initiative).toBe(19);
+    expect(byName(alice, "Guard")!.initiative).toBe(14);
+    expect(byName(alice, "Ambusher")).toBeUndefined();
+    expect(alice.rawLog.join("")).not.toContain("Ambusher");
+    expect(alice.rawLog.join("")).not.toContain('"initiative":19');
+
+    // A fresh connection (a reload) still sees the saved scores.
+    const again = await server.connect(gmCreds);
+    clients.push(again);
+    expect(byName(again, "Guard")!.initiative).toBe(14);
+    expect(byName(again, "Ambusher")!.initiative).toBe(19);
+  });
+
   it("lets an owner set their token's stats but refuses a stranger (FR-TAC-07)", async () => {
     const { gm, alice, bob } = await setup();
 

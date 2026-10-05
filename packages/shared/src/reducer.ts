@@ -150,7 +150,17 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
       return { ...state, tokens: { ...state.tokens, [t.id]: { ...t, conditions: event.conditions } } };
     }
 
-    case "InitiativeStarted":
+    case "InitiativeStarted": {
+      // Each score is saved on its token, so it outlives the encounter.
+      const scores = event.scores ?? [];
+      const tokens = { ...state.tokens };
+      for (const { tokenId, score } of scores) {
+        const token = tokens[tokenId];
+        if (token) tokens[tokenId] = { ...token, initiative: score };
+      }
+      return { ...state, initiative: event.initiative, tokens: scores.length > 0 ? tokens : state.tokens };
+    }
+
     case "InitiativeAdvanced":
       return { ...state, initiative: event.initiative };
 

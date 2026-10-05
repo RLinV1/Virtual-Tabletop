@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ConditionId, TokenStats } from "./conditions";
 import { DiceRoll, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
-import { AreaTemplate, ChatMessage, Checkpoint, DiceLookOnTable, FogRegion, Id, Initiative, MapImage, Participant, TableState, Token } from "./state";
+import { AreaTemplate, ChatMessage, Checkpoint, DiceLookOnTable, FogRegion, Id, Initiative, InitiativeScore, MapImage, Participant, TableState, Token } from "./state";
 
 /**
  * Events are FACTS the server has committed. They are append-only and never edited.
@@ -119,6 +119,13 @@ export const DomainEvent = z.discriminatedUnion("type", [
     type: z.literal("InitiativeStarted"),
     initiative: Initiative,
     previous: Initiative.nullable(),
+    /**
+     * The scores the GM entered, saved on their tokens, each with the value it replaced.
+     * Absent on events from before scores were saved.
+     */
+    scores: z
+      .array(z.object({ tokenId: Id, score: InitiativeScore, previous: InitiativeScore.nullable() }))
+      .optional(),
   }),
   z.object({
     type: z.literal("InitiativeAdvanced"),

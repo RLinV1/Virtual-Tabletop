@@ -70,6 +70,9 @@ export const Scene = z.object({
 });
 export type Scene = z.infer<typeof Scene>;
 
+/** An initiative score, as the Start encounter command accepts it (ADR 0022). */
+export const InitiativeScore = z.number().int().min(-99).max(999);
+
 export const Token = z.object({
   id: Id,
   name: z.string().min(1).max(60),
@@ -92,6 +95,11 @@ export const Token = z.object({
   stats: TokenStats,
   /** Status conditions, rendered by shape and abbreviation, never colour alone (FR-TAC-08). */
   conditions: z.array(ConditionId).max(12),
+  /**
+   * The score the GM last gave this token when starting an encounter. It outlives the encounter
+   * so the next Start encounter dialog can pre-fill it. Absent or null means none yet.
+   */
+  initiative: InitiativeScore.nullish(),
 });
 export type Token = z.infer<typeof Token>;
 

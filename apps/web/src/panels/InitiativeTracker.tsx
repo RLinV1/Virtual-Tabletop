@@ -4,6 +4,7 @@ import type { RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
 import { PanelSection } from "../ui/PanelSection";
 import { pendingRulings } from "./attackRoll";
+import { initiativeEntries, initiativeFieldValue, invalidInitiative, invalidMessage } from "./initiativeFields";
 
 /**
  * Turn order (FR-GM-21).
@@ -28,12 +29,17 @@ export function InitiativeTracker({
   const tokens = Object.values(state.tokens);
   const [scores, setScores] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  /** Tokens whose typed score the last Start refused, so their fields can say so. */
+  const [invalidIds, setInvalidIds] = useState<string[]>([]);
   const [setupOpen, setSetupOpen] = useState(false);
 
   const start = async () => {
-    const entries = tokens
-      .map((t) => ({ tokenId: t.id, score: Number(scores[t.id] ?? "") }))
-      .filter((e) => Number.isFinite(e.score) && (scores[e.tokenId] ?? "") !== "");
+    const invalid = invalidInitiative(scores, tokens);
+    setInvalidIds(invalid.map((t) => t.id));
+    if (invalid.length > 0) {
+      return setError(invalidMessage(invalid.map((t) => tokens.find((x) => x.id === t.id)?.name ?? "token")));
+    }
+    const entries = initiativeEntries(scores, tokens);
     if (entries.length === 0) return setError("Give at least one token an initiative score");
     const result = await connection.command({ type: "initiative.start", entries });
     setError(result.ok ? null : result.message);
@@ -74,7 +80,9 @@ export function InitiativeTracker({
               void start();
             }}
           >
-            <p className="muted init-hint">Type each token's initiative. Highest goes first. Tokens left empty won't get a turn.</p>
+            <p className="muted init-hint">
+              Type each token's initiative. Highest goes first. Scores are saved on the tokens and filled in next time. Tokens left empty won't get a turn.
+            </p>
             <ul className="plain init-setup">
               {tokens.map((t, i) => (
                 <li key={t.id}>
@@ -84,18 +92,29 @@ export function InitiativeTracker({
                   </label>
                   <input
                     id={`init-${t.id}`}
+                    aria-invalid={invalidIds.includes(t.id) || undefined}
+                    aria-describedby={invalidIds.includes(t.id) ? "init-error" : undefined}
                     type="number"
                     inputMode="numeric"
                     placeholder="Init"
                     autoFocus={i === 0}
-                    value={scores[t.id] ?? ""}
-                    onChange={(e) => setScores((s) => ({ ...s, [t.id]: e.target.value }))}
+                    value={initiativeFieldValue(scores, t)}
+                    onChange={(e) => {
+                      const next = { ...scores, [t.id]: e.target.value };
+                      setScores(next);
+                      // Once a score was refused, keep the flagged fields and the message in step with the edits.
+                      if (invalidIds.length > 0) {
+                        const stillInvalid = invalidInitiative(next, tokens);
+                        setInvalidIds(stillInvalid.map((x) => x.id));
+                        setError(stillInvalid.length > 0 ? invalidMessage(stillInvalid.map((x) => tokens.find((y) => y.id === x.id)?.name ?? "token")) : null);
+                      }
+                    }}
                     aria-label={`Initiative for ${t.name}`}
                   />
                 </li>
               ))}
             </ul>
-            {error && <p role="alert" className="error">{error}</p>}
+            {error && <p id="init-error" role="alert" className="error">{error}</p>}
             <button type="submit">Start encounter</button>
           </form>
         </Modal>

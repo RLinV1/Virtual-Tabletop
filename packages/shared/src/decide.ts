@@ -367,6 +367,11 @@ export function decide(
         type: "InitiativeStarted",
         initiative: { order: deduped, activeIndex: 0, round: 1 },
         previous: state.initiative,
+        scores: command.entries.map((e) => ({
+          tokenId: e.tokenId,
+          score: e.score,
+          previous: state.tokens[e.tokenId]?.initiative ?? null,
+        })),
       });
     }
 
