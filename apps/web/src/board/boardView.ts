@@ -85,6 +85,8 @@ export interface BoardCallbacks {
   cancelAttack(): void;
   /** The GM clicked a square while placing a new token (place-token-on-board). */
   placeToken(at: Point): void;
+  /** A press on a token that stayed put (a click, not a drag) selects it; a click on bare map clears (null). */
+  selectToken(tokenId: string | null): void;
   /** The GM right-clicked while placing: put the token back. */
   cancelPlacement(): void;
 }
@@ -287,8 +289,10 @@ export class BoardView {
   private mapMissing = false;
   private gridKey = "";
 
-  private drag: { tokenId: string; offset: Point } | null = null;
-  private pan: { start: Point; origin: Point } | null = null;
+  private drag: { tokenId: string; offset: Point; movable: boolean } | null = null;
+  /** Screen position where the token press began, to tell a click from a drag. */
+  private dragDownAt: Point | null = null;
+  private pan: { start: Point; origin: Point; button?: number } | null = null;
   private tool: BoardTool = { kind: "select" };
   private marks: Mark[] = [];
   /** Templates sent to the server but not yet back in state, so a release doesn't blink. */
@@ -1438,8 +1442,9 @@ export class BoardView {
       token.name, token.size, token.rotation, token.color, token.hidden, owned, movable, grid.cellSize,
       token.stats, token.conditions, focused, active, token.imageUrl,
     ]);
-    view.container.eventMode = movable ? "static" : "none";
-    view.container.cursor = this.placement || this.tool.kind !== "select" ? this.toolCursor() : movable ? "grab" : "default";
+    // Every visible token takes presses so a click can select it; only movable ones start a drag.
+    view.container.eventMode = "static";
+    view.container.cursor = this.placement || this.tool.kind !== "select" ? this.toolCursor() : movable ? "grab" : "pointer";
     if (key === view.drawnKey) return;
     view.drawnKey = key;
 
@@ -1695,15 +1700,20 @@ export class BoardView {
   private onTokenDown = (e: FederatedPointerEvent, tokenId: string) => {
     // With a tool active or a token being placed, let the press reach the stage so e.g. a
     // measurement starts here, or the new token can go on an occupied square.
-    if (this.readOnly || e.button !== 0 || this.tool.kind !== "select" || this.placement) return;
+    if (e.button !== 0 || this.tool.kind !== "select" || this.placement) return;
     e.stopPropagation();
     const view = this.tokens.get(tokenId);
-    if (!view) return;
+    const token = this.state?.tokens[tokenId];
+    if (!view || !token || !this.you) return;
+    const movable = !this.readOnly && can.moveToken(this.you, token);
     const p = this.toBoard(e.global);
     this.drag = {
       tokenId,
       offset: { x: p.x - view.container.x, y: p.y - view.container.y },
+      movable,
     };
+    this.dragDownAt = { x: e.global.x, y: e.global.y };
+    if (!movable) return;
     view.container.cursor = "grabbing";
     this.tokenLayer.addChild(view.container); // bring to front
     this.invalidate();
@@ -1739,7 +1749,7 @@ export class BoardView {
       this.redrawOverlay();
       return;
     }
-    this.pan = { start: { x: e.global.x, y: e.global.y }, origin: { x: this.world.x, y: this.world.y } };
+    this.pan = { start: { x: e.global.x, y: e.global.y }, origin: { x: this.world.x, y: this.world.y }, button: e.button };
   };
 
   private onPointerMove = (e: FederatedPointerEvent) => {
@@ -1779,6 +1789,7 @@ export class BoardView {
       }
       this.redrawOverlay();
     } else if (this.drag) {
+      if (!this.drag.movable) return;
       const view = this.tokens.get(this.drag.tokenId);
       if (!view) return;
       const p = this.toBoard(e.global);
@@ -1798,7 +1809,11 @@ export class BoardView {
   };
 
   private onPointerUp = (e: FederatedPointerEvent) => {
+    const pan = this.pan;
     this.pan = null;
+    if (pan && pan.button === 0 && !this.placement && !this.gesture && this.tool.kind === "select" && !exceedsPanThreshold(pan.start, e.global)) {
+      this.callbacks.selectToken(null);
+    }
     const down = this.placeDown;
     this.placeDown = null;
     if (down && this.placement && this.state) {
@@ -1808,12 +1823,24 @@ export class BoardView {
     }
     if (this.gesture) return this.finishGesture();
     const drag = this.drag;
+    const downAt = this.dragDownAt;
     this.drag = null;
+    this.dragDownAt = null;
     if (!drag) return;
+    // A press that stays put is a click: select the token. Anything further is a drag and moves it.
+    const clicked = downAt !== null && Math.hypot(e.global.x - downAt.x, e.global.y - downAt.y) < MIN_MARK_DRAG_PX;
+    if (clicked) this.callbacks.selectToken(drag.tokenId);
     const token = this.state?.tokens[drag.tokenId];
     const view = this.tokens.get(drag.tokenId);
+    if (!drag.movable) return;
     if (!this.state || !token || !view) return this.callbacks.dragEnd(drag.tokenId, null);
     view.container.cursor = "grab";
+    if (clicked) {
+      // A click never moves the token, even one placed off-centre: put it back and end the ghost.
+      view.container.position.set(token.position.x, token.position.y);
+      this.invalidate();
+      return this.callbacks.dragEnd(token.id, token.position);
+    }
 
     this.invalidate();
     const dropped = { x: view.container.x, y: view.container.y };
