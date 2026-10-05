@@ -27,3 +27,13 @@
 > Progress (2026-10-04): shared, server and web are built and tested (`addSeveral.test.ts`, creature API tests, `creatureDraft.test.ts`). Playwright script, GM signed in: a green "Goblin" with Prone saved in the library; Add token → From creature → How many 4 placed Goblin, Goblin 2, Goblin 3, Goblin 4, all green, Prone, 7/7 HP, AC 15, on neighbouring squares; Save as creature from Goblin 2 opened prefilled (name, colour, Prone) and saved "Goblin scout". A nested-form bug (the Save as creature form inside the token editor's form submitted the editor) was found and fixed. Migration 0008 applies cleanly after 0001–0007 on PGlite.
 > Open: 1.1 (owner sign-off on ADR 0020); 3.1's run against a real Postgres (needs Docker; the memory store tests pass).
 > 5.1 phone pass (390×844): Add token with How many 2 and Hidden fits with no horizontal scroll; Lurker and Lurker 2 placed; the player's browser received two redacted seqs and no frame mentioning "Lurker".
+
+## 6. Starting HP and attack completion (2026-10-05)
+
+- [x] 6.1 Preserve optional starting HP through creature schemas, both stores and API; add migration 0009 and ADR 0023.
+- [x] 6.2 Expose Starting HP in the creature form; Save as creature preserves current HP and From creature copies it, including zero/negative HP. Old templates keep the full-health default.
+- [ ] 6.3 Verify HP validation, template edit/delete independence, player-safe batch placement, form prefill, and real Postgres persistence; run lint, typecheck, tests and build.
+- [ ] 6.4 Architecture owner review of ADR 0023 (no approval inferred).
+- [x] 6.5 Persist named attacks in the library, copy them to token.create, use copied attacks in the Attack panel, and include current browser edits in Save as creature.
+- [x] 6.6 Withhold copied attacks from nonowners in snapshots/create/delete events; resync on ownership changes. Cover schemas, both stores, placement, independence, privacy and browser attack overrides in tests.
+- [x] 6.7 Add Place all automatically for remaining copies as one command while keeping manual per-copy placement.

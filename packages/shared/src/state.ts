@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TokenAttacks } from "./attackPresets";
 import { DICE_SHEET, DieName } from "./diceLooks";
 import type { UndoEntry } from "./undo";
 import { ConditionId, TokenStats } from "./conditions";
@@ -95,6 +96,8 @@ export const Token = z.object({
   stats: TokenStats,
   /** Status conditions, rendered by shape and abbreviation, never colour alone (FR-TAC-08). */
   conditions: z.array(ConditionId).max(12),
+  /** Copied named attacks, available to the GM and this token's owners. Older tokens omit them. */
+  attacks: TokenAttacks.optional(),
   /**
    * The score the GM last gave this token when starting an encounter. It outlives the encounter
    * so the next Start encounter dialog can pre-fill it. Absent or null means none yet.

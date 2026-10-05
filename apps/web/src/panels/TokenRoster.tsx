@@ -23,6 +23,7 @@ import { ConditionMarker, ConditionPicker } from "./ConditionMarker";
 import type { TokenDraft } from "../board/placement";
 import { AddTokenButton } from "./AddToken";
 import { Modal } from "../ui/Modal";
+import { browserTokenAttacks } from "./attackRoll";
 import { PanelSection } from "../ui/PanelSection";
 
 /**
@@ -250,7 +251,7 @@ export function TokenEditor({
     setCreatureStatus("");
     // Its art comes along only when it is the GM's own token art; an unreadable library means none.
     const ownArt = await api.library.list().catch(() => []);
-    setCreaturePrefill(creatureFromToken(token, ownArt));
+    setCreaturePrefill(creatureFromToken(token, ownArt, browserTokenAttacks(token)));
   };
   const [busy, setBusy] = useState(false);
 

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TokenAttacks, type AttackPreset } from "./attackPresets";
 import { Command, DEFAULT_TOKEN_COLOR } from "./commands";
 import { CommittedEvent } from "./events";
 import { GridSpec, Point } from "./geometry";
@@ -229,6 +230,9 @@ export interface LibraryUsageResponse {
 export const CreatureFields = z.object({
   name: Token.shape.name.refine((name) => name.trim() !== "", { message: "Name can't be blank" }),
   size: Token.shape.size,
+  /** Starting HP; null/omitted preserves the legacy full-health default. */
+  hp: TokenStats.shape.hp,
+  attacks: TokenAttacks,
   maxHp: TokenStats.shape.maxHp,
   ac: TokenStats.shape.ac,
   /** The disc colour its tokens get when they have no image (KAN-70). */
@@ -241,6 +245,8 @@ export const CreatureFields = z.object({
 
 export const CreateCreatureRequest = CreatureFields.extend({
   size: Token.shape.size.default(1),
+  hp: TokenStats.shape.hp.default(null),
+  attacks: TokenAttacks.default([]),
   maxHp: TokenStats.shape.maxHp.default(null),
   ac: TokenStats.shape.ac.default(null),
   color: Token.shape.color.default(DEFAULT_TOKEN_COLOR),
@@ -248,6 +254,11 @@ export const CreateCreatureRequest = CreatureFields.extend({
   imageAssetId: z.uuid().nullable().default(null),
 });
 export type CreateCreatureRequest = z.infer<typeof CreateCreatureRequest>;
+
+/** A saved template must place as a valid token rather than fail on HP > Max HP. */
+export function creatureHpValid(creature: { hp: number | null; maxHp: number | null }): boolean {
+  return creature.hp === null || creature.maxHp === null || creature.hp <= creature.maxHp;
+}
 
 export const UpdateCreatureRequest = CreatureFields.partial().refine((p) => Object.keys(p).length > 0, {
   message: "Nothing to change",
@@ -258,6 +269,9 @@ export interface LibraryCreature {
   id: string;
   name: string;
   size: number;
+  /** Null or absent on older responses means start at Max HP. Zero is explicit. */
+  hp?: number | null;
+  attacks?: AttackPreset[];
   maxHp: number | null;
   ac: number | null;
   color: string;
