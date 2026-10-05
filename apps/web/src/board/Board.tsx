@@ -1,6 +1,6 @@
 import { CornersOut, Eye, EyeSlash } from "@phosphor-icons/react";
 import { Suspense, forwardRef, lazy, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
-import { DEFAULT_TOKEN_COLOR, EMPTY_STATS, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
+import { DEFAULT_TOKEN_COLOR, EMPTY_STATS, conditionSpec, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { guardedConnection } from "../net/previewConnection";
 import { DEFAULT_TOOL_OPTIONS, ToolRail, toolFor, type ToolOptions } from "../ui/ToolRail";
@@ -110,6 +110,9 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   // Sends nothing while previewing as a player, whatever the board is asked to do. Stable for as
   // long as the connection is, so entering and leaving a preview never rebuilds the board view.
   const guarded = useMemo(() => guardedConnection(connection, () => latest.current.readOnly), [connection]);
+  /** The token the viewer clicked (not dragged); its details show beside the board. */
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = selectedId ? state.tokens[selectedId] ?? null : null;
   const [tool, setTool] = useState<BoardTool>({ kind: "select" });
   const [toolOptions, setToolOptions] = useState<ToolOptions>(DEFAULT_TOOL_OPTIONS);
   const toolRef = useRef(tool);
@@ -229,6 +232,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
         return result.ok;
       },
       placeToken: (at) => void placeRef.current(at),
+      selectToken: (tokenId) => setSelectedId(tokenId),
       cancelPlacement: () => setPlacing(null),
       pickTarget: (attackerId, targetId) => {
         endAttack();
@@ -475,6 +479,45 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       )}
       {overlay}
       {notices}
+      {selected && (
+        <aside className="token-card" aria-label={`${selected.name} details`}>
+          <div className="token-card-head">
+            <span className="token-card-swatch" style={{ background: selected.color }} aria-hidden="true" />
+            <strong>{selected.name}</strong>
+            <button type="button" className="secondary" onClick={() => setSelectedId(null)} aria-label="Close token details">×</button>
+          </div>
+          <dl>
+            <dt>HP</dt>
+            <dd>{selected.stats.hp === null ? "Not tracked" : selected.stats.maxHp === null ? selected.stats.hp : `${selected.stats.hp} / ${selected.stats.maxHp}`}</dd>
+            {selected.stats.ac !== null && (
+              <>
+                <dt>AC</dt>
+                <dd>{selected.stats.ac}</dd>
+              </>
+            )}
+            <dt>Status</dt>
+            <dd>{selected.conditions.length ? selected.conditions.map((c) => conditionSpec(c).label).join(", ") : "None"}</dd>
+            {you.role === "gm" && (
+              <>
+                <dt>Owners</dt>
+                <dd>
+                  {selected.ownerIds.length
+                    ? selected.ownerIds.map((id) => state.participants[id]?.displayName ?? "Unknown").join(", ")
+                    : "GM only"}
+                </dd>
+                <dt>Visible</dt>
+                <dd>{selected.hidden ? "Hidden from players" : "Everyone"}</dd>
+                {selected.initiative != null && (
+                  <>
+                    <dt>Initiative</dt>
+                    <dd>{String(selected.initiative)}</dd>
+                  </>
+                )}
+              </>
+            )}
+          </dl>
+        </aside>
+      )}
       {placing && (
         <div className="placement-bar">
           <p aria-live="polite">

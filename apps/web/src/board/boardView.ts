@@ -85,6 +85,8 @@ export interface BoardCallbacks {
   cancelAttack(): void;
   /** The GM clicked a square while placing a new token (place-token-on-board). */
   placeToken(at: Point): void;
+  /** A press on a token that stayed put (a click, not a drag) selects it; a click on bare map clears (null). */
+  selectToken(tokenId: string | null): void;
   /** The GM right-clicked while placing: put the token back. */
   cancelPlacement(): void;
 }
@@ -288,6 +290,8 @@ export class BoardView {
   private gridKey = "";
 
   private drag: { tokenId: string; offset: Point } | null = null;
+  /** Screen position where the token press began, to tell a click from a drag. */
+  private dragDownAt: Point | null = null;
   private pan: { start: Point; origin: Point } | null = null;
   private tool: BoardTool = { kind: "select" };
   private marks: Mark[] = [];
@@ -1704,6 +1708,7 @@ export class BoardView {
       tokenId,
       offset: { x: p.x - view.container.x, y: p.y - view.container.y },
     };
+    this.dragDownAt = { x: e.global.x, y: e.global.y };
     view.container.cursor = "grabbing";
     this.tokenLayer.addChild(view.container); // bring to front
     this.invalidate();
@@ -1798,7 +1803,11 @@ export class BoardView {
   };
 
   private onPointerUp = (e: FederatedPointerEvent) => {
+    const pan = this.pan;
     this.pan = null;
+    if (pan && !this.placement && !this.gesture && this.tool.kind === "select" && !exceedsPanThreshold(pan.start, e.global)) {
+      this.callbacks.selectToken(null);
+    }
     const down = this.placeDown;
     this.placeDown = null;
     if (down && this.placement && this.state) {
@@ -1808,8 +1817,14 @@ export class BoardView {
     }
     if (this.gesture) return this.finishGesture();
     const drag = this.drag;
+    const downAt = this.dragDownAt;
     this.drag = null;
+    this.dragDownAt = null;
     if (!drag) return;
+    // A press that stays put is a click: select the token. Anything further is a drag and moves it.
+    if (downAt && Math.hypot(e.global.x - downAt.x, e.global.y - downAt.y) < MIN_MARK_DRAG_PX) {
+      this.callbacks.selectToken(drag.tokenId);
+    }
     const token = this.state?.tokens[drag.tokenId];
     const view = this.tokens.get(drag.tokenId);
     if (!this.state || !token || !view) return this.callbacks.dragEnd(drag.tokenId, null);
