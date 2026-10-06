@@ -9,6 +9,7 @@ import {
 } from "./identityStore";
 import {
   CreatureImageMissingError,
+  EncounterLimitError,
   EncounterMapMissingError,
   type EncounterRecord,
   type NewEncounterRecord,
@@ -482,7 +483,11 @@ export class MemoryRoomStore implements RoomStore {
     return [...this.encounters.values()].filter((e) => e.ownerGmId === ownerGmId).length;
   }
 
-  async createEncounter(encounter: NewEncounterRecord) {
+  async createEncounter(encounter: NewEncounterRecord, maxPerOwner: number) {
+    // No await between the count and the insert, so this is atomic on the one event loop.
+    if ([...this.encounters.values()].filter((e) => e.ownerGmId === encounter.ownerGmId).length >= maxPerOwner) {
+      throw new EncounterLimitError(maxPerOwner);
+    }
     if (encounter.mapAssetId !== null && !this.assets.has(encounter.mapAssetId)) throw new EncounterMapMissingError();
     this.encounters.set(encounter.id, structuredClone(encounter));
     return this.withMap(encounter);

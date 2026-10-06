@@ -11,7 +11,7 @@ import {
 } from "@vtt/shared";
 import type { RoomRegistry } from "../domain/roomRegistry";
 import { requireAccountOwner, resolveOwner, type Owner } from "../ownership/resolveOwner";
-import { EncounterMapMissingError, type EncounterRecord } from "../store/libraryStore";
+import { EncounterLimitError, EncounterMapMissingError, type EncounterRecord } from "../store/libraryStore";
 import type { RoomStore } from "../store/roomStore";
 
 const IdParam = z.uuid();
@@ -37,9 +37,6 @@ export function registerEncounterRoutes(app: Express, deps: { store: RoomStore; 
       if (!body.success) return void res.status(400).json({ error: body.error.issues });
       // A room that is missing or someone else's is the same 404, so room ids can't be probed.
       if ((await store.findRoomOwner(body.data.roomId)) !== gmId) return void res.status(404).json({ error: "Room not found" });
-      if ((await store.countEncounters(gmId)) >= MAX_ENCOUNTER_TEMPLATES) {
-        return void res.status(400).json({ error: `You can keep at most ${MAX_ENCOUNTER_TEMPLATES} encounter templates` });
-      }
 
       const room = await registry.get(body.data.roomId);
       if (!room) return void res.status(404).json({ error: "Room not found" });
@@ -69,10 +66,12 @@ export function registerEncounterRoutes(app: Express, deps: { store: RoomStore; 
           mapAssetId: mapAsset.id,
           createdAt: now,
           updatedAt: now,
-        });
+        }, MAX_ENCOUNTER_TEMPLATES);
         res.status(201).json(toSummary(created));
       } catch (err) {
-        if (err instanceof EncounterMapMissingError) return void res.status(400).json({ error: err.message });
+        if (err instanceof EncounterMapMissingError || err instanceof EncounterLimitError) {
+          return void res.status(400).json({ error: err.message });
+        }
         throw err;
       }
     });

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
 import { DEFAULT_GRID, ENCOUNTER_TEMPLATE_VERSION } from "@vtt/shared";
-import { CreatureImageMissingError, EncounterMapMissingError, type LibraryAssetRecord, type NewCreatureRecord, type NewEncounterRecord } from "../src/store/libraryStore";
+import { CreatureImageMissingError, EncounterLimitError, EncounterMapMissingError, type LibraryAssetRecord, type NewCreatureRecord, type NewEncounterRecord } from "../src/store/libraryStore";
 import { MemoryRoomStore } from "../src/store/memoryRoomStore";
 import { PostgresRoomStore } from "../src/store/postgresRoomStore";
 import type { RoomStore } from "../src/store/roomStore";
@@ -204,7 +204,7 @@ for (const [label, store] of stores) {
       const map = asset(a);
       await s().createAsset(map);
       const e = encounter(a, map.id);
-      await s().createEncounter(e);
+      await s().createEncounter(e, 50);
       expect(await s().findEncounter(e.id, a)).toMatchObject({ id: e.id, mapName: map.name, mapUrl: map.url });
       expect(await s().findEncounter(e.id, b)).toBeNull();
       expect(await s().listEncounters(b)).toEqual([]);
@@ -222,8 +222,8 @@ for (const [label, store] of stores) {
       await s().createAsset(map);
       const older = encounter(gm, map.id, { name: "Older", createdAt: "2026-10-01T00:00:00.000Z" });
       const newer = encounter(gm, map.id, { name: "Newer", createdAt: "2026-10-02T00:00:00.000Z" });
-      await s().createEncounter(older);
-      await s().createEncounter(newer);
+      await s().createEncounter(older, 50);
+      await s().createEncounter(newer, 50);
       expect((await s().listEncounters(gm)).map((x) => x.name)).toEqual(["Newer", "Older"]);
       expect(await s().renameEncounter(older.id, gm, "Renamed", "2026-10-03T00:00:00.000Z")).toMatchObject({ name: "Renamed", updatedAt: "2026-10-03T00:00:00.000Z" });
       expect(await s().deleteEncounter(newer.id, gm)).toBe(true);
@@ -231,15 +231,38 @@ for (const [label, store] of stores) {
       expect((await s().listEncounters(gm)).map((x) => x.name)).toEqual(["Renamed"]);
     });
 
+    it("holds an owner to the template limit even when saves arrive together (encounter-templates, FR-GM-13)", async () => {
+      const gm = await s().registerGm(randomUUID());
+      const map = asset(gm);
+      await s().createAsset(map);
+      for (let i = 0; i < 2; i++) await s().createEncounter(encounter(gm, map.id), 3);
+      const results = await Promise.allSettled([0, 1, 2, 3].map(() => s().createEncounter(encounter(gm, map.id), 3)));
+      expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+      for (const r of results) if (r.status === "rejected") expect(r.reason).toBeInstanceOf(EncounterLimitError);
+      expect(await s().countEncounters(gm)).toBe(3);
+      // Another owner is not held to this owner's count.
+      const other = await s().registerGm(randomUUID());
+      const otherMap = asset(other);
+      await s().createAsset(otherMap);
+      await expect(s().createEncounter(encounter(other, otherMap.id), 3)).resolves.toBeTruthy();
+    });
+
+    it("reads an id that is not a uuid as no template", async () => {
+      const gm = await s().registerGm(randomUUID());
+      expect(await s().findEncounter("not-a-uuid", gm)).toBeNull();
+      expect(await s().renameEncounter("not-a-uuid", gm, "x", new Date().toISOString())).toBeNull();
+      expect(await s().deleteEncounter("not-a-uuid", gm)).toBe(false);
+    });
+
     it("keeps an encounter template without its map when the map is deleted, and refuses a map that does not exist", async () => {
       const gm = await s().registerGm(randomUUID());
       const map = asset(gm);
       await s().createAsset(map);
       const e = encounter(gm, map.id);
-      await s().createEncounter(e);
+      await s().createEncounter(e, 50);
       await s().deleteAsset(map.id, gm);
       expect(await s().findEncounter(e.id, gm)).toMatchObject({ id: e.id, mapAssetId: null, mapName: null, mapUrl: null });
-      await expect(s().createEncounter(encounter(gm, randomUUID()))).rejects.toBeInstanceOf(EncounterMapMissingError);
+      await expect(s().createEncounter(encounter(gm, randomUUID()), 50)).rejects.toBeInstanceOf(EncounterMapMissingError);
     });
   });
 }

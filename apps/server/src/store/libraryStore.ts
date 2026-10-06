@@ -70,6 +70,13 @@ export class EncounterMapMissingError extends Error {
   }
 }
 
+/** The owner already holds the most encounter templates they may (ADR 0024). */
+export class EncounterLimitError extends Error {
+  constructor(readonly limit: number) {
+    super(`You can keep at most ${limit} encounter templates`);
+  }
+}
+
 /** One die's picture in a dice look (ADR 0017 O3). `objectKey` never leaves the server. */
 export interface DiceFaceRecord {
   objectKey: string;
@@ -132,8 +139,12 @@ export interface LibraryStore {
   listEncounters(ownerGmId: string): Promise<EncounterRecord[]>;
   findEncounter(id: string, ownerGmId: string): Promise<EncounterRecord | null>;
   countEncounters(ownerGmId: string): Promise<number>;
-  /** Throws `EncounterMapMissingError` when `mapAssetId` names no asset. */
-  createEncounter(encounter: NewEncounterRecord): Promise<EncounterRecord>;
+  /**
+   * Throws `EncounterMapMissingError` when `mapAssetId` names no asset, and `EncounterLimitError`
+   * when the owner already holds `maxPerOwner`. The count and the insert are one step per owner,
+   * so concurrent saves cannot pass the limit.
+   */
+  createEncounter(encounter: NewEncounterRecord, maxPerOwner: number): Promise<EncounterRecord>;
   /** Null when the owner has no such template. */
   renameEncounter(id: string, ownerGmId: string, name: string, at: string): Promise<EncounterRecord | null>;
   deleteEncounter(id: string, ownerGmId: string): Promise<boolean>;

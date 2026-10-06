@@ -19,6 +19,7 @@ import {
 } from "./identityStore";
 import {
   CreatureImageMissingError,
+  EncounterLimitError,
   EncounterMapMissingError,
   type EncounterRecord,
   type NewEncounterRecord,
@@ -388,6 +389,8 @@ export class PostgresRoomStore implements RoomStore {
   }
 
   async findEncounter(id: string, ownerGmId: string) {
+    // `encounter.apply` carries any string; a non-uuid reads as no template instead of a query error.
+    if (!UUID.test(id)) return null;
     const row = await this.prisma.encounterTemplate.findFirst({ where: { id, ownerGmId }, include: WITH_MAP });
     return row ? toEncounterRecord(row) : null;
   }
@@ -396,16 +399,24 @@ export class PostgresRoomStore implements RoomStore {
     return this.prisma.encounterTemplate.count({ where: { ownerGmId } });
   }
 
-  async createEncounter(encounter: NewEncounterRecord) {
+  async createEncounter(encounter: NewEncounterRecord, maxPerOwner: number) {
     try {
-      const row = await this.prisma.encounterTemplate.create({
-        data: {
-          ...encounter,
-          data: encounter.data as unknown as Prisma.InputJsonValue,
-          createdAt: new Date(encounter.createdAt),
-          updatedAt: new Date(encounter.updatedAt),
-        },
-        include: WITH_MAP,
+      const row = await this.prisma.$transaction(async (tx) => {
+        // One save at a time per owner: the lock is held until the transaction ends, so the count
+        // below cannot go stale before the insert.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`encounter_templates:${encounter.ownerGmId}`}))`;
+        if ((await tx.encounterTemplate.count({ where: { ownerGmId: encounter.ownerGmId } })) >= maxPerOwner) {
+          throw new EncounterLimitError(maxPerOwner);
+        }
+        return tx.encounterTemplate.create({
+          data: {
+            ...encounter,
+            data: encounter.data as unknown as Prisma.InputJsonValue,
+            createdAt: new Date(encounter.createdAt),
+            updatedAt: new Date(encounter.updatedAt),
+          },
+          include: WITH_MAP,
+        });
       });
       return toEncounterRecord(row);
     } catch (err) {
@@ -415,11 +426,13 @@ export class PostgresRoomStore implements RoomStore {
   }
 
   async renameEncounter(id: string, ownerGmId: string, name: string, at: string) {
+    if (!UUID.test(id)) return null;
     const { count } = await this.prisma.encounterTemplate.updateMany({ where: { id, ownerGmId }, data: { name, updatedAt: new Date(at) } });
     return count === 1 ? this.findEncounter(id, ownerGmId) : null;
   }
 
   async deleteEncounter(id: string, ownerGmId: string) {
+    if (!UUID.test(id)) return false;
     const { count } = await this.prisma.encounterTemplate.deleteMany({ where: { id, ownerGmId } });
     return count === 1;
   }

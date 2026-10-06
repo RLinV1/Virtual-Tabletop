@@ -230,11 +230,20 @@ describe("encounter templates over the wire (FR-GM-13)", () => {
     const me = (await (await gmFetch(cookie, "/api/auth/me")).json()) as { account: { id: string } };
     const owner = (await server.store.findUserById(me.account.id))!.ownerId;
     const record = (await server.store.findEncounter(saved.id, owner))!;
-    await server.store.createEncounter({ ...record, id: crypto.randomUUID(), version: 99 });
+    await server.store.createEncounter({ ...record, id: crypto.randomUUID(), version: 99 }, 50);
     const future = (await server.store.listEncounters(owner)).find((e) => e.version === 99)!;
     const before = tableOf(gm.state);
     expect(await gm.command({ type: "encounter.apply", templateId: future.id })).toMatchObject({
       type: "rejected", code: "invalid", message: expect.stringContaining("format"),
+    });
+    expect(tableOf(gm.state)).toEqual(before);
+  });
+
+  it("rejects an apply that names something that is not a template id, as a rejection and not a server error", async () => {
+    const { gm } = await twoRooms();
+    const before = tableOf(gm.state);
+    expect(await gm.command({ type: "encounter.apply", templateId: "not-a-uuid" })).toMatchObject({
+      type: "rejected", code: "invalid", message: expect.stringContaining("isn't available"),
     });
     expect(tableOf(gm.state)).toEqual(before);
   });
