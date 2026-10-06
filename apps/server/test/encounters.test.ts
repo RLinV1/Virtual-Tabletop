@@ -83,6 +83,14 @@ describe("save a room's board as a template (FR-GM-13)", () => {
     expect((await gmFetch(cookie, `/api/library/encounters/${saved.id}`, { method: "DELETE" })).status).toBe(404);
   });
 
+  it("saves the library map's own size, not the size the room's client claimed", async () => {
+    const { cookie, map, creds, gm } = await prepared();
+    await ok(gm.command({ type: "scene.setMap", map: { url: map.url, width: map.width * 3, height: map.height * 3, assetId: map.id } }));
+    const saved = (await (await save(cookie, creds.roomId)).json()) as EncounterSummary;
+    const owner = (await server.store.findUserById(((await (await gmFetch(cookie, "/api/auth/me")).json()) as { account: { id: string } }).account.id))!.ownerId;
+    expect((await server.store.findEncounter(saved.id, owner))!.data.map).toMatchObject({ width: map.width, height: map.height });
+  });
+
   it("refuses a room the caller does not own, and anyone signed out", async () => {
     const { creds } = await prepared();
     const stranger = (await server.signUp()).cookie;

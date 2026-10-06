@@ -48,7 +48,7 @@ export function registerEncounterRoutes(app: Express, deps: { store: RoomStore; 
       }
 
       const data = EncounterTemplateData.safeParse({
-        map: { assetId: mapAsset.id, width: map.width, height: map.height },
+        map: { assetId: mapAsset.id, width: mapAsset.width, height: mapAsset.height },
         grid: board.scene.grid,
         tokens: Object.values(board.tokens).map(({ id: _id, ownerIds: _owners, initiative: _initiative, ...token }) => token),
         fog: Object.values(board.fog).map(({ id: _id, ...region }) => region),
