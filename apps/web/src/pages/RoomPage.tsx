@@ -518,7 +518,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
         notices={
           // Always mounted, so screen readers register the live region before a notice lands in it.
           <div className="board-notices" role="status" aria-live="polite">
-            {you.role === "gm" && !preview && <DepartureNotices state={state} onReview={setReviewing} />}
+            {!preview && <DepartureNotices state={state} onReview={you.role === "gm" ? setReviewing : undefined} />}
             <TurnNotice state={shownState!} you={shownYou!} onFocusToken={focusToken} />
             <KeepSeatNotice roomId={roomId} token={token} name={you.displayName} />
           </div>
