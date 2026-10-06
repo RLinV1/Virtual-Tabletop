@@ -6,6 +6,7 @@ import {
   type DiceLookView,
   type DiceLooksResponse,
   type DieName,
+  type EncounterSummary,
   type GridSpec,
   type InviteSeatResponse,
   type LegacySummary,
@@ -14,6 +15,7 @@ import {
   type LibraryUsageResponse,
   type MeResponse,
   type MyRoomsResponse,
+  type SaveEncounterRequest,
   type SeatResponse,
   type SignInRequest,
   type SignUpRequest,
@@ -242,6 +244,17 @@ export const api = {
         accountRequest<LibraryCreature>(`/api/library/creatures/${encodeURIComponent(id)}`, { method: "PATCH", ...jsonBody(patch) }),
       remove: (id: string) =>
         accountRequest<void>(`/api/library/creatures/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    },
+
+    /** Encounter templates: a room's prepared board saved to the account (encounter-templates, ADR 0024). */
+    encounters: {
+      list: () => accountRequest<EncounterSummary[]>("/api/library/encounters"),
+      save: (req: SaveEncounterRequest) =>
+        accountRequest<EncounterSummary>("/api/library/encounters", { method: "POST", ...jsonBody(req) }),
+      rename: (id: string, name: string) =>
+        accountRequest<EncounterSummary>(`/api/library/encounters/${encodeURIComponent(id)}`, { method: "PATCH", ...jsonBody({ name }) }),
+      remove: (id: string) =>
+        accountRequest<void>(`/api/library/encounters/${encodeURIComponent(id)}`, { method: "DELETE" }),
     },
 
     /** Dice looks saved to the account (dice-looks, ADR 0017 O3). */

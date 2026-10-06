@@ -266,6 +266,11 @@ export const Command = z.discriminatedUnion("type", [
     type: z.literal("checkpoint.restore"),
     checkpointId: Id,
   }).strict(),
+  /** GM replaces the board with one of their saved encounter templates (FR-GM-13, ADR 0024). */
+  z.object({
+    type: z.literal("encounter.apply"),
+    templateId: Id,
+  }).strict(),
   /** GM reverses one recent action, picked from the activity log by its `commandId` (FR-REC-02, ADR 0013). */
   z.object({
     type: z.literal("history.undo"),

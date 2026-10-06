@@ -24,12 +24,14 @@ import {
   type Participant,
   type Point,
   type RejectionCode,
+  type ResolvedEncounter,
   type RoomState,
   type ServerMessage,
   type TableState,
   type SessionEndReason,
 } from "@vtt/shared";
 import type { RoomStore } from "../store/roomStore";
+import { resolveEncounter, type ResolveEncounterResult } from "./encounterTemplates";
 
 /**
  * Float in [0, 1) from the CSPRNG. A dice roll decides encounter outcomes, so it should not
@@ -142,6 +144,14 @@ export class LiveRoom {
     return Object.values(this.state.participants).find((p) => p.role === "gm" && isActive(p));
   }
 
+  /**
+   * The board as the GM sees it, hidden tokens included, for saving as an encounter template
+   * (ADR 0024). Callers must already have checked that the requester owns this room.
+   */
+  boardForOwner(): TableState {
+    return tableOf(this.state);
+  }
+
   /** The participant, only while they are still in the room (ADR 0006). */
   activeParticipant(id: string): Participant | undefined {
     const p = this.state.participants[id];
@@ -176,17 +186,34 @@ export class LiveRoom {
           return { ok: false, code: "invalid", message: "Couldn't read the room's history to restore that checkpoint. Try again." };
         }
       }
+      // An encounter template is read for the acting GM's own account before deciding (ADR 0024).
+      // A seat with no account, or a template that isn't theirs, reads as no template at all.
+      let encounterTemplate: ((templateId: string) => ResolvedEncounter | null) | undefined;
+      if (command.type === "encounter.apply" && can.administer(actor)) {
+        const found = await this.ownedEncounter(actorId, command.templateId);
+        if (found && !found.ok) return { ok: false, code: "invalid", message: found.message };
+        const encounter = found?.encounter ?? null;
+        encounterTemplate = (id) => (encounter && encounter.id === id ? encounter : null);
+      }
       const decision = decide(this.state, actor, command, {
         newId: randomUUID,
         random: secureRandom,
         ownedDiceLook,
         lastSeq: this.seq,
         checkpointTable,
+        encounterTemplate,
       });
       if (!decision.ok) return decision;
       const committed = await this.commit(actorId, decision.events);
       return { ok: true, seq: committed.at(-1)?.seq ?? null };
     });
+  }
+
+  /** The template as the account holding this participant's seat owns it, or null (ADR 0024). */
+  private async ownedEncounter(participantId: string, templateId: string): Promise<ResolveEncounterResult | null> {
+    const member = await this.store.findMemberByParticipant(this.roomId, participantId);
+    const user = member ? await this.store.findUserById(member.userId) : null;
+    return user ? resolveEncounter(this.store, user.ownerId, templateId) : null;
   }
 
   /**

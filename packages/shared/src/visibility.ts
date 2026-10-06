@@ -174,6 +174,9 @@ export function filterEventForViewer(
     case "CheckpointRestored":
       // Both tables hold hidden tokens and GM-only areas; a filtered snapshot carries the rest.
       return { kind: "resync" };
+    case "EncounterApplied":
+      // Both boards hold hidden tokens, fog and owners; a filtered snapshot carries the rest (ADR 0024).
+      return { kind: "resync" };
     case "ActionUndone":
       // Players have no undo or activity log; the compensating events before it already
       // delivered whatever they may see (ADR 0013).

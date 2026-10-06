@@ -6,6 +6,7 @@ import { GridSpec, Point } from "./geometry";
 import { TokenStats, type ConditionId } from "./conditions";
 import { AreaShape, Id, Participant, Token, type RoomState } from "./state";
 import type { RejectionCode } from "./decide";
+import { MAX_ENCOUNTER_NAME } from "./encounters";
 
 /**
  * WebSocket wire protocol. One socket per client carries two logical channels:
@@ -120,6 +121,8 @@ export const CreateRoomRequest = z.object({
   displayName: z.string().min(1).max(40),
   /** Browser-generated; the server stores only its SHA-256 (DESIGN.md §5). */
   guestToken: z.string().min(16).max(256),
+  /** Start the room from one of the signed-in GM's encounter templates (FR-GM-13, ADR 0024). */
+  templateId: z.uuid().optional(),
   // `gmToken` was removed (ADR 0017): the signed-in account owns the room. zod strips unknown
   // keys, so an older client that still sends it parses unchanged.
 });
@@ -221,6 +224,8 @@ export interface LibraryUsageResponse {
   rooms: { id: string; name: string }[];
   /** The GM's creatures that use this token art as their image (ADR 0012). */
   creatures: { id: string; name: string }[];
+  /** The GM's encounter templates whose map this is; they cannot be applied once it is deleted (ADR 0024). */
+  encounters: { id: string; name: string }[];
 }
 
 /**
@@ -279,5 +284,28 @@ export interface LibraryCreature {
   imageAssetId: string | null;
   /** Resolved from the linked token art; null when there is none or it was deleted. */
   imageUrl: string | null;
+  createdAt: string;
+}
+
+/** Save a room's board as an encounter template (FR-GM-13, ADR 0024). The board is read on the server. */
+export const SaveEncounterRequest = z.object({
+  roomId: z.uuid(),
+  name: z.string().trim().min(1).max(MAX_ENCOUNTER_NAME),
+});
+export type SaveEncounterRequest = z.infer<typeof SaveEncounterRequest>;
+
+export const RenameEncounterRequest = z.object({
+  name: z.string().trim().min(1).max(MAX_ENCOUNTER_NAME),
+});
+export type RenameEncounterRequest = z.infer<typeof RenameEncounterRequest>;
+
+/** One of the GM's encounter templates, as the library lists it. The board data stays on the server. */
+export interface EncounterSummary {
+  id: string;
+  name: string;
+  /** The library map's name, or null when that map has since been deleted. */
+  mapName: string | null;
+  tokenCount: number;
+  fogCount: number;
   createdAt: string;
 }
