@@ -1,9 +1,9 @@
 # ADR 0023: Creature templates preserve starting HP and named attacks
 
-**Status:** Accepted for the owner-directed KAN-70 completion (2026-10-05)
+**Status:** Proposed; implemented under explicit user direction (2026-10-05). Separate architecture review is not recorded.
 **Owner:** Real-Time Architecture (Raymond) · **Amends:** ADR 0012 and ADR 0020 · **Ticket:** KAN-70
 
-**Authorization:** The user explicitly requested saving token attacks, continuing this implementation, creating a PR, and merging it after CodeRabbit finishes. This records that authorization for the shared-contract change; it does not claim a separate review or sign-off occurred. CodeRabbit reviewed PR 85 and identified this approval-record mismatch as its only actionable finding.
+**Authorization:** The user explicitly requested saving token attacks, continuing this implementation, creating a PR, and merging it after CodeRabbit finishes. That instruction authorizes the implementation and merge and takes precedence over the repository's review workflow for this task. It is distinct from a separate architecture review or sign-off, which has not been recorded; this ADR therefore remains proposed. CodeRabbit reviewed PR 85 and raised the architecture-review record as its actionable finding.
 
 ## Context
 

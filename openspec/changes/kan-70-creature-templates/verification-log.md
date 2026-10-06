@@ -7,8 +7,8 @@
 - Applied all ten migrations to an isolated PostgreSQL 16 database. Real Postgres store tests now passed, including legacy defaults and starting HP/attack round trips.
 - `npm test`: 1,156 passed (399 shared, 314 server, 441 web, 2 benchmark); one intentional store test skipped. Benchmark p95 130.8 / 133.1 ms, below 150 ms.
 - Final `npm run lint`, `npm run typecheck`, `npm run build`: passed. After the final UI adjustments, all 15 targeted creature/placement web tests passed.
-- Browser: created a local test account and Wounded Ogre at 30/59 HP, AC 11, with Greatclub (1d20+6 to hit / 2d8+4 damage); saved it and selected it from Add Token. The picker showed current HP and one attack. Final placement/Attack interaction stalled in the browser tool, so that interaction is not claimed as manually verified; command/batch placement and attack copying/visibility have automated coverage.
-- ADR 0023 records the user's explicit implementation/merge authorization after CodeRabbit identified its stale proposed status. No separate review or sign-off is claimed. ADR 0020's historical sign-off entry remains unchanged.
+- Browser retest: created a fresh local test account and Wounded Ogre at 30/59 HP, AC 11, with Greatclub (1d20+6 to hit / 2d8+4 damage). From creature showed the saved values; Place all automatically placed Wounded Ogre and Wounded Ogre 2 together at 30/59 HP and cleared the placement draft. The Attack panel showed Greatclub with the saved rolls. Save as creature prefilled current HP and Greatclub, saved Saved Ogre, and both templates retained 30/59 HP and one attack after reloading the library.
+- ADR 0023 records explicit implementation/merge authorization separately from formal architecture review. It remains proposed because no separate review or sign-off is recorded. ADR 0020's historical sign-off entry remains unchanged.
 
 ## Review fixes
 
