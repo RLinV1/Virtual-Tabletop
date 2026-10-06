@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TokenAttacks } from "./attackPresets";
 import { ConditionId, EMPTY_STATS, TokenStats } from "./conditions";
 import { AttackKind, DiceVisibility, MAX_ATTACK_LABEL, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
@@ -90,6 +91,7 @@ export const Command = z.discriminatedUnion("type", [
     hidden: z.boolean().default(false),
     /** Conditions the token starts with, e.g. from a creature (KAN-70). */
     conditions: z.array(ConditionId).max(12).default([]),
+    attacks: TokenAttacks.default([]),
     /** Place this many copies in one action, numbered and spread over free squares (KAN-70). */
     count: z.number().int().min(1).max(MAX_TOKENS_PER_CREATE).default(1),
   }),

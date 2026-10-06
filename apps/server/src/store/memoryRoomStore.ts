@@ -468,6 +468,8 @@ export class MemoryRoomStore implements RoomStore {
     const image = creature.imageAssetId ? this.assets.get(creature.imageAssetId) : undefined;
     return {
       ...structuredClone(creature),
+      hp: creature.hp ?? null,
+      attacks: structuredClone(creature.attacks ?? []),
       color: creature.color ?? DEFAULT_TOKEN_COLOR,
       conditions: creature.conditions ?? [],
       imageUrl: image?.url ?? null,

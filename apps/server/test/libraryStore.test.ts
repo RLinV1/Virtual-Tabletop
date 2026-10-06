@@ -129,7 +129,7 @@ for (const [label, store] of stores) {
       const gmB = await s().registerGm(randomUUID());
       const c = creature(gmA);
       // Colour and conditions left out read back as the defaults (KAN-70).
-      expect(await s().createCreature(c)).toEqual({ ...c, color: "#c0392b", conditions: [], imageUrl: null });
+      expect(await s().createCreature(c)).toEqual({ ...c, hp: null, attacks: [], color: "#c0392b", conditions: [], imageUrl: null });
 
       expect((await s().listCreatures(gmA)).map((x) => x.id)).toEqual([c.id]);
       expect(await s().listCreatures(gmB)).toEqual([]);
@@ -151,6 +151,17 @@ for (const [label, store] of stores) {
         .toMatchObject({ name: "Goblin", maxHp: 9, ac: null, size: 1.5 });
       expect(await s().deleteCreature(older.id, gm)).toBe(true);
       expect((await s().listCreatures(gm)).map((x) => x.name)).toEqual(["Orc"]);
+    });
+
+    it("round-trips starting HP, colour and conditions, including legacy defaults (KAN-70)", async () => {
+      const gm = await s().registerGm(randomUUID());
+      const attacks = [{ name: "Claws", toHit: null, damage: { count: 2, sides: 6, modifier: 1 } }];
+      const c = creature(gm, { hp: 3, attacks, color: "#2e7d32", conditions: ["prone"] });
+      expect(await s().createCreature(c)).toMatchObject({ hp: 3, maxHp: 7, color: "#2e7d32", conditions: ["prone"] });
+      expect(await s().findCreature(c.id, gm)).toMatchObject({ hp: 3, attacks, color: "#2e7d32", conditions: ["prone"] });
+      expect(await s().updateCreature(c.id, gm, { hp: 0, conditions: ["poisoned"] }))
+        .toMatchObject({ hp: 0, maxHp: 7, color: "#2e7d32", conditions: ["poisoned"] });
+      expect(await s().updateCreature(c.id, gm, { hp: null, attacks: [] })).toMatchObject({ hp: null, attacks: [], maxHp: 7 });
     });
 
     it("links token art, reports it, and keeps the creature without it when the art is deleted", async () => {

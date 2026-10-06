@@ -10,7 +10,7 @@ Library creatures (ADR 0012) live in `library_creatures`, are served from GM-onl
 - Saving from the board reuses the library API with no room-side change.
 
 **Non-Goals:**
-- Starting HP below Max HP, or rolled HP (e.g. 2d6+2) per copy.
+- Rolled HP (e.g. 2d6+2) per copy. Starting HP and named attacks are covered by the 2026-10-05 completion (ADR 0023).
 - Linking placed tokens back to their creature.
 - Saving a whole encounter (KAN-50).
 

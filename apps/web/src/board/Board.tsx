@@ -179,7 +179,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   );
 
   /** Create the token at `at`. One at a time: a second click while the first is in flight does nothing. */
-  const place = async (at: Point) => {
+  const place = async (at: Point, batch = false) => {
     const current = placingRef.current;
     if (!current || current.busy) return;
     placingRef.current = { ...current, busy: true };
@@ -187,12 +187,13 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     // Several tokens are placed one click each, so the GM chooses every square; the server
     // numbers the duplicates (KAN-62).
     const left = current.draft.count ?? 1;
-    const result = await guarded.command({ ...current.draft, count: 1, position: at });
+    // Automatic placement can put the whole remaining batch on nearby free squares in one action.
+    const result = await guarded.command({ ...current.draft, count: batch ? left : 1, position: at });
     // Keep the draft on a rejection, so the GM can read why and try another square.
     setPlacing((now) => {
       if (now?.draft !== current.draft) return now;
       if (!result.ok) return { ...now, busy: false, error: result.message };
-      return left > 1 ? { draft: { ...current.draft, count: left - 1 }, busy: false, error: null } : null;
+      return !batch && left > 1 ? { draft: { ...current.draft, count: left - 1 }, busy: false, error: null } : null;
     });
   };
   const placeRef = useRef(place);
@@ -531,9 +532,9 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
               type="button"
               className="secondary"
               disabled={placing.busy}
-              onClick={() => void place(autoPlacementPoint(state, placing.draft.size ?? 1))}
+              onClick={() => void place(autoPlacementPoint(state, placing.draft.size ?? 1), true)}
             >
-              Place automatically
+              {(placing.draft.count ?? 1) > 1 ? "Place all automatically" : "Place automatically"}
             </button>
             <button type="button" className="secondary" disabled={placing.busy} onClick={() => setPlacing(null)}>
               Cancel

@@ -155,6 +155,7 @@ export function decide(
           hidden: command.hidden,
           stats: command.stats,
           conditions: command.conditions,
+          ...(command.attacks.length > 0 ? { attacks: command.attacks } : {}),
         };
         named = { ...named, tokens: { ...named.tokens, [token.id]: token } };
         return { type: "TokenCreated", token };

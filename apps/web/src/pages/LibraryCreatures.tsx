@@ -1,5 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { CreatureFields, DEFAULT_TOKEN_COLOR, type ConditionId, type LibraryCreature } from "@vtt/shared";
+import { CreatureFields, DEFAULT_TOKEN_COLOR, MAX_TOKEN_ATTACKS, MIN_HP, creatureHpValid, type AttackPreset, type ConditionId, type LibraryCreature } from "@vtt/shared";
+import { PresetEditor } from "../panels/AttackPanel";
+import { presetSummary } from "../panels/attackRoll";
 import { ConditionPicker } from "../panels/ConditionMarker";
 import { api } from "../net/api";
 import { Modal } from "../ui/Modal";
@@ -65,6 +67,7 @@ export function CreatureCard(props: {
 const FIELD_HINTS: Record<string, string> = {
   name: "Give it a name of up to 60 characters.",
   size: "Size must be above 0 and at most 10 cells.",
+  hp: `HP must be a whole number from ${MIN_HP} to 9999, or blank.`,
   maxHp: "Max HP must be a whole number from 1 to 9999, or blank.",
   ac: "AC must be a whole number from 0 to 99, or blank.",
 };
@@ -86,10 +89,13 @@ export function CreatureForm(props: {
   const from = creature ?? props.prefill ?? null;
   const [name, setName] = useState(from?.name ?? "");
   const [size, setSize] = useState(String(from?.size ?? 1));
+  const [hp, setHp] = useState(from?.hp == null ? "" : String(from.hp));
   const [maxHp, setMaxHp] = useState(from?.maxHp == null ? "" : String(from.maxHp));
   const [ac, setAc] = useState(from?.ac == null ? "" : String(from.ac));
   const [color, setColor] = useState(from?.color ?? DEFAULT_TOKEN_COLOR);
   const [conditions, setConditions] = useState<ConditionId[]>(from?.conditions ?? []);
+  const [attacks, setAttacks] = useState<AttackPreset[]>(structuredClone(from?.attacks ?? []));
+  const [editingAttack, setEditingAttack] = useState<number | "new" | null>(null);
   const [image, setImage] = useState<{ assetId: string; url: string; label: string } | null>(
     from?.imageAssetId && from.imageUrl ? { assetId: from.imageAssetId, url: from.imageUrl, label: creature ? "Current art" : "Token's art" } : null,
   );
@@ -97,16 +103,20 @@ export function CreatureForm(props: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const parsed = CreatureFields.safeParse({
+  const parsed = CreatureFields.refine(creatureHpValid, { path: ["hp"], message: "Starting HP cannot exceed Max HP" }).safeParse({
     name,
     size: size.trim() === "" ? Number.NaN : Number(size),
+    hp: optionalNumber(hp),
     maxHp: optionalNumber(maxHp),
     ac: optionalNumber(ac),
     color,
     conditions,
+    attacks,
     imageAssetId: image?.assetId ?? null,
   });
-  const hint = parsed.success ? null : FIELD_HINTS[String(parsed.error.issues[0]?.path[0])] ?? "Check the values above.";
+  const hint = parsed.success ? null : parsed.error.issues[0]?.message === "Starting HP cannot exceed Max HP"
+    ? "Starting HP cannot exceed Max HP."
+    : FIELD_HINTS[String(parsed.error.issues[0]?.path[0])] ?? "Check the values above.";
   const touched = creature !== null || name !== "";
 
   async function save(e: FormEvent) {
@@ -135,10 +145,11 @@ export function CreatureForm(props: {
         </label>
         <div className="token-setup-grid">
           <label>Size (cells)<input type="number" value={size} onChange={(e) => setSize(e.target.value)} required min="0.25" max="10" step="any" /></label>
+          <label>Starting HP<input type="number" value={hp} onChange={(e) => setHp(e.target.value)} min={MIN_HP} max="9999" step="1" /></label>
           <label>Max HP<input type="number" value={maxHp} onChange={(e) => setMaxHp(e.target.value)} min="1" max="9999" step="1" /></label>
           <label>AC<input type="number" value={ac} onChange={(e) => setAc(e.target.value)} min="0" max="99" step="1" /></label>
         </div>
-        <p className="muted small-print">Placed creatures start at full HP.</p>
+        <p className="muted small-print">Leave Starting HP blank to start at Max HP.</p>
         <label className="creature-color">
           Colour without art
           <input type="color" value={color} onInput={(e) => setColor(e.currentTarget.value)} onChange={(e) => setColor(e.target.value)} />
@@ -146,6 +157,17 @@ export function CreatureForm(props: {
         <div className="stack">
           <span className="field-label">Starts with</span>
           <ConditionPicker value={conditions} onChange={setConditions} />
+        </div>
+        <div className="stack" role="group" aria-label="Creature attacks">
+          <span className="field-label">Attacks</span>
+          {attacks.map((attack, index) => (
+            <div className="row" key={attack.name}>
+              <span>{attack.name} · {presetSummary(attack)}</span>
+              <button type="button" className="link" onClick={() => setEditingAttack(index)}>Edit</button>
+            </div>
+          ))}
+          <button type="button" className="secondary" disabled={attacks.length >= MAX_TOKEN_ATTACKS} onClick={() => setEditingAttack("new")}>Add attack</button>
+          <p className="muted small-print">Named to-hit and damage rolls are copied to each placed token.</p>
         </div>
         <div className="stack token-image-field">
           <span className="field-label">Image</span>
@@ -181,6 +203,22 @@ export function CreatureForm(props: {
             setPicking(false);
           }}
         />
+      </Modal>
+      <Modal open={editingAttack !== null} title={editingAttack === "new" ? "Add attack" : "Edit attack"} onClose={() => setEditingAttack(null)}>
+        {editingAttack !== null && <PresetEditor
+          key={editingAttack}
+          initial={typeof editingAttack === "number" ? attacks[editingAttack] ?? null : null}
+          taken={attacks.filter((_, index) => index !== editingAttack).map((a) => a.name)}
+          onSave={(attack) => {
+            setAttacks((all) => editingAttack === "new" ? [...all, attack] : all.map((a, index) => index === editingAttack ? attack : a));
+            setEditingAttack(null);
+          }}
+          onRemove={typeof editingAttack === "number" ? () => {
+            setAttacks((all) => all.filter((_, index) => index !== editingAttack));
+            setEditingAttack(null);
+          } : undefined}
+          onCancel={() => setEditingAttack(null)}
+        />}
       </Modal>
     </>
   );

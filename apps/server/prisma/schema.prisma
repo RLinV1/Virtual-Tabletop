@@ -158,6 +158,10 @@ model LibraryCreature {
   ownerGmId    String   @map("owner_gm_id") @db.Uuid
   name         String
   size         Float
+  /// Starting HP; null preserves the legacy full-health default (KAN-70).
+  hp           Int?
+  /// Named to-hit/damage rolls copied into placed tokens (KAN-70).
+  attacks      Json     @default("[]")
   maxHp        Int?     @map("max_hp")
   ac           Int?
   /// Disc colour for imageless tokens (KAN-70); null on rows from before it, read as the default.
