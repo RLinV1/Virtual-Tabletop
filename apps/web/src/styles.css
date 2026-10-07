@@ -841,8 +841,6 @@ dialog.modal.dice-look-modal { width: min(40rem, calc(100vw - 2rem)); }
 .attack-label-row { display: flex; gap: 0.3rem; align-items: stretch; }
 .attack-label-row input { flex: 1; min-width: 0; }
 .attack-roll { display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; width: 100%; }
-.roll-verdict { display: inline-flex; gap: 0.25rem; margin-top: 0.2rem; }
-.roll-verdict .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 /* Attack section layout (attack-ux-polish). */
 /* Compact layout (attack-section-compact): who attacks whom, what to roll, roll, then the result. */
 .attack-who, .attack-row, .attack-roll-row { display: flex; align-items: center; gap: 0.35rem; min-width: 0; }
