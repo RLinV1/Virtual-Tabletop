@@ -165,6 +165,11 @@ export async function createAssetStore(
     secretAccessKey: env.MINIO_SECRET_KEY,
   };
   const disk = new LocalDiskAssetStore(uploadDir);
+  // The defaults in `connect` are the docker-compose development values: publicly known, so
+  // production must name its own (security-hardening D4).
+  if (env.NODE_ENV === "production" && env.MINIO_ENDPOINT && (!env.MINIO_ACCESS_KEY || !env.MINIO_SECRET_KEY)) {
+    throw new Error("MINIO_ACCESS_KEY and MINIO_SECRET_KEY are required in production; the development credentials must not be used");
+  }
   if (env.MINIO_ENDPOINT) {
     const store = await connect({ endpoint: env.MINIO_ENDPOINT, ...credentials });
     console.log(`[vtt] storing uploads in MinIO at ${env.MINIO_ENDPOINT} (and on local disk)`);

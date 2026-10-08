@@ -110,7 +110,7 @@ export async function buildApp({
   }
 
   registerIdentityRoutes(app, { store, sessions, limits });
-  registerRoutes(app, { store, registry, uploadDir, assets: assets ?? new LocalDiskAssetStore(uploadDir) });
+  registerRoutes(app, { store, registry, uploadDir, assets: assets ?? new LocalDiskAssetStore(uploadDir), limits });
   registerSocket(io, { store, registry, sessions, logger });
 
   return {

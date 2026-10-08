@@ -107,4 +107,19 @@ describe("dice looks on the table (shared-dice-looks, ADR 0018)", () => {
     expect(await player.command({ type: "participant.setDiceLook", lookId: null })).toMatchObject({ type: "rejected" });
     expect(player.seq).toBe(seq);
   });
+
+  it("shares the 10-a-minute limit across the participant's connections (security-hardening)", async () => {
+    const { kira, room, player } = await table();
+    const kept = await server.resume(kira, room.roomId);
+    const secondTab = await connect({ roomId: room.roomId, guestToken: kept.guestToken });
+    const a = await lookWithD20(kira, "A");
+    const b = await lookWithD20(kira, "B");
+    for (let i = 0; i < 10; i++) {
+      expect((await player.command({ type: "participant.setDiceLook", lookId: i % 2 ? b.id : a.id })).type).toBe("ack");
+    }
+    await secondTab.waitForSeq(player.seq);
+    const seq = secondTab.seq;
+    expect(await secondTab.command({ type: "participant.setDiceLook", lookId: null })).toMatchObject({ type: "rejected" });
+    expect(secondTab.seq).toBe(seq);
+  });
 });

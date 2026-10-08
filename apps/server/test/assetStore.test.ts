@@ -37,6 +37,24 @@ describe("choosing upload storage (upload-storage)", () => {
     expect(connect).not.toHaveBeenCalled();
   });
 
+  it("refuses to start in production with the development MinIO credentials (security-hardening)", async () => {
+    const connect = vi.fn(async () => fakeMinio());
+    for (const keys of [{}, { MINIO_ACCESS_KEY: "prod" }, { MINIO_SECRET_KEY: "prod-secret" }]) {
+      await expect(
+        createAssetStore("/tmp/u", { NODE_ENV: "production", MINIO_ENDPOINT: "http://minio:9000", ...keys }, connect),
+      ).rejects.toThrow(/MINIO_ACCESS_KEY and MINIO_SECRET_KEY/);
+    }
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  it("connects in production with its own MinIO credentials", async () => {
+    quiet();
+    const connect = vi.fn(async () => fakeMinio());
+    const env = { NODE_ENV: "production", MINIO_ENDPOINT: "http://minio:9000", MINIO_ACCESS_KEY: "prod", MINIO_SECRET_KEY: "prod-secret" };
+    await createAssetStore("/tmp/u", env, connect);
+    expect(connect).toHaveBeenCalledWith(expect.objectContaining({ accessKeyId: "prod", secretAccessKey: "prod-secret" }));
+  });
+
   it("uses local disk without probing when MINIO_AUTODETECT=0", async () => {
     quiet();
     const connect = vi.fn(async () => fakeMinio());

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MAX_PLAYERS_PER_ROOM, ROOM_FULL, activePlayerCount, type MyRoomsResponse } from "@vtt/shared";
 import { startServer, type TestClient } from "./helpers";
 
@@ -7,6 +7,9 @@ const clients: TestClient[] = [];
 
 beforeEach(async () => {
   server = await startServer();
+  // Every simulated player joins from 127.0.0.1, which the per-address join limit would stop at 30
+  // (security-hardening); that limit has its own tests in joinRateLimit.test.ts.
+  vi.spyOn(server.app.limits.joinsPerIpPerRoom, "hit").mockReturnValue({ ok: true, retryAfterSec: 0 });
 });
 afterEach(async () => {
   clients.splice(0).forEach((c) => c.close());
