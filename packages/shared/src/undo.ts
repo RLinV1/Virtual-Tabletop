@@ -27,6 +27,7 @@ export const REVERSIBLE_EVENT_TYPES = [
   "FogAdded",
   "FogRemoved",
   "CheckpointRestored",
+  "EncounterApplied",
 ] as const;
 
 export type ReversibleEvent = Extract<DomainEvent, { type: (typeof REVERSIBLE_EVENT_TYPES)[number] }>;
@@ -116,7 +117,7 @@ function withLabels(
   event: ReversibleEvent,
 ): Pick<UndoEntry, "tokenNames" | "rollLabels"> {
   const { tokenNames, rollLabels } = labels;
-  if (event.type === "FogAdded" || event.type === "FogRemoved" || event.type === "CheckpointRestored") return labels;
+  if (event.type === "FogAdded" || event.type === "FogRemoved" || event.type === "CheckpointRestored" || event.type === "EncounterApplied") return labels;
   if ("tokenId" in event) {
     const token = state.tokens[event.tokenId];
     return token ? { tokenNames: { ...tokenNames, [token.id]: token.name }, rollLabels } : { tokenNames, rollLabels };
@@ -166,6 +167,9 @@ export function inverseOf(event: ReversibleEvent): DomainEvent {
     case "CheckpointRestored":
       // Puts back the board the restore replaced (ADR 0019).
       return { ...event, restored: event.previous, previous: event.restored };
+    case "EncounterApplied":
+      // Puts back the board the apply replaced (ADR 0024).
+      return { ...event, applied: event.previous, previous: event.applied };
   }
 }
 
@@ -178,6 +182,10 @@ export function undoConflict(state: RoomState, entry: UndoEntry): string | null 
     if (event.type === "CheckpointRestored") {
       // A whole-board swap: undo only while the board is still exactly what the restore made it.
       if (!sameValue(tableOf(state), event.restored)) return `Can't undo: the board has changed since "${event.name}" was restored.`;
+      continue;
+    }
+    if (event.type === "EncounterApplied") {
+      if (!sameValue(tableOf(state), event.applied)) return `Can't undo: the board has changed since "${event.name}" was applied.`;
       continue;
     }
     // Fog regions are never edited in place, so "still current" is just "still there" (or still gone).
@@ -250,6 +258,9 @@ export function describeUndo(entry: UndoEntry, tokens: RoomState["tokens"]): { v
   if (!first) return { verb: "last action", noun: "an action" };
   if (first.type === "CheckpointRestored") {
     return { verb: `restore of "${first.name}"`, noun: `restoring checkpoint "${first.name}"` };
+  }
+  if (first.type === "EncounterApplied") {
+    return { verb: `apply of "${first.name}"`, noun: `applying encounter template "${first.name}"` };
   }
   if (first.type === "FogAdded" || first.type === "FogRemoved") {
     const what = first.region.shape === "rect" ? "fog rectangle" : "fog polygon";

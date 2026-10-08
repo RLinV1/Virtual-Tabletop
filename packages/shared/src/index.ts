@@ -4,6 +4,7 @@ export * from "./dice";
 export * from "./geometry";
 export * from "./gridRenderLimit";
 export * from "./state";
+export * from "./encounters";
 export * from "./commands";
 export * from "./events";
 export * from "./reducer";

@@ -2,6 +2,7 @@ import type { Command, DepartureAction } from "./commands";
 import { MIN_HP } from "./conditions";
 import { formatExpression, parseDiceExpression, rollDice, type AttackContext } from "./dice";
 import type { DomainEvent } from "./events";
+import { encounterTable, type ResolvedEncounter } from "./encounters";
 import { isSnapped, polygonArea, resizedTokenCenter, snapTokenCenter, spreadPositions, type GridSpec, type Point } from "./geometry";
 import { canRenderGrid } from "./gridRenderLimit";
 import type { SessionEndReason } from "./protocol";
@@ -33,6 +34,12 @@ export interface DecideContext {
    * only for `checkpoint.restore`; null when the checkpoint can't be rebuilt.
    */
   checkpointTable?: (checkpointId: string) => TableState | null;
+  /**
+   * The encounter template `encounter.apply` names, read by the server for the acting GM's own
+   * account and validated, with its map's address resolved (ADR 0024). Null when it isn't theirs,
+   * doesn't exist, can't be read, or its map is gone.
+   */
+  encounterTemplate?: (templateId: string) => ResolvedEncounter | null;
   /** The room's last committed seq: where a checkpoint saved now points (ADR 0019). */
   lastSeq?: number;
 }
@@ -607,6 +614,20 @@ export function decide(
       if (name.length > MAX_CHECKPOINT_NAME) return reject("invalid", `Checkpoint names are at most ${MAX_CHECKPOINT_NAME} characters.`);
       if (ctx.lastSeq === undefined) return reject("invalid", "Checkpoints can't be saved here.");
       return accept({ type: "CheckpointCreated", checkpoint: { id: ctx.newId(), name, seq: ctx.lastSeq } });
+    }
+
+    case "encounter.apply": {
+      if (!can.administer(actor)) return forbidden();
+      // A template that is another account's reads exactly like one that does not exist.
+      const encounter = ctx.encounterTemplate?.(command.templateId) ?? null;
+      if (!encounter) return reject("invalid", "That encounter template isn't available.");
+      return accept({
+        type: "EncounterApplied",
+        templateId: encounter.id,
+        name: encounter.name,
+        applied: encounterTable(encounter, ctx.newId),
+        previous: tableOf(state),
+      });
     }
 
     case "checkpoint.restore": {

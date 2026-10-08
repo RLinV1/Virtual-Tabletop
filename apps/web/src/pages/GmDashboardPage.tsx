@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import type { GmRoomSummary, LegacySummary, MyRoomsResponse } from "@vtt/shared";
+import type { EncounterSummary, GmRoomSummary, LegacySummary, MyRoomsResponse } from "@vtt/shared";
 import { AccountMenu } from "../account/AccountPages";
 import { RequireAccount } from "../account/RequireAccount";
 import { Link } from "../Link";
@@ -74,6 +74,18 @@ function CreateRoomCard() {
   const [displayName, setDisplayName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** The GM's saved encounters, offered as a starting board (encounter-templates, FR-GM-13). */
+  const [templates, setTemplates] = useState<EncounterSummary[]>([]);
+  const [templateId, setTemplateId] = useState("");
+
+  useEffect(() => {
+    let live = true;
+    // Best effort: with no templates, or a failed load, the form is just the plain one.
+    api.library.encounters.list().then((list) => live && setTemplates(list.filter((t) => t.mapName !== null)), () => {});
+    return () => {
+      live = false;
+    };
+  }, []);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -81,7 +93,7 @@ function CreateRoomCard() {
     setError(null);
     try {
       const guestToken = newGuestToken();
-      const created = await api.createRoom({ roomName, displayName, guestToken });
+      const created = await api.createRoom({ roomName, displayName, guestToken, ...(templateId && { templateId }) });
       saveCredentials({ ...created, guestToken, viaAccount: true });
       navigate(`/r/${created.roomId}`);
     } catch (err) {
@@ -113,6 +125,17 @@ function CreateRoomCard() {
           placeholder="Your name"
         />
       </label>
+      {templates.length > 0 && (
+        <label>
+          Start from template
+          <select value={templateId} onChange={(e) => setTemplateId(e.target.value)}>
+            <option value="">Empty room</option>
+            {templates.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+        </label>
+      )}
       {error && (
         <p role="alert" className="error">
           {error}

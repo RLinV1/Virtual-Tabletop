@@ -7,6 +7,7 @@ import { imageSize } from "../net/imageFile";
 import type { CommandResult, RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
 import { CheckpointsPanel } from "../panels/CheckpointsPanel";
+import { EncounterPanel } from "../panels/EncounterPanel";
 import { FogPanel } from "../panels/FogPanel";
 import { PanelSection } from "../ui/PanelSection";
 import type { GridDraft } from "./gridDraft";
@@ -77,6 +78,7 @@ export function GmPanel({
       />
       <FogPanel connection={connection} state={state} />
       <CheckpointsPanel connection={connection} state={state} />
+      <EncounterPanel connection={connection} state={state} />
     </>
   );
 }

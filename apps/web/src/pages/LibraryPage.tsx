@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { DEFAULT_GRID, normalizeLegacyGridForBoard, type AssetKind, type LibraryAsset, type LibraryCreature } from "@vtt/shared";
+import { DEFAULT_GRID, normalizeLegacyGridForBoard, type AssetKind, type EncounterSummary, type LibraryAsset, type LibraryCreature } from "@vtt/shared";
 import { Link } from "../Link";
 import { api } from "../net/api";
 import { builtinsMatching } from "../net/builtinAssets";
@@ -9,6 +9,7 @@ import { AccountMenu } from "../account/AccountPages";
 import { RequireAccount } from "../account/RequireAccount";
 import { GridForm } from "./GridForm";
 import { CreatureCard, CreatureForm } from "./LibraryCreatures";
+import { EncounterCard } from "./LibraryEncounters";
 import { DiceLookCards, DiceLookModal, DiceSignInLine, SaveBrowserLooksOffer } from "./DiceLooks";
 import { createDiceLook } from "../ui/diceSkinStore";
 import { toGridDraft } from "./gridDraft";
@@ -17,12 +18,13 @@ import { toGridDraft } from "./gridDraft";
  * Maps and token art are uploaded assets; creatures are reusable token setups (library-creatures);
  * dice are your dice looks, kept in this browser (dice-image-skins).
  */
-type Tab = AssetKind | "creature" | "dice";
+type Tab = AssetKind | "creature" | "encounter" | "dice";
 
 const TABS: { tab: Tab; label: string }[] = [
   { tab: "map", label: "Maps" },
   { tab: "token", label: "Token Art" },
   { tab: "creature", label: "Creatures" },
+  { tab: "encounter", label: "Encounters" },
   { tab: "dice", label: "Dice" },
 ];
 
@@ -74,6 +76,7 @@ function DiceLibrary() {
 function Library() {
   const [assets, setAssets] = useState<LibraryAsset[] | null>(null);
   const [creatures, setCreatures] = useState<LibraryCreature[] | null>(null);
+  const [encounters, setEncounters] = useState<EncounterSummary[] | null>(null);
   const [tab, setTab] = useState<Tab>(() => (wantsDice() ? "dice" : "map"));
   const kind: AssetKind = tab === "map" ? "map" : "token";
   const [query, setQuery] = useState("");
@@ -96,6 +99,10 @@ function Library() {
       (list) => live && setCreatures(list),
       (err: unknown) => live && setError(err instanceof Error ? err.message : "Could not load your creatures"),
     );
+    api.library.encounters.list().then(
+      (list) => live && setEncounters(list),
+      (err: unknown) => live && setError(err instanceof Error ? err.message : "Could not load your encounter templates"),
+    );
     return () => {
       live = false;
     };
@@ -106,12 +113,17 @@ function Library() {
     return (assets ?? []).filter((a) => a.kind === kind && (!q || a.name.toLowerCase().includes(q)));
   }, [assets, kind, query]);
 
-  const builtins = useMemo(() => (tab === "creature" || tab === "dice" ? [] : builtinsMatching(kind, query)), [tab, kind, query]);
+  const builtins = useMemo(() => (tab === "creature" || tab === "encounter" || tab === "dice" ? [] : builtinsMatching(kind, query)), [tab, kind, query]);
 
   const shownCreatures = useMemo(() => {
     const q = query.trim().toLowerCase();
     return (creatures ?? []).filter((c) => !q || c.name.toLowerCase().includes(q));
   }, [creatures, query]);
+
+  const shownEncounters = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return (encounters ?? []).filter((e) => !q || e.name.toLowerCase().includes(q));
+  }, [encounters, query]);
 
   const replace = (next: LibraryAsset) => setAssets((all) => (all ?? []).map((a) => (a.id === next.id ? next : a)));
 
@@ -159,7 +171,7 @@ function Library() {
           <button type="button" onClick={() => void createDiceLook().then(setDiceTarget)}>New dice look</button>
         ) : tab === "creature" ? (
           <button type="button" onClick={() => setCreatureTarget("new")}>New creature</button>
-        ) : (
+        ) : tab === "encounter" ? null : (
           <UploadButton
             kind={kind}
             onUploaded={(a) => {
@@ -175,6 +187,27 @@ function Library() {
         <>
           <SaveBrowserLooksOffer />
           <DiceLookCards query={query} onEdit={setDiceTarget} />
+        </>
+      ) : tab === "encounter" ? (
+        <>
+          {!encounters && !error && <p className="muted" aria-busy="true">Loading…</p>}
+          {encounters && shownEncounters.length === 0 && (
+            <p className="muted">
+              {query
+                ? "None of your encounter templates match that search."
+                : "You haven't saved any encounter templates yet. Open a room you run, prepare its map, tokens and fog, then use Save in the Encounter templates section of the GM panel."}
+            </p>
+          )}
+          <ul className="plain asset-grid" role="tabpanel">
+            {shownEncounters.map((encounter) => (
+              <EncounterCard
+                key={encounter.id}
+                encounter={encounter}
+                onChanged={(next) => setEncounters((all) => (all ?? []).map((e) => (e.id === next.id ? next : e)))}
+                onDeleted={() => setEncounters((all) => (all ?? []).filter((e) => e.id !== encounter.id))}
+              />
+            ))}
+          </ul>
         </>
       ) : tab === "creature" ? (
         <>
@@ -335,7 +368,7 @@ function UploadButton(props: {
 type DeleteState =
   | { step: "idle" }
   | { step: "checking" }
-  | { step: "confirm"; rooms: { id: string; name: string }[]; creatures: { id: string; name: string }[] }
+  | { step: "confirm"; rooms: { id: string; name: string }[]; creatures: { id: string; name: string }[]; encounters: { id: string; name: string }[] }
   | { step: "deleting" };
 
 function AssetCard(props: {
@@ -366,8 +399,8 @@ function AssetCard(props: {
     setDel({ step: "checking" });
     try {
       // Ask the server who uses it now, so the warning is never stale (asset-library).
-      const { rooms, creatures } = await api.library.usage(asset.id);
-      setDel({ step: "confirm", rooms, creatures });
+      const { rooms, creatures, encounters } = await api.library.usage(asset.id);
+      setDel({ step: "confirm", rooms, creatures, encounters });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not check where this is used");
       setDel({ step: "idle" });
@@ -430,7 +463,13 @@ function AssetCard(props: {
               <strong>{del.creatures.map((c) => c.name).join(", ")}</strong>. {del.creatures.length === 1 ? "It" : "They"} will lose {del.creatures.length === 1 ? "its" : "their"} image.
             </p>
           )}
-          {del.rooms.length === 0 && del.creatures.length === 0 && <p>Delete “{asset.name}”? This can't be undone.</p>}
+          {del.encounters.length > 0 && (
+            <p>
+              Used by {del.encounters.length === 1 ? "1 encounter template" : `${del.encounters.length} encounter templates`}:{" "}
+              <strong>{del.encounters.map((e) => e.name).join(", ")}</strong>. {del.encounters.length === 1 ? "It" : "They"} can't be used until saved again with another map.
+            </p>
+          )}
+          {del.rooms.length === 0 && del.creatures.length === 0 && del.encounters.length === 0 && <p>Delete “{asset.name}”? This can't be undone.</p>}
           <div className="row">
             <button type="button" className="secondary small" onClick={() => setDel({ step: "idle" })}>
               Cancel
