@@ -146,11 +146,28 @@ function cookieSecureFromEnv(): boolean {
   return value === "1" || value.toLowerCase() === "true";
 }
 
-/** `TRUST_PROXY`: a hop count ("1"), or "true" to trust every proxy. Unset leaves Express's default. */
-function trustProxyFromEnv(): number | boolean | undefined {
-  const value = process.env.TRUST_PROXY;
+/**
+ * `TRUST_PROXY`: a hop count ("1"), or "true" to trust every proxy. Unset leaves Express's default.
+ *
+ * "true" makes `req.ip` the left-most `X-Forwarded-For` entry, which the client writes itself, so
+ * anyone could pick a fresh address per request and walk past every per-address limit (sign-in,
+ * sign-up, invite joins). Production must name its hop count instead, and a value that is neither
+ * is refused rather than ignored (security-hardening D5).
+ */
+export function trustProxyFromEnv(env: NodeJS.ProcessEnv = process.env): number | boolean | undefined {
+  const value = env.TRUST_PROXY;
   if (!value) return undefined;
-  if (value === "true") return true;
+  const production = env.NODE_ENV === "production";
+  if (value === "true") {
+    if (production) {
+      throw new Error("TRUST_PROXY=true lets clients forge their address; set it to the number of proxies in front of the server, e.g. TRUST_PROXY=1");
+    }
+    console.warn("[vtt] TRUST_PROXY=true trusts X-Forwarded-For from anyone, so per-address rate limits can be bypassed. Use a hop count outside local testing.");
+    return true;
+  }
   const hops = Number(value);
-  return Number.isInteger(hops) && hops >= 0 ? hops : undefined;
+  if (Number.isInteger(hops) && hops >= 0) return hops;
+  if (production) throw new Error(`TRUST_PROXY must be a hop count such as 1, not "${value}"`);
+  console.warn(`[vtt] ignoring TRUST_PROXY="${value}": expected a hop count such as 1`);
+  return undefined;
 }

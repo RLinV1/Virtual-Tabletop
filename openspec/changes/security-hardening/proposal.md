@@ -20,7 +20,12 @@ exists elsewhere is missing:
 4. **Guess limits can be raced.** The sign-in limit per email checks the count before the password
    hash and records a failure only after it. Requests sent at once all pass the check before any
    failure is recorded, so a burst of 12 guesses gets 12 checked passwords, not 10.
-5. **Production can run MinIO with the built-in credentials.** When `MINIO_ACCESS_KEY` and
+5. **A proxy setting lets clients forge their address.** With `TRUST_PROXY=true`, Express takes the
+   client address from the left-most `X-Forwarded-For` entry, which the client writes itself. Anyone
+   could send a fresh address with each request and walk past every per-address limit: sign-in,
+   sign-up and invite joins. A value that is neither `true` nor a number was silently ignored, which
+   behind a proxy puts every user in one shared bucket.
+6. **Production can run MinIO with the built-in credentials.** When `MINIO_ACCESS_KEY` and
    `MINIO_SECRET_KEY` are unset, the server connects with `vtt` / `vttvttvtt`, the docker-compose
    development values. In production that means a deployment can run against a MinIO left with
    publicly known root credentials without anyone noticing.
@@ -39,6 +44,8 @@ exists elsewhere is missing:
 - **Chat and dice looks:** the existing limits (10 messages per 10 seconds; 10 look changes per
   minute) count per participant across all of that participant's connections to the room, not per
   connection.
+- **Proxy trust:** with `NODE_ENV=production`, the server refuses to start with `TRUST_PROXY=true`
+  or with a value that is not a hop count. Outside production, `true` still works with a warning.
 - **MinIO in production:** with `NODE_ENV=production`, the server refuses to start unless
   `MINIO_ACCESS_KEY` and `MINIO_SECRET_KEY` are set. Development keeps the compose defaults.
 
@@ -64,10 +71,11 @@ None.
 - `room-chat`: the chat rate limit counts per participant, not per connection.
 - `dice-looks`: the look-change limit counts per participant, not per connection.
 - `upload-storage`: production requires explicit MinIO credentials.
+- `user-accounts`: per-address limits use an address the client can't forge in production.
 
 ## Impact
 
-- `apps/server`: `identity/routes.ts` (limits), `http/routes.ts` (join limit), `app.ts` (passes the
+- `apps/server`: `app.ts` (`trustProxyFromEnv` checks), `identity/routes.ts` (limits), `http/routes.ts` (join limit), `app.ts` (passes the
   limits to the routes), `ws/socket.ts` (per-participant counters), `store/assetStore.ts`
   (production credential check).
 - No change to `packages/shared` schemas, commands or events, so no ADR. No database migration.

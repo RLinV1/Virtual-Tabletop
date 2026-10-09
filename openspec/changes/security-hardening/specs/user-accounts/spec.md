@@ -14,3 +14,14 @@ The server SHALL count failed current-password checks on password change for eac
 #### Scenario: Window passes
 - **WHEN** the 15-minute window after those failures has passed
 - **THEN** a password change with the right current password succeeds
+
+### Requirement: Per-address limits use an address clients can't forge
+The server SHALL NOT start with `NODE_ENV=production` when `TRUST_PROXY` is `true`, or is set to anything other than a non-negative integer hop count. The startup error SHALL name `TRUST_PROXY` and SHALL say to set the number of proxies in front of the server. With a hop count, a client's own `X-Forwarded-For` entries SHALL NOT change the address that per-address limits count. Outside production, `TRUST_PROXY=true` SHALL still be accepted, and the server SHALL log a warning that per-address limits can be bypassed.
+
+#### Scenario: Trusting every proxy in production
+- **WHEN** the server starts with `NODE_ENV=production` and `TRUST_PROXY=true`
+- **THEN** startup fails with an error naming `TRUST_PROXY`
+
+#### Scenario: Forged forwarding header behind one proxy
+- **WHEN** `TRUST_PROXY=1`, and one client sends 31 joins to a room, each with a different address of its own before the address the proxy appended
+- **THEN** the 31st join is refused with 429

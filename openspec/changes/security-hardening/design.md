@@ -76,6 +76,21 @@ the limit's count of entries.
 `MINIO_ACCESS_KEY` or `MINIO_SECRET_KEY` is missing. The error names both variables. Outside
 production, unset credentials keep defaulting to the docker-compose values.
 
+### D5. Proxy trust that clients can't forge
+
+`trustProxyFromEnv` (in `app.ts`, now exported and taking the environment as a parameter for tests)
+throws at startup when `NODE_ENV=production` and `TRUST_PROXY` is `true`, or is anything other than
+a non-negative integer. The error tells the operator to set the number of proxies in front of the
+server, for example `TRUST_PROXY=1` on Fly or Railway. With a hop count, Express takes the address
+the nearest trusted proxy saw, so a client's own `X-Forwarded-For` entries are ignored.
+
+Outside production, `true` still works, because local multi-person testing sometimes needs distinct
+addresses, but it logs a warning. An unparseable value logs a warning and is ignored, as before.
+
+**Why refuse instead of warn in production:** every per-address limit in this change, and the
+existing sign-in and sign-up limits, depend on `req.ip`. A warning in a deploy log is easy to miss,
+and the failure is silent: the limits look like they work and stop nothing.
+
 ## Risks / Trade-offs
 
 - **Shared addresses:** a classroom behind one NAT joining one room could hit 30. → Each refusal says

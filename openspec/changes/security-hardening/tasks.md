@@ -8,6 +8,7 @@
 - [x] 1.4 Production MinIO credentials (D4). Verify in `apps/server/test/assetStore.test.ts`: production with an endpoint and no keys refuses to start, naming both variables; with keys it connects; development without keys still connects.
 - [x] 1.5 Join page: a 429 does not mark the name field invalid. Verify in `apps/web/test/roomPlayerCap.test.ts`.
 - [x] 1.6 Count sign-in and password-change attempts before the password check, clearing on success (D1). Verify in `apps/server/test/accounts.test.ts`: a burst of 12 wrong guesses, for each, gets 10 checked and 2 refused with 429.
+- [x] 1.7 Refuse `TRUST_PROXY=true` and non-numeric values in production; warn outside it (D5). Verify in `apps/server/test/trustProxy.test.ts`: production with `true` or `yes` refuses to start; a hop count is accepted; behind one proxy, 31 joins with forged `X-Forwarded-For` entries get 429 on the 31st (and the same test lets the 31st through when every proxy is trusted).
 
 ## 2. Finish
 
