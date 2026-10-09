@@ -8,7 +8,7 @@ import { canRenderGrid } from "./gridRenderLimit";
 import type { SessionEndReason } from "./protocol";
 import { inverseOf, undoableAction, undoConflict } from "./undo";
 import { concealedFrom, fogConcealsSide, isInFog, templateConcealedFrom } from "./visibility";
-import { MAX_AREA_TEMPLATES, MAX_LINE_WIDTH_CELLS, MAX_CHECKPOINT_NAME, MAX_FOG_REGIONS, MAX_PLAYERS_PER_ROOM, tableOf, type AreaTemplate, type DiceLookOnTable, type Initiative, type Participant, type RoomState, type TableState, type Token } from "./state";
+import { MAX_GROUP_NAME, MAX_GROUPS, MAX_AREA_TEMPLATES, MAX_LINE_WIDTH_CELLS, MAX_CHECKPOINT_NAME, MAX_FOG_REGIONS, MAX_PLAYERS_PER_ROOM, tableOf, type AreaTemplate, type DiceLookOnTable, type Initiative, type Participant, type RoomState, type TableState, type Token } from "./state";
 
 export type RejectionCode = "forbidden" | "not_found" | "invalid";
 
@@ -140,34 +140,78 @@ export function decide(
         return reject("invalid", "Current HP cannot exceed maximum HP");
       }
       if (new Set(command.conditions).size !== command.conditions.length) return reject("invalid", "A condition is listed twice.");
-      // Several copies are one action (KAN-70): spread over the nearest free squares, each
-      // numbered against the room and the copies before it.
-      const positions = spreadPositions(
-        command.position, command.size, command.count, state.scene.grid, state.scene.map,
-        Object.values(state.tokens).map((t) => ({ position: t.position, size: t.size })),
-      );
-      let named = state;
-      const events: DomainEvent[] = positions.map((position) => {
-        const token: Token = {
-          id: ctx.newId(),
-          // Duplicates are numbered, not rejected: placing five goblins is routine (KAN-62).
-          name: uniqueTokenName(named, command.name),
-          position,
-          size: command.size,
-          rotation: normalizeRotation(command.rotation),
-          color: command.color,
-          imageUrl: command.imageUrl,
-          assetId: command.assetId,
-          ownerIds: command.ownerIds,
-          hidden: command.hidden,
-          stats: command.stats,
-          conditions: command.conditions,
-          ...(command.attacks.length > 0 ? { attacks: command.attacks } : {}),
-        };
-        named = { ...named, tokens: { ...named.tokens, [token.id]: token } };
-        return { type: "TokenCreated", token };
-      });
-      return accept(...events);
+      return accept(...createTokens(state, {
+        name: command.name,
+        position: command.position,
+        size: command.size,
+        rotation: normalizeRotation(command.rotation),
+        color: command.color,
+        imageUrl: command.imageUrl,
+        assetId: command.assetId,
+        ownerIds: command.ownerIds,
+        hidden: command.hidden,
+        stats: command.stats,
+        conditions: command.conditions,
+        ...(command.attacks.length > 0 ? { attacks: command.attacks } : {}),
+      }, command.count, ctx));
+    }
+
+    case "token.duplicate": {
+      if (!can.administer(actor)) return forbidden();
+      const original = state.tokens[command.tokenId];
+      if (!original) return notFound("token");
+      // Everything but identity and the remembered initiative score, which belongs to the original.
+      const { id: _id, initiative: _initiative, ...copy } = original;
+      // Beside the original, never on it: its own square is the first spot the spread offers.
+      const created = createTokens(state, copy, command.count, ctx, { besideOrigin: true });
+      // Copies join the original's group, in the same action (KAN-82).
+      const groupId = state.tokenGroups[original.id];
+      const grouped: DomainEvent[] = groupId && state.groups[groupId]
+        ? [{ type: "TokensGrouped", groupId, changes: created.flatMap((e) => (e.type === "TokenCreated" ? [{ tokenId: e.token.id, previous: null }] : [])) }]
+        : [];
+      return accept(...created, ...grouped);
+    }
+
+    case "group.create": {
+      if (!can.administer(actor)) return forbidden();
+      const name = command.name.trim();
+      const invalid = groupNameProblem(state, name);
+      if (invalid) return reject("invalid", invalid);
+      if (Object.keys(state.groups).length >= MAX_GROUPS) return reject("invalid", `A room holds at most ${MAX_GROUPS} groups.`);
+      return accept({ type: "GroupCreated", group: { id: ctx.newId(), name } });
+    }
+
+    case "group.rename": {
+      if (!can.administer(actor)) return forbidden();
+      const group = state.groups[command.groupId];
+      if (!group) return notFound("group");
+      const name = command.name.trim();
+      if (name === group.name) return reject("invalid", "That is already the group's name.");
+      const invalid = groupNameProblem(state, name, group.id);
+      if (invalid) return reject("invalid", invalid);
+      return accept({ type: "GroupRenamed", groupId: group.id, name, previous: group.name });
+    }
+
+    case "group.delete": {
+      if (!can.administer(actor)) return forbidden();
+      const group = state.groups[command.groupId];
+      if (!group) return notFound("group");
+      const members = Object.entries(state.tokenGroups).filter(([, g]) => g === group.id).map(([tokenId]) => tokenId);
+      return accept({ type: "GroupDeleted", group, members });
+    }
+
+    case "group.assign": {
+      if (!can.administer(actor)) return forbidden();
+      if (command.groupId !== null && !state.groups[command.groupId]) return notFound("group");
+      const missing = command.tokenIds.find((id) => !state.tokens[id]);
+      if (missing) return notFound("token");
+      const changes = [...new Set(command.tokenIds)]
+        .map((tokenId) => ({ tokenId, previous: state.tokenGroups[tokenId] ?? null }))
+        .filter((c) => c.previous !== command.groupId);
+      if (changes.length === 0) {
+        return reject("invalid", command.groupId === null ? "Those tokens are not in a group." : "Those tokens are already in that group.");
+      }
+      return accept({ type: "TokensGrouped", groupId: command.groupId, changes });
     }
 
     case "token.move": {
@@ -604,7 +648,7 @@ export function decide(
       const conflict = undoConflict(state, entry);
       if (conflict) return reject("invalid", conflict);
       // Reverse order, so an editor save's "hide first, reveal last" stays safe when undone (ADR 0013).
-      return accept(...entry.events.map(inverseOf).reverse(), { type: "ActionUndone", commandId: entry.commandId });
+      return accept(...entry.events.map(inverseOf).reverse().flat(), { type: "ActionUndone", commandId: entry.commandId });
     }
 
     case "checkpoint.create": {
@@ -732,6 +776,39 @@ export function uniqueTokenName(state: RoomState, name: string, exceptId?: strin
     const candidate = base.slice(0, MAX_TOKEN_NAME - suffix.length).trimEnd() + suffix;
     if (!taken.has(normalizeName(candidate))) return candidate;
   }
+}
+
+/**
+ * The `TokenCreated` events for `count` copies of `base` (KAN-70, KAN-82): spread over the nearest
+ * free squares around `base.position`, each named against the room and the copies before it.
+ */
+function createTokens(
+  state: RoomState,
+  base: Omit<Token, "id">,
+  count: number,
+  ctx: DecideContext,
+  { besideOrigin = false } = {},
+): DomainEvent[] {
+  const spread = spreadPositions(
+    base.position, base.size, besideOrigin ? count + 1 : count, state.scene.grid, state.scene.map,
+    Object.values(state.tokens).map((t) => ({ position: t.position, size: t.size })),
+  );
+  const positions = besideOrigin ? spread.slice(1) : spread;
+  let named = state;
+  return positions.map((position) => {
+    // Duplicates are numbered, not rejected: placing five goblins is routine (KAN-62).
+    const token: Token = { ...base, id: ctx.newId(), name: uniqueTokenName(named, base.name), position };
+    named = { ...named, tokens: { ...named.tokens, [token.id]: token } };
+    return { type: "TokenCreated", token };
+  });
+}
+
+/** Why `name` can't name a group, or null (KAN-82): blank, too long, or another group's. */
+export function groupNameProblem(state: RoomState, name: string, exceptId?: string): string | null {
+  if (!name) return "Give the group a name.";
+  if (name.length > MAX_GROUP_NAME) return `Group names are at most ${MAX_GROUP_NAME} characters.`;
+  const taken = Object.values(state.groups).some((g) => g.id !== exceptId && normalizeName(g.name) === normalizeName(name));
+  return taken ? `There is already a group named "${name}".` : null;
 }
 
 /** Keep persisted angles compact while accepting any finite angle from clients. */

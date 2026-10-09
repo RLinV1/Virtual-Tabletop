@@ -167,6 +167,40 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
     case "InitiativeEnded":
       return { ...state, initiative: null };
 
+    case "InitiativeStartUndone": {
+      // Back to the order and saved scores the start replaced (KAN-82).
+      const tokens = { ...state.tokens };
+      for (const { tokenId, score } of event.scores) {
+        const token = tokens[tokenId];
+        if (token) tokens[tokenId] = { ...token, initiative: score };
+      }
+      return { ...state, initiative: event.initiative, tokens: event.scores.length > 0 ? tokens : state.tokens };
+    }
+
+    case "GroupCreated":
+      return { ...state, groups: { ...state.groups, [event.group.id]: event.group } };
+
+    case "GroupRenamed": {
+      const group = required(state.groups[event.groupId], event);
+      return { ...state, groups: { ...state.groups, [group.id]: { ...group, name: event.name } } };
+    }
+
+    case "GroupDeleted": {
+      // Its tokens stay on the board, ungrouped (KAN-82).
+      const { [event.group.id]: _removed, ...groups } = state.groups;
+      const tokenGroups = Object.fromEntries(Object.entries(state.tokenGroups).filter(([, g]) => g !== event.group.id));
+      return { ...state, groups, tokenGroups };
+    }
+
+    case "TokensGrouped": {
+      const tokenGroups = { ...state.tokenGroups };
+      for (const { tokenId } of event.changes) {
+        if (event.groupId === null) delete tokenGroups[tokenId];
+        else tokenGroups[tokenId] = event.groupId;
+      }
+      return { ...state, tokenGroups };
+    }
+
     case "DiceRolled": {
       // Stored events are loaded without parsing, so an attack roll from before ADR 0011 arrives
       // with no `kind`; the schema's default only applies on parse. Fill it in here instead.

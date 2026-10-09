@@ -81,6 +81,16 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
     case "InitiativeStarted": return `${actorName} started initiative: ${event.initiative.order.map(tokenName).join(", ") || "no tokens"}`;
     case "InitiativeAdvanced": return `${actorName} advanced to round ${event.initiative.round}, ${tokenName(event.initiative.order[event.initiative.activeIndex] ?? "")}'s turn`;
     case "InitiativeEnded": return `${actorName} ended initiative`;
+    case "InitiativeStartUndone": return `${actorName} took back the start of initiative`;
+    case "GroupCreated": return `${actorName} created group "${event.group.name}"`;
+    case "GroupRenamed": return `${actorName} renamed group "${event.previous}" to "${event.name}"`;
+    case "GroupDeleted": return `${actorName} deleted group "${event.group.name}"`;
+    case "TokensGrouped": {
+      const names = event.changes.map((c) => tokenName(c.tokenId)).join(", ");
+      return event.groupId === null
+        ? `${actorName} took ${names} out of their group`
+        : `${actorName} put ${names} in group "${before.groups[event.groupId]?.name ?? "an unknown group"}"`;
+    }
     case "DiceRolled": {
       const { attack, expression, total, visibility } = event.roll;
       const what = attack

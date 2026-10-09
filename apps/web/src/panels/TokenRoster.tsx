@@ -9,7 +9,9 @@ import {
   type Participant,
   type RoomState,
   type Token,
+  type TokenGroup,
   type TokenUpdate,
+  MAX_TOKENS_PER_CREATE,
 } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { api } from "../net/api";
@@ -25,6 +27,8 @@ import { AddTokenButton } from "./AddToken";
 import { Modal } from "../ui/Modal";
 import { browserTokenAttacks } from "./attackRoll";
 import { PanelSection } from "../ui/PanelSection";
+import { CollapseToggle, GroupHeading, NewGroupForm } from "./GroupHeading";
+import { groupedTokens } from "./tokenGroups";
 
 /**
  * Focusable token roster (FR-GM-24), showing stats and conditions (FR-TAC-07/08).
@@ -57,6 +61,13 @@ export function TokenRoster({
   const [query, setQuery] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Group ids the GM collapsed; "" is the Ungrouped section (KAN-82). */
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const toggle = (id: string) => setCollapsed((current) => {
+    const next = new Set(current);
+    if (!next.delete(id)) next.add(id);
+    return next;
+  });
   const isGm = you.role === "gm";
   const editing = editingId ? state.tokens[editingId] : undefined;
   const send = async (command: Parameters<RoomConnection["command"]>[0]) => {
@@ -70,6 +81,19 @@ export function TokenRoster({
     .sort((a, b) => a.name.localeCompare(b.name));
 
   const activeId = state.initiative?.order[state.initiative.activeIndex] ?? null;
+  const row = (token: Token) => (
+    <RosterRow
+      key={token.id}
+      token={token}
+      you={you}
+      isActive={token.id === activeId}
+      onFocus={() => onFocusToken(token.id)}
+      onEdit={() => {
+        setError(null);
+        setEditingId(token.id);
+      }}
+    />
+  );
 
   return (
     <PanelSection id="tokens" title="Tokens">
@@ -85,23 +109,38 @@ export function TokenRoster({
         autoComplete="off"
       />
 
-      {tokens.length === 0 ? (
+      {isGm ? (
+        // The GM's roster is grouped (KAN-82); players never receive groups, so theirs is one list.
+        <>
+          {groupedTokens(state, tokens).map(({ group, tokens: members }) =>
+            group || members.length > 0 || tokens.length === 0 ? (
+              <section key={group?.id ?? "ungrouped"} className="roster-group" aria-label={group?.name ?? "Ungrouped tokens"}>
+                {group ? (
+                  <GroupHeading group={group} tokens={members} connection={connection} onError={setError}
+                    collapsed={collapsed.has(group.id)} onToggle={() => toggle(group.id)} />
+                ) : (
+                  <div className="group-heading">
+                    <CollapseToggle label={Object.keys(state.groups).length > 0 ? "Ungrouped" : "All tokens"} count={members.length}
+                      collapsed={collapsed.has("")} onToggle={() => toggle("")} />
+                  </div>
+                )}
+                {collapsed.has(group?.id ?? "") ? null : members.length === 0 ? (
+                  <p className="muted">{group ? "No tokens in this group yet. Use Edit on a token to add it." : query ? "No tokens match." : "No tokens yet."}</p>
+                ) : (
+                  <ul className="plain roster">
+                    {members.map((token) => row(token))}
+                  </ul>
+                )}
+              </section>
+            ) : null,
+          )}
+          <NewGroupForm connection={connection} onError={setError} />
+        </>
+      ) : tokens.length === 0 ? (
         <p className="muted">{query ? "No tokens match." : "No tokens yet."}</p>
       ) : (
         <ul className="plain roster">
-          {tokens.map((token) => (
-            <RosterRow
-              key={token.id}
-              token={token}
-              you={you}
-              isActive={token.id === activeId}
-              onFocus={() => onFocusToken(token.id)}
-              onEdit={() => {
-                setError(null);
-                setEditingId(token.id);
-              }}
-            />
-          ))}
+          {tokens.map((token) => row(token))}
         </ul>
       )}
       {error && !editing && <p role="alert" className="error">{error}</p>}
@@ -117,8 +156,15 @@ export function TokenRoster({
             players={Object.values(state.participants).filter((p) => p.role === "player" && isActive(p))}
             departedOwner={departedOwner(state, editing.ownerIds)}
             error={error}
-            onSave={async (changes) => {
-              if (await send({ type: "token.configure", tokenId: editing.id, changes })) setEditingId(null);
+            groups={Object.values(state.groups)}
+            groupId={state.tokenGroups[editing.id] ?? null}
+            onSave={async (changes, groupId) => {
+              if (Object.keys(changes).length > 0 && !(await send({ type: "token.configure", tokenId: editing.id, changes }))) return;
+              if (groupId !== undefined && !(await send({ type: "group.assign", groupId, tokenIds: [editing.id] }))) return;
+              setEditingId(null);
+            }}
+            onDuplicate={async (count) => {
+              if (await send({ type: "token.duplicate", tokenId: editing.id, count })) setEditingId(null);
             }}
             onDelete={async () => {
               if (await send({ type: "token.delete", tokenId: editing.id })) setEditingId(null);
@@ -214,8 +260,11 @@ export function TokenEditor({
   players,
   departedOwner,
   error,
+  groups = [],
+  groupId: savedGroupId = null,
   onSave,
   onDelete,
+  onDuplicate,
 }: {
   token: Token;
   roomToken: string;
@@ -224,8 +273,14 @@ export function TokenEditor({
   /** Set when the current owner left the room and the GM hasn't resolved the token yet. */
   departedOwner: Participant | null;
   error: string | null;
-  onSave: (changes: TokenUpdate) => Promise<void>;
+  /** GM: the room's groups and this token's, for the Group field (KAN-82). */
+  groups?: readonly TokenGroup[];
+  groupId?: string | null;
+  /** `groupId` is undefined when the group did not change. */
+  onSave: (changes: TokenUpdate, groupId?: string | null) => Promise<void>;
   onDelete: () => void;
+  /** GM: copy this token `count` times beside it (KAN-82). */
+  onDuplicate?: (count: number) => Promise<void>;
 }) {
   const [hp, setHp] = useState(token.stats.hp?.toString() ?? "");
   const [name, setName] = useState(token.name);
@@ -243,6 +298,8 @@ export function TokenEditor({
   const [conditions, setConditions] = useState<ConditionId[]>(token.conditions);
   const [ownerId, setOwnerId] = useState(token.ownerIds[0] ?? "");
   const [hidden, setHidden] = useState(token.hidden);
+  const [groupId, setGroupId] = useState(savedGroupId ?? "");
+  const [copies, setCopies] = useState("1");
   const [confirming, setConfirming] = useState<"save" | "delete" | null>(null);
   /** Save as creature (KAN-70): the token as it is now, as a new library creature's starting values. */
   const [creaturePrefill, setCreaturePrefill] = useState<CreaturePrefill | null>(null);
@@ -273,12 +330,15 @@ export function TokenEditor({
   if (isGm && ownerId !== (token.ownerIds[0] ?? ""))
     changes.ownerIds = ownerId ? [ownerId] : [];
   if (isGm && hidden !== token.hidden) changes.hidden = hidden;
-  const hasChanges = Object.keys(changes).length > 0;
+  const groupChanged = isGm && groupId !== (savedGroupId ?? "");
+  const hasChanges = Object.keys(changes).length > 0 || groupChanged;
+  const copyCount = Number(copies);
+  const validCopies = Number.isInteger(copyCount) && copyCount >= 1 && copyCount <= MAX_TOKENS_PER_CREATE;
 
   const save = async () => {
     setBusy(true);
     try {
-      await onSave(changes);
+      await onSave(changes, groupChanged ? groupId || null : undefined);
     } finally {
       setBusy(false);
       setConfirming(null);
@@ -361,6 +421,30 @@ export function TokenEditor({
             Hidden from players
           </label>
         </details>
+      )}
+
+      {isGm && groups.length > 0 && (
+        <label className="token-group-field">
+          Group
+          <select value={groupId} onChange={(e) => setGroupId(e.target.value)}>
+            <option value="">No group</option>
+            {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+          </select>
+        </label>
+      )}
+
+      {isGm && onDuplicate && (
+        <div className="row token-duplicate">
+          <label>
+            Copies
+            <input type="number" inputMode="numeric" value={copies} onChange={(e) => setCopies(e.target.value)}
+              min="1" max={MAX_TOKENS_PER_CREATE} step="1" aria-describedby="duplicate-hint" />
+          </label>
+          <button type="button" className="secondary" disabled={busy || !validCopies} onClick={() => void onDuplicate(copyCount)}>
+            Duplicate
+          </button>
+          <span id="duplicate-hint" className="muted small-print">Same stats, conditions, owner and visibility, beside this token.</span>
+        </div>
       )}
 
       {isGm && (

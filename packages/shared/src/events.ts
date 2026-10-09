@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ConditionId, TokenStats } from "./conditions";
 import { DiceRoll, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
-import { AreaTemplate, ChatMessage, Checkpoint, DiceLookOnTable, FogRegion, Id, Initiative, InitiativeScore, MapImage, Participant, TableState, Token } from "./state";
+import { AreaTemplate, ChatMessage, Checkpoint, DiceLookOnTable, FogRegion, Id, Initiative, InitiativeScore, MapImage, Participant, TableState, Token, TokenGroup } from "./state";
 
 /**
  * Events are FACTS the server has committed. They are append-only and never edited.
@@ -126,6 +126,39 @@ export const DomainEvent = z.discriminatedUnion("type", [
     scores: z
       .array(z.object({ tokenId: Id, score: InitiativeScore, previous: InitiativeScore.nullable() }))
       .optional(),
+  }),
+  /**
+   * Undo of an `InitiativeStarted` (KAN-82, ADR 0026): the turn order and each token's saved
+   * score go back to what the start replaced. `previous` is the order the start had made.
+   */
+  z.object({
+    type: z.literal("InitiativeStartUndone"),
+    initiative: Initiative.nullable(),
+    previous: Initiative,
+    scores: z.array(z.object({ tokenId: Id, score: InitiativeScore.nullable(), previous: InitiativeScore.nullable() })),
+  }),
+  /** GM-only token groups (KAN-82, ADR 0026). Players receive only the seq. */
+  z.object({
+    type: z.literal("GroupCreated"),
+    group: TokenGroup,
+  }),
+  z.object({
+    type: z.literal("GroupRenamed"),
+    groupId: Id,
+    name: z.string(),
+    previous: z.string(),
+  }),
+  /** Carries the group and the tokens that were in it, so undo can restore both. */
+  z.object({
+    type: z.literal("GroupDeleted"),
+    group: TokenGroup,
+    members: z.array(Id),
+  }),
+  /** Tokens moved into `groupId`, or out of any group when null, each with the group it left. */
+  z.object({
+    type: z.literal("TokensGrouped"),
+    groupId: Id.nullable(),
+    changes: z.array(z.object({ tokenId: Id, previous: Id.nullable() })),
   }),
   z.object({
     type: z.literal("InitiativeAdvanced"),
