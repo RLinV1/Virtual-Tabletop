@@ -39,13 +39,17 @@ import { registerLibraryRoutes } from "./library";
 import { detectionWire } from "./library";
 import { enqueueDetection, type GridDetectionDispatcher } from "../domain/gridDetection";
 import type { DetectionTarget } from "../store/gridDetectionStore";
+import type { WallDetections } from "../domain/wallDetection";
 
 /** Registers the REST API: rooms, invite joins, uploads, the library and GM history. */
 export function registerRoutes(
   app: Express,
-  deps: { store: RoomStore; registry: RoomRegistry; uploadDir: string; assets: AssetStore; limits: AccountLimits; detection: GridDetectionDispatcher },
+  deps: {
+    store: RoomStore; registry: RoomRegistry; uploadDir: string; assets: AssetStore; limits: AccountLimits;
+    detection: GridDetectionDispatcher; walls: WallDetections;
+  },
 ) {
-  const { store, registry, uploadDir, assets, limits, detection } = deps;
+  const { store, registry, uploadDir, assets, limits, detection, walls } = deps;
 
   const receiveImage = imageUploader(uploadDir);
 
@@ -175,7 +179,15 @@ export function registerRoutes(
         });
         throw err;
       }
-      if (fields.data.purpose === "map") await enqueueDetection(store, detection, { scope: "room", roomId: actor.roomId, objectKey: key }, 1);
+      if (fields.data.purpose === "map") {
+        await enqueueDetection(store, detection, { scope: "room", roomId: actor.roomId, objectKey: key }, 1);
+        // Walls too, while the GM lines up the grid; best-effort, like grid analysis (ADR 0025).
+        if (walls.available && fields.data.width && fields.data.height) {
+          await walls.start(actor.roomId, { url, width: fields.data.width, height: fields.data.height }, 0).catch((err: unknown) => {
+            console.error(`[vtt] could not queue wall detection for an upload in room ${actor.roomId}`, err);
+          });
+        }
+      }
       const response: UploadResponse = { url };
       return res.json(response);
     })().catch(internalError(req, res));
@@ -210,6 +222,54 @@ export function registerRoutes(
       await enqueueDetection(store, detection, target, attempt);
       const row = await store.findDetection(target);
       return res.status(202).json(GridDetectionStatus.parse(detectionWire(row!)));
+    })().catch(internalError(req, res));
+  });
+
+  /**
+   * Wall detection for the room's map (FR-GM-11, ADR 0025). GM only. POST queues an analysis of the
+   * current map, judged against the room's grid; GET reads the latest status, or the rendered
+   * preview, of a map this room analyzed. Applying the walls is a room command, not a route.
+   */
+  const MapQuery = z.object({ map: z.string().min(1).max(2048) });
+
+  app.post("/api/rooms/:roomId/wall-detection", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void (async () => {
+      if (!(await isRoomGm(req, req.params.roomId))) return res.status(403).json({ error: "GM only" });
+      if (!walls.available) return res.status(503).json({ error: "Wall detection isn't set up on this server." });
+      const room = await registry.get(req.params.roomId);
+      const map = room?.currentMap();
+      if (!room || !map) return res.status(404).json({ error: "Set a map first." });
+      const started = await walls.start(room.roomId, map, room.currentGrid().cellSize);
+      if (started === "busy") return res.status(409).json({ error: "Walls are already being detected for this map." });
+      if (started === "unreadable") return res.status(422).json({ error: "This map's image can't be analyzed." });
+      if (started === "unavailable") return res.status(503).json({ error: "Wall detection is unavailable right now." });
+      return res.status(202).json(walls.status(room.roomId, map.url));
+    })().catch(internalError(req, res));
+  });
+
+  app.get("/api/rooms/:roomId/wall-detection", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void (async () => {
+      if (!(await isRoomGm(req, req.params.roomId))) return res.status(403).json({ error: "GM only" });
+      const query = MapQuery.safeParse(req.query);
+      if (!query.success) return res.status(400).json({ error: "Name the map" });
+      const status = walls.status(req.params.roomId, query.data.map);
+      if (!status) return res.status(404).json({ error: "No wall detection for that map" });
+      return res.json(status);
+    })().catch(internalError(req, res));
+  });
+
+  app.get("/api/rooms/:roomId/wall-detection/preview", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void (async () => {
+      if (!(await isRoomGm(req, req.params.roomId))) return res.status(403).json({ error: "GM only" });
+      const query = MapQuery.safeParse(req.query);
+      if (!query.success) return res.status(400).json({ error: "Name the map" });
+      const result = walls.result(req.params.roomId, query.data.map);
+      if (!result) return res.status(404).json({ error: "No wall detection for that map" });
+      res.type(result.preview.contentType);
+      return res.send(Buffer.from(result.preview.data, "base64"));
     })().catch(internalError(req, res));
   });
 
@@ -261,6 +321,7 @@ export function registerRoutes(
         // On failure too: the next access reloads the room from the store instead of finding it closed.
         registry.evict(roomId);
       }
+      walls.forgetRoom(roomId);
       if (!deleted) return res.status(404).json({ error: "Room not found" });
 
       // After the commit, and best-effort: the room is gone, and a stray object has a random name.

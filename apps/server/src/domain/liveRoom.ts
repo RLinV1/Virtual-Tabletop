@@ -16,6 +16,7 @@ import {
   referencedAssetIds,
   type Command,
   type CommittedEvent,
+  type DetectedWall,
   type DiceLookOnTable,
   type DieName,
   type DomainEvent,
@@ -41,6 +42,12 @@ const secureRandom = () => randomInt(0, 2 ** 31) / 2 ** 31;
 
 /** A checkpoint restore slower than this is logged: past it, ADR 0019 calls for a snapshot cache. */
 const RESTORE_SLOW_MS = 500;
+
+/** Server services a room consults while deciding, passed in so `decide` stays pure. */
+export interface RoomHooks {
+  /** The validated detected walls for this room's map (ADR 0025), or null. */
+  detectedWalls?: (roomId: string, mapUrl: string) => readonly DetectedWall[] | null;
+}
 
 /** A connected socket bound to a participant. */
 export interface RoomClient {
@@ -92,6 +99,7 @@ export class LiveRoom {
     readonly roomId: string,
     private store: RoomStore,
     events: CommittedEvent[],
+    private hooks: RoomHooks = {},
   ) {
     // With each event's `commandId`, so the undo history is rebuilt too (ADR 0013).
     this.state = events.reduce(reduceCommitted, emptyRoomState(roomId));
@@ -99,8 +107,8 @@ export class LiveRoom {
   }
 
   /** Replays the room's log, then heals the derived projections: the asset index and removed players' credential locks. */
-  static async load(roomId: string, store: RoomStore) {
-    const room = new LiveRoom(roomId, store, await store.loadEvents(roomId));
+  static async load(roomId: string, store: RoomStore, hooks: RoomHooks = {}) {
+    const room = new LiveRoom(roomId, store, await store.loadEvents(roomId), hooks);
     // Heals an index left stale by a crash between append and projection (ADR 0004).
     await room.syncAssetRefs();
     // Same for the credential-row lock on removed participants (FR-GM-20). Idempotent.
@@ -138,10 +146,27 @@ export class LiveRoom {
     return this.state.scene.map;
   }
 
+  /** The room's grid, so wall detection judges walls against its squares (ADR 0025). */
+  currentGrid() {
+    return this.state.scene.grid;
+  }
+
   /** Why this participant's seat ended, or null if they are still in the room (ADR 0006). */
   endReason(id: string): SessionEndReason | null {
     const p = this.state.participants[id];
     return p ? endReason(p) : null;
+  }
+
+  /**
+   * Sends a message to the room's GM connections only: a wall analysis changed state (ADR 0025).
+   * Not room data and no seq (invariant 4); players never receive it.
+   */
+  notifyGm(message: ServerMessage) {
+    if (this.isClosed) return;
+    for (const client of this.clients) {
+      const viewer = this.state.participants[client.participantId];
+      if (viewer && viewer.role === "gm" && isActive(viewer)) client.send(message);
+    }
   }
 
   /** The room's GM seat, for its owner resuming on another device (ADR 0017 M2). */
@@ -207,6 +232,9 @@ export class LiveRoom {
         lastSeq: this.seq,
         checkpointTable,
         encounterTemplate,
+        detectedWalls: command.type === "wall.applyDetected"
+          ? (mapUrl) => this.hooks.detectedWalls?.(this.roomId, mapUrl) ?? null
+          : undefined,
       });
       if (!decision.ok) return decision;
       const committed = await this.commit(actorId, decision.events);
