@@ -19,8 +19,10 @@ function deferred<T>() {
 
 beforeEach(() => {
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+  // jsdom has no layout; the editor's map preview only needs the observer to exist.
+  vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("GM grid suggestion editor (FR-GM-03)", () => {
   it("leaves a dirty draft untouched on arrival and copies only alignment after Use suggestion", async () => {
@@ -53,7 +55,7 @@ describe("GM grid suggestion editor (FR-GM-03)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Use suggestion" }));
     expect((screen.getByLabelText("Cell size (px)") as HTMLInputElement).value).toBe("64");
     expect((screen.getByLabelText("Offset X (px)") as HTMLInputElement).value).toBe("7");
-    expect((screen.getByLabelText("Per cell (ft)") as HTMLInputElement).value).toBe("10");
+    expect((screen.getByLabelText("Distance per square") as HTMLInputElement).value).toBe("10");
     expect(apply).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Apply grid" }));
     await waitFor(() => expect(apply).toHaveBeenCalledWith(expect.objectContaining({
@@ -64,7 +66,7 @@ describe("GM grid suggestion editor (FR-GM-03)", () => {
   it("offers Try again only after error and ignores a superseded map response", async () => {
     const old = deferred<GridDetectionStatus | null>();
     const next = deferred<GridDetectionStatus | null>();
-    vi.spyOn(api.detection, "library").mockImplementation((_token, id) => id === "old" ? old.promise : next.promise);
+    vi.spyOn(api.detection, "library").mockImplementation((id) => id === "old" ? old.promise : next.promise);
     function Probe({ id }: { id: string }) {
       const detection = useGridDetection("library", "gm-token", id);
       return <div>{detection.status?.status ?? "pending"}</div>;

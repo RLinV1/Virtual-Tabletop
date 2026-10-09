@@ -1,25 +1,51 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { House } from "@phosphor-icons/react";
-import { can, type DiceVisibility, type GridSpec, type Point } from "@vtt/shared";
-import { Board, type BoardHandle } from "../board/Board";
+import { can, filterStateForViewer, isActive, type DiceVisibility, type GridSpec, type Participant, type Point } from "@vtt/shared";
+import { Board, type BoardHandle, type DiceBoard } from "../board/Board";
+import { PendingDrops, type DiceDrop } from "../board/diceDrops";
 import type { TokenDraft } from "../board/placement";
 import { Link } from "../Link";
 import type { SessionEndReason } from "@vtt/shared";
-import { forgetCredentials, loadCredentials } from "../net/identity";
+import { useAccount } from "../account/accountStore";
+import { signInFor } from "../account/safeNext";
+import { forgetCredentials, loadCredentials, rememberRoomName } from "../net/identity";
+import type { DiceSkin } from "../ui/diceSkin";
+import { useActiveDiceLook, useDiceLooks } from "../ui/diceSkinStore";
+import { readySkin, tableSkin, usePreloadTableLooks, useShowOthersDice } from "../ui/tableLooks";
+import { ensureSeat } from "../net/seats";
+import { KeepSeatNotice } from "../ui/KeepSeatNotice";
 import { RoomConnection, useRoomSnapshot, type ConnectionStatus } from "../net/roomConnection";
+import { ChatPanel } from "../panels/ChatPanel";
 import { PanelTabs, RoomPanel, isTabId, type TabBadges, type TabId } from "../panels/RoomPanel";
+import { trayRoll, type RollThrow } from "../panels/DicePanel";
 import { outcomeKey, pendingRulings } from "../panels/attackRoll";
 import { ActivityLog } from "../panels/ActivityLog";
 import type { AttackPick } from "../panels/AttackPanel";
+import { useEncounterReset } from "../panels/attackSession";
 import { gridsEqual, parseGridDraft, toGridDraft, type GridDraft } from "./gridDraft";
 import { LeaveTable } from "../panels/LeaveTable";
 import { ResolveDepartureModal } from "../panels/ResolveDeparture";
 import { DepartureNotices } from "../ui/DepartureNotice";
+import { TurnNotice } from "../ui/TurnNotice";
+import { RollCard } from "../ui/RollCard";
 import { SectionCollapseProvider } from "../ui/PanelSection";
 import { ParticipantsButton } from "../ui/ParticipantsButton";
+import { PreviewBanner } from "../ui/PreviewBanner";
+import { previewConnection } from "../net/previewConnection";
 import { ShareButton } from "../ui/ShareButton";
 import { GuideIcon, GuideTour } from "../ui/GuideTour";
 import { isBoolean, usePersistentState } from "../ui/usePersistentState";
+
+/** The set without `id`; the same set when it wasn't there, so nothing re-renders. */
+function without(set: ReadonlySet<string>, id: string): ReadonlySet<string> {
+  if (!set.has(id)) return set;
+  const next = new Set(set);
+  next.delete(id);
+  return next;
+}
+
+/** How long the board says what was just rolled (attack-section-compact). */
+const ROLL_POPUP_MS = 4000;
 
 /** Below this the panel becomes tabs and sits under the board (FR-PL-03). */
 const COMPACT_WIDTH = 720;
@@ -52,10 +78,21 @@ const STATUS_LABEL: Record<ConnectionStatus, string> = {
   ended: "Left the room",
 };
 
-/** Route for `/r/:roomId`: loads this browser's credential for the room and runs its connection. */
+/**
+ * Route for `/r/:roomId`: loads this browser's credential for the room and runs its connection.
+ * With none stored, a signed-in person's seat is resumed on this device (room-membership).
+ */
 export function RoomPage({ roomId }: { roomId: string }) {
-  const creds = useMemo(() => loadCredentials(roomId), [roomId]);
+  const account = useAccount();
+  const [creds, setCreds] = useState(() => loadCredentials(roomId));
+  const [resuming, setResuming] = useState<"idle" | "trying" | "failed">("idle");
   const connection = useMemo(() => (creds ? new RoomConnection(roomId, creds.guestToken) : null), [roomId, creds]);
+
+  useEffect(() => {
+    if (creds || account.status !== "signedIn" || resuming !== "idle") return;
+    setResuming("trying");
+    ensureSeat(roomId).then(setCreds, () => setResuming("failed"));
+  }, [creds, account.status, resuming, roomId]);
 
   useEffect(() => {
     if (!connection) return;
@@ -64,11 +101,19 @@ export function RoomPage({ roomId }: { roomId: string }) {
   }, [connection]);
 
   if (!creds || !connection) {
+    const waiting = account.status === "loading" || (account.status === "signedIn" && resuming !== "failed");
+    if (waiting) return <main className="centered" aria-busy="true">Opening…</main>;
     return (
       <main className="centered">
         <div className="card">
           <h1>No access to this room</h1>
           <p className="muted">Ask the GM for an invite link.</p>
+          {account.status === "signedOut" && (
+            <p className="muted">
+              Already in this room on another device? <Link href={signInFor(`/r/${roomId}`)}>Sign in</Link> to open your seat
+              here.
+            </p>
+          )}
         </div>
       </main>
     );
@@ -89,6 +134,10 @@ const ENDED_COPY: Record<SessionEndReason, { title: (room: string | null) => str
     title: (room) => `${room ?? "This room"} was deleted`,
     body: "The GM deleted this room and everything in it. It can't be reopened.",
   },
+  signed_out: {
+    title: () => "You signed out on this device",
+    body: "Your seat is kept on your account. Sign in again to come back to it, here or on any other device.",
+  },
 };
 
 /**
@@ -96,13 +145,14 @@ const ENDED_COPY: Record<SessionEndReason, { title: (room: string | null) => str
  * plain: no account prompt, per FRONTEND-CONTRACT §13.1. `roomName` is null when the page
  * loaded after the seat had already ended.
  */
-function SessionEnded({ roomName, reason }: { roomName: string | null; reason: SessionEndReason | null }) {
+function SessionEnded({ roomId, roomName, reason }: { roomId: string; roomName: string | null; reason: SessionEndReason | null }) {
   const copy = ENDED_COPY[reason ?? "left"];
   return (
     <main className="centered">
       <div className="card">
         <h1>{copy.title(roomName)}</h1>
         <p className="muted">{copy.body}</p>
+        {reason === "signed_out" && <Link href={signInFor(`/r/${roomId}`)}>Sign in again</Link>}
         <Link href="/">Go to the home page</Link>
       </div>
     </main>
@@ -111,14 +161,37 @@ function SessionEnded({ roomName, reason }: { roomName: string | null; reason: S
 
 /** The room once a credential exists: board, side panel, and the connection's terminal screens. */
 function Room({ roomId, connection, token }: { roomId: string; connection: RoomConnection; token: string }) {
-  const { status, state, you, seq, endReason } = useRoomSnapshot(connection);
+  const { status, state, you, seq, endReason, refusal } = useRoomSnapshot(connection);
   const [reviewing, setReviewing] = useState<string | null>(null);
+  // The GM previewing the room as one player (gm-view-as-player): the same filter the server
+  // applies, run here on the GM's full state. Read-only: its connection refuses every command.
+  const [viewAs, setViewAs] = useState<string | null>(null);
+  const viewed = viewAs ? state?.participants[viewAs] : undefined;
+  const preview = useMemo(
+    () => (state && you?.role === "gm" && viewed && viewed.role === "player" && isActive(viewed) ? { you: viewed, state: filterStateForViewer(state, viewed) } : null),
+    [state, you?.role, viewed],
+  );
+  useEffect(() => {
+    if (viewAs && !preview && state) setViewAs(null);
+  }, [viewAs, preview, state]);
+  const shownConnection = useMemo(
+    () => (preview ? previewConnection(connection, preview.you.displayName) : connection),
+    [connection, preview?.you.id, preview?.you.displayName],
+  );
 
   // The seat is gone for good, on every tab that shared it: forget it, so the invite link
   // offers the join form rather than bouncing back to a room that refuses us (ADR 0006).
+  // Also when the server no longer knows the credential (room deleted, seat gone), so the
+  // home page's joined list drops it (KAN-64). Not on `not_found`: a room that failed to load
+  // may come back, and forgetting the seat would lose it for good.
   useEffect(() => {
-    if (status === "ended") forgetCredentials(roomId);
-  }, [status, roomId]);
+    if (status === "ended" || refusal === "unauthorized") forgetCredentials(roomId);
+  }, [status, refusal, roomId]);
+  // So the home page's joined list names this room (KAN-64).
+  const roomName = state?.name;
+  useEffect(() => {
+    if (roomName) rememberRoomName(roomId, roomName);
+  }, [roomId, roomName]);
   const boardRef = useRef<BoardHandle>(null);
   const compact = useCompactLayout();
   const focusToken = useCallback((tokenId: string) => boardRef.current?.focusToken(tokenId), []);
@@ -126,7 +199,15 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
   const [attackPick, setAttackPick] = useState<AttackPick>({ attackerId: null, targetId: null });
   const pickOnBoard = useCallback((attackerId: string) => boardRef.current?.startAttack(attackerId), []);
   const pickTarget = useCallback((attackerId: string, targetId: string) => setAttackPick({ attackerId, targetId }), []);
+  // Ending the encounter clears the target and the last roll, but keeps the attacker and named attacks (attack-panel-encounter-reset).
+  const attackReset = useEncounterReset(roomId, state, you?.id ?? null, () => setAttackPick((p) => ({ ...p, targetId: null })));
   const showPing = useCallback((at: Point) => boardRef.current?.showPing(at), []);
+  const diceBoard = useMemo<DiceBoard>(
+    () => ({
+      aimThrow: (client, velocity) => boardRef.current?.aimThrow(client, velocity) ?? null,
+    }),
+    [],
+  );
   // The GM's "Roll privately" for attacks: here, so leaving the Play tab doesn't reset it.
   const [attackVisibility, setAttackVisibility] = useState<DiceVisibility>("public");
   const [gridDraft, setGridDraft] = useState<GridDraft | null>(null);
@@ -170,15 +251,24 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
     if (gridApplyInFlight.current) return false;
     gridApplyInFlight.current = true;
     const generation = gridApplyGeneration.current;
+    const mapKey = JSON.stringify(connection.snapshot.state?.scene.map);
+    const accepted = connection.snapshot.state?.scene.grid;
+    const stillCurrent = (ok: boolean) => {
+      const snapshot = connection.snapshot;
+      return generation === gridApplyGeneration.current && snapshot.you?.role === "gm"
+        && mapKey === JSON.stringify(snapshot.state?.scene.map)
+        && !!snapshot.state && !!accepted
+        && gridsEqual(snapshot.state.scene.grid, ok ? grid : accepted);
+    };
     setGridApplying(true);
     setGridError(null);
     try {
       const result = await connection.command({ type: "scene.setGrid", grid });
-      if (generation !== gridApplyGeneration.current) return false;
+      if (!stillCurrent(result.ok)) return false;
       if (!result.ok) setGridError(result.message);
       return result.ok;
     } catch (error) {
-      if (generation !== gridApplyGeneration.current) return false;
+      if (!stillCurrent(false)) return false;
       setGridError(error instanceof Error ? error.message : "Could not apply grid");
       return false;
     } finally {
@@ -224,7 +314,101 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
       ? { play: { label: "new ruling" } }
       : {};
 
-  if (status === "ended") return <SessionEnded roomName={state?.name ?? null} reason={endReason} />;
+  // Rolls on this viewer's screen (throw-dice-on-board). Each roll is on its own, so any number
+  // can be made in a row without one cutting into another:
+  // - yours lands on your board where you let the die go, or for Roll, in the middle of it;
+  // - someone else's lands where they let theirs go, replayed from their dice drop (ADR 0014);
+  //   one rolled with Roll only gets the result card;
+  // - a private (GM-only) roll is thrown in the GM's panel tray, off the board (board-dice-rolls).
+  // A roll is `airborne` until its dice land; then the card in the board's corner says what it
+  // was. Rolls that come in a snapshot (load, reconnect) are already on the table: never thrown.
+  // Your own dice on the board stay `onBoard` until they've faded, and you can't roll again until
+  // then, so a throw is never covered by the next one.
+  const [airborne, setAirborne] = useState<ReadonlySet<string>>(() => new Set());
+  const [onBoard, setOnBoard] = useState<ReadonlySet<string>>(() => new Set());
+  const [landedId, setLandedId] = useState<string | null>(null);
+  const [cardRollId, setCardRollId] = useState<string | null>(null);
+  const land = useCallback((rollId: string) => {
+    setAirborne((s) => without(s, rollId));
+    setLandedId(rollId);
+    setCardRollId(rollId);
+  }, []);
+  const drops = useRef(new PendingDrops());
+  useEffect(() => {
+    const stop = connection.onEphemeral((from, payload) => {
+      if (payload.type === "diceDrop") drops.current.add(from, { expression: payload.expression, from: payload.from, to: payload.to }, performance.now());
+    });
+    return () => {
+      stop();
+    };
+  }, [connection]);
+  const expectDrop = useCallback(
+    (drop: DiceDrop) => drops.current.add(connection.snapshot.you?.id ?? "", drop, performance.now()),
+    [connection],
+  );
+  // A private roll lands in a panel tray: the Attack section's for your own attack, else the Dice
+  // section's. With that tray out of view there is nothing to watch, so it lands at once.
+  const diceVisible = tab === "dice" && !(sidebarCollapsed && !compact);
+  const trays = useRef({ diceVisible, playVisible });
+  trays.current = { diceVisible, playVisible };
+  // Which look each public roll is drawn in (shared-dice-looks, ADR 0018): the roller's look on the
+  // table; for your own roll with none on the table (a guest seat), your browser's look, which only
+  // you see; for other people's, classic if you turned their looks off.
+  const ownLook = useActiveDiceLook();
+  const [showOthersDice] = useShowOthersDice();
+  usePreloadTableLooks(state);
+  const diceFor = useRef((_rollerId: string, _mine: boolean): DiceSkin | null => null);
+  diceFor.current = (rollerId, mine) => {
+    const onTable = connection.snapshot.state?.participants[rollerId]?.diceLook;
+    if (mine) return readySkin(onTable ? tableSkin(onTable) : ownLook);
+    return showOthersDice && onTable ? readySkin(tableSkin(onTable)) : null;
+  };
+  useSyncOwnDiceLook(connection, roomId, status === "open" ? (you ?? null) : null);
+  useEffect(() => {
+    const stop = connection.onRolled((roll) => {
+      const mine = roll.byParticipantId === connection.snapshot.you?.id;
+      if (roll.visibility === "gm") {
+        const { diceVisible, playVisible } = trays.current;
+        if (diceVisible || (playVisible && mine && roll.attack)) setAirborne((s) => new Set(s).add(roll.id));
+        else land(roll.id);
+        return;
+      }
+      const board = boardRef.current;
+      const aim = drops.current.take(roll, performance.now()) ?? (mine ? board?.centreAim() : null);
+      // Every public roll wears its roller's dice look, for everyone (shared-dice-looks).
+      const look = { ...trayRoll(roll), skin: diceFor.current(roll.byParticipantId, mine) };
+      // Not where it can't be animated (reduced motion, say): then it lands at once.
+      const gone = () => setOnBoard((s) => without(s, roll.id));
+      const thrown = !!aim && !!board?.throwDice({ rollId: roll.id, from: aim.from, to: aim.to }, look, () => land(roll.id), gone);
+      if (!thrown) return land(roll.id);
+      setAirborne((s) => new Set(s).add(roll.id));
+      if (mine) setOnBoard((s) => new Set(s).add(roll.id));
+    });
+    return () => {
+      stop();
+    };
+  }, [connection, land]);
+  // A private roll whose tray has gone (another tab, or a newer roll in its place) lands now.
+  const latestRollId = state?.rolls.at(-1)?.id;
+  useEffect(() => {
+    for (const id of airborne) {
+      const roll = state?.rolls.find((r) => r.id === id);
+      const inTray = (diceVisible && id === latestRollId) || (playVisible && id === myLatest?.id);
+      if (!roll || (roll.visibility === "gm" && !inTray)) land(id);
+    }
+  }, [airborne, state, diceVisible, playVisible, latestRollId, myLatest, land]);
+  useEffect(() => {
+    if (!cardRollId) return;
+    const timer = window.setTimeout(() => setCardRollId(null), ROLL_POPUP_MS);
+    return () => window.clearTimeout(timer);
+  }, [cardRollId]);
+  // The card shows only rolls the viewed player could see, so a GM-only roll vanishes when a preview starts.
+  const cardRoll = cardRollId ? (preview?.state ?? state)?.rolls.find((r) => r.id === cardRollId) : undefined;
+  // Your dice are still showing: on the board until they fade, or in a private tray until they land.
+  const rolling = onBoard.size > 0 || !!state?.rolls.some((r) => airborne.has(r.id) && r.byParticipantId === you?.id);
+  const rollThrow: RollThrow = { airborne, rolling, justLandedId: landedId, onLanded: land, expectDrop };
+
+  if (status === "ended") return <SessionEnded roomId={roomId} roomName={state?.name ?? null} reason={endReason} />;
 
   if (status === "unauthorized") {
     return (
@@ -246,6 +430,8 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
   // The rail is a desktop affordance. On a phone the panel is already below the board, so
   // the remembered preference is ignored there and applies again once the window widens.
   const collapsed = sidebarCollapsed && !compact;
+  const shownState = preview?.state ?? state;
+  const shownYou = preview?.you ?? you;
 
   return (
     <div className={["room", compact && "compact", collapsed && "sidebar-collapsed"].filter(Boolean).join(" ")}>
@@ -268,7 +454,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
         <div className="topbar-start">
           {/* The GM has rooms, a library and "Create room" to get back to, all on the GM
               dashboard; a player came from an invite and just closes the tab (room-navigation). */}
-          {you.role === "gm" && (
+          {you.role === "gm" && !preview && (
             <Link href="/gm-dashboard" className="tool-button" title="Back to your GM dashboard">
               <House size={16} aria-hidden="true" />
               Home
@@ -277,7 +463,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
           <h1 className="room-title">{state.name}</h1>
         </div>
         <div className="topbar-center">
-          <ParticipantsButton state={state} you={you} connection={connection} onReviewDeparture={setReviewing} />
+          <ParticipantsButton state={state} you={you} connection={shownConnection} onReviewDeparture={setReviewing} onViewAs={setViewAs} viewingAs={viewAs} readOnly={!!preview} />
         </div>
         <div className="topbar-end">
           {!compact && (
@@ -296,7 +482,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
               }}
             />
           )}
-          {you.role === "gm" && <ActivityLog roomId={state.roomId} token={token} seq={seq} />}
+          {you.role === "gm" && !preview && <ActivityLog roomId={state.roomId} token={token} seq={seq} state={state} connection={connection} />}
           <button
             ref={guideButtonRef}
             type="button"
@@ -315,7 +501,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
             Guide
           </button>
           {/* Last, in the top-right corner: visible with the sidebar shown or hidden. */}
-          {you.role === "gm" && <ShareButton roomId={roomId} token={token} />}
+          {you.role === "gm" && !preview && <ShareButton roomId={roomId} token={token} />}
         </div>
       </header>
       {/* Same element, same position in both states: collapsing must never remount the
@@ -323,11 +509,21 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
       <Board
         ref={boardRef}
         connection={connection}
-        state={state}
-        you={you}
-        gridPreview={you.role === "gm" ? gridPreview : null}
+        state={shownState!}
+        you={shownYou!}
+        readOnly={!!preview}
+        gridPreview={you.role === "gm" && !preview ? gridPreview : null}
         onPickTarget={pickTarget}
-        notices={you.role === "gm" ? <DepartureNotices state={state} onReview={setReviewing} /> : undefined}
+        landedRollId={landedId}
+        notices={
+          // Always mounted, so screen readers register the live region before a notice lands in it.
+          <div className="board-notices" role="status" aria-live="polite">
+            {!preview && <DepartureNotices state={state} onReview={you.role === "gm" ? setReviewing : undefined} />}
+            <TurnNotice state={shownState!} you={shownYou!} onFocusToken={focusToken} />
+            <KeepSeatNotice roomId={roomId} token={token} name={you.displayName} />
+          </div>
+        }
+        overlay={<RollCard roll={cardRoll} rollerName={(roll) => shownState!.participants[roll.byParticipantId]?.displayName ?? "Someone"} />}
       />
       <aside className="panel" id="room-panel" tabIndex={-1} aria-label="Room controls">
         {!compact && (
@@ -358,9 +554,9 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
             </span>
             {/* A div, not a p: Leave table renders its confirmation <dialog> in here. */}
             <div className="whoami">
-              You are <strong>{you.displayName}</strong> ({you.role === "gm" ? "GM" : "player"})
+              You are <strong>{shownYou!.displayName}</strong> ({shownYou!.role === "gm" ? "GM" : "player"})
               {/* Players only: the GM can't leave their own room; Home is their way out. */}
-              {you.role === "player" && (
+              {shownYou!.role === "player" && !preview && (
                 <>
                   {" · "}
                   <LeaveTable connection={connection} state={state} you={you} />
@@ -375,15 +571,19 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
           */}
           <SectionCollapseProvider>
             <RoomPanel
-              connection={connection}
-              state={state}
-              you={you}
+              connection={shownConnection}
+              state={shownState!}
+              you={shownYou!}
+              readOnly={!!preview}
               token={token}
               onFocusToken={focusToken}
               attackPick={attackPick}
               onAttackPick={setAttackPick}
+              attackReset={attackReset}
+              rollThrow={rollThrow}
               onPickOnBoard={pickOnBoard}
               onShowPing={showPing}
+              diceBoard={diceBoard}
               attackVisibility={attackVisibility}
               onAttackVisibility={setAttackVisibility}
               gridDraft={gridDraft ?? toGridDraft(state.scene.grid)}
@@ -403,6 +603,9 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
           </SectionCollapseProvider>
         </div>
       </aside>
+      {/* Read-only while previewing: the same refusing connection and the viewed player's state. */}
+      <ChatPanel connection={shownConnection} state={shownState!} you={shownYou!} readOnly={!!preview} />
+      {preview && <PreviewBanner name={preview.you.displayName} onExit={() => setViewAs(null)} />}
       {guideOpen && <GuideTour role={you.role} onClose={closeGuide} />}
       {you.role === "gm" && (
         <ResolveDepartureModal
@@ -422,4 +625,30 @@ function Chevron({ pointsLeft }: { pointsLeft: boolean }) {
       <path d={pointsLeft ? "M7.5 2.5 4 6l3.5 3.5" : "M4.5 2.5 8 6l-3.5 3.5"} />
     </svg>
   );
+}
+
+/**
+ * Keeps your look on the table in step with the look you chose (shared-dice-looks, ADR 0018): when
+ * you enter the room, and whenever you choose another look, choose Classic, or edit the one in
+ * use. Only then: if the GM puts your dice back to classic, they stay classic until you choose
+ * again or come back into the room. Only for a signed-in seat kept on the account; a guest's look
+ * stays on their own screen. The server checks the look is yours; this only asks.
+ */
+function useSyncOwnDiceLook(connection: RoomConnection, roomId: string, you: Participant | null) {
+  const { looks, activeId, ready, kept } = useDiceLooks();
+  const active = looks.find((l) => l.id === activeId) ?? null;
+  const wantId = active?.id ?? null;
+  const wantVersion = active?.updatedAt ?? null;
+  // Read when needed, not a reason to sync: a change made by someone else (a GM reset) is respected.
+  const onTable = useRef(you?.diceLook ?? null);
+  onTable.current = you?.diceLook ?? null;
+  // Read as it renders: keeping the seat on the account (KeepSeatNotice) re-renders the room.
+  const seatKept = loadCredentials(roomId)?.viaAccount === true;
+  useEffect(() => {
+    if (!you || !ready || kept !== "account" || !seatKept) return;
+    const table = onTable.current;
+    const same = wantId === (table?.lookId ?? null) && (wantId === null || wantVersion === table?.version);
+    if (!same) void connection.command({ type: "participant.setDiceLook", lookId: wantId });
+    // Not on `onTable`: see above.
+  }, [connection, you?.id, ready, kept, seatKept, wantId, wantVersion]);
 }

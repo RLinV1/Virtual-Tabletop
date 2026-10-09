@@ -22,7 +22,7 @@ export function useGridDetection(source: "library" | "room", token: string, id: 
     const poll = async () => {
       try {
         const next = source === "library"
-          ? await api.detection.library(token, id, abort.signal)
+          ? await api.detection.library(id, abort.signal)
           : await api.detection.room(id, token, mapUrl, abort.signal);
         if (!live || generation.current !== current) return;
         setView({ key, status: next, error: null });
@@ -46,7 +46,7 @@ export function useGridDetection(source: "library" | "room", token: string, id: 
     const current = ++generation.current;
     try {
       const next = source === "library"
-        ? await api.detection.retryLibrary(token, id)
+        ? await api.detection.retryLibrary(id)
         : await api.detection.retryRoom(id, token, mapUrl);
       if (generation.current === current) {
         setView({ key, status: next, error: null });

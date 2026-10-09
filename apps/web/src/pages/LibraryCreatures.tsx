@@ -1,16 +1,17 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { CreatureFields, DEFAULT_TOKEN_COLOR, type LibraryCreature } from "@vtt/shared";
+import { CreatureFields, DEFAULT_TOKEN_COLOR, MAX_TOKEN_ATTACKS, MIN_HP, creatureHpValid, type AttackPreset, type ConditionId, type LibraryCreature } from "@vtt/shared";
+import { PresetEditor } from "../panels/AttackPanel";
+import { presetSummary } from "../panels/attackRoll";
+import { ConditionPicker } from "../panels/ConditionMarker";
 import { api } from "../net/api";
-import { getGmToken } from "../net/gm";
 import { Modal } from "../ui/Modal";
 import { TokenPreview } from "../ui/TokenPreview";
-import { creatureSummary } from "./creatureDraft";
+import { creatureSummary, type CreaturePrefill } from "./creatureDraft";
 import { LibraryPicker } from "./LibraryPicker";
 
 /** A creature in the library's Creatures tab (library-creatures): its art or a colour disc, name and stats. */
 export function CreatureCard(props: {
   creature: LibraryCreature;
-  gmToken: string;
   onEdit: () => void;
   onDeleted: () => void;
 }) {
@@ -22,7 +23,7 @@ export function CreatureCard(props: {
   async function remove() {
     setDeleting(true);
     try {
-      await api.library.creatures.remove(props.gmToken, creature.id);
+      await api.library.creatures.remove(creature.id);
       props.onDeleted();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Delete failed");
@@ -36,7 +37,7 @@ export function CreatureCard(props: {
       <div className="asset-thumb token">
         {creature.imageUrl
           ? <img src={creature.imageUrl} alt="" loading="lazy" />
-          : <span className="creature-disc" style={{ background: DEFAULT_TOKEN_COLOR }} aria-hidden="true" />}
+          : <span className="creature-disc" style={{ background: creature.color }} aria-hidden="true" />}
       </div>
       <strong className="asset-name" title={creature.name}>{creature.name}</strong>
       <span className="muted asset-meta">{creatureSummary(creature)}</span>
@@ -66,6 +67,7 @@ export function CreatureCard(props: {
 const FIELD_HINTS: Record<string, string> = {
   name: "Give it a name of up to 60 characters.",
   size: "Size must be above 0 and at most 10 cells.",
+  hp: `HP must be a whole number from ${MIN_HP} to 9999, or blank.`,
   maxHp: "Max HP must be a whole number from 1 to 9999, or blank.",
   ac: "AC must be a whole number from 0 to 99, or blank.",
 };
@@ -74,34 +76,47 @@ const optionalNumber = (value: string) => (value.trim() === "" ? null : Number(v
 
 /**
  * New or Edit creature. The name is the name its tokens show on the board, so players see
- * it (ADR 0010). The image is only ever the GM's own token art.
+ * it (ADR 0012). The image is only ever the GM's own token art.
  */
 export function CreatureForm(props: {
   creature: LibraryCreature | null;
-  gmToken: string | null;
-  onSaved: (creature: LibraryCreature, gmToken: string) => void;
+  /** Values for a new creature, e.g. from a token on the board (Save as creature, KAN-70). */
+  prefill?: CreaturePrefill;
+  onSaved: (creature: LibraryCreature) => void;
   onCancel: () => void;
 }) {
   const { creature } = props;
-  const [name, setName] = useState(creature?.name ?? "");
-  const [size, setSize] = useState(String(creature?.size ?? 1));
-  const [maxHp, setMaxHp] = useState(creature?.maxHp == null ? "" : String(creature.maxHp));
-  const [ac, setAc] = useState(creature?.ac == null ? "" : String(creature.ac));
+  const from = creature ?? props.prefill ?? null;
+  const [name, setName] = useState(from?.name ?? "");
+  const [size, setSize] = useState(String(from?.size ?? 1));
+  const [hp, setHp] = useState(from?.hp == null ? "" : String(from.hp));
+  const [maxHp, setMaxHp] = useState(from?.maxHp == null ? "" : String(from.maxHp));
+  const [ac, setAc] = useState(from?.ac == null ? "" : String(from.ac));
+  const [color, setColor] = useState(from?.color ?? DEFAULT_TOKEN_COLOR);
+  const [conditions, setConditions] = useState<ConditionId[]>(from?.conditions ?? []);
+  const [attacks, setAttacks] = useState<AttackPreset[]>(structuredClone(from?.attacks ?? []));
+  const [editingAttack, setEditingAttack] = useState<number | "new" | null>(null);
   const [image, setImage] = useState<{ assetId: string; url: string; label: string } | null>(
-    creature?.imageAssetId && creature.imageUrl ? { assetId: creature.imageAssetId, url: creature.imageUrl, label: "Current art" } : null,
+    from?.imageAssetId && from.imageUrl ? { assetId: from.imageAssetId, url: from.imageUrl, label: creature ? "Current art" : "Token's art" } : null,
   );
   const [picking, setPicking] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const parsed = CreatureFields.safeParse({
+  const parsed = CreatureFields.refine(creatureHpValid, { path: ["hp"], message: "Starting HP cannot exceed Max HP" }).safeParse({
     name,
     size: size.trim() === "" ? Number.NaN : Number(size),
+    hp: optionalNumber(hp),
     maxHp: optionalNumber(maxHp),
     ac: optionalNumber(ac),
+    color,
+    conditions,
+    attacks,
     imageAssetId: image?.assetId ?? null,
   });
-  const hint = parsed.success ? null : FIELD_HINTS[String(parsed.error.issues[0]?.path[0])] ?? "Check the values above.";
+  const hint = parsed.success ? null : parsed.error.issues[0]?.message === "Starting HP cannot exceed Max HP"
+    ? "Starting HP cannot exceed Max HP."
+    : FIELD_HINTS[String(parsed.error.issues[0]?.path[0])] ?? "Check the values above.";
   const touched = creature !== null || name !== "";
 
   async function save(e: FormEvent) {
@@ -110,12 +125,10 @@ export function CreatureForm(props: {
     setSaving(true);
     setError(null);
     try {
-      // Saving is a GM write, so this is where an identity is created if there is none.
-      const gmToken = props.gmToken ?? (await getGmToken());
       const saved = creature
-        ? await api.library.creatures.update(gmToken, creature.id, parsed.data)
-        : await api.library.creatures.create(gmToken, parsed.data);
-      props.onSaved(saved, gmToken);
+        ? await api.library.creatures.update(creature.id, parsed.data)
+        : await api.library.creatures.create(parsed.data);
+      props.onSaved(saved);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save the creature");
       setSaving(false);
@@ -132,25 +145,43 @@ export function CreatureForm(props: {
         </label>
         <div className="token-setup-grid">
           <label>Size (cells)<input type="number" value={size} onChange={(e) => setSize(e.target.value)} required min="0.25" max="10" step="any" /></label>
+          <label>Starting HP<input type="number" value={hp} onChange={(e) => setHp(e.target.value)} min={MIN_HP} max="9999" step="1" /></label>
           <label>Max HP<input type="number" value={maxHp} onChange={(e) => setMaxHp(e.target.value)} min="1" max="9999" step="1" /></label>
           <label>AC<input type="number" value={ac} onChange={(e) => setAc(e.target.value)} min="0" max="99" step="1" /></label>
         </div>
-        <p className="muted small-print">Placed creatures start at full HP.</p>
+        <p className="muted small-print">Leave Starting HP blank to start at Max HP.</p>
+        <label className="creature-color">
+          Colour without art
+          <input type="color" value={color} onInput={(e) => setColor(e.currentTarget.value)} onChange={(e) => setColor(e.target.value)} />
+        </label>
+        <div className="stack">
+          <span className="field-label">Starts with</span>
+          <ConditionPicker value={conditions} onChange={setConditions} />
+        </div>
+        <div className="stack" role="group" aria-label="Creature attacks">
+          <span className="field-label">Attacks</span>
+          {attacks.map((attack, index) => (
+            <div className="row" key={attack.name}>
+              <span>{attack.name} · {presetSummary(attack)}</span>
+              <button type="button" className="link" onClick={() => setEditingAttack(index)}>Edit</button>
+            </div>
+          ))}
+          <button type="button" className="secondary" disabled={attacks.length >= MAX_TOKEN_ATTACKS} onClick={() => setEditingAttack("new")}>Add attack</button>
+          <p className="muted small-print">Named to-hit and damage rolls are copied to each placed token.</p>
+        </div>
         <div className="stack token-image-field">
           <span className="field-label">Image</span>
           {image ? (
             <div className="row token-image-chosen">
-              <TokenPreview url={image.url} color={DEFAULT_TOKEN_COLOR} />
+              <TokenPreview url={image.url} color={color} />
               <span className="token-name" title={image.label}>{image.label}</span>
               <button type="button" className="link" onClick={() => setImage(null)}>Remove</button>
             </div>
-          ) : props.gmToken ? (
+          ) : (
             <div className="row creature-image-choose">
               <button type="button" className="secondary" onClick={() => setPicking(true)}>Choose token art</button>
               <span className="muted">Without art it shows as a colour disc.</span>
             </div>
-          ) : (
-            <p className="muted">Upload token art on the Token Art tab to give creatures an image.</p>
           )}
         </div>
         {touched && hint && <p className="error" role="alert">{hint}</p>}
@@ -163,39 +194,52 @@ export function CreatureForm(props: {
         </div>
       </form>
       {/* Stacked over this one, outside the form so its buttons can never submit it. */}
-      {props.gmToken && (
-        <Modal open={picking} title="Choose token art" onClose={() => setPicking(false)}>
-          <LibraryPicker
-            gmToken={props.gmToken}
-            kind="token"
-            includeBuiltins={false}
-            onPick={(asset) => {
-              setImage({ assetId: asset.id, url: asset.url, label: asset.name });
-              setPicking(false);
-            }}
-          />
-        </Modal>
-      )}
+      <Modal open={picking} title="Choose token art" onClose={() => setPicking(false)}>
+        <LibraryPicker
+          kind="token"
+          includeBuiltins={false}
+          onPick={(asset) => {
+            setImage({ assetId: asset.id, url: asset.url, label: asset.name });
+            setPicking(false);
+          }}
+        />
+      </Modal>
+      <Modal open={editingAttack !== null} title={editingAttack === "new" ? "Add attack" : "Edit attack"} onClose={() => setEditingAttack(null)}>
+        {editingAttack !== null && <PresetEditor
+          key={editingAttack}
+          initial={typeof editingAttack === "number" ? attacks[editingAttack] ?? null : null}
+          taken={attacks.filter((_, index) => index !== editingAttack).map((a) => a.name)}
+          onSave={(attack) => {
+            setAttacks((all) => editingAttack === "new" ? [...all, attack] : all.map((a, index) => index === editingAttack ? attack : a));
+            setEditingAttack(null);
+          }}
+          onRemove={typeof editingAttack === "number" ? () => {
+            setAttacks((all) => all.filter((_, index) => index !== editingAttack));
+            setEditingAttack(null);
+          } : undefined}
+          onCancel={() => setEditingAttack(null)}
+        />}
+      </Modal>
     </>
   );
 }
 
 /** Add Token's "From creature" list (library-creatures): the GM's creatures, searchable by name. */
-export function CreaturePicker(props: { gmToken: string; onPick: (creature: LibraryCreature) => void }) {
+export function CreaturePicker(props: { onPick: (creature: LibraryCreature) => void }) {
   const [creatures, setCreatures] = useState<LibraryCreature[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
 
   useEffect(() => {
     let live = true;
-    api.library.creatures.list(props.gmToken).then(
+    api.library.creatures.list().then(
       (list) => live && setCreatures(list),
       (err: unknown) => live && setError(err instanceof Error ? err.message : "Could not load your creatures"),
     );
     return () => {
       live = false;
     };
-  }, [props.gmToken]);
+  }, []);
 
   const q = query.trim().toLowerCase();
   const shown = (creatures ?? []).filter((c) => !q || c.name.toLowerCase().includes(q));
@@ -216,7 +260,7 @@ export function CreaturePicker(props: { gmToken: string; onPick: (creature: Libr
             <button type="button" className="picker-item" onClick={() => props.onPick(c)} title={c.name}>
               {c.imageUrl
                 ? <img src={c.imageUrl} alt="" loading="lazy" className="round" />
-                : <span className="creature-disc" style={{ background: DEFAULT_TOKEN_COLOR }} aria-hidden="true" />}
+                : <span className="creature-disc" style={{ background: c.color }} aria-hidden="true" />}
               <span>{c.name}</span>
               <span className="muted small-print">{creatureSummary(c)}</span>
             </button>

@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_GRID, GM_TOKEN_HEADER, type GridDetectionStatus, type LibraryAsset } from "@vtt/shared";
+import { DEFAULT_GRID, type GridDetectionStatus, type LibraryAsset } from "@vtt/shared";
 import type { Detector } from "../src/domain/gridDetection";
 import { MemoryRoomStore } from "../src/store/memoryRoomStore";
-import { newGuestToken, startServer, type TestClient } from "./helpers";
+import { startServer, type TestClient } from "./helpers";
 
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
 const candidate = { cellSize: 64, offsetX: 7, offsetY: 13, confidence: 0.74 };
@@ -33,9 +33,14 @@ function imageForm(fields: Record<string, string>) {
   return form;
 }
 
-async function libraryUpload(token: string, kind: "map" | "token") {
+/** A signed-in GM's session cookie (ADR 0017): library routes act as the account. */
+async function newGm() {
+  return (await server.signUp()).cookie;
+}
+
+async function libraryUpload(cookie: string, kind: "map" | "token") {
   const res = await fetch(`${server.base}/api/library`, {
-    method: "POST", headers: { [GM_TOKEN_HEADER]: token },
+    method: "POST", headers: { cookie },
     body: imageForm({ kind, name: "Test art", width: "768", height: "648" }),
   });
   expect(res.status).toBe(201);
@@ -56,8 +61,8 @@ async function roomUpload(token: string, purpose?: "map" | "token") {
   return (await res.json()) as { url: string };
 }
 
-async function gmStatus(token: string, id: string) {
-  const res = await fetch(`${server.base}/api/library/${id}/grid-detection`, { headers: { [GM_TOKEN_HEADER]: token } });
+async function gmStatus(cookie: string, id: string) {
+  const res = await fetch(`${server.base}/api/library/${id}/grid-detection`, { headers: { cookie } });
   return { status: res.status, body: (await res.json()) as GridDetectionStatus };
 }
 
@@ -76,19 +81,20 @@ describe("automatic map grid detection (FR-GM-03)", () => {
   it("analyzes a new library map once, keeps its saved grid, and never reruns on placement or token upload", async () => {
     const run = vi.fn(detector);
     server = await startServer(new MemoryRoomStore(), { detector: run });
-    const gmToken = newGuestToken();
-    const room = await server.createRoom("GM", { gmToken });
+    const gmToken = await newGm();
+    const room = await server.createRoom("GM", { cookie: gmToken });
     const gm = await server.connect(room);
     clients.push(gm);
     const map = await libraryUpload(gmToken, "map");
-    expect(map.grid).toEqual(DEFAULT_GRID);
+    // Uploading establishes no grid (KAN-09); analysis only suggests one.
+    expect(map.grid).toBeNull();
     expect(JSON.stringify(map)).not.toContain("detection");
     await until(() => gmStatus(gmToken, map.id), (r) => r.body.status === "suggested");
     expect(run).toHaveBeenCalledTimes(1);
     const art = await libraryUpload(gmToken, "token");
     expect((await gmStatus(gmToken, art.id)).status).toBe(404);
     const result = await gm.command({
-      type: "scene.setMap", map: { url: map.url, width: map.width, height: map.height, assetId: map.id }, grid: map.grid!,
+      type: "scene.setMap", map: { url: map.url, width: map.width, height: map.height, assetId: map.id },
     });
     expect(result.type).toBe("ack");
     expect(gm.state.scene.grid).toEqual(DEFAULT_GRID);
@@ -132,12 +138,12 @@ describe("automatic map grid detection (FR-GM-03)", () => {
     const run = vi.fn<Detector>().mockRejectedValueOnce(new Error("service down"))
       .mockResolvedValue({ status: "suggested", candidate });
     server = await startServer(new MemoryRoomStore(), { detector: run });
-    const gmToken = newGuestToken();
-    await server.createRoom("GM", { gmToken });
+    const gmToken = await newGm();
+    await server.createRoom("GM", { cookie: gmToken });
     const map = await libraryUpload(gmToken, "map");
     await until(() => gmStatus(gmToken, map.id), (r) => r.body.status === "error");
     const retry = () => fetch(`${server.base}/api/library/${map.id}/grid-detection/retry`, {
-      method: "POST", headers: { [GM_TOKEN_HEADER]: gmToken },
+      method: "POST", headers: { cookie: gmToken },
     });
     const responses = await Promise.all([retry(), retry()]);
     expect(responses.map((r) => r.status).sort()).toEqual([202, 409]);
@@ -176,14 +182,14 @@ describe("automatic map grid detection (FR-GM-03)", () => {
     server = await startServer(new MemoryRoomStore(), {
       dispatcher: { enqueue: async () => { throw new Error("queue down"); }, close: async () => {} },
     });
-    const gmToken = newGuestToken();
-    const room = await server.createRoom("GM", { gmToken });
+    const gmToken = await newGm();
+    const room = await server.createRoom("GM", { cookie: gmToken });
     const gm = await server.connect(room);
     clients.push(gm);
     const library = await libraryUpload(gmToken, "map");
     expect((await gmStatus(gmToken, library.id)).body.status).toBe("error");
-    const otherGm = newGuestToken();
-    await server.createRoom("Other", { gmToken: otherGm });
+    const otherGm = await newGm();
+    await server.createRoom("Other", { cookie: otherGm });
     expect((await gmStatus(otherGm, library.id)).status).toBe(404);
     expect((await fetch(`${server.base}/api/library/${library.id}/grid-detection`, {
       headers: { authorization: `Bearer ${room.guestToken}` },
@@ -192,10 +198,10 @@ describe("automatic map grid detection (FR-GM-03)", () => {
     const key = map.url.slice("/uploads/".length);
     await gm.command({ type: "scene.setMap", map: { url: map.url, ...dimensions } });
     expect((await roomStatus(room.roomId, room.guestToken, map.url)).body.status).toBe("error");
-    const removed = await fetch(`${server.base}/api/library/${library.id}`, { method: "DELETE", headers: { [GM_TOKEN_HEADER]: gmToken } });
+    const removed = await fetch(`${server.base}/api/library/${library.id}`, { method: "DELETE", headers: { cookie: gmToken } });
     expect(removed.status).toBe(204);
     expect(await server.store.findDetection({ scope: "library", id: library.id })).toBeNull();
-    const deleted = await fetch(`${server.base}/api/rooms/${room.roomId}`, { method: "DELETE", headers: { [GM_TOKEN_HEADER]: gmToken } });
+    const deleted = await fetch(`${server.base}/api/rooms/${room.roomId}`, { method: "DELETE", headers: { cookie: gmToken } });
     expect(deleted.status).toBe(204);
     expect(await server.store.findDetection({ scope: "room", roomId: room.roomId, objectKey: key })).toBeNull();
   });
@@ -204,8 +210,8 @@ describe("automatic map grid detection (FR-GM-03)", () => {
     server = await startServer(new MemoryRoomStore(), {
       detector: async () => ({ status: "suggested", candidate: { ...candidate, offsetX: 64 } }),
     });
-    const gmToken = newGuestToken();
-    await server.createRoom("GM", { gmToken });
+    const gmToken = await newGm();
+    await server.createRoom("GM", { cookie: gmToken });
     const map = await libraryUpload(gmToken, "map");
     const result = await until(() => gmStatus(gmToken, map.id), (r) => r.body.status === "error");
     expect(result.body).toEqual({ status: "error", attempt: 1 });

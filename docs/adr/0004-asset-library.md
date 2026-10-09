@@ -1,6 +1,6 @@
 # ADR 0004 — GM device identity and the asset library
 
-**Status:** Proposed — needs review by the Real-Time Architecture owner (Raymond) · **Extends:** `docs/adr/0001-event-model.md`, `docs/adr/0002-transport-and-identity.md`
+**Status:** Accepted — reviewed by the Real-Time Architecture owner (Raymond), 2026-09-27 · **Extends:** `docs/adr/0001-event-model.md`, `docs/adr/0002-transport-and-identity.md` · **Amended by:** `docs/adr/0024-encounter-templates.md` (encounter templates)
 **Owner:** Real-Time Architecture (Raymond) · **Change:** `openspec/changes/gm-home-and-asset-library`
 
 ## Context

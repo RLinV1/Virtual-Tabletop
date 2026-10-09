@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { isActive, pendingDepartures, type Participant, type RoomState } from "@vtt/shared";
+import { MAX_PLAYERS_PER_ROOM, isActive, pendingDepartures, type Participant, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { Modal } from "./Modal";
 import { PopoverButton } from "./Popover";
@@ -9,9 +9,11 @@ import { PopoverButton } from "./Popover";
  *
  * The list is reference information, not something anyone acts on mid-encounter, so it no
  * longer takes a permanent slot in the sidebar. `participants` comes from the server's
- * filtered snapshot; nothing here is persisted. Only active participants are listed.
+ * filtered snapshot; nothing here is persisted. Active participants are listed first, then players
+ * who left on their own, marked AFK (KAN-73). Only active ones are counted.
  *
- * The GM also gets Remove on each player (FR-GM-20). The confirmation is a sibling of the
+ * The GM also gets Remove on each player (FR-GM-20), and how many of the room's player seats are
+ * taken (room-player-cap): the GM is the one who can free a seat. The confirmation is a sibling of the
  * popover, not inside it: the popover closes on any press outside itself, and that would
  * unmount a modal living in it.
  */
@@ -20,18 +22,29 @@ export function ParticipantsButton({
   you,
   connection,
   onReviewDeparture,
+  onViewAs,
+  viewingAs,
+  readOnly = false,
 }: {
   state: RoomState;
   you: Participant;
   connection: RoomConnection;
   /** Opens the token review for a participant who is no longer in the room. */
   onReviewDeparture: (participantId: string) => void;
+  /** GM only: preview the room as this player (gm-view-as-player). */
+  onViewAs?: (participantId: string) => void;
+  viewingAs?: string | null;
+  /** The GM is previewing as a player (gm-view-as-player): nothing here may change the room. */
+  readOnly?: boolean;
 }) {
   // Someone who left or was removed stays in state for history, but is no longer here (ADR 0006).
   const participants = Object.values(state.participants).filter(isActive);
+  const away = awayParticipants(state);
   const count = participants.length;
   const [removing, setRemoving] = useState<Participant | null>(null);
   const isGm = you.role === "gm";
+  // A Remove dialog that was open when the preview started closes with it.
+  if (readOnly && removing) setRemoving(null);
 
   return (
     <>
@@ -41,12 +54,36 @@ export function ParticipantsButton({
         tourId="participants"
         buttonContent={<AvatarStack participants={participants} />}
       >
+        {/* Above the list: in a full room the list scrolls, and the count must not scroll away. */}
+        {isGm && <p className="muted small-print participant-seats">{playerSeats(participants)}</p>}
         <ul className="plain participant-list">
           {participants.map((p) => (
             <li key={p.id}>
               <span className="participant-name">{p.displayName}</span>
               {p.role === "gm" && <span className="badge">GM</span>}
-              {isGm && p.role === "player" && (
+              {isGm && p.role === "player" && onViewAs && (
+                <button
+                  type="button"
+                  className="link participant-view-as"
+                  aria-label={`View the room as ${p.displayName}`}
+                  aria-pressed={viewingAs === p.id}
+                  onClick={() => onViewAs(p.id)}
+                >
+                  View as
+                </button>
+              )}
+              {isGm && !readOnly && p.role === "player" && p.diceLook && (
+                <button
+                  type="button"
+                  className="link participant-reset-dice"
+                  aria-label={`Put ${p.displayName}'s dice back to classic`}
+                  title="Their dice look stays in their library; this room shows classic dice for them."
+                  onClick={() => void connection.command({ type: "participant.clearDiceLook", participantId: p.id })}
+                >
+                  Reset dice
+                </button>
+              )}
+              {isGm && !readOnly && p.role === "player" && (
                 <button
                   type="button"
                   className="link danger participant-remove"
@@ -58,9 +95,15 @@ export function ParticipantsButton({
               )}
             </li>
           ))}
+          {away.map((p) => (
+            <li key={p.id} className="participant-away">
+              <span className="participant-name">{p.displayName}</span>
+              <span className="badge">AFK</span>
+            </li>
+          ))}
         </ul>
       </PopoverButton>
-      {isGm && (
+      {isGm && !readOnly && (
         <RemoveParticipant
           connection={connection}
           state={state}
@@ -74,6 +117,11 @@ export function ParticipantsButton({
       )}
     </>
   );
+}
+
+/** Players who left on their own, in join order. A removed (revoked) player is not away (KAN-73). */
+export function awayParticipants(state: RoomState): Participant[] {
+  return Object.values(state.participants).filter((p) => p.left === true && !p.revoked);
 }
 
 /** "Remove Sam from this room?" Names the player and says what happens to their tokens and the link. */
@@ -186,4 +234,10 @@ function AvatarStack({ participants }: { participants: Participant[] }) {
       {extra > 0 && <span className="avatar avatar-more">+{extra}</span>}
     </span>
   );
+}
+
+/** "12 of 32 player seats taken", from the active participants; the GM's seat is not counted (room-player-cap). */
+export function playerSeats(active: readonly Participant[]) {
+  const taken = active.filter((p) => p.role === "player").length;
+  return `${taken} of ${MAX_PLAYERS_PER_ROOM} player seats taken`;
 }

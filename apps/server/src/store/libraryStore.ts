@@ -1,4 +1,4 @@
-import type { AssetKind, GmRoomSummary, GridSpec } from "@vtt/shared";
+import type { AssetKind, EncounterTemplateData, AttackPreset, ConditionId, DieName, GmRoomSummary, GridSpec, LegacySummary } from "@vtt/shared";
 import type { DetectionState } from "./gridDetectionStore";
 
 /** A stored library asset (ADR 0004). `objectKey` is the AssetStore key; it never leaves the server. */
@@ -19,21 +19,28 @@ export interface LibraryAssetRecord {
   createdAt: string;
 }
 
-/** A reusable creature (ADR 0010). `imageUrl` is read from the linked token art, never stored. */
+/** A reusable creature (ADR 0012). `imageUrl` is read from the linked token art, never stored. */
 export interface LibraryCreatureRecord {
   id: string;
   ownerGmId: string;
   name: string;
   size: number;
+  hp: number | null;
+  attacks: AttackPreset[];
   maxHp: number | null;
   ac: number | null;
+  /** Disc colour for imageless tokens (KAN-70). Rows from before it read as the default. */
+  color: string;
+  /** Conditions placed tokens start with (KAN-70). */
+  conditions: ConditionId[];
   imageAssetId: string | null;
   imageUrl: string | null;
   createdAt: string;
 }
 
-export type NewCreatureRecord = Omit<LibraryCreatureRecord, "imageUrl">;
-export type CreaturePatch = Partial<Pick<LibraryCreatureRecord, "name" | "size" | "maxHp" | "ac" | "imageAssetId">>;
+/** Starting HP, colour and conditions may be left out for older creatures (KAN-70). */
+export type NewCreatureRecord = Omit<LibraryCreatureRecord, "imageUrl" | "hp" | "attacks" | "color" | "conditions"> & Partial<Pick<LibraryCreatureRecord, "hp" | "attacks" | "color" | "conditions">>;
+export type CreaturePatch = Partial<Pick<LibraryCreatureRecord, "name" | "size" | "hp" | "attacks" | "maxHp" | "ac" | "color" | "conditions" | "imageAssetId">>;
 
 /** The creature would link to token art that does not exist (or was deleted mid-request). */
 export class CreatureImageMissingError extends Error {
@@ -42,8 +49,58 @@ export class CreatureImageMissingError extends Error {
   }
 }
 
+/**
+ * A saved encounter board (ADR 0024). `mapAssetId` is null once the map was deleted; `mapName`
+ * and `mapUrl` are read from the linked map, never stored.
+ */
+export interface EncounterRecord {
+  id: string;
+  ownerGmId: string;
+  name: string;
+  version: number;
+  data: EncounterTemplateData;
+  mapAssetId: string | null;
+  mapName: string | null;
+  mapUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type NewEncounterRecord = Omit<EncounterRecord, "mapName" | "mapUrl">;
+
+/** The template would link to a map that does not exist (or was deleted mid-request). */
+export class EncounterMapMissingError extends Error {
+  constructor() {
+    super("The map must be in your library");
+  }
+}
+
+/** The owner already holds the most encounter templates they may (ADR 0024). */
+export class EncounterLimitError extends Error {
+  constructor(readonly limit: number) {
+    super(`You can keep at most ${limit} encounter templates`);
+  }
+}
+
+/** One die's picture in a dice look (ADR 0017 O3). `objectKey` never leaves the server. */
+export interface DiceFaceRecord {
+  objectKey: string;
+  url: string;
+  width: number;
+  height: number;
+}
+
+export interface DiceLookRecord {
+  id: string;
+  ownerGmId: string;
+  name: string;
+  faces: Partial<Record<DieName, DiceFaceRecord>>;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface NewRoomOptions {
-  /** GM device identity that owns the room; null for rooms created without one. */
+  /** The owner row that owns the room (an account's, ADR 0017 O1); null for rooms created without one. */
   ownerGmId?: string | null;
   name?: string;
 }
@@ -82,4 +139,49 @@ export interface LibraryStore {
   deleteCreature(id: string, ownerGmId: string): Promise<boolean>;
   /** The GM's creatures whose image is this asset, for the delete warning. */
   creaturesUsingImage(assetId: string, ownerGmId: string): Promise<{ id: string; name: string }[]>;
+
+  /** The owner's encounter templates, newest first (ADR 0024). Every read and write is scoped to its owner. */
+  listEncounters(ownerGmId: string): Promise<EncounterRecord[]>;
+  findEncounter(id: string, ownerGmId: string): Promise<EncounterRecord | null>;
+  countEncounters(ownerGmId: string): Promise<number>;
+  /**
+   * Throws `EncounterMapMissingError` when `mapAssetId` names no asset, and `EncounterLimitError`
+   * when the owner already holds `maxPerOwner`. The count and the insert are one step per owner,
+   * so concurrent saves cannot pass the limit.
+   */
+  createEncounter(encounter: NewEncounterRecord, maxPerOwner: number): Promise<EncounterRecord>;
+  /** Null when the owner has no such template. */
+  renameEncounter(id: string, ownerGmId: string, name: string, at: string): Promise<EncounterRecord | null>;
+  deleteEncounter(id: string, ownerGmId: string): Promise<boolean>;
+  /** The owner's templates whose map is this asset, for the delete warning. */
+  encountersUsingMap(assetId: string, ownerGmId: string): Promise<{ id: string; name: string }[]>;
+
+  /** What an owner row owns, for the legacy-move offer (ADR 0017 O2). */
+  ownedCounts(ownerGmId: string): Promise<LegacySummary>;
+  /**
+   * Moves everything the device owner row owns to the account's owner row and deletes the
+   * device row, all at once (ADR 0017 O2). Null when there is no such device row. A row that
+   * belongs to an account is never a device row and is never deleted here.
+   */
+  claimDeviceOwner(deviceOwnerId: string, accountOwnerId: string): Promise<LegacySummary | null>;
+
+  /** The owner's dice looks, newest first (ADR 0017 O3). Every read and write is scoped to its owner. */
+  listDiceLooks(ownerGmId: string): Promise<DiceLookRecord[]>;
+  countDiceLooks(ownerGmId: string): Promise<number>;
+  findDiceLook(id: string, ownerGmId: string): Promise<DiceLookRecord | null>;
+  createDiceLook(look: DiceLookRecord): Promise<void>;
+  renameDiceLook(id: string, ownerGmId: string, name: string, at: string): Promise<DiceLookRecord | null>;
+  /**
+   * Sets one die's picture, or resets it to classic with `face: null`. Returns the updated look
+   * and the object key it replaced, for the caller to delete; null when there is no such look.
+   */
+  setDiceLookFace(
+    id: string,
+    ownerGmId: string,
+    die: DieName,
+    face: DiceFaceRecord | null,
+    at: string,
+  ): Promise<{ look: DiceLookRecord; replacedKey: string | null } | null>;
+  /** Deletes the look, clearing it as anyone's look in use. Returns its object keys, or null. */
+  deleteDiceLook(id: string, ownerGmId: string): Promise<string[] | null>;
 }

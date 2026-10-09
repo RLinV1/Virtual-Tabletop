@@ -1,5 +1,5 @@
+import { z } from "zod";
 import type { RoomCredentials } from "@vtt/shared";
-import type { KeyValueStorage } from "../ui/usePersistentState";
 
 /**
  * Durable guest identity (FR-PL-02): credentials live in localStorage so a reload,
@@ -13,6 +13,13 @@ export interface StoredCredentials extends RoomCredentials {
   guestToken: string;
   /** Only known to the GM who created the room. */
   inviteCode?: string;
+  /** Last room name seen by the room page, for the home page's joined list (KAN-64). */
+  roomName?: string;
+  /**
+   * Made or kept while signed in, so it lasts as long as this device's sign-in (ADR 0017 M4):
+   * signing out forgets it here too, and signing in again resumes it.
+   */
+  viaAccount?: boolean;
 }
 
 /**
@@ -86,6 +93,72 @@ export function guestRoomForInvite(inviteCode: string): string | null {
   }
 }
 
+/** Records the room's current name on this browser's seat. Writes only on change, so every snapshot can call it. */
+export function rememberRoomName(roomId: string, roomName: string) {
+  const creds = loadCredentials(roomId);
+  if (creds && creds.roomName !== roomName) saveCredentials({ ...creds, roomName });
+}
+
+export interface JoinedRoom {
+  roomId: string;
+  /** Null until the room page has seen the room's state once. */
+  roomName: string | null;
+}
+
+type EnumerableStorage = Pick<Storage, "getItem" | "key" | "length">;
+
+/**
+ * What the joined list needs from a stored seat. localStorage is outside our control (older
+ * builds, extensions, hand edits), so entries are validated rather than cast. `roomName` is
+ * optional because seats stored before KAN-64 have none.
+ */
+const StoredSeat = z.object({
+  roomId: z.string().min(1),
+  guestToken: z.string().min(1),
+  inviteCode: z.string().optional(),
+  roomName: z.string().optional(),
+});
+
+function defaultStorage(): EnumerableStorage | null {
+  try {
+    return globalThis.localStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Rooms this browser joined as a guest (KAN-64), read from the stored seats. GM seats carry an
+ * invite code and are left to the GM dashboard. Named rooms first, by name. Empty if storage throws.
+ */
+export function listJoinedRooms(storage: EnumerableStorage | null = defaultStorage()): JoinedRoom[] {
+  if (!storage) return [];
+  const rooms: JoinedRoom[] = [];
+  try {
+    for (let i = 0; i < storage.length; i++) {
+      const key = storage.key(i);
+      if (!key?.startsWith(CRED_PREFIX)) continue;
+      // Outside the parse's try: a storage failure hides the whole list, not just this entry.
+      const raw = storage.getItem(key);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw ?? "null");
+      } catch {
+        continue;
+      }
+      const seat = StoredSeat.safeParse(parsed);
+      if (!seat.success || seat.data.inviteCode) continue;
+      rooms.push({ roomId: seat.data.roomId, roomName: seat.data.roomName || null });
+    }
+  } catch {
+    return [];
+  }
+  return rooms.sort((a, b) => {
+    if (a.roomName === null || b.roomName === null) return a.roomName === b.roomName ? 0 : a.roomName === null ? 1 : -1;
+    return a.roomName.localeCompare(b.roomName);
+  });
+}
+
 /** Room this browser created (as GM) with this invite code, if any. */
 export function gmRoomForInvite(inviteCode: string): string | null {
   try {
@@ -102,9 +175,9 @@ export function gmRoomForInvite(inviteCode: string): string | null {
 }
 
 /**
- * GM device identity (ADR 0004): owns this browser's rooms and asset library until
- * accounts exist (FR-GM-01). Generated here like the guest token; the server keeps only
- * its SHA-256. Losing site data loses it — the account screens say so.
+ * Legacy GM device identity (ADR 0004): owned this browser's rooms and library before accounts.
+ * No new token is ever made (ADR 0017); one still in storage is only used to move what it owns
+ * into the account, and is forgotten once the server no longer knows it (gm-identity-recovery).
  */
 const GM_KEY = "vtt.gm";
 
@@ -116,67 +189,42 @@ export function loadGmToken(): string | null {
   }
 }
 
-/**
- * Returns this browser's GM token, creating and registering one on first use. A stored
- * token the server has since forgotten is re-registered by `gmRequest` on its first 401,
- * never replaced.
- */
-export async function ensureGmToken(identify: (gmToken: string) => Promise<void>): Promise<string> {
-  const existing = loadGmToken();
-  if (existing) return existing;
-  const gmToken = newGuestToken();
-  await identify(gmToken);
+export function forgetGmToken() {
   try {
-    localStorage.setItem(GM_KEY, gmToken);
+    localStorage.removeItem(GM_KEY);
   } catch {
-    // Storage unavailable: the identity lasts for this page load only.
+    // Storage unavailable: nothing to forget.
   }
-  return gmToken;
 }
 
-/**
- * "Continue as guest" (gm-dashboard). Until accounts exist, a GM who has chosen to go on
- * without signing in is not asked again. Remembering the choice creates no identity: that
- * still waits for the first write (a room or a library upload).
- */
-const GUEST_KEY = "vtt.gmGuest";
-/** Holds the choice for this page load when storage refuses it, so sign-in does not loop. */
-let guestThisPage = false;
+/** The retired "continue as guest" choice (gm-dashboard); removed on startup, never read. */
+export function dropGuestChoice() {
+  try {
+    localStorage.removeItem("vtt.gmGuest");
+  } catch {
+    // Storage unavailable: nothing to drop.
+  }
+}
 
-function browserStorage(): KeyValueStorage | null {
+/** Forgets every seat this browser holds through the account, when this device signs out (ADR 0017 M4). */
+export function forgetAccountSeats(storage: Pick<Storage, "getItem" | "key" | "length" | "removeItem"> | null = (() => {
   try {
     return globalThis.localStorage ?? null;
   } catch {
     return null;
   }
-}
-
-export function markGuest(storage: KeyValueStorage | null = browserStorage()) {
-  guestThisPage = true;
+})()) {
+  if (!storage) return;
   try {
-    storage?.setItem(GUEST_KEY, "1");
+    const doomed: string[] = [];
+    for (let i = 0; i < storage.length; i++) {
+      const key = storage.key(i);
+      if (!key?.startsWith(CRED_PREFIX)) continue;
+      const seat = JSON.parse(storage.getItem(key) ?? "null") as StoredCredentials | null;
+      if (seat?.viaAccount) doomed.push(key);
+    }
+    doomed.forEach((key) => storage.removeItem(key));
   } catch {
-    // Storage unavailable: the choice lasts for this page load only.
+    // Storage unavailable: the server has ended these seats anyway.
   }
-}
-
-export function isGuest(storage: KeyValueStorage | null = browserStorage()): boolean {
-  if (guestThisPage) return true;
-  try {
-    return storage?.getItem(GUEST_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-/**
- * The one entry rule for the GM dashboard: a browser that holds a GM identity or chose to
- * continue as a guest goes straight in; any other goes to sign-in first.
- */
-export function entryTarget(browser: { hasToken: boolean; guest: boolean }): "/gm-dashboard" | "/signin" {
-  return browser.hasToken || browser.guest ? "/gm-dashboard" : "/signin";
-}
-
-export function isRecognised(): boolean {
-  return entryTarget({ hasToken: loadGmToken() !== null, guest: isGuest() }) === "/gm-dashboard";
 }

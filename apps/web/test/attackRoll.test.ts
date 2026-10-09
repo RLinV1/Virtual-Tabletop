@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { emptyRoomState, type DiceRoll, type RoomState, type Token } from "@vtt/shared";
 import {
   attackExpression,
+  attackHeadline,
+  rollHeadline,
   attackSectionChange,
   clampCount,
   clampModifier,
@@ -9,6 +11,7 @@ import {
   isSavedRecord,
   isSettingsRecord,
   kindOf,
+  latestAttackRoll,
   pendingRulings,
   migrateSaved,
   outcomeKey,
@@ -82,10 +85,14 @@ describe("attack section helpers (attack-targeting, FR-TAC-09)", () => {
   });
 
   it("pings only a visible target of a public roll (FR-TAC-05, FR-GM-23)", () => {
-    expect(shouldPingTarget({ hidden: false }, "public")).toBe(true);
-    expect(shouldPingTarget({ hidden: true }, "public")).toBe(false);
-    expect(shouldPingTarget({ hidden: false }, "gm")).toBe(false);
-    expect(shouldPingTarget(undefined, "public")).toBe(false);
+    const at = { x: 35, y: 35 };
+    expect(shouldPingTarget({ hidden: false, position: at }, "public", {})).toBe(true);
+    expect(shouldPingTarget({ hidden: true, position: at }, "public", {})).toBe(false);
+    expect(shouldPingTarget({ hidden: false, position: at }, "gm", {})).toBe(false);
+    expect(shouldPingTarget(undefined, "public", {})).toBe(false);
+    // Never on a fogged target: the ping would show players where it stands (ADR 0016).
+    const fog = { f: { id: "f", shape: "rect" as const, points: [{ x: 0, y: 0 }, { x: 70, y: 0 }, { x: 70, y: 70 }, { x: 0, y: 70 }] } };
+    expect(shouldPingTarget({ hidden: false, position: at }, "public", fog)).toBe(false);
   });
 });
 
@@ -206,5 +213,45 @@ describe("attack section outside combat (attack-ux-polish)", () => {
     expect(attackSectionChange(view(true, true), view(true, false), false)).toBeNull();
     expect(attackSectionChange(view(true, true), view(true, true), false)).toBeNull();
     expect(attackSectionChange(view(false), view(false), false)).toBeNull();
+  });
+});
+
+describe("outcome card after an encounter ends (attack-panel-encounter-reset)", () => {
+  const side = (id: string, name: string) => ({ tokenId: id, name, hidden: false });
+  const roll = (id: string, by: string, attack = true): DiceRoll => ({
+    id, expression: "1d20", byParticipantId: by, dice: [10], modifier: 0, total: 10, visibility: "public",
+    ...(attack && { attack: { actor: side("aria", "Aria"), target: side("goblin", "Goblin"), label: null, kind: "toHit" as const } }),
+  });
+
+  it("shows the participant's latest attack roll", () => {
+    const rolls = [roll("r1", "p"), roll("r2", "p"), roll("r3", "q"), roll("r4", "p", false)];
+    expect(latestAttackRoll(rolls, "p", null)?.id).toBe("r2");
+  });
+
+  it("hides the roll that was latest when the encounter ended", () => {
+    expect(latestAttackRoll([roll("r1", "p"), roll("r2", "p")], "p", "r2")).toBeUndefined();
+  });
+
+  it("shows a roll made after the encounter ended", () => {
+    expect(latestAttackRoll([roll("r1", "p"), roll("r2", "p"), roll("r5", "p")], "p", "r2")?.id).toBe("r5");
+  });
+});
+
+describe("roll popup text (attack-section-compact, FR-TAC-09)", () => {
+  const side = (id: string, name: string) => ({ tokenId: id, name, hidden: false });
+  const base = { id: "r1", byParticipantId: "p", dice: [4, 3], modifier: 0, total: 7, visibility: "public" as const };
+
+  it("reads a damage roll as damage, with its label and parties", () => {
+    const roll: DiceRoll = { ...base, expression: "2d6", attack: { actor: side("g", "Goblin"), target: side("a", "Aria"), label: "Firebomb damage", kind: "damage" } };
+    expect(attackHeadline(roll)).toEqual({ title: "7 damage", meta: "Firebomb damage · 2d6 · Goblin → Aria" });
+  });
+
+  it("reads a to-hit roll as to hit", () => {
+    const roll: DiceRoll = { ...base, expression: "1d20+5", total: 17, attack: { actor: side("a", "Aria"), target: side("g", "Goblin"), label: "Longsword", kind: "toHit" } };
+    expect(attackHeadline(roll).title).toBe("17 to hit");
+  });
+
+  it("reads a plain roll as its total and who rolled it", () => {
+    expect(rollHeadline({ ...base, expression: "2d6" }, "Pat")).toEqual({ title: "7", meta: "Pat · 2d6" });
   });
 });

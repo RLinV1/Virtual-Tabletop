@@ -1,6 +1,6 @@
 import { GmDashboardPage } from "./pages/GmDashboardPage";
 import { HomePage } from "./pages/HomePage";
-import { SignInPage, SignUpPage } from "./pages/AccountPages";
+import { SignInPage, SignUpPage } from "./account/AccountPages";
 import { JoinPage } from "./pages/JoinPage";
 import { LibraryPage } from "./pages/LibraryPage";
 import { RoomPage } from "./pages/RoomPage";

@@ -1,32 +1,50 @@
 import { useEffect, useMemo, useState } from "react";
 import type { AssetKind, LibraryAsset } from "@vtt/shared";
+import { useAccount } from "../account/accountStore";
 import { api } from "../net/api";
 import { builtinsMatching } from "../net/builtinAssets";
 
 /**
- * Pick a map or token from the GM's library inside a room (asset-library: Place a library
+ * Pick a map or token from the signed-in account's library inside a room (asset-library: Place a library
  * asset). The GM's own uploads come first, then the art that ships with the app
  * (builtin-library-assets), so the picker is useful before anything has been uploaded.
  */
 export function LibraryPicker(props: {
-  gmToken: string;
   kind: AssetKind;
   onPick: (asset: LibraryAsset) => void;
   /** Shows a Close button when the picker is inline; omitted inside a modal. */
   onClose?: () => void;
-  /** False lists only the GM's own assets, e.g. for a creature's image (ADR 0010). */
+  /** False lists only the GM's own assets, e.g. for a creature's image (ADR 0012). */
   includeBuiltins?: boolean;
 }) {
   const includeBuiltins = props.includeBuiltins ?? true;
-  const [assets, setAssets] = useState<LibraryAsset[] | null>(null);
+  // A signed-out GM has no library, only the built-in art (builtin-library-assets).
+  const signedIn = useAccount().status === "signedIn";
+  const [assets, setAssets] = useState<LibraryAsset[] | null>(signedIn ? null : []);
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.library.list(props.gmToken).then(setAssets, (err: unknown) =>
-      setError(err instanceof Error ? err.message : "Could not load the library"),
+    let active = true;
+    if (!signedIn) {
+      // Signing out must not leave the account's private art on screen.
+      setAssets([]);
+      return () => {
+        active = false;
+      };
+    }
+    api.library.list().then(
+      (next) => {
+        if (active) setAssets(next);
+      },
+      (err: unknown) => {
+        if (active) setError(err instanceof Error ? err.message : "Could not load the library");
+      },
     );
-  }, [props.gmToken]);
+    return () => {
+      active = false;
+    };
+  }, [signedIn]);
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();

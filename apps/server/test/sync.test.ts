@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { Token } from "@vtt/shared";
-import { startServer, type TestClient } from "./helpers";
+import type { ServerMessage, Token } from "@vtt/shared";
+import { startServer, type TestClient, viewFor } from "./helpers";
 
 let server: Awaited<ReturnType<typeof startServer>>;
 const clients: TestClient[] = [];
@@ -45,7 +45,7 @@ describe("committed channel", () => {
     await Promise.all([alice, bob].map((c) => c.waitForSeq(gm.seq)));
     for (const client of [gm, alice, bob]) {
       expect(client.state.tokens[tokenId]).toMatchObject({ name: "Elder Ogre", size: 3, rotation: 90 });
-      expect(client.state).toEqual(gm.state);
+      expect(client.state).toEqual(viewFor(gm.state, client));
     }
     expect(await alice.command({ type: "token.setAppearance", tokenId, name: "Changed", size: 1, rotation: 0 }))
       .toMatchObject({ type: "rejected", code: "forbidden" });
@@ -71,7 +71,7 @@ describe("committed channel", () => {
     await Promise.all([gm, alice, bob].map((c) => c.waitForSeq(finalSeq)));
     for (const c of [gm, alice, bob]) {
       expect(c.state.tokens[tokenId]!.position).toEqual({ x: 105, y: 35 });
-      expect(c.state).toEqual(gm.state);
+      expect(c.state).toEqual(viewFor(gm.state, c));
     }
   });
 
@@ -107,8 +107,8 @@ describe("committed channel", () => {
 
     const last = seqs.at(-1)!;
     await Promise.all([gm, alice, bob].map((c) => c.waitForSeq(last)));
-    expect(alice.state).toEqual(gm.state);
-    expect(bob.state).toEqual(gm.state);
+    expect(alice.state).toEqual(viewFor(gm.state, alice));
+    expect(bob.state).toEqual(viewFor(gm.state, bob));
   });
 });
 
@@ -266,6 +266,36 @@ describe("tactical panels (FR-GM-21, FR-GM-22, FR-TAC-07)", () => {
     expect(alice.rawLog.join("")).not.toContain("Ambusher");
   });
 
+  it("saves initiative scores on tokens, across the encounter and a reconnect, without leaking hidden ones (ADR 0022)", async () => {
+    const { gm, alice, gmCreds } = await setup();
+    await gm.command({ type: "token.create", name: "Guard", position: { x: 35, y: 35 }, ownerIds: [] });
+    await gm.command({ type: "token.create", name: "Ambusher", position: { x: 105, y: 35 }, ownerIds: [], hidden: true });
+    await alice.waitForSeq(gm.seq);
+    const byName = (c: TestClient, name: string) => tokens(c).find((t) => t.name === name);
+    const guard = byName(gm, "Guard")!;
+    const ambusher = byName(gm, "Ambusher")!;
+
+    await gm.command({
+      type: "initiative.start",
+      entries: [{ tokenId: guard.id, score: 14 }, { tokenId: ambusher.id, score: 19 }],
+    });
+    await gm.command({ type: "initiative.end" });
+    await alice.waitForSeq(gm.seq);
+
+    expect(byName(gm, "Guard")!.initiative).toBe(14);
+    expect(byName(gm, "Ambusher")!.initiative).toBe(19);
+    expect(byName(alice, "Guard")!.initiative).toBe(14);
+    expect(byName(alice, "Ambusher")).toBeUndefined();
+    expect(alice.rawLog.join("")).not.toContain("Ambusher");
+    expect(alice.rawLog.join("")).not.toContain('"initiative":19');
+
+    // A fresh connection (a reload) still sees the saved scores.
+    const again = await server.connect(gmCreds);
+    clients.push(again);
+    expect(byName(again, "Guard")!.initiative).toBe(14);
+    expect(byName(again, "Ambusher")!.initiative).toBe(19);
+  });
+
   it("lets an owner set their token's stats but refuses a stranger (FR-TAC-07)", async () => {
     const { gm, alice, bob } = await setup();
 
@@ -383,5 +413,106 @@ describe("unique token names (KAN-62)", () => {
     expect(res).toMatchObject({ type: "rejected", code: "invalid" });
     expect(gm.seq).toBe(seqBefore);
     expect(tokens(gm)).toEqual([]);
+  });
+});
+
+describe("dice drops (ADR 0014, FR-TAC-09)", () => {
+  async function withMap() {
+    const room = await setup();
+    await room.gm.command({ type: "scene.setMap", map: { url: "/uploads/m.png", width: 1000, height: 800 } });
+    await room.alice.waitForSeq(room.gm.seq);
+    await room.bob.waitForSeq(room.gm.seq);
+    return room;
+  }
+  const drop = { type: "diceDrop" as const, expression: "2d6", from: { x: 100, y: 120 }, to: { x: 300, y: 160 } };
+
+  it("relays a drop to everyone else, unsequenced and unpersisted", async () => {
+    const { alice, bob, gm } = await withMap();
+    const seqBefore = alice.seq;
+    alice.send({ type: "ephemeral", payload: drop });
+    const got = await bob.waitFor((m) => m.type === "ephemeral");
+    expect(got).toEqual({ type: "ephemeral", from: alice.participantId, payload: drop });
+    await gm.waitFor((m) => m.type === "ephemeral");
+    // No seq, nothing in room state: the next command still gets the very next seq.
+    const ack = await alice.command({ type: "dice.roll", expression: "2d6" });
+    expect(ack.type === "ack" && ack.seq).toBe(seqBefore + 1);
+  });
+
+  it("delivers drops sent back to back, which a volatile relay would lose", async () => {
+    const { alice, bob } = await withMap();
+    const second = { ...drop, from: { x: 500, y: 500 }, to: { x: 520, y: 510 } };
+    alice.send({ type: "ephemeral", payload: drop });
+    alice.send({ type: "ephemeral", payload: second });
+    // Each wait takes the next ephemeral message off bob's inbox.
+    const first = await bob.waitFor((m) => m.type === "ephemeral");
+    const next = await bob.waitFor((m) => m.type === "ephemeral");
+    expect([first, next].map((m) => m.type === "ephemeral" && m.payload)).toEqual([drop, second]);
+  });
+
+  it("drops a drop that is off the map", async () => {
+    const { alice, bob } = await withMap();
+    alice.send({ type: "ephemeral", payload: { ...drop, to: { x: 5000, y: 160 } } });
+    alice.send({ type: "ephemeral", payload: { type: "ping", at: { x: 1, y: 1 } } });
+    // The ping sent after it arrives; the forged drop never does.
+    const first = await bob.waitFor((m) => m.type === "ephemeral");
+    expect(first.type === "ephemeral" && first.payload.type).toBe("ping");
+  });
+});
+
+describe("target pings (KAN-34, FR-TAC-05)", () => {
+  const isEphemeral = (m: ServerMessage): m is Extract<ServerMessage, { type: "ephemeral" }> => m.type === "ephemeral";
+  const ping = (x: number, y = 10) => ({ type: "ping" as const, at: { x, y } });
+  async function withMap() {
+    const room = await setup();
+    await room.gm.command({ type: "scene.setMap", map: { url: "/uploads/m.png", width: 1000, height: 800 } });
+    await room.alice.waitForSeq(room.gm.seq);
+    await room.bob.waitForSeq(room.gm.seq);
+    return room;
+  }
+
+  it("shows a ping to the GM and the other player, never back to the sender", async () => {
+    const { gm, alice, bob } = await withMap();
+    alice.send({ type: "ephemeral", payload: ping(100) });
+    expect(await gm.waitFor(isEphemeral)).toEqual({ type: "ephemeral", from: alice.participantId, payload: ping(100) });
+    expect(await bob.waitFor(isEphemeral)).toEqual({ type: "ephemeral", from: alice.participantId, payload: ping(100) });
+    bob.send({ type: "ephemeral", payload: ping(200) });
+    expect((await alice.waitFor(isEphemeral)).from).toBe(bob.participantId);
+    await expect(bob.waitFor(isEphemeral, 200)).rejects.toThrow(/Timed out/);
+  });
+
+  it("is never persisted: no seq, nothing in a fresh snapshot or the activity log", async () => {
+    const { gm, alice, bob, bobCreds, gmCreds } = await withMap();
+    const seqBefore = alice.seq;
+    alice.send({ type: "ephemeral", payload: ping(321, 123) });
+    await bob.waitFor(isEphemeral);
+    const ack = await alice.command({ type: "dice.roll", expression: "1d20" });
+    expect(ack.type === "ack" && ack.seq).toBe(seqBefore + 1);
+    // A reconnecting client starts from a snapshot that carries nothing of it.
+    bob.close();
+    const again = await server.connect(bobCreds);
+    clients.push(again);
+    expect(JSON.stringify(again.state)).not.toContain('"ping"');
+    expect(again.rawLog.join("\n")).not.toContain('"ping"');
+    const history = await fetch(`${server.base}/api/rooms/${gm.state.roomId}/history`, {
+      headers: { authorization: `Bearer ${gmCreds.guestToken}` },
+    }).then((r) => r.text());
+    expect(history).not.toMatch(/ping/i);
+  });
+
+  it("drops a ping off the map, or before there is a map", async () => {
+    const { gm, alice, bob } = await setup();
+    // No map yet: the ping goes nowhere.
+    alice.send({ type: "ephemeral", payload: ping(10) });
+    // Barrier: Alice's socket is read in order, so once her next command is answered the
+    // server has already handled (and dropped) that ping, before the map exists.
+    await alice.command({ type: "token.move", tokenId: "00000000-0000-4000-8000-000000000000", to: { x: 1, y: 1 } });
+    await gm.command({ type: "scene.setMap", map: { url: "/uploads/m.png", width: 1000, height: 800 } });
+    await bob.waitForSeq(gm.seq);
+    // Off the map: dropped too. The valid ping after it is the first one anyone receives.
+    alice.send({ type: "ephemeral", payload: ping(5000) });
+    alice.send({ type: "ephemeral", payload: ping(-1) });
+    alice.send({ type: "ephemeral", payload: ping(500) });
+    expect((await bob.waitFor(isEphemeral)).payload).toEqual(ping(500));
+    expect((await gm.waitFor(isEphemeral)).payload).toEqual(ping(500));
   });
 });

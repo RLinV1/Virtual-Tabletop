@@ -13,14 +13,17 @@ import {
 } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { api } from "../net/api";
-import { loadGmToken } from "../net/identity";
+import { useAccount } from "../account/accountStore";
 import { libraryAssetId } from "../net/builtinAssets";
 import { LibraryPicker } from "../pages/LibraryPicker";
+import { CreatureForm } from "../pages/LibraryCreatures";
+import { creatureFromToken, type CreaturePrefill } from "../pages/creatureDraft";
 import { TokenPreview } from "../ui/TokenPreview";
 import { ConditionMarker, ConditionPicker } from "./ConditionMarker";
 import type { TokenDraft } from "../board/placement";
 import { AddTokenButton } from "./AddToken";
 import { Modal } from "../ui/Modal";
+import { browserTokenAttacks } from "./attackRoll";
 import { PanelSection } from "../ui/PanelSection";
 
 /**
@@ -204,7 +207,7 @@ function departedOwner(state: RoomState, ownerIds: string[]): Participant | null
  * Edits are a draft until Save, and Save asks once more before anything is sent, so a
  * stray click in the modal never changes a token everyone can see. Delete asks too.
  */
-function TokenEditor({
+export function TokenEditor({
   token,
   roomToken,
   isGm,
@@ -231,7 +234,7 @@ function TokenEditor({
   const [size, setSize] = useState(String(token.size));
   const [rotation, setRotation] = useState(String(token.rotation));
   const [image, setImage] = useState({ url: token.imageUrl, assetId: token.assetId ?? null });
-  const [gmToken] = useState(loadGmToken);
+  const hasLibrary = useAccount().status === "signedIn";
   const [picking, setPicking] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -241,6 +244,15 @@ function TokenEditor({
   const [ownerId, setOwnerId] = useState(token.ownerIds[0] ?? "");
   const [hidden, setHidden] = useState(token.hidden);
   const [confirming, setConfirming] = useState<"save" | "delete" | null>(null);
+  /** Save as creature (KAN-70): the token as it is now, as a new library creature's starting values. */
+  const [creaturePrefill, setCreaturePrefill] = useState<CreaturePrefill | null>(null);
+  const [creatureStatus, setCreatureStatus] = useState("");
+  const openSaveAsCreature = async () => {
+    setCreatureStatus("");
+    // Its art comes along only when it is the GM's own token art; an unreadable library means none.
+    const ownArt = await api.library.list().catch(() => []);
+    setCreaturePrefill(creatureFromToken(token, ownArt, browserTokenAttacks(token)));
+  };
   const [busy, setBusy] = useState(false);
 
   const num = (v: string) => (v.trim() === "" ? null : Number(v));
@@ -291,39 +303,14 @@ function TokenEditor({
     <>
     <form
       className="token-editor"
+      // A field that fails validation inside a closed section can't show its message; open the section.
+      onInvalidCapture={(e) => (e.target as HTMLElement).closest("details")?.setAttribute("open", "")}
       onSubmit={(e) => {
         e.preventDefault();
         if (hasChanges && !uploading) setConfirming("save");
       }}
     >
-      {isGm && (
-        <div className="token-editor-gm">
-          <label>Name<input value={name} onChange={(e) => setName(e.target.value)} required maxLength={60} autoFocus /></label>
-          <div className="token-setup-grid">
-            <label>Board X<input type="number" value={x} onChange={(e) => setX(e.target.value)} required step="any" /></label>
-            <label>Board Y<input type="number" value={y} onChange={(e) => setY(e.target.value)} required step="any" /></label>
-            <label>Size (cells)<input type="number" value={size} onChange={(e) => setSize(e.target.value)} required min="0.25" max="10" step="any" /></label>
-            <label>Rotation (°)<input type="number" value={rotation} onChange={(e) => setRotation(e.target.value)} required step="any" /></label>
-          </div>
-          <div className="stack token-image-field">
-            <span className="field-label">Image</span>
-            {image.url && (
-              <div className="row token-image-chosen">
-                <TokenPreview url={image.url} color={token.color} hidden={hidden} />
-                <button type="button" className="link" disabled={uploading} onClick={() => setImage({ url: null, assetId: null })}>Remove image</button>
-              </div>
-            )}
-            <div className="row">
-              <label className="upload-button secondary">
-                <span>{uploading ? "Uploading…" : image.url ? "Replace image" : "Upload image"}</span>
-                <input type="file" className="sr-only" accept="image/png,image/jpeg,image/webp" disabled={uploading}
-                  onChange={(e) => void onUpload(e.target.files?.[0])} />
-              </label>
-              {gmToken && <button type="button" className="secondary" disabled={uploading} onClick={() => setPicking(true)}>From library</button>}
-            </div>
-          </div>
-        </div>
-      )}
+      {isGm && <label>Name<input value={name} onChange={(e) => setName(e.target.value)} required maxLength={60} autoFocus /></label>}
       <div className="stats-row">
         <label>
           HP
@@ -339,10 +326,20 @@ function TokenEditor({
         </label>
       </div>
 
-      <ConditionPicker value={conditions} onChange={setConditions} />
+      <details className="token-editor-section">
+        <summary>Conditions<span className="token-editor-summary">{conditions.length || "none"}</span></summary>
+        <ConditionPicker value={conditions} onChange={setConditions} />
+      </details>
 
       {isGm && (
-        <div className="token-editor-gm">
+        <details className="token-editor-section">
+          <summary>
+            Control &amp; visibility
+            <span className="token-editor-summary">
+              {players.find((p) => p.id === ownerId)?.displayName ?? (ownerId ? departedOwner?.displayName : "GM only")}
+              {hidden && " · hidden"}
+            </span>
+          </summary>
           <label>
             Controlled by
             <select value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
@@ -363,7 +360,36 @@ function TokenEditor({
             <input type="checkbox" checked={hidden} onChange={(e) => setHidden(e.target.checked)} />
             Hidden from players
           </label>
-        </div>
+        </details>
+      )}
+
+      {isGm && (
+        <details className="token-editor-section">
+          <summary>Advanced<span className="token-editor-summary">{size} cells · {rotation}° · {image.url ? "image" : "no image"}</span></summary>
+          <div className="token-setup-grid">
+            <label>Board X<input type="number" value={x} onChange={(e) => setX(e.target.value)} required step="any" /></label>
+            <label>Board Y<input type="number" value={y} onChange={(e) => setY(e.target.value)} required step="any" /></label>
+            <label>Size (cells)<input type="number" value={size} onChange={(e) => setSize(e.target.value)} required min="0.25" max="10" step="any" /></label>
+            <label>Rotation (°)<input type="number" value={rotation} onChange={(e) => setRotation(e.target.value)} required step="any" /></label>
+          </div>
+          <div className="stack token-image-field">
+            <span className="field-label">Image</span>
+            {image.url && (
+              <div className="row token-image-chosen">
+                <TokenPreview url={image.url} color={token.color} hidden={hidden} />
+                <button type="button" className="link" disabled={uploading} onClick={() => setImage({ url: null, assetId: null })}>Remove image</button>
+              </div>
+            )}
+            <div className="row">
+              <label className="upload-button secondary">
+                <span>{uploading ? "Uploading…" : image.url ? "Replace image" : "Upload image"}</span>
+                <input type="file" className="sr-only" accept="image/png,image/jpeg,image/webp" disabled={uploading}
+                  onChange={(e) => void onUpload(e.target.files?.[0])} />
+              </label>
+              <button type="button" className="secondary" disabled={uploading} onClick={() => setPicking(true)}>{hasLibrary ? "From library" : "Built-in art"}</button>
+            </div>
+          </div>
+        </details>
       )}
 
       {(error || uploadError) && <p role="alert" className="error">{error || uploadError}</p>}
@@ -397,6 +423,11 @@ function TokenEditor({
         </div>
       ) : (
         <div className="token-editor-actions">
+          {isGm && hasLibrary && (
+            <button type="button" className="secondary token-save-creature" onClick={() => void openSaveAsCreature()}>
+              Save as creature
+            </button>
+          )}
           {isGm && (
             <button
               type="button"
@@ -414,9 +445,26 @@ function TokenEditor({
         </div>
       )}
     </form>
-    {isGm && gmToken && (
+    {/* Outside the editor's form: a form nested in a form would submit the editor instead. */}
+    {isGm && hasLibrary && (
+      <Modal open={creaturePrefill !== null} title="Save as creature" onClose={() => setCreaturePrefill(null)}>
+        {creaturePrefill && (
+          <CreatureForm
+            creature={null}
+            prefill={creaturePrefill}
+            onCancel={() => setCreaturePrefill(null)}
+            onSaved={(saved) => {
+              setCreaturePrefill(null);
+              setCreatureStatus(`Saved ${saved.name} to your library.`);
+            }}
+          />
+        )}
+      </Modal>
+    )}
+    <span role="status" className="sr-only">{creatureStatus}</span>
+    {isGm && (
       <Modal open={picking} title="Choose a token image" onClose={() => setPicking(false)}>
-        <LibraryPicker gmToken={gmToken} kind="token" onPick={(asset) => {
+        <LibraryPicker kind="token" onPick={(asset) => {
           setImage({ url: asset.url, assetId: libraryAssetId(asset) });
           setPicking(false);
         }} />

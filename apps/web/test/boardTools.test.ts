@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_GRID, type GridSpec, type Point } from "@vtt/shared";
-import { areaOrigin, areaShape, areaSizeFromDrag, hitMark, measure, snapToCellCenter, snapToIntersection, sweepPoints, type Mark } from "../src/board/tools";
+import { areaOrigin, areaShape, areaSizeFromDrag, fogRegionAt, hitMark, measure, snapToCellCenter, snapToIntersection, sweepPoints, type Mark } from "../src/board/tools";
 
 const grid: GridSpec = DEFAULT_GRID; // 70 px cells, 5 ft per cell
 const offsetGrid: GridSpec = { ...DEFAULT_GRID, offsetX: 10, offsetY: 20 };
@@ -184,5 +184,37 @@ describe("board tools (KAN-69, FR-TAC-03/04/06)", () => {
     it("is a single point for a click", () => {
       expect(sweepPoints({ x: 5, y: 5 }, { x: 5, y: 5 }, 12)).toEqual([{ x: 5, y: 5 }, { x: 5, y: 5 }]);
     });
+  });
+});
+
+describe("Fog tool hit testing (FR-GM-17)", () => {
+  const square = (id: string, x0: number, y0: number, size: number) => ({
+    id,
+    shape: "rect" as const,
+    points: [{ x: x0, y: y0 }, { x: x0 + size, y: y0 }, { x: x0 + size, y: y0 + size }, { x: x0, y: y0 + size }],
+  });
+
+  it("picks the topmost region under the pointer, or none", () => {
+    const fog = { a: square("a", 0, 0, 100), b: square("b", 50, 50, 100) };
+    expect(fogRegionAt(fog, { x: 75, y: 75 })?.id).toBe("b");
+    expect(fogRegionAt(fog, { x: 25, y: 25 })?.id).toBe("a");
+    expect(fogRegionAt(fog, { x: 300, y: 300 })).toBeNull();
+  });
+});
+
+describe("line templates (KAN-35, FR-TAC-06)", () => {
+  const grid = { ...DEFAULT_GRID }; // 70 px cells, 5 ft each
+  it("runs from the origin toward the aim, one cell wide by default", () => {
+    const shape = areaShape("line", { x: 0, y: 0 }, { x: 100, y: 0 }, 60, grid);
+    // 60 ft = 12 cells = 840 px long; 5 ft = 70 px wide, centred on the aim axis.
+    expect(shape).toEqual({ kind: "polygon", points: [{ x: 0, y: -35 }, { x: 840, y: -35 }, { x: 840, y: 35 }, { x: 0, y: 35 }] });
+  });
+
+  it("takes a 10 ft width", () => {
+    const shape = areaShape("line", { x: 0, y: 0 }, { x: 0, y: 100 }, 30, grid, 10);
+    if (shape.kind !== "polygon") throw new Error("expected a polygon");
+    const xs = shape.points.map((p) => Math.round(p.x));
+    expect(Math.max(...xs) - Math.min(...xs)).toBe(140);
+    expect(Math.max(...shape.points.map((p) => Math.round(p.y)))).toBe(420);
   });
 });

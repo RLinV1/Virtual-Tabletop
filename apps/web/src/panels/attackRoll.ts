@@ -1,5 +1,6 @@
-import { MAX_ATTACK_LABEL, type AttackKind, type DiceRoll, type RoomState, type Token } from "@vtt/shared";
+import { attackLabel, formatAttackParties, isInFog, MAX_ATTACK_LABEL, type AttackKind, type DiceRoll, type Point, type RoomState, type Token } from "@vtt/shared";
 import { measure } from "../board/tools";
+import { readStored, type KeyValueStorage } from "../ui/usePersistentState";
 
 /**
  * Pure helpers for the Attack section (attack-targeting). The server rolls whatever `NdX+M` it
@@ -97,10 +98,13 @@ export function targetsByDistance(state: RoomState, attackerId: string): TargetO
 
 /**
  * Whether to ping the target once the roll is accepted. Only for a roll everyone sees, and never
- * on a hidden target: the ping would show players where it stands (FR-GM-23).
+ * on a hidden or fogged target: the ping would show players where it stands (FR-GM-23, ADR 0016).
  */
-export const shouldPingTarget = (target: { hidden: boolean } | undefined, visibility: "public" | "gm"): boolean =>
-  visibility === "public" && !!target && !target.hidden;
+export const shouldPingTarget = (
+  target: { hidden: boolean; position: Point } | undefined,
+  visibility: "public" | "gm",
+  fog: RoomState["fog"],
+): boolean => visibility === "public" && !!target && !target.hidden && !isInFog(fog, target.position);
 
 /** What applying a damage roll takes off: its total, and never less than nothing (ADR 0011). */
 export const damageAmount = (roll: Pick<DiceRoll, "total">): number => Math.max(0, roll.total);
@@ -169,6 +173,25 @@ function isPreset(v: unknown): v is AttackPreset {
 export const isPresetRecord = (v: unknown): v is Record<string, AttackPreset[]> =>
   isRecord(v) && Object.values(v).every((list) => Array.isArray(list) && list.length <= MAX_PRESETS && list.every(isPreset));
 
+/** Local edits (including an empty list) win, then older saved attacks, then template copies. */
+export function presetsForToken(token: Pick<Token, "id" | "attacks">, stored: Record<string, AttackPreset[]>, legacy: Record<string, SavedAttack[]>): AttackPreset[] {
+  const older = legacy[token.id];
+  return stored[token.id] ?? (older ? migrateSaved(older) : token.attacks ?? []);
+}
+
+/** Read at the moment Save as creature is opened, so edits made in Attack are included. */
+export function readTokenAttacks(token: Pick<Token, "id" | "attacks">, storage: KeyValueStorage | null): AttackPreset[] {
+  return structuredClone(presetsForToken(token,
+    readStored(storage, "vtt.attack.presets", {}, isPresetRecord),
+    readStored(storage, "vtt.attack.saved", {}, isSavedRecord),
+  ));
+}
+
+export function browserTokenAttacks(token: Pick<Token, "id" | "attacks">): AttackPreset[] {
+  try { return readTokenAttacks(token, window.localStorage); }
+  catch { return structuredClone(token.attacks ?? []); }
+}
+
 const diceOf = ({ count, sides, modifier }: AttackDice): AttackDice => ({ count, sides, modifier });
 
 /** Saved attacks from before named attacks: a to-hit one keeps its to-hit roll, a damage one becomes damage-only. */
@@ -236,4 +259,34 @@ export function attackSectionChange(previous: EncounterView, next: EncounterView
   if (previous.inEncounter && !next.inEncounter) return "collapse";
   if (next.inEncounter && !previous.yourTurn && next.yourTurn && !toggledThisEncounter) return "open";
   return null;
+}
+
+/** Where the custom roll settings last used per token are kept (attack-targeting). */
+export const LAST_USED_KEY = "vtt.attack.last";
+
+/**
+ * The participant's latest attack roll, for the Attack section's outcome card. Nothing once an
+ * encounter has ended on it: `clearedRollId` is the roll that was latest when the encounter
+ * ended, so only a later roll brings the card back (attack-panel-encounter-reset).
+ */
+export function latestAttackRoll(rolls: readonly DiceRoll[], participantId: string, clearedRollId: string | null): DiceRoll | undefined {
+  const latest = [...rolls].reverse().find((r) => r.attack && r.byParticipantId === participantId);
+  return latest && latest.id !== clearedRollId ? latest : undefined;
+}
+
+/**
+ * The two lines that describe an attack roll in the result card and the board popup
+ * (attack-section-compact, board-dice-rolls): "7 damage" or "17 to hit", then "Firebomb · 2d6 · Goblin → Aria".
+ */
+export function rollHeadline(roll: Pick<DiceRoll, "expression" | "total" | "attack">, rollerName: string): { title: string; meta: string } {
+  return roll.attack ? attackHeadline(roll) : { title: String(roll.total), meta: `${rollerName} · ${roll.expression}` };
+}
+
+/** Attack rolls read as what they did; see `rollHeadline` for any roll. */
+export function attackHeadline(roll: Pick<DiceRoll, "expression" | "total" | "attack">): { title: string; meta: string } {
+  const attack = roll.attack;
+  const title = `${roll.total} ${attack?.kind === "damage" ? "damage" : "to hit"}`;
+  if (!attack) return { title, meta: roll.expression };
+  const label = attackLabel(attack);
+  return { title, meta: [label, roll.expression, formatAttackParties(attack)].filter(Boolean).join(" · ") };
 }

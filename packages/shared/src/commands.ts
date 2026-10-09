@@ -1,8 +1,9 @@
 import { z } from "zod";
+import { TokenAttacks } from "./attackPresets";
 import { ConditionId, EMPTY_STATS, TokenStats } from "./conditions";
 import { AttackKind, DiceVisibility, MAX_ATTACK_LABEL, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
-import { AreaShape, Id, MapImage } from "./state";
+import { AreaShape, Id, MapImage, MAX_CHAT_LENGTH, MAX_FOG_POINTS } from "./state";
 
 /**
  * Commands are REQUESTS from a client. The server validates and authorizes them,
@@ -11,6 +12,8 @@ import { AreaShape, Id, MapImage } from "./state";
  */
 /** Colour of a new token when none is given; the Add token preview draws the same disc. */
 export const DEFAULT_TOKEN_COLOR = "#c0392b";
+/** Most copies one `token.create` may place (KAN-70). */
+export const MAX_TOKENS_PER_CREATE = 20;
 
 /** Upper bound on tokens resolved in one `participant.resolveDeparture`. */
 export const MAX_DEPARTURE_ACTIONS = 200;
@@ -24,6 +27,29 @@ export const DepartureAction = z.discriminatedUnion("action", [
   z.object({ tokenId: Id, action: z.literal("delete") }),
 ]);
 export type DepartureAction = z.infer<typeof DepartureAction>;
+
+/**
+ * Chat text (KAN-75, ADR 0015): trimmed, 1 to MAX_CHAT_LENGTH characters, and no control
+ * characters (\p{Cc}, so no line breaks), invisible formatting characters (\p{Cf}, so no
+ * right-to-left overrides or zero-width spoofing) or lone surrogates (\p{Cs}, which Postgres
+ * `jsonb` refuses). The zero-width joiner and non-joiner are allowed: emoji sequences and
+ * Persian and Indic scripts need them. A message must show at least one visible character.
+ */
+export const ChatText = z
+  .string()
+  .trim()
+  .min(1)
+  .max(MAX_CHAT_LENGTH)
+  .refine(
+    (text) => !/[\p{Cc}\p{Cs}]|(?!\u200c|\u200d)\p{Cf}/u.test(text),
+    "Messages can't contain control or invisible formatting characters.",
+  )
+  .refine(
+    // Spaces, characters that render as nothing (joiners, Hangul fillers, U+034F) and the Braille
+    // blank, which is a symbol, not a space: a message of only these looks empty.
+    (text) => text.replace(/[\p{Z}\p{Default_Ignorable_Code_Point}\u2800]/gu, "").length > 0,
+    "Messages need at least one visible character.",
+  );
 
 /** Fields a token editor may change in one validated, atomic room command. */
 export const TokenUpdate = z.object({
@@ -63,6 +89,11 @@ export const Command = z.discriminatedUnion("type", [
     assetId: Id.nullable().default(null),
     ownerIds: z.array(Id).default([]),
     hidden: z.boolean().default(false),
+    /** Conditions the token starts with, e.g. from a creature (KAN-70). */
+    conditions: z.array(ConditionId).max(12).default([]),
+    attacks: TokenAttacks.default([]),
+    /** Place this many copies in one action, numbered and spread over free squares (KAN-70). */
+    count: z.number().int().min(1).max(MAX_TOKENS_PER_CREATE).default(1),
   }),
   z.object({
     type: z.literal("token.move"),
@@ -166,6 +197,8 @@ export const Command = z.discriminatedUnion("type", [
     origin: Point,
     toward: Point,
     size: z.number().positive().max(1000),
+    /** A line's width in grid units; one cell when left out (KAN-35). */
+    width: z.number().positive().max(1000).optional(),
     gmOnly: z.boolean().default(false),
   }),
   /** Remove a placed template. Its owner or the GM. */
@@ -188,6 +221,61 @@ export const Command = z.discriminatedUnion("type", [
     participantId: Id,
     actions: z.array(DepartureAction).min(1).max(MAX_DEPARTURE_ACTIONS),
   }),
+  /**
+   * Put your own dice look on the table, or take it off with `null` (shared-dice-looks, ADR 0018).
+   * Strict: the look's pictures are never the client's to name; the server reads them from the
+   * look your account owns, and refuses any other.
+   */
+  z.object({
+    type: z.literal("participant.setDiceLook"),
+    lookId: Id.nullable(),
+  }).strict(),
+  /** GM puts a player's dice back to classic in this room (shared-dice-looks). */
+  z.object({
+    type: z.literal("participant.clearDiceLook"),
+    participantId: Id,
+  }).strict(),
+  /** Send a chat message to the room (KAN-75, ADR 0015). Strict: a client can't name the sender. */
+  z.object({
+    type: z.literal("chat.send"),
+    text: ChatText,
+  }).strict(),
+  /**
+   * GM conceals part of the map (FR-GM-17, ADR 0016): a rectangle between two corners, or a
+   * polygon. `decide` stores a rectangle as its four corners.
+   */
+  z.object({
+    type: z.literal("fog.add"),
+    region: z.discriminatedUnion("shape", [
+      z.object({ shape: z.literal("rect"), from: Point, to: Point }).strict(),
+      z.object({ shape: z.literal("polygon"), points: z.array(Point).min(3).max(MAX_FOG_POINTS) }).strict(),
+    ]),
+  }).strict(),
+  /** GM removes one fog region, revealing what it covered (FR-GM-17). */
+  z.object({
+    type: z.literal("fog.remove"),
+    regionId: Id,
+  }).strict(),
+  /** GM saves the board as a named restore point (FR-REC-02, ADR 0019). */
+  z.object({
+    type: z.literal("checkpoint.create"),
+    name: z.string().max(200),
+  }).strict(),
+  /** GM puts the board back as it was at a checkpoint (FR-REC-02, ADR 0019). */
+  z.object({
+    type: z.literal("checkpoint.restore"),
+    checkpointId: Id,
+  }).strict(),
+  /** GM replaces the board with one of their saved encounter templates (FR-GM-13, ADR 0024). */
+  z.object({
+    type: z.literal("encounter.apply"),
+    templateId: Id,
+  }).strict(),
+  /** GM reverses one recent action, picked from the activity log by its `commandId` (FR-REC-02, ADR 0013). */
+  z.object({
+    type: z.literal("history.undo"),
+    commandId: Id,
+  }).strict(),
 ]);
 export type Command = z.infer<typeof Command>;
 /** Command as a client writes it (defaults not yet applied). */

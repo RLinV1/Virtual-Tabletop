@@ -3,9 +3,11 @@ import { useStore } from "zustand";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import {
   SOCKET_EVENTS,
-  reduce,
+  reduceReceived,
   type ClientMessageInput,
   type CommandInput,
+  type CommittedEvent,
+  type DiceRoll,
   type EphemeralPayload,
   type Participant,
   type RoomState,
@@ -21,8 +23,18 @@ export interface RoomSnapshot {
   state: RoomState | null;
   you: Participant | null;
   seq: number;
+  /**
+   * Counts full snapshots (`welcome`) received: on connect, reconnect and resync. A new value
+   * means `state` was replaced wholesale rather than moved on by events (board-dice-rolls).
+   */
+  snapshots: number;
   /** Set with status `ended`: whether this seat left or was removed by the GM (ADR 0006). */
   endReason: SessionEndReason | null;
+  /**
+   * Set with status `unauthorized`: the server's code. `unauthorized` means the credential no
+   * longer exists (seat or room deleted); `not_found` can also mean the room failed to load.
+   */
+  refusal: "unauthorized" | "not_found" | null;
 }
 
 export type CommandResult =
@@ -30,6 +42,18 @@ export type CommandResult =
   | { ok: false; code: string; message: string };
 
 type EphemeralListener = (from: string, payload: EphemeralPayload) => void;
+/** Called with a live event and the viewer's state before and after it (KAN-76). */
+type CommittedListener = (committed: CommittedEvent, before: RoomState, after: RoomState) => void;
+type RollListener = (roll: DiceRoll) => void;
+
+/** Shortest gap between two messages of one preview stream: at most 20 per second. */
+export const PREVIEW_INTERVAL_MS = 50;
+interface PreviewStream {
+  lastSent: number;
+  /** The newest value not yet sent, flushed when `timer` fires. */
+  pending: EphemeralPayload | null;
+  timer: ReturnType<typeof setTimeout> | null;
+}
 
 /**
  * Client side of the sync protocol (docs/adr/0001-event-model.md, docs/adr/0002).
@@ -47,6 +71,7 @@ const ENDED_MESSAGE: Record<SessionEndReason, string> = {
   left: "You left this room",
   revoked: "You were removed from this room",
   deleted: "This room was deleted",
+  signed_out: "You signed out on this device",
 };
 
 export class RoomConnection {
@@ -54,13 +79,18 @@ export class RoomConnection {
   private nextCommandId = 0;
   private pending = new Map<string, (r: CommandResult) => void>();
   private ephemeralListeners = new Set<EphemeralListener>();
+  private committedListeners = new Set<CommittedListener>();
+  private rollListeners = new Set<RollListener>();
+  private previews = new Map<string, PreviewStream>();
 
   readonly store: StoreApi<RoomSnapshot> = createStore<RoomSnapshot>(() => ({
     status: "connecting",
     state: null,
     you: null,
     seq: 0,
+    snapshots: 0,
     endReason: null,
+    refusal: null,
   }));
 
   constructor(
@@ -90,8 +120,8 @@ export class RoomConnection {
     socket.on("connect_error", (err: Error) => {
       if (err.message === "unauthorized" || err.message === "not_found") {
         socket.disconnect();
-        this.update({ status: "unauthorized" });
-      } else if (err.message === "left" || err.message === "revoked") {
+        this.update({ status: "unauthorized", refusal: err.message });
+      } else if (err.message === "left" || err.message === "revoked" || err.message === "signed_out") {
         socket.disconnect();
         this.update({ status: "ended", endReason: err.message });
       }
@@ -99,6 +129,7 @@ export class RoomConnection {
   }
 
   stop() {
+    for (const key of [...this.previews.keys()]) this.cancelPreview(key);
     this.socket?.disconnect();
     this.socket = null;
     this.failPending("Disconnected");
@@ -107,6 +138,15 @@ export class RoomConnection {
   onEphemeral(fn: EphemeralListener) {
     this.ephemeralListeners.add(fn);
     return () => this.ephemeralListeners.delete(fn);
+  }
+
+  /**
+   * Live events only: called after an in-order `event` message has been applied, never for a
+   * snapshot, a redacted event or a failed reduce, so nothing replays on load or resync.
+   */
+  onCommitted(fn: CommittedListener) {
+    this.committedListeners.add(fn);
+    return () => this.committedListeners.delete(fn);
   }
 
   command(command: CommandInput): Promise<CommandResult> {
@@ -120,27 +160,84 @@ export class RoomConnection {
     });
   }
 
+  /**
+   * Called for each roll made while connected, once its event is applied (throw-dice-on-board).
+   * Never for rolls that arrive in a snapshot: those are already on the table.
+   */
+  onRolled(fn: RollListener) {
+    this.rollListeners.add(fn);
+    return () => this.rollListeners.delete(fn);
+  }
+
+  /** One-shot ephemeral message (a ping, a dice drop): sent at once. */
   ephemeral(payload: EphemeralPayload) {
     if (this.snapshot.status === "open") this.send({ type: "ephemeral", payload });
+  }
+
+  /**
+   * A continuous preview (a drag, later a ruler or an aim), coalesced per `key` (KAN-39,
+   * FR-SYNC-03): at most one message per PREVIEW_INTERVAL_MS, and the latest value is always
+   * sent once input stops, so the other clients end where the pointer did.
+   */
+  preview(key: string, payload: EphemeralPayload) {
+    const stream = this.previews.get(key) ?? { lastSent: -Infinity, pending: null, timer: null };
+    this.previews.set(key, stream);
+    const wait = stream.lastSent + PREVIEW_INTERVAL_MS - Date.now();
+    if (wait <= 0 && !stream.timer) {
+      stream.lastSent = Date.now();
+      this.ephemeral(payload);
+      return;
+    }
+    stream.pending = payload;
+    stream.timer ??= setTimeout(() => {
+      stream.timer = null;
+      if (!stream.pending) return;
+      stream.lastSent = Date.now();
+      this.ephemeral(stream.pending);
+      stream.pending = null;
+    }, Math.max(0, wait));
+  }
+
+  /**
+   * Ends a preview stream: any unsent value is replaced by `final`, which goes out at once (no
+   * 50 ms wait), so other clients settle where the input actually ended. Null just drops it.
+   */
+  endPreview(key: string, final: EphemeralPayload | null) {
+    this.cancelPreview(key);
+    if (final) this.ephemeral(final);
+  }
+
+  /** Drops a preview stream's unsent value. */
+  cancelPreview(key: string) {
+    const stream = this.previews.get(key);
+    if (stream?.timer) clearTimeout(stream.timer);
+    this.previews.delete(key);
   }
 
   /** Applies one server message: snapshots, ordered events, acks, and terminal session ends. */
   private handle(msg: ServerMessage) {
     switch (msg.type) {
       case "welcome":
-        this.update({ status: "open", state: msg.state, you: msg.you, seq: msg.seq });
+        this.update({ status: "open", state: msg.state, you: msg.you, seq: msg.seq, snapshots: this.snapshot.snapshots + 1 });
         return;
 
       case "event": {
         const { state, seq } = this.snapshot;
         if (!state || msg.committed.seq !== seq + 1) return this.resync();
+        let next: RoomState;
         try {
-          const next = reduce(state, msg.committed.event);
+          // The GM keeps undo history in step with the server's; players keep none (ADR 0013).
+          next = reduceReceived(state, msg.committed);
           const you = this.snapshot.you ? (next.participants[this.snapshot.you.id] ?? null) : null;
           this.update({ state: next, seq: msg.committed.seq, you });
         } catch {
-          this.resync();
+          return this.resync();
         }
+        // After the try: a listener's mistake must not read as a broken event stream. Committed
+        // listeners first, so a strike is waiting before its roll can land (KAN-76).
+        this.emitCommitted(msg.committed, state, next);
+        const { event } = msg.committed;
+        if (event.type === "DiceRolled") this.rollListeners.forEach((fn) => fn(event.roll));
         return;
       }
 
@@ -172,10 +269,21 @@ export class RoomConnection {
 
       case "error":
         if (msg.code === "unauthorized" || msg.code === "not_found") {
-          this.update({ status: "unauthorized" });
+          this.update({ status: "unauthorized", refusal: msg.code });
         }
         console.warn("Server error:", msg.message);
         return;
+    }
+  }
+
+  /** A listener that throws must not look like a bad event and trigger a resync. */
+  private emitCommitted(committed: CommittedEvent, before: RoomState, after: RoomState) {
+    for (const fn of this.committedListeners) {
+      try {
+        fn(committed, before, after);
+      } catch (err) {
+        console.warn("Committed listener failed:", err);
+      }
     }
   }
 

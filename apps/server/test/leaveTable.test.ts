@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ServerMessage } from "@vtt/shared";
 import { LiveRoom, type RoomClient } from "../src/domain/liveRoom";
 import { MemoryRoomStore } from "../src/store/memoryRoomStore";
-import { startServer, type TestClient } from "./helpers";
+import { startServer, type TestClient, viewFor } from "./helpers";
 
 let server: Awaited<ReturnType<typeof startServer>>;
 const clients: TestClient[] = [];
@@ -53,6 +53,18 @@ describe("leaving the table (KAN-58)", () => {
     expect(await bob.command({ type: "dice.roll", expression: "1d20" })).toMatchObject({ type: "ack" });
     // Leaving changes no token.
     expect(Object.values(gm.state.tokens).every((t) => t.ownerIds.includes(alice.participantId))).toBe(true);
+  });
+
+  it("tells every other client who left and who was removed (FR-PL-06, KAN-73)", async () => {
+    const { gm, alice, bob } = await setup();
+    alice.send({ type: "command", clientCommandId: "leave", command: { type: "participant.leave" } });
+    await bob.waitFor((m) => m.type === "event" && m.committed.event.type === "ParticipantLeft");
+    expect(bob.state.participants[alice.participantId]).toMatchObject({ left: true });
+    expect(bob.state.participants[alice.participantId]?.revoked).toBeUndefined();
+
+    await gm.command({ type: "participant.revoke", participantId: bob.participantId });
+    expect(gm.state.participants[bob.participantId]).toMatchObject({ revoked: true });
+    expect(gm.state.participants[bob.participantId]?.left).toBeUndefined();
   });
 
   it("refuses the departed credential afterwards", async () => {
@@ -124,7 +136,7 @@ describe("leaving the table (KAN-58)", () => {
     expect(bob.state.tokens[aria]!.ownerIds).toEqual([bob.participantId]);
     // No hidden tokens here, so the GM and a player converge on identical state (FR-SYNC-02).
     await gm.waitForSeq(before + 2);
-    expect(bob.state).toEqual(gm.state);
+    expect(bob.state).toEqual(viewFor(gm.state, bob));
   });
 
   it("never sends a resolved hidden token to other players (FR-GM-23)", async () => {

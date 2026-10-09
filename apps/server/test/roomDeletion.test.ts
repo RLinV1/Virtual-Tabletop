@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  GM_TOKEN_HEADER,
   type GmRoomSummary,
   type LibraryAsset,
   type LibraryUsageResponse,
@@ -11,7 +10,7 @@ import {
 } from "@vtt/shared";
 import { buildApp } from "../src/app";
 import { MemoryRoomStore } from "../src/store/memoryRoomStore";
-import { newGuestToken, startServer, type TestClient } from "./helpers";
+import { listenForFetch, newGuestToken, startServer, type TestClient } from "./helpers";
 
 let server: Awaited<ReturnType<typeof startServer>>;
 const clients: TestClient[] = [];
@@ -30,25 +29,19 @@ const PNG = Buffer.from(
   "base64",
 );
 
+/** A signed-in GM: the value tests pass around is the account's session cookie. */
 async function newGm() {
-  const gmToken = newGuestToken();
-  const res = await fetch(`${server.base}/api/gm/identify`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ gmToken }),
-  });
-  expect(res.status).toBe(204);
-  return gmToken;
+  return (await server.signUp()).cookie;
 }
 
-const gmFetch = (gmToken: string | null, url: string, init: RequestInit = {}) =>
+const gmFetch = (cookie: string | null, url: string, init: RequestInit = {}) =>
   fetch(server.base + url, {
     ...init,
-    headers: { ...(init.headers as Record<string, string>), ...(gmToken ? { [GM_TOKEN_HEADER]: gmToken } : {}) },
+    headers: { ...(init.headers as Record<string, string>), ...(cookie ? { cookie } : {}) },
   });
 
-const deleteRoom = (gmToken: string | null, roomId: string, headers: Record<string, string> = {}) =>
-  gmFetch(gmToken, `/api/rooms/${roomId}`, { method: "DELETE", headers });
+const deleteRoom = (cookie: string | null, roomId: string, headers: Record<string, string> = {}) =>
+  gmFetch(cookie, `/api/rooms/${roomId}`, { method: "DELETE", headers });
 
 const imageForm = (fields: Record<string, string> = {}) => {
   const form = new FormData();
@@ -57,9 +50,9 @@ const imageForm = (fields: Record<string, string> = {}) => {
   return form;
 };
 
-/** A room owned by `gmToken`, with its GM connected. */
-async function gmRoom(gmToken: string, roomName: string) {
-  const room = await server.createRoom("GM", { gmToken, roomName });
+/** A room owned by the account with session `cookie`, with its GM connected. */
+async function gmRoom(cookie: string, roomName: string) {
+  const room = await server.createRoom("GM", { cookie, roomName });
   const client = await server.connect(room);
   clients.push(client);
   return { ...room, client };
@@ -129,7 +122,7 @@ describe("room deletion: what is removed and what is kept (KAN-72)", () => {
       await client.command({
         type: "scene.setMap",
         map: { url: map.url, width: map.width, height: map.height, assetId: map.id },
-        grid: map.grid!,
+        grid: map.grid ?? undefined,
       });
     }
 
@@ -215,15 +208,18 @@ describe("room deletion: uploads racing the delete (KAN-72)", () => {
     }
     const uploadDir = await mkdtemp(path.join(tmpdir(), "vtt-uploads-"));
     const app = await buildApp({ store: new RoomGoneStore(), uploadDir, clientOrigin: "*" });
-    await app.listen({ port: 0, host: "127.0.0.1" });
-    const addr = app.server.address();
-    if (!addr || typeof addr === "string") throw new Error("no address");
-    const base = `http://127.0.0.1:${addr.port}`;
+    const base = await listenForFetch(app);
     try {
+      const signedUp = await fetch(`${base}/api/auth/signup`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: "gm@example.com", password: "correct horse", displayName: "GM" }),
+      });
+      const cookie = signedUp.headers.getSetCookie()[0]!.split(";")[0]!;
       const guestToken = newGuestToken();
       const created = await fetch(`${base}/api/rooms`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", cookie },
         body: JSON.stringify({ roomName: "Crypt", displayName: "GM", guestToken }),
       });
       expect(created.status).toBe(200);

@@ -22,13 +22,20 @@ describe("library creature schemas (library-creatures, FR-TAC-07)", () => {
 
   it("needs only a name, defaulting size to 1 and the rest to none", () => {
     expect(CreateCreatureRequest.parse({ name: "Rubble" })).toEqual({
-      name: "Rubble", size: 1, maxHp: null, ac: null, imageAssetId: null,
+      name: "Rubble", size: 1, hp: null, attacks: [], maxHp: null, ac: null, color: "#c0392b", conditions: [], imageAssetId: null,
     });
   });
 
   it("takes only a uuid as the image id", () => {
     expect(ok({ imageAssetId: "builtin:brenna" })).toBe(false);
     expect(ok({ imageAssetId: randomUUID() })).toBe(true);
+  });
+
+  it("validates starting HP like TokenStats, without injecting it into partial updates (KAN-70)", () => {
+    expect([-1000, -999, 0, 9999, 10000, 1.5].map((hp) => ok({ hp })))
+      .toEqual([false, true, true, true, false, false]);
+    expect(UpdateCreatureRequest.parse({ ac: 16 })).toEqual({ ac: 16 });
+    expect(UpdateCreatureRequest.parse({ hp: null })).toEqual({ hp: null });
   });
 
   it("accepts a partial update and refuses an empty one", () => {

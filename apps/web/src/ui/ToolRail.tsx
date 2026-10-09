@@ -1,28 +1,38 @@
 import type { ReactNode } from "react";
 import { isBoolean, usePersistentState } from "./usePersistentState";
-import { CaretDoubleLeft, CaretDoubleRight, Circle, Cursor, Eraser, LineSegment, PaintBrush, PencilSimple, Ruler, Square, Target, Trash, Triangle } from "@phosphor-icons/react";
-import { AREA_SIZES, DRAW_COLORS, type AreaShape, type BoardTool, type DrawShape } from "../board/tools";
+import { CaretDoubleLeft, CaretDoubleRight, Circle, CloudFog, Cursor, Eraser, Eye, LineSegment, PaintBrush, PencilSimple, Polygon, Ruler, Square, Target, Trash, Triangle } from "@phosphor-icons/react";
+import { AREA_SIZES, DRAW_COLORS, type AreaShape, type BoardTool, type DrawShape, type FogMode } from "../board/tools";
 
 /** The options each tool remembers while another tool is active. */
 export interface ToolOptions {
   draw: { shape: DrawShape; color: number };
-  area: { shape: AreaShape; size: number; gmOnly: boolean };
+  area: { shape: AreaShape; size: number; lineCells: 1 | 2; gmOnly: boolean };
+  fog: { mode: FogMode };
 }
 
 export const DEFAULT_TOOL_OPTIONS: ToolOptions = {
   draw: { shape: "brush", color: DRAW_COLORS[0].value },
-  area: { shape: "circle", size: 20, gmOnly: false },
+  area: { shape: "circle", size: 20, lineCells: 1, gmOnly: false },
+  fog: { mode: "rect" },
 };
 
 /** Tools the rail offers; Attack starts from a token instead (attack-targeting). */
 type ToolKind = Exclude<BoardTool["kind"], "attack">;
 
-const TOOLS: { kind: ToolKind; label: string; icon: ReactNode }[] = [
+const TOOLS: { kind: ToolKind; label: string; icon: ReactNode; gmOnly?: boolean }[] = [
   { kind: "select", label: "Select", icon: <Cursor size={18} aria-hidden="true" /> },
   { kind: "measure", label: "Measure", icon: <Ruler size={18} aria-hidden="true" /> },
   { kind: "draw", label: "Draw", icon: <PencilSimple size={18} aria-hidden="true" /> },
   { kind: "area", label: "AoE", icon: <Target size={18} aria-hidden="true" /> },
   { kind: "erase", label: "Eraser", icon: <Eraser size={18} aria-hidden="true" /> },
+  // Players never see a fog control, not even a disabled one (FR-GM-17, INTERFACE.md).
+  { kind: "fog", label: "Fog", icon: <CloudFog size={18} aria-hidden="true" />, gmOnly: true },
+];
+
+const FOG_MODES: { key: FogMode; label: string; icon: ReactNode }[] = [
+  { key: "rect", label: "Fog rectangle", icon: <Square size={16} aria-hidden="true" /> },
+  { key: "polygon", label: "Fog polygon", icon: <Polygon size={16} aria-hidden="true" /> },
+  { key: "reveal", label: "Reveal (remove fog)", icon: <Eye size={16} aria-hidden="true" /> },
 ];
 
 const DRAW_SHAPES: { shape: DrawShape; label: string; icon: ReactNode }[] = [
@@ -36,12 +46,14 @@ const AREA_SHAPES: { shape: AreaShape; label: string; icon: ReactNode }[] = [
   { shape: "circle", label: "Circle", icon: <Circle size={16} aria-hidden="true" /> },
   { shape: "cone", label: "Cone", icon: <Triangle size={16} aria-hidden="true" style={{ rotate: "90deg" }} /> },
   { shape: "box", label: "Box", icon: <Square size={16} aria-hidden="true" /> },
+  { shape: "line", label: "Line", icon: <LineSegment size={16} aria-hidden="true" /> },
 ];
 
 /** Build the board tool for a rail choice, using that tool's remembered options. */
 export function toolFor(kind: ToolKind, options: ToolOptions): BoardTool {
   if (kind === "draw") return { kind, ...options.draw };
   if (kind === "area") return { kind, ...options.area };
+  if (kind === "fog") return { kind, ...options.fog };
   return { kind };
 }
 
@@ -84,12 +96,13 @@ export function ToolRail({
     </button>
   );
   // Hidden, the rail is just its toggle; the active tool keeps working on the board.
+  // Untagged while hidden, so the guide skips its Board tools step rather than spotlight the toggle.
   if (collapsed) return <div className="tool-rail-wrap"><div className="tool-rail">{toggle}</div></div>;
   return (
-    <div className="tool-rail-wrap">
+    <div className="tool-rail-wrap" data-tour="tools">
       <div className="tool-rail" role="toolbar" aria-label="Board tools" aria-orientation="vertical">
         {toggle}
-        {TOOLS.map((t) => (
+        {TOOLS.filter((t) => isGm || !t.gmOnly).map((t) => (
           <button
             key={t.kind}
             type="button"
@@ -155,6 +168,19 @@ export function ToolRail({
               ))}
             </select>
           </label>
+          {options.area.shape === "line" && (
+            <label className="tool-size">
+              <span className="sr-only">Line width</span>
+              <select
+                title="Line width"
+                value={options.area.lineCells}
+                onChange={(e) => onOptions({ ...options, area: { ...options.area, lineCells: Number(e.target.value) === 2 ? 2 : 1 } })}
+              >
+                <option value={1}>1 square wide</option>
+                <option value={2}>2 squares wide</option>
+              </select>
+            </label>
+          )}
           {isGm && (
             <label className="tool-check" title="Players won't see areas placed while this is on">
               <input
@@ -165,6 +191,16 @@ export function ToolRail({
               GM only
             </label>
           )}
+        </div>
+      )}
+      {active === "fog" && isGm && (
+        <div className="tool-options" role="group" aria-label="Fog options">
+          <Segmented
+            label="Fog mode"
+            items={FOG_MODES}
+            value={options.fog.mode}
+            onChange={(mode) => onOptions({ ...options, fog: { mode } })}
+          />
         </div>
       )}
     </div>

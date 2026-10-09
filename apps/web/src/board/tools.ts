@@ -1,4 +1,4 @@
-import { snapTokenCenter, type AreaShape, type AreaTemplate, type GridSpec, type Point } from "@vtt/shared";
+import { pointInPolygon, snapTokenCenter, type AreaShape, type AreaTemplate, type FogRegion, type GridSpec, type Point } from "@vtt/shared";
 
 export type { AreaShape };
 
@@ -20,12 +20,26 @@ export type BoardTool =
       shape: AreaShape;
       /** Size for a click without a drag, in grid units, e.g. 20 (ft). */
       size: number;
+      /** A line's width in cells: 1 (5 ft on a 5 ft grid) or 2 (KAN-35). */
+      lineCells: 1 | 2;
       /** GM only: place it where players can't see it (ADR 0007). */
       gmOnly: boolean;
     }
   | { kind: "erase" }
+  /** GM only (FR-GM-17, ADR 0016): conceal a rectangle or polygon, or reveal (remove) a fogged region. */
+  | { kind: "fog"; mode: FogMode }
   /** Picking whom `attackerId` attacks (attack-targeting). Started from a token's Attack button, not the rail. */
   | { kind: "attack"; attackerId: string };
+
+/** What the Fog tool does: drag a rectangle, click out a polygon, or click a region to remove it. */
+export type FogMode = "rect" | "polygon" | "reveal";
+
+/** The topmost fog region under `p` (the last added wins), or null. */
+export function fogRegionAt(fog: Record<string, FogRegion>, p: Point): FogRegion | null {
+  const regions = Object.values(fog);
+  for (let i = regions.length - 1; i >= 0; i--) if (pointInPolygon(p, regions[i]!.points)) return regions[i]!;
+  return null;
+}
 
 /** Colours offered by the Draw tool. */
 export const DRAW_COLORS = [
@@ -43,11 +57,11 @@ export type Mark =
   | { kind: "measure"; from: Point; to: Point; free: boolean }
   | { kind: "draw"; shape: Exclude<DrawShape, "brush">; color: number; from: Point; to: Point }
   | { kind: "stroke"; color: number; points: Point[] }
-  | { kind: "area"; shape: AreaShape; size: number; origin: Point; toward: Point; free: boolean; gmOnly?: boolean };
+  | { kind: "area"; shape: AreaShape; size: number; origin: Point; toward: Point; free: boolean; gmOnly?: boolean; width?: number };
 
 /** A placed, shared template as a mark, for drawing and hit testing. Its origin is already snapped. */
 export function templateMark(t: AreaTemplate): Extract<Mark, { kind: "area" }> {
-  return { kind: "area", shape: t.shape, size: t.size, origin: t.origin, toward: t.toward, free: true, gmOnly: t.gmOnly };
+  return { kind: "area", shape: t.shape, size: t.size, origin: t.origin, toward: t.toward, free: true, gmOnly: t.gmOnly, width: t.width };
 }
 
 export function snapToCellCenter(p: Point, grid: GridSpec): Point {
@@ -91,7 +105,7 @@ export type AreaGeometry =
  * that starts at the origin (the middle of its near side) and extends toward `toward`, as a
  * 5e cube does. A zero-length aim points right.
  */
-export function areaShape(shape: AreaShape, origin: Point, toward: Point, size: number, grid: GridSpec): AreaGeometry {
+export function areaShape(shape: AreaShape, origin: Point, toward: Point, size: number, grid: GridSpec, width?: number): AreaGeometry {
   const length = (size / grid.unitsPerCell) * grid.cellSize;
   if (shape === "circle") return { kind: "circle", center: origin, radius: length };
 
@@ -106,6 +120,11 @@ export function areaShape(shape: AreaShape, origin: Point, toward: Point, size: 
   });
 
   if (shape === "cone") return { kind: "polygon", points: [origin, at(length, -length / 2), at(length, length / 2)] };
+  if (shape === "line") {
+    // Starts at the origin and runs `size` toward the aim, `width` across (one cell by default) (KAN-35).
+    const half = (((width ?? grid.unitsPerCell) / grid.unitsPerCell) * grid.cellSize) / 2;
+    return { kind: "polygon", points: [at(0, -half), at(length, -half), at(length, half), at(0, half)] };
+  }
   const h = length / 2;
   return { kind: "polygon", points: [at(0, -h), at(length, -h), at(length, h), at(0, h)] };
 }
@@ -151,18 +170,8 @@ function distanceToSegment(p: Point, a: Point, b: Point): number {
   return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
 }
 
-function insidePolygon(p: Point, points: Point[]): boolean {
-  let inside = false;
-  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
-    const a = points[i]!;
-    const b = points[j]!;
-    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
-  }
-  return inside;
-}
-
 function nearPolygon(p: Point, points: Point[], tolerance: number): boolean {
-  return insidePolygon(p, points) || points.some((a, i) => distanceToSegment(p, a, points[(i + 1) % points.length]!) <= tolerance);
+  return pointInPolygon(p, points) || points.some((a, i) => distanceToSegment(p, a, points[(i + 1) % points.length]!) <= tolerance);
 }
 
 /**
@@ -187,7 +196,7 @@ export function hitMark(mark: Mark, p: Point, tolerance: number, grid: GridSpec)
     case "stroke":
       return mark.points.some((a, i) => distanceToSegment(p, a, mark.points[i + 1] ?? a) <= tolerance);
     case "area": {
-      const shape = areaShape(mark.shape, areaOrigin(mark.origin, grid, mark.free), mark.toward, mark.size, grid);
+      const shape = areaShape(mark.shape, areaOrigin(mark.origin, grid, mark.free), mark.toward, mark.size, grid, mark.width);
       if (shape.kind === "circle") return Math.hypot(p.x - shape.center.x, p.y - shape.center.y) <= shape.radius + tolerance;
       return nearPolygon(p, shape.points, tolerance);
     }

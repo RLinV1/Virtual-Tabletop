@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { DiceFive, MapTrifold, Sword, UserList } from "@phosphor-icons/react";
 import { can, type DiceVisibility, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
+import type { DiceBoard } from "../board/Board";
 import type { TokenDraft } from "../board/placement";
 import type { RoomConnection } from "../net/roomConnection";
 import { GmPanel } from "../pages/GmPanel";
@@ -8,6 +9,8 @@ import type { GridDraft } from "../pages/gridDraft";
 import { DicePanel } from "./DicePanel";
 import { InitiativeTracker } from "./InitiativeTracker";
 import { AttackPanel, type AttackPick } from "./AttackPanel";
+import type { AttackReset } from "./attackSession";
+import type { RollThrow } from "./DicePanel";
 import { attackSectionChange, type EncounterView } from "./attackRoll";
 import { MyTokens } from "./MyTokens";
 import { RulingsPanel } from "./RulingsPanel";
@@ -136,8 +139,14 @@ interface Props {
   /** Who attacks whom, shared with the board's Pick on board (attack-targeting). */
   attackPick: AttackPick;
   onAttackPick: (pick: AttackPick) => void;
+  /** The last encounter end, which clears the Attack section (attack-panel-encounter-reset). */
+  attackReset: AttackReset;
+  /** Which rolls are still being thrown, the one that just landed, and how to say it landed (throw-dice-on-board). */
+  rollThrow: RollThrow;
   onPickOnBoard: (attackerId: string) => void;
   onShowPing: (at: Point) => void;
+  /** The board, for dice thrown onto it from the Dice panel (throw-dice-on-board). */
+  diceBoard?: DiceBoard;
   attackVisibility: DiceVisibility;
   onAttackVisibility: (visibility: DiceVisibility) => void;
   gridDraft: GridDraft;
@@ -151,6 +160,8 @@ interface Props {
   onPlaceToken: (draft: TokenDraft) => void;
   /** True on narrow screens, where the tab buttons sit above the panel instead of in the top bar. */
   compact: boolean;
+  /** The GM is previewing as a player (gm-view-as-player): the panels' controls do nothing. */
+  readOnly?: boolean;
   tab: TabId;
   onTab: (tab: TabId) => void;
   /** GM only: open the review of a departed player's tokens (KAN-58). */
@@ -165,9 +176,9 @@ interface Props {
  */
 export function RoomPanel({
   connection, state, you, token, onFocusToken, onPlaceToken,
-  attackPick, onAttackPick, onPickOnBoard, onShowPing, attackVisibility, onAttackVisibility,
+  attackPick, onAttackPick, attackReset, rollThrow, onPickOnBoard, onShowPing, diceBoard, attackVisibility, onAttackVisibility,
   gridDraft, hasGridDraft, onGridDraftChange, onGridDraftCancel, onGridApply, gridApplying, gridError,
-  compact, tab, onTab, onReviewDeparture, tabBadges,
+  compact, tab, onTab, onReviewDeparture, tabBadges, readOnly,
 }: Props) {
   const isGm = you.role === "gm";
   useQuietAttackSection(state, you);
@@ -181,26 +192,31 @@ export function RoomPanel({
   const sections: Record<TabId, ReactNode> = {
     play: (
       <>
-        {isGm && <RulingsPanel connection={connection} state={state} />}
+        {isGm && <RulingsPanel connection={connection} state={state} airborne={rollThrow.airborne} />}
         <MyTokens connection={connection} state={state} you={you} onFocusToken={onFocusToken} />
+        {/* The encounter first: whose turn it is decides who attacks. */}
+        <InitiativeTracker connection={connection} state={state} you={you} onFocusToken={onFocusToken} />
         <AttackPanel
           connection={connection}
           state={state}
           you={you}
           pick={attackPick}
           onPick={onAttackPick}
+          reset={attackReset}
+          airborne={rollThrow.airborne}
+          rolling={rollThrow.rolling}
+          onLanded={rollThrow.onLanded}
           onPickOnBoard={onPickOnBoard}
           onShowPing={onShowPing}
           visibility={attackVisibility}
           onVisibility={onAttackVisibility}
         />
-        <InitiativeTracker connection={connection} state={state} you={you} onFocusToken={onFocusToken} />
       </>
     ),
     tokens: (
       <TokenRoster connection={connection} state={state} you={you} token={token} onFocusToken={onFocusToken} onPlaceToken={onPlaceToken} />
     ),
-    dice: <DicePanel connection={connection} state={state} isGm={isGm} />,
+    dice: <DicePanel connection={connection} state={state} isGm={isGm} rollThrow={rollThrow} board={diceBoard} />,
     gm: isGm ? (
       <GmPanel
         connection={connection}
@@ -222,7 +238,10 @@ export function RoomPanel({
     <div className="tabbed">
       {compact && <PanelTabs isGm={isGm} tab={tab} badges={tabBadges} onTab={(t) => onTab(t)} />}
       <div role="tabpanel" id={TAB_PANEL_ID} aria-labelledby={tabButtonId(tab)} tabIndex={0} className="tabpanel">
-        {sections[tab === "gm" && !isGm ? "play" : tab]}
+        {/* A disabled fieldset turns every control off but leaves the content readable by screen readers (gm-view-as-player). */}
+        <fieldset className="preview-fieldset" disabled={readOnly}>
+          {sections[tab === "gm" && !isGm ? "play" : tab]}
+        </fieldset>
       </div>
     </div>
   );

@@ -60,6 +60,11 @@
 .activity-refresh:hover:not(:disabled) { filter: none; color: var(--text); border-color: var(--muted); }
 .activity-entries li { padding: var(--space-3) 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
 .activity-entries p { margin: 0 0 var(--space-1); }
+/* Undo sits on the entry it reverses (ADR 0013). */
+.activity-entry-head { display: flex; align-items: flex-start; gap: var(--space-2); }
+.activity-entry-head > p { flex: 1; min-width: 0; }
+.activity-undo { display: inline-flex; align-items: center; gap: 0.3rem; flex: none; }
+.activity-undone { flex: none; font-size: var(--fs-xs); color: var(--muted); border: 1px solid var(--border); border-radius: var(--radius); padding: 0 var(--space-1); }
 /* `hidden` must beat any display set by a class (.panel-body is flex); otherwise a
    collapsed panel stays rendered and spills out of its zero-width column. */
 [hidden] { display: none !important; }
@@ -135,8 +140,10 @@ label.inline { flex-direction: row; align-items: center; gap: 0.35rem; color: va
 /* The top bar spans both columns; the board and the panel share the row beneath it. */
 .room-topbar {
   grid-column: 1 / -1;
-  /* Three columns so the people sit dead centre whatever the two sides hold. */
-  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: var(--space-3);
+  /* Three columns so the people sit dead centre while both sides fit. The controls never
+     shrink below their own width: on a narrower bar the title gives way (it ellipsizes) and
+     the people shift left, instead of the controls spilling over them. */
+  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(max-content, 1fr); align-items: center; gap: var(--space-3);
   min-width: 0; padding: var(--space-2) var(--space-3);
   background: var(--panel); border-bottom: 1px solid var(--border);
 }
@@ -144,6 +151,13 @@ label.inline { flex-direction: row; align-items: center; gap: 0.35rem; color: va
 .topbar-start, .topbar-end { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .topbar-end { justify-content: flex-end; }
 .topbar-center { display: flex; justify-content: center; }
+/* Too narrow for one line (the GM's controls alone are ~600px): title and people on the
+   first row, the controls (Share last, still at the right) on a second, rather than the
+   controls or the title running under the people. */
+@media (max-width: 960px) {
+  .room-topbar { grid-template-columns: minmax(0, 1fr) auto; row-gap: var(--space-1); }
+  .topbar-end { grid-column: 1 / -1; flex-wrap: wrap; }
+}
 .room-title {
   margin: 0; font-size: var(--fs-md); font-weight: 700;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
@@ -206,9 +220,27 @@ a.tool-button { text-decoration: none; }
 .tool-button[aria-expanded="true"] { border-color: var(--accent); }
 .icon-count { font-variant-numeric: tabular-nums; }
 .board-hint {
-  position: absolute; bottom: var(--space-2); left: var(--space-3); margin: 0;
+  /* Starts right of the tool rail, which runs down the board's left edge and would cover it
+     in a short window. 4.25rem = the rail's labelled buttons, its padding and border. */
+  position: absolute; bottom: var(--space-2); left: calc(var(--space-3) + 4.25rem + var(--space-2)); margin: 0;
+  max-width: calc(100% - 4.25rem - 3 * var(--space-3));
   font-size: var(--fs-xs); color: var(--muted); pointer-events: none;
 }
+
+/* Details of the clicked token: right edge, below the notices. */
+.token-card {
+  position: absolute; right: var(--space-3); bottom: var(--space-3); z-index: 5;
+  width: 14rem; max-width: calc(100% - 2 * var(--space-3));
+  padding: var(--space-2) var(--space-3);
+  background: var(--raised); border: 1px solid var(--border-strong); border-radius: var(--radius);
+  box-shadow: 0 10px 28px var(--shadow); font-size: var(--fs-sm);
+}
+.token-card-head { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
+.token-card-head strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.token-card-swatch { width: 0.9rem; height: 0.9rem; border-radius: 50%; flex: none; border: 1px solid var(--border-strong); }
+.token-card dl { display: grid; grid-template-columns: auto 1fr; gap: var(--space-1) var(--space-3); margin: 0; }
+.token-card dt { color: var(--muted); }
+.token-card dd { margin: 0; }
 
 /* Placing a new token (place-token-on-board): top centre, clear of the toolbar and notices. */
 .placement-bar {
@@ -243,6 +275,8 @@ a.tool-button { text-decoration: none; }
 }
 .participant-list li + li { border-top: 1px solid var(--border); }
 .participant-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.participant-list .participant-away .participant-name { color: var(--muted); }
+.participant-seats { margin-bottom: var(--space-1); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border); }
 
 .panel {
   position: relative;
@@ -505,6 +539,39 @@ button.small { min-height: 0; padding: 0.2rem 0.5rem; font-size: var(--fs-sm); }
 .dice-quick { display: flex; flex-wrap: wrap; gap: 0.3rem; }
 label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-size: var(--fs-sm); color: var(--text); }
 
+/* --- Chat (KAN-75) --- */
+.chat-widget { position: fixed; right: var(--space-4); bottom: var(--space-4); z-index: 50; display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-2); }
+.chat-fab {
+  position: relative; width: 3.25rem; height: 3.25rem; padding: 0; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgb(0 0 0 / 0.45);
+}
+.chat-badge {
+  position: absolute; top: -0.2rem; right: -0.2rem; min-width: 1.2rem; height: 1.2rem; padding: 0 0.25rem;
+  border-radius: 999px; background: var(--text); color: var(--bg, #000); font-size: var(--fs-xs); font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.chat-popup {
+  width: min(22rem, calc(100vw - 2 * var(--space-4))); display: flex; flex-direction: column; gap: var(--space-2);
+  padding: var(--space-3); background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--radius);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.55);
+  /* Never taller than the room above the launcher, so the header and close button stay reachable. */
+  max-height: calc(100dvh - 3.25rem - 3 * var(--space-4)); min-height: 0;
+}
+.chat-popup-header { display: flex; align-items: center; justify-content: space-between; }
+.chat-popup-header h2 { margin: 0; font-size: var(--fs-sm); color: var(--muted); }
+.chat-popup .chat-log { max-height: 18rem; flex: 1 1 auto; min-height: 4rem; }
+.chat-form { display: flex; flex-direction: column; gap: 0.4rem; margin-top: var(--space-2); }
+.chat-log { display: flex; flex-direction: column; gap: var(--space-1); max-height: 14rem; overflow-y: auto; }
+.chat-message {
+  display: flex; flex-direction: column; gap: 0.1rem; font-size: var(--fs-sm);
+  padding: var(--space-2); background: var(--raised); border: 1px solid var(--border); border-radius: var(--radius);
+}
+/* Your own lines get a border mark as well as the name, never colour alone. */
+.chat-message.mine { border-left: 3px solid var(--accent); }
+.chat-meta { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; }
+.chat-meta time { font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.chat-text { overflow-wrap: anywhere; }
+
 .roll-log { display: flex; flex-direction: column; max-height: 13rem; overflow-y: auto; }
 /* A roll as a card: total in a box with its dice beneath, then the expression and roller. */
 .roll {
@@ -528,10 +595,12 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 
 /* The tray the latest roll lands in. Rust dice for the table; a GM-only roll is thrown in
    slate with amber numerals, and its row still carries the "GM only" badge. */
-.dice-tray {
+.dice-tray, .thrown-dice-roll, .dice-ghost, .dice-throw-handle, .dice-look-preview {
   --die-body: var(--accent);
   --die-ink: var(--accent-ink);
   --die-shadow: rgba(0, 0, 0, 0.6);
+}
+.dice-tray {
   display: flex; flex-wrap: wrap; justify-content: center; gap: 0.3rem 0.55rem;
   padding: 0.7rem 0.5rem 0.8rem;
   border: 1px solid var(--border); border-radius: var(--radius);
@@ -539,7 +608,7 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
   /* The dice are thrown in from outside the tray; clip them until they arrive. */
   overflow: hidden;
 }
-.dice-tray.private { --die-body: #39404b; --die-ink: var(--warn); }
+.dice-tray.private, .thrown-dice-roll.private, .dice-ghost.private, .dice-throw-handle[data-private] { --die-body: #39404b; --die-ink: var(--warn); }
 .die3d-slot { position: relative; width: var(--die); height: var(--die); }
 .die3d-shadow {
   position: absolute; left: 14%; right: 14%; bottom: -4%; height: 22%;
@@ -564,6 +633,121 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
   text-anchor: middle; dominant-baseline: central;
 }
 .die3d-face line { stroke: var(--die-ink); stroke-linecap: round; }
+
+/* Dice thrown onto the map (throw-dice-on-board). The world layer follows the board's pan and
+   zoom; the dice are placed in it in board pixels. Nothing here takes the pointer. */
+.thrown-dice { position: absolute; inset: 0; z-index: 1; overflow: hidden; pointer-events: none; }
+/* Attack and condition effects (board-effects-overlay): above the canvas, never takes input. */
+.effects-overlay { position: absolute; inset: 0; z-index: 2; overflow: hidden; pointer-events: none; }
+.effects-overlay-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.effects-overlay * { pointer-events: none; }
+.effects-anchor { position: absolute; width: 0; height: 0; }
+.effects-ring { position: absolute; border-radius: 50%; border-style: solid; border-color: currentColor; box-sizing: border-box; background: transparent; }
+.effects-glow, .effects-orb { position: absolute; border-radius: 50%; }
+.effects-veil { position: absolute; background: rgba(0, 0, 0, 0.55); }
+.effects-text, .effects-label { position: absolute; font-weight: 800; line-height: 1; white-space: nowrap; transform: translateX(-50%); text-shadow: 0 0 6px rgba(0, 0, 0, 0.9), 0 2px 0 rgba(0, 0, 0, 0.8); }
+.effects-damage { -webkit-text-stroke: 3px rgba(0, 0, 0, 0.85); paint-order: stroke fill; }
+.effects-beam { position: absolute; border-radius: 999px; background: linear-gradient(90deg, rgba(251, 146, 60, 0), #fde047 40%, #fff); box-shadow: 0 0 14px 4px rgba(249, 115, 22, 0.8); }
+.effects-slash { position: absolute; border-radius: 999px; background: linear-gradient(90deg, rgba(255, 255, 255, 0), #fff 30%, #fecaca 70%, rgba(239, 68, 68, 0)); box-shadow: 0 0 10px 2px rgba(239, 68, 68, 0.9); }
+.effects-shard { position: absolute; clip-path: polygon(0 50%, 40% 0, 100% 40%, 60% 100%); }
+.effects-miss { letter-spacing: 0.12em; }
+.effects-whiff { position: absolute; border-radius: 50%; border-style: solid; border-color: #e2e8f0 transparent transparent transparent; box-sizing: border-box; }
+.thrown-dice-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.thrown-dice-roll { --die-shadow: rgba(0, 0, 0, 0.55); }
+.thrown-dice-roll .die3d-slot { position: absolute; }
+
+/* A die in the viewer's image skin (dice-image-skins): the picture is the face, and the
+   painted shading and the result highlight lie over it as tints. The numerals keep a dark
+   outline so they read on any picture. */
+.die3d.skinned .die3d-face polygon { fill: #05070a; fill-opacity: var(--shade); }
+.die3d.skinned .die3d-face.front polygon { fill: #fff; fill-opacity: 8%; }
+.die3d.skinned .die3d-face text {
+  fill: #fff; paint-order: stroke; stroke: rgba(8, 10, 14, 0.78); stroke-width: 0.09em; stroke-linejoin: round;
+}
+.die3d.skinned .die3d-face line { stroke: #fff; }
+.dice-look { display: flex; flex-direction: column; gap: var(--space-1); }
+.dice-look p { margin: 0; }
+.dice-look-row { display: flex; align-items: center; gap: var(--space-2); }
+.dice-look-row select { flex: 1; min-width: 0; }
+.dice-look-edit { white-space: nowrap; font-size: 0.9em; }
+
+/* The asset library's Dice tab: cards as on the other tabs, the dice standing in for a thumbnail. */
+.dice-look-preview { display: flex; justify-content: center; align-items: center; gap: 0.9rem; }
+.asset-thumb .dice-look-preview { width: 100%; height: 100%; background: radial-gradient(ellipse 80% 90% at 50% 30%, var(--raised), var(--field)); }
+dialog.modal.dice-look-modal { width: min(40rem, calc(100vw - 2rem)); }
+.dice-look-form label { display: flex; flex-direction: column; gap: var(--space-1); }
+.dice-look-form p { margin: 0; }
+.dice-look-pictures-head { justify-content: space-between; align-items: baseline; }
+
+/* A look's dice, one card each with a single Edit menu (dice-image-skins). */
+.die-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr)); gap: var(--space-3); }
+.die-card {
+  position: relative;
+  display: flex; flex-direction: column; gap: var(--space-2); min-width: 0;
+  padding: var(--space-2); border: 1px solid var(--border); border-radius: 10px; background: var(--panel);
+  transition: border-color 200ms cubic-bezier(0.16, 1, 0.3, 1), transform 300ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+/* The open menu belongs above the cards after it. */
+.die-card:has(.popover) { z-index: 2; border-color: var(--border-strong); }
+.die-card-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.die-card-name { font-size: var(--fs-md); }
+.die-card-edit { display: inline-flex; align-items: center; gap: 0.3rem; }
+.die-card-thumb { position: relative; }
+.die-card-toast {
+  position: absolute; left: var(--space-2); right: var(--space-2); bottom: var(--space-2); margin: 0;
+  padding: 0.3rem 0.5rem; border-radius: 6px; text-align: center;
+  font-size: var(--fs-xs); line-height: 1.3; color: var(--text);
+  background: color-mix(in srgb, var(--raised) 92%, transparent); border: 1px solid var(--border-strong);
+}
+.die-card-toast.error { color: var(--danger); border-color: var(--danger); }
+.die-card .die3d-slot { transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1); }
+.die-menu { display: flex; flex-direction: column; min-width: 11rem; }
+.die-card .popover { padding: var(--space-1); }
+.die-menu-item {
+  display: flex; align-items: center; gap: var(--space-2); width: 100%; text-align: left; white-space: nowrap;
+  background: transparent; color: var(--text); border: 1px solid transparent;
+  font-weight: 500; font-size: var(--fs-sm); padding: 0.4rem 0.5rem;
+}
+.die-menu-item:hover:not(:disabled), .die-menu-item:focus-visible { filter: none; background: var(--panel); }
+/* Resetting drops the picture, so it warns on hover like other destructive actions. */
+.die-menu-item.danger:hover:not(:disabled), .die-menu-item.danger:focus-visible { border-color: var(--danger); color: var(--danger); }
+@media (prefers-reduced-motion: no-preference) {
+  .die-card { animation: die-card-in 360ms cubic-bezier(0.16, 1, 0.3, 1) backwards; animation-delay: calc(var(--index, 0) * 40ms); }
+  .die-card:hover { transform: translateY(-2px); border-color: var(--border-strong); }
+  .die-card:hover .die3d-slot { transform: translateY(-3px); }
+  .die-card .popover, .die-card-toast { animation: modal-in 0.16s ease-out; }
+  @keyframes die-card-in { from { opacity: 0; transform: translateY(6px); } }
+}
+
+/* The die to pick up in the Dice panel, and the one held under the pointer. */
+.dice-throw { display: flex; align-items: center; gap: var(--space-2); }
+.dice-throw p { margin: 0; }
+.dice-throw-handle {
+  flex: none; display: grid; place-items: center;
+  width: calc(var(--die) + 14px); height: calc(var(--die) + 14px);
+  border: 1px dashed var(--border); border-radius: var(--radius);
+  background: var(--field);
+  cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none;
+}
+.dice-throw-handle:active { cursor: grabbing; }
+.dice-throw-handle.disabled { opacity: 0.45; cursor: not-allowed; }
+.dice-ghost {
+  /* Placed by a transform written on each frame (DiceThrowHandle), so following the pointer
+     never costs a layout. */
+  position: fixed; left: 0; top: 0; z-index: 1000; width: var(--die); height: var(--die);
+  pointer-events: none; will-change: transform;
+  transition: opacity 150ms;
+}
+/* Not over the map: letting go here puts the die back. */
+.dice-ghost.off-map { opacity: 0.55; }
+.dice-ghost.fading { opacity: 0; transition: opacity 400ms; }
+@media (prefers-reduced-motion: no-preference) {
+  .dice-ghost .die3d { animation: dice-ghost-spin 900ms linear infinite; }
+}
+@keyframes dice-ghost-spin {
+  from { transform: rotateX(0deg) rotateY(0deg) rotateZ(0deg); }
+  to { transform: rotateX(360deg) rotateY(720deg) rotateZ(180deg); }
+}
 
 @media (prefers-reduced-motion: no-preference) {
   /* The total arrives with the dice. */
@@ -644,19 +828,12 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 /* Attack section in Play (attack-targeting). */
 .attack-panel { gap: var(--space-3); }
 .attack-field { display: flex; flex-direction: column; gap: 0.35rem; }
-.attack-target-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
-.attack-target { display: inline-flex; align-items: center; gap: 0.35rem; min-width: 0; }
-.attack-target strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.attack-target-row button.small { display: inline-flex; align-items: center; gap: 0.3rem; }
-.attack-targets { display: flex; flex-wrap: wrap; gap: 0.3rem; }
-.attack-targets { max-height: 6.5rem; overflow-y: auto; }
 .attack-panel .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .attack-panel .chip[aria-pressed="true"] .muted { color: inherit; }
 .attack-dice { border: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
 .attack-kind { display: grid; grid-template-columns: 1fr 1fr; gap: 0.2rem; }
 .attack-kind .chip { text-align: center; }
 .attack-waiting { margin: 0; display: inline-flex; align-items: center; gap: 0.3rem; }
-.attack-latest button.small { display: inline-flex; align-items: center; gap: 0.3rem; align-self: flex-start; }
 .attack-die-types { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0.2rem; }
 .attack-die-types .chip { padding: 0.15rem 0; text-align: center; }
 .attack-dice-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
@@ -668,18 +845,70 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 .attack-label-row { display: flex; gap: 0.3rem; align-items: stretch; }
 .attack-label-row input { flex: 1; min-width: 0; }
 .attack-roll { display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; width: 100%; }
-.attack-latest { display: flex; flex-direction: column; gap: 0.35rem; }
-.roll-verdict { display: inline-flex; gap: 0.25rem; margin-top: 0.2rem; }
-.roll-verdict .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 /* Attack section layout (attack-ux-polish). */
+/* Compact layout (attack-section-compact): who attacks whom, what to roll, roll, then the result. */
+.attack-who, .attack-row, .attack-roll-row { display: flex; align-items: center; gap: 0.35rem; min-width: 0; }
+/* Two lines at sidebar width: the attacker on its own, then the target beside Pick on board. */
+.attack-who { flex-wrap: wrap; }
+.attack-who .picker { flex: 1 1 0; }
+.attack-who > :first-child { flex: 1 1 100%; }
+.attack-board-pick, .attack-more, .attack-private { flex: none; min-width: 40px; min-height: 40px; display: inline-flex; align-items: center; justify-content: center; }
+.attack-row > .popover-anchor { flex: none; }
+.attack-add-first { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; min-height: 40px; }
+.attack-roll-row .attack-roll { flex: 1; min-height: 44px; font-size: var(--fs-md); }
+.attack-private.on { border-color: var(--warn); color: var(--warn); background: rgba(217, 164, 65, 0.12); }
+.attack-custom { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius); }
+.attack-custom-head { display: flex; align-items: center; justify-content: space-between; }
+.attack-custom-label { width: 100%; }
+.attack-latest { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 0; background: var(--raised); }
+.attack-latest.private { border-left-color: var(--warn); }
+.attack-latest-main { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.attack-latest-text { flex: 1 1 8rem; min-width: 0; }
+.attack-latest-text p { margin: 0; }
+.attack-result strong { font-size: var(--fs-lg); }
+.attack-latest-meta { font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.badge.outcome-hit, .badge.outcome-applied { color: var(--ok); border-color: var(--ok); }
+.badge.outcome-miss { color: var(--muted); }
+
+/* A compact dropdown in the app's look (ui/Picker). */
+.picker { position: relative; flex: 1; min-width: 0; }
+.picker-button {
+  width: 100%; min-height: 40px; display: flex; align-items: center; gap: 0.4rem; text-align: left;
+  padding: 0.35rem 0.55rem; font-weight: 400;
+  background: var(--field); color: var(--text); border: 1px solid var(--border);
+}
+.picker-button:hover:not(:disabled) { border-color: var(--border-strong); filter: none; }
+.picker-button[aria-expanded="true"] { border-color: var(--accent); }
+.picker-button > svg { flex: none; color: var(--muted); }
+.picker-label { font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-placeholder { color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-detail { margin-left: auto; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
+.picker-button .picker-caret { margin-left: auto; }
+.picker-button .picker-detail + .picker-caret { margin-left: 0; }
+.picker-button[aria-expanded="true"] .picker-caret { transform: rotate(180deg); }
+.picker-list {
+  position: absolute; top: calc(100% + var(--space-1)); left: 0; z-index: 10;
+  min-width: 100%; width: max-content; max-width: min(18rem, 80vw);
+  margin: 0; padding: var(--space-1); list-style: none;
+  max-height: 16rem; overflow-y: auto;
+  background: var(--raised); border: 1px solid var(--border-strong); border-radius: var(--radius);
+  box-shadow: 0 10px 28px var(--shadow);
+}
+.picker-list[hidden] { display: none; }
+.picker-option { display: flex; align-items: center; gap: 0.45rem; min-height: 36px; padding: 0 var(--space-2); border-radius: var(--radius); cursor: pointer; }
+.picker-option.active { background: var(--accent-soft); }
+.picker-check { flex: none; visibility: hidden; color: var(--accent); }
+.picker-option[aria-selected="true"] .picker-check { visibility: visible; }
+.picker-option .picker-detail { padding-left: var(--space-3); }
+
+/* A plain menu inside a popover (the Attack section's options). */
+.popover .menu-list { display: flex; flex-direction: column; gap: 2px; min-width: 11rem; }
+.menu-item {
+  display: flex; align-items: center; gap: 0.5rem; width: 100%; min-height: 36px; padding: 0 var(--space-2);
+  background: transparent; border: none; color: var(--text); font-weight: 400; text-align: left;
+}
+.menu-item:hover:not(:disabled) { background: var(--accent-soft); filter: none; }
 .attack-attacker { margin: 0; display: flex; align-items: center; gap: 0.4rem; font-size: 1.05rem; }
-.attack-latest { padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius); }
-.attack-presets { display: flex; flex-direction: column; gap: 0.35rem; }
-.attack-preset { display: flex; align-items: stretch; gap: 0.3rem; }
-.attack-preset-roll { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.45rem; text-align: left; min-height: 40px; }
-.attack-preset-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.attack-preset-dice { margin-left: auto; font-weight: 500; font-variant-numeric: tabular-nums; opacity: 0.85; }
-.attack-add { align-self: flex-start; display: inline-flex; align-items: center; gap: 0.3rem; }
 .attack-follow-up { display: inline-flex; align-items: center; gap: 0.35rem; align-self: flex-start; }
 .attack-editor { padding: var(--space-2); border: 1px dashed var(--border-strong); border-radius: var(--radius); gap: var(--space-2); }
 .attack-editor-actions { justify-content: flex-end; flex-wrap: wrap; gap: 0.4rem; }
@@ -687,8 +916,6 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 .attack-dice-inputs { display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap; }
 .attack-dice-inputs input[type="number"] { width: 3.6rem; }
 .attack-dice-preview { font-variant-numeric: tabular-nums; }
-.attack-custom summary { cursor: pointer; font-size: var(--fs-sm); color: var(--muted); padding: 0.2rem 0; }
-.attack-custom[open] summary { margin-bottom: var(--space-2); color: var(--text); }
 .attack-warning { margin: 0; font-size: var(--fs-sm); color: var(--text); border-left: 3px solid var(--accent); padding-left: 0.5rem; }
 .ruling-buttons { display: inline-flex; gap: 0.35rem; flex-wrap: wrap; }
 .ruling-buttons button { min-height: 36px; min-width: 4.5rem; }
@@ -740,20 +967,9 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
     grid-template-rows: auto 46dvh 1fr;
     height: auto; min-height: 100dvh;
   }
-  /* Landscape has almost no height; give the board less and let the panel take over. */
-  @media (orientation: landscape) {
-    .room, .room.sidebar-collapsed { grid-template-rows: auto 62dvh 1fr; }
-  }
-
   .panel { border-left: none; border-top: 1px solid var(--border); }
   .room > .panel { grid-row: 3; }
-  /* Too narrow for three columns: title and people on the first row, the controls (Share
-     last, still at the right) on a second, rather than spilling over the people. */
-  .room-topbar {
-    grid-template-columns: minmax(0, 1fr) auto; row-gap: var(--space-1);
-    padding: var(--space-1) var(--space-2);
-  }
-  .topbar-end { grid-column: 1 / -1; flex-wrap: wrap; }
+  .room-topbar { padding: var(--space-1) var(--space-2); }
   /* The page scrolls on a phone, not a nested panel. */
   .panel-body { width: auto; height: auto; overflow: visible; padding: 0.6rem 0.75rem; gap: var(--space-2); }
 
@@ -771,6 +987,23 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
   /* These scroll with the panel on a phone rather than trapping a nested scroll area. */
   .roster, .roll-log { max-height: none; }
   .board-hint { display: none; }
+
+  /* Landscape has spare width, not height (KAN-55): put the panel beside the board, fill
+     the viewport, and let the panel scroll on its own instead of the page. Placed last so
+     it overrides the stacked rules above. */
+  @media (orientation: landscape) {
+    .room, .room.sidebar-collapsed {
+      grid-template-columns: minmax(0, 1fr) clamp(15rem, 42vw, 20rem);
+      grid-template-rows: auto minmax(0, 1fr);
+      height: 100dvh; min-height: 0;
+    }
+    .room > .panel { grid-row: 2; }
+    .panel { border-top: none; border-left: 1px solid var(--border); }
+    .panel-body { height: 100%; overflow-y: auto; }
+    /* The column is too narrow for icon and label side by side on every tab; stack them
+       on all four so the row does not mix one-line and two-line tabs. */
+    .tabbar .tab { display: flex; flex-direction: column; align-items: center; gap: 0.1rem; }
+  }
 }
 
 /* Coarse pointers get generous targets regardless of width (tablets). */
@@ -949,36 +1182,58 @@ dialog.modal {
   box-shadow: 0 24px 60px var(--shadow);
 }
 dialog.modal::backdrop { background: rgba(6, 8, 11, 0.62); }
-dialog.modal.grid-preview-modal { margin-right: 1rem; margin-left: auto; }
-dialog.modal.grid-preview-modal::backdrop { background: rgba(6, 8, 11, 0.35); }
-@media (max-width: 720px) {
-  dialog.modal.grid-preview-modal { margin-inline: auto; }
-}
-/* Library Edit grid: the whole map beside the grid form, stacked on narrow screens. */
-dialog.modal.library-grid-modal { width: min(68rem, calc(100vw - 2rem)); }
-.library-grid-editor {
-  display: grid; grid-template-columns: minmax(0, 1fr) 22rem; gap: var(--space-4); align-items: start;
-}
-.map-grid-preview { position: relative; min-width: 0; }
-.map-grid-canvas {
-  /* Shaped like the map (inline aspect-ratio), letterboxed only when the height cap applies. */
-  display: block; width: 100%; height: auto; min-height: 12rem; max-height: min(70dvh, 38rem);
-  border-radius: var(--radius); background: var(--field);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 0 0 1px var(--border);
-  cursor: grab; touch-action: none; user-select: none;
-}
-.map-grid-canvas:active { cursor: grabbing; }
-.map-grid-zoom {
-  position: absolute; right: var(--space-2); bottom: var(--space-2);
-  display: flex; align-items: center; gap: var(--space-1);
-  padding: var(--space-1); border-radius: var(--radius);
-  background: rgba(14, 16, 19, 0.82); border: 1px solid var(--border);
-}
-.map-grid-zoom button { display: grid; place-items: center; }
+/* Both room and library use the same focused sample editor. */
+dialog.modal.grid-editor-modal { width: min(68rem, calc(100vw - 2rem)); }
+/* Preparing a new map (KAN-59): aligning a grid is a comparison that needs width (contract §13.3). */
+dialog.modal.prep-sheet { width: min(1120px, calc(100vw - 48px)); }
+.grid-editor { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.map-grid-preview { min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.grid-instruction { margin: 0; font-size: var(--fs-sm); color: var(--text); }
+.map-grid-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.map-grid-toolbar button { display: inline-flex; align-items: center; justify-content: center; gap: 0.3rem; min-height: 44px; padding: 0.3rem 0.6rem; }
+.grid-sample-count { display: flex; gap: var(--space-1); }
+.grid-anchor-controls { display: flex; gap: var(--space-1); }
+.map-grid-status { margin: 0; min-height: 1.5em; color: var(--text); }
+.map-grid-toolbar button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+.map-grid-zoom { display: flex; align-items: center; gap: var(--space-1); margin-left: auto; }
 .map-grid-zoom-level { min-width: 3.5rem; text-align: center; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
-@media (max-width: 860px) {
-  .library-grid-editor { grid-template-columns: minmax(0, 1fr); }
-  .map-grid-canvas { max-height: min(45dvh, 22rem); }
+.map-grid-canvas {
+  display: block; width: 100%; height: clamp(12rem, 48dvh, 36rem);
+  border-radius: var(--radius); background: var(--field);
+  box-shadow: 0 0 0 1px var(--border);
+  cursor: crosshair; touch-action: none; user-select: none;
+}
+.map-grid-canvas.is-panning { cursor: grab; }
+.map-grid-canvas.is-panning:active { cursor: grabbing; }
+.grid-sample [data-anchor] { cursor: pointer; }
+.grid-sample [data-anchor]:focus { outline: none; }
+.grid-sample [data-anchor]:focus .grid-anchor-dot,
+.grid-sample [data-anchor][aria-pressed="true"] .grid-anchor-dot {
+  stroke: var(--focus); stroke-width: 3px; vector-effect: non-scaling-stroke;
+}
+.map-grid-help { margin: 0; }
+.grid-line-fields { display: flex; flex-direction: column; gap: var(--space-3); }
+.grid-editor-footer {
+  position: sticky; bottom: calc(-1 * var(--space-4)); z-index: 1;
+  display: flex; flex-direction: column; gap: var(--space-2);
+  padding: var(--space-2) 0; background: var(--raised); border-top: 1px solid var(--border);
+}
+.grid-scale { display: flex; align-items: center; gap: var(--space-2); font-size: var(--fs-sm); flex-wrap: wrap; }
+.grid-scale input { width: 4.5rem; min-width: 0; }
+.grid-editor-footer .grid-message { margin: 0; }
+.grid-editor .grid-actions { display: flex; justify-content: flex-end; }
+.grid-actions button { min-height: 44px; }
+@media (max-width: 720px) {
+  dialog.modal.grid-editor-modal { width: calc(100vw - 1rem); max-height: calc(100dvh - 1rem); }
+  dialog.modal.prep-sheet { width: calc(100vw - 1rem); max-height: calc(100dvh - 1rem); }
+  .prep-sheet .modal-body { max-height: calc(100dvh - 1rem); padding-inline: var(--space-3); }
+  .grid-editor-modal .modal-body { max-height: calc(100dvh - 1rem); padding-inline: var(--space-3); }
+  .map-grid-canvas { height: clamp(10rem, 34dvh, 24rem); }
+  .map-grid-toolbar { gap: var(--space-1); }
+  .map-grid-zoom { margin-left: 0; }
+  .grid-scale { gap: var(--space-1); }
+  .grid-scale input { width: 3.25rem; }
+  .grid-editor .grid-actions { display: grid; grid-template-columns: 1fr 1fr; }
 }
 
 .modal-body {
@@ -1005,13 +1260,31 @@ dialog.modal.library-grid-modal { width: min(68rem, calc(100vw - 2rem)); }
 
 .token-editor { display: flex; flex-direction: column; gap: var(--space-3); }
 .token-setup-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
+.token-setup-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .token-setup-grid label { min-width: 0; }
 .token-setup-grid input { width: 100%; }
-.token-editor .stats-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.35rem; align-items: end; }
-.token-editor-gm {
-  display: flex; flex-direction: column; gap: var(--space-2);
-  padding-top: var(--space-3); border-top: 1px solid var(--border);
+.token-editor .stats-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); align-items: end; }
+/* Rarely used fields sit in sections that start closed; the header summarises the value. */
+.token-editor-section { border-top: 1px solid var(--border); padding-top: var(--space-3); }
+.token-editor-section > summary {
+  display: flex; align-items: baseline; gap: var(--space-2);
+  cursor: pointer; font-size: var(--fs-sm); color: var(--muted); padding: 0.35rem 0;
 }
+.token-editor-section > summary::-webkit-details-marker { display: none; }
+.token-editor-section > summary::before { content: "▸"; transition: transform 0.12s; }
+.token-editor-section[open] > summary::before { transform: rotate(90deg); }
+.token-editor-section > summary:hover,
+.token-editor-section[open] > summary { color: var(--text); }
+.token-editor-summary { margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.token-editor-section[open] { padding-bottom: var(--space-2); }
+.token-editor-section[open] > summary { margin-bottom: var(--space-3); }
+.token-editor-section > :not(summary) + :not(summary) { margin-top: var(--space-3); }
+/* One gutter for the whole section, so the image buttons line up with the field columns. */
+.token-editor-section .token-setup-grid { gap: var(--space-3); }
+.token-editor-section .token-image-field .row { gap: var(--space-3); }
+/* Same two columns as the fields above, not flex widths that follow the button text. */
+.token-editor-section .token-image-field .row:not(.token-image-chosen) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.token-editor-section .token-image-field .row:not(.token-image-chosen) > :only-child { grid-column: 1 / -1; }
 /* Delete on the left, Save in the bottom-right corner where a dialog's primary action sits. */
 .token-editor-actions { display: flex; align-items: center; gap: var(--space-2); padding-top: var(--space-3); border-top: 1px solid var(--border); }
 .token-editor-actions .token-save { margin-left: auto; }
@@ -1020,8 +1293,8 @@ dialog.modal.library-grid-modal { width: min(68rem, calc(100vw - 2rem)); }
 .small-print { font-size: var(--fs-sm); }
 
 /* Image choice: two equal, quiet options side by side. */
-.token-image-field .row > button,
-.token-image-field .row > label { flex: 1; }
+.token-image-field .row:not(.token-image-chosen) > button,
+.token-image-field .row:not(.token-image-chosen) > label { flex: 1; }
 .field-label { font-size: var(--fs-sm); color: var(--muted); }
 
 .button-row > .upload-button { flex: 1; }
@@ -1262,6 +1535,34 @@ dialog.modal.library-grid-modal { width: min(68rem, calc(100vw - 2rem)); }
 }
 .path-label svg { color: var(--accent); }
 .path-hint { margin: 0.2rem 0 0.6rem; font-size: 0.95rem; color: var(--muted); }
+
+/* Rooms this browser joined (KAN-64): one row per seat, above the invite field. */
+.joined-rooms { padding-bottom: 1.1rem; border-bottom: 1px solid var(--rule); }
+.joined-list { display: grid; gap: 0.35rem; }
+.joined-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 2.75rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.joined-row a.joined-name {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  align-self: stretch;
+  min-width: 0;
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.joined-row a.joined-name svg { flex: none; color: var(--accent); }
+.joined-row:has(a:hover) { border-color: var(--border-strong); }
 
 .join-form > label { margin-bottom: 0.3rem; }
 .join-row { display: flex; align-items: stretch; gap: 0.6rem; }
@@ -1826,12 +2127,56 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
   font-size: var(--fs-sm);
 }
 .board-notice p { margin: 0; }
+
+/* What was just rolled (board-dice-rolls, throw-dice-on-board); never takes pointer input. */
+.board-roll-popup {
+  /* Bottom right, clear of the notices (top right) and the hint (bottom left). */
+  position: absolute; right: var(--space-3); bottom: var(--space-3); z-index: 6;
+  display: flex; align-items: center; gap: var(--space-3);
+  max-width: min(22rem, calc(100% - 2 * var(--space-3)));
+  padding: var(--space-2) var(--space-3);
+  background: var(--raised); border: 1px solid var(--border-strong); border-left: 3px solid var(--accent);
+  border-radius: var(--radius); box-shadow: 0 10px 28px var(--shadow);
+  pointer-events: none;
+}
+.board-roll-popup strong { font-size: 1.4rem; line-height: 1; font-variant-numeric: tabular-nums; }
+.board-roll-popup.private { border-left-color: var(--warn); }
+.board-roll-meta { display: flex; flex-direction: column; align-items: flex-start; gap: 0.15rem; min-width: 0; }
+.board-roll-meta .muted { font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+@media (prefers-reduced-motion: no-preference) {
+  /* In from the right, a pause to read, and back out: the same 4 s the room page shows it for. */
+  .board-roll-popup { animation: roll-card 4s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  @keyframes roll-card {
+    0% { opacity: 0; transform: translateX(calc(100% + var(--space-3))); }
+    9% { opacity: 1; transform: none; }
+    90% { opacity: 1; transform: none; }
+    100% { opacity: 0; transform: translateX(calc(100% + var(--space-3))); }
+  }
+}
+.turn-notice { border-left-color: var(--accent); }
 @media (prefers-reduced-motion: no-preference) {
   .board-notice { animation: modal-in 0.16s ease-out; }
 }
 
 .departed-list { display: flex; flex-direction: column; gap: var(--space-2); }
 .departed-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: var(--fs-sm); }
+/* Checkpoints (KAN-41): the name field takes the row; each saved one is a name and Restore. */
+.checkpoint-form { margin-bottom: var(--space-2); }
+.checkpoint-name { display: flex; flex: 1; min-width: 0; }
+.checkpoint-name input { flex: 1; min-width: 0; }
+.checkpoint-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.checkpoint-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: var(--fs-sm); }
+.checkpoint-row > span { min-width: 0; overflow-wrap: anywhere; }
+
+/* Fog of war by keyboard (FR-GM-17): fog the map or a block of cells, reveal from a list. */
+.fog-cells fieldset { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-2) 0 0; padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius); }
+.fog-cells legend { padding: 0 var(--space-1); font-size: var(--fs-sm); font-weight: 500; }
+.fog-cells-hint { margin: 0; font-size: var(--fs-xs); }
+.fog-cells-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
+.fog-cells-grid input { width: 100%; font-variant-numeric: tabular-nums; }
+.fog-count { margin: var(--space-3) 0 var(--space-1); font-size: var(--fs-sm); }
+.fog-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.fog-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: var(--fs-sm); }
 
 .resolve-all { flex-direction: row; align-items: center; justify-content: space-between; gap: var(--space-3); color: var(--text); font-weight: 500; }
 .resolve-rows { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
@@ -1901,6 +2246,18 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 /* Library creatures (library-creatures): a creature without art is a plain disc, as on the board. */
 .creature-disc { display: block; width: 70%; aspect-ratio: 1; border-radius: 50%; }
 .add-token-creature { flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.add-token-advanced summary { cursor: pointer; font-size: var(--fs-sm); color: var(--muted); padding: 0.2rem 0; }
+.add-token-advanced[open] summary { margin-bottom: var(--space-2); color: var(--text); }
 .picker-item .creature-disc { width: 100%; }
 .creature-image-choose { flex-wrap: wrap; gap: var(--space-2); align-items: center; }
 .creature-image-choose button { white-space: nowrap; }
+
+/* The GM previewing the room as a player (gm-view-as-player): always visible, never read-only. */
+.preview-banner {
+  position: fixed; left: 50%; bottom: var(--space-4); transform: translateX(-50%); z-index: 60;
+  display: flex; align-items: center; gap: var(--space-3); max-width: calc(100vw - 2 * var(--space-4));
+  padding: var(--space-2) var(--space-3); background: var(--panel); color: var(--text);
+  border: 2px solid var(--accent); border-radius: var(--radius); box-shadow: 0 8px 28px rgb(0 0 0 / 0.55);
+}
+.participant-view-as { margin-left: auto; }
+.preview-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; display: contents; }

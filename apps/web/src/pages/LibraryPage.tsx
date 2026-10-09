@@ -1,75 +1,112 @@
-import { useEffect, useMemo, useState } from "react";
-import { DEFAULT_GRID, normalizeLegacyGridForBoard, type AssetKind, type GridSpec, type LibraryAsset, type LibraryCreature } from "@vtt/shared";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { DEFAULT_GRID, normalizeLegacyGridForBoard, type AssetKind, type EncounterSummary, type LibraryAsset, type LibraryCreature } from "@vtt/shared";
 import { Link } from "../Link";
 import { api } from "../net/api";
 import { builtinsMatching } from "../net/builtinAssets";
-import { getGmToken } from "../net/gm";
-import { isRecognised, loadGmToken } from "../net/identity";
 import { imageSize, nameFromFile } from "../net/imageFile";
-import { navigate } from "../router";
 import { Modal } from "../ui/Modal";
-import { AccountMenu } from "./AccountPages";
+import { AccountMenu } from "../account/AccountPages";
+import { RequireAccount } from "../account/RequireAccount";
 import { GridForm } from "./GridForm";
 import { CreatureCard, CreatureForm } from "./LibraryCreatures";
-import { parseGridDraft, toGridDraft, withGridSuggestion } from "./gridDraft";
-import { MapGridPreview } from "./MapGridPreview";
+import { EncounterCard } from "./LibraryEncounters";
+import { DiceLookCards, DiceLookModal, DiceSignInLine, SaveBrowserLooksOffer } from "./DiceLooks";
+import { createDiceLook } from "../ui/diceSkinStore";
+import { toGridDraft, withGridSuggestion } from "./gridDraft";
 import { useGridDetection } from "./useGridDetection";
 
-/** Maps and token art are uploaded assets; creatures are reusable token setups (library-creatures). */
-type Tab = AssetKind | "creature";
+/**
+ * Maps and token art are uploaded assets; creatures are reusable token setups (library-creatures);
+ * dice are your dice looks, kept in this browser (dice-image-skins).
+ */
+type Tab = AssetKind | "creature" | "encounter" | "dice";
 
 const TABS: { tab: Tab; label: string }[] = [
   { tab: "map", label: "Maps" },
   { tab: "token", label: "Token Art" },
   { tab: "creature", label: "Creatures" },
+  { tab: "encounter", label: "Encounters" },
+  { tab: "dice", label: "Dice" },
 ];
 
+/** `/library?tab=dice` opens on the Dice tab: the room's Dice panel links there. */
+const wantsDice = () => new URLSearchParams(location.search).get("tab") === "dice";
+
 /**
- * The library is a GM surface, so it follows the dashboard's entry rule (gm-dashboard): a
- * browser that is not recognised goes to sign-in first. Replace, not push, so Back from
- * sign-in does not land on this redirect again.
+ * The signed-in person's library, whether they host or only play (asset-library). It follows the
+ * dashboard's entry rule (gm-dashboard): signed out goes to sign-in first.
+ *
+ * Dice looks are the exception: every player has dice, so the Dice tab opens on its own for a
+ * signed-out browser, with the looks kept in that browser (dice-looks).
  */
 export function LibraryPage() {
-  const [recognised] = useState(isRecognised);
+  const [diceOnly] = useState(wantsDice);
+  return (
+    <RequireAccount signedOut={diceOnly ? <DiceLibrary /> : undefined}>
+      <Library />
+    </RequireAccount>
+  );
+}
 
-  useEffect(() => {
-    if (!recognised) navigate("/signin", { replace: true });
-  }, [recognised]);
-
-  return recognised ? <Library /> : null;
+/** The Dice tab alone, for a player who isn't a GM here: the same toolbar, grid and editor. */
+function DiceLibrary() {
+  const [query, setQuery] = useState("");
+  const [editing, setEditing] = useState<string | null>(null);
+  return (
+    <main className="home gm-page">
+      <header className="home-header">
+        <Link href="/" className="brand">
+          Virtual Tabletop
+        </Link>
+      </header>
+      <h1>Dice looks</h1>
+      <div className="library-toolbar">
+        <input type="search" aria-label="Search by name" placeholder="Search by name" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <button type="button" onClick={() => void createDiceLook().then(setEditing)}>
+          New dice look
+        </button>
+      </div>
+      <DiceSignInLine />
+      <DiceLookCards query={query} onEdit={setEditing} />
+      <DiceLookModal lookId={editing} onClose={() => setEditing(null)} />
+    </main>
+  );
 }
 
 /** The GM's maps, token art and creatures, managed before a session (asset-library, library-creatures). */
 function Library() {
-  const [gmToken, setGmToken] = useState<string | null>(loadGmToken);
-  // No GM identity yet means nothing uploaded yet: an empty library, with nothing to fetch.
-  const [assets, setAssets] = useState<LibraryAsset[] | null>(gmToken ? null : []);
-  const [creatures, setCreatures] = useState<LibraryCreature[] | null>(gmToken ? null : []);
-  const [tab, setTab] = useState<Tab>("map");
-  const kind: AssetKind = tab === "creature" ? "token" : tab;
+  const [assets, setAssets] = useState<LibraryAsset[] | null>(null);
+  const [creatures, setCreatures] = useState<LibraryCreature[] | null>(null);
+  const [encounters, setEncounters] = useState<EncounterSummary[] | null>(null);
+  const [tab, setTab] = useState<Tab>(() => (wantsDice() ? "dice" : "map"));
+  const kind: AssetKind = tab === "map" ? "map" : "token";
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   /** The creature open in the New/Edit form. */
   const [creatureTarget, setCreatureTarget] = useState<LibraryCreature | "new" | null>(null);
+  /** The dice look open in its editor (dice-image-skins). */
+  const [diceTarget, setDiceTarget] = useState<string | null>(null);
   /** The owned map whose grid is open in the editor. */
   const [gridTarget, setGridTarget] = useState<LibraryAsset | null>(null);
+  const [gridSaving, setGridSaving] = useState(false);
 
   useEffect(() => {
-    // Reading the library never creates a GM identity (asset-library); the first upload does.
-    if (!gmToken) return;
     let live = true;
-    api.library.list(gmToken).then(
+    api.library.list().then(
       (list) => live && setAssets(list),
       (err: unknown) => live && setError(err instanceof Error ? err.message : "Could not load the library"),
     );
-    api.library.creatures.list(gmToken).then(
+    api.library.creatures.list().then(
       (list) => live && setCreatures(list),
       (err: unknown) => live && setError(err instanceof Error ? err.message : "Could not load your creatures"),
+    );
+    api.library.encounters.list().then(
+      (list) => live && setEncounters(list),
+      (err: unknown) => live && setError(err instanceof Error ? err.message : "Could not load your encounter templates"),
     );
     return () => {
       live = false;
     };
-    // Only the token present on arrival is listed; one created by an upload starts empty.
   }, []);
 
   const shown = useMemo(() => {
@@ -77,12 +114,17 @@ function Library() {
     return (assets ?? []).filter((a) => a.kind === kind && (!q || a.name.toLowerCase().includes(q)));
   }, [assets, kind, query]);
 
-  const builtins = useMemo(() => (tab === "creature" ? [] : builtinsMatching(kind, query)), [tab, kind, query]);
+  const builtins = useMemo(() => (tab === "creature" || tab === "encounter" || tab === "dice" ? [] : builtinsMatching(kind, query)), [tab, kind, query]);
 
   const shownCreatures = useMemo(() => {
     const q = query.trim().toLowerCase();
     return (creatures ?? []).filter((c) => !q || c.name.toLowerCase().includes(q));
   }, [creatures, query]);
+
+  const shownEncounters = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return (encounters ?? []).filter((e) => !q || e.name.toLowerCase().includes(q));
+  }, [encounters, query]);
 
   const replace = (next: LibraryAsset) => setAssets((all) => (all ?? []).map((a) => (a.id === next.id ? next : a)));
 
@@ -109,7 +151,11 @@ function Library() {
               role="tab"
               aria-selected={tab === t.tab}
               className={tab === t.tab ? "tab active" : "tab"}
-              onClick={() => setTab(t.tab)}
+              onClick={() => {
+                setTab(t.tab);
+                // Keep the Dice tab in the address, so reloading or sharing lands back on it.
+                history.replaceState(null, "", t.tab === "dice" ? "/library?tab=dice" : "/library");
+              }}
             >
               {t.label}
             </button>
@@ -122,21 +168,49 @@ function Library() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        {tab === "creature" ? (
+        {tab === "dice" ? (
+          <button type="button" onClick={() => void createDiceLook().then(setDiceTarget)}>New dice look</button>
+        ) : tab === "creature" ? (
           <button type="button" onClick={() => setCreatureTarget("new")}>New creature</button>
-        ) : (
+        ) : tab === "encounter" ? null : (
           <UploadButton
             kind={kind}
-            onUploaded={(token, a) => {
-              setGmToken(token);
+            onUploaded={(a) => {
               setAssets((all) => [a, ...(all ?? [])]);
+              if (a.kind === "map" && !a.grid) setGridTarget(a);
             }}
             onError={setError}
           />
         )}
       </div>
 
-      {tab === "creature" ? (
+      {tab === "dice" ? (
+        <>
+          <SaveBrowserLooksOffer />
+          <DiceLookCards query={query} onEdit={setDiceTarget} />
+        </>
+      ) : tab === "encounter" ? (
+        <>
+          {!encounters && !error && <p className="muted" aria-busy="true">Loading…</p>}
+          {encounters && shownEncounters.length === 0 && (
+            <p className="muted">
+              {query
+                ? "None of your encounter templates match that search."
+                : "You haven't saved any encounter templates yet. Open a room you run, prepare its map, tokens and fog, then use Save in the Encounter templates section of the GM panel."}
+            </p>
+          )}
+          <ul className="plain asset-grid" role="tabpanel">
+            {shownEncounters.map((encounter) => (
+              <EncounterCard
+                key={encounter.id}
+                encounter={encounter}
+                onChanged={(next) => setEncounters((all) => (all ?? []).map((e) => (e.id === next.id ? next : e)))}
+                onDeleted={() => setEncounters((all) => (all ?? []).filter((e) => e.id !== encounter.id))}
+              />
+            ))}
+          </ul>
+        </>
+      ) : tab === "creature" ? (
         <>
           {!creatures && !error && <p className="muted" aria-busy="true">Loading…</p>}
           {creatures && shownCreatures.length === 0 && (
@@ -147,12 +221,10 @@ function Library() {
             </p>
           )}
           <ul className="plain asset-grid" role="tabpanel">
-            {gmToken &&
-              shownCreatures.map((creature) => (
+            {shownCreatures.map((creature) => (
                 <CreatureCard
                   key={creature.id}
                   creature={creature}
-                  gmToken={gmToken}
                   onEdit={() => setCreatureTarget(creature)}
                   onDeleted={() => setCreatures((all) => (all ?? []).filter((c) => c.id !== creature.id))}
                 />
@@ -170,12 +242,10 @@ function Library() {
             </p>
           )}
           <ul className="plain asset-grid" role="tabpanel">
-            {gmToken &&
-              shown.map((asset) => (
+            {shown.map((asset) => (
                 <AssetCard
                   key={asset.id}
                   asset={asset}
-                  gmToken={gmToken}
                   onChanged={replace}
                   onEditGrid={() => setGridTarget(asset)}
                   onDeleted={() => {
@@ -210,10 +280,8 @@ function Library() {
           <CreatureForm
             key={creatureTarget === "new" ? "new" : creatureTarget.id}
             creature={creatureTarget === "new" ? null : creatureTarget}
-            gmToken={gmToken}
             onCancel={() => setCreatureTarget(null)}
-            onSaved={(saved, token) => {
-              setGmToken(token);
+            onSaved={(saved) => {
               setCreatures((all) => [saved, ...(all ?? []).filter((c) => c.id !== saved.id)]);
               setCreatureTarget(null);
             }}
@@ -221,16 +289,21 @@ function Library() {
         )}
       </Modal>
 
-      <Modal open={gridTarget !== null} title="Edit grid" className="library-grid-modal" onClose={() => setGridTarget(null)}>
-        {gmToken && gridTarget && (
+      <DiceLookModal lookId={diceTarget} onClose={() => setDiceTarget(null)} />
+
+      <Modal open={gridTarget !== null} title={gridTarget?.grid ? "Edit grid" : "Set up grid"} className="grid-editor-modal" onClose={() => {
+        if (!gridSaving) setGridTarget(null);
+      }}>
+        {gridTarget && (
           <LibraryGridEditor
-            key={gridTarget.id}
+            key={JSON.stringify([gridTarget.id, gridTarget.url, gridTarget.width, gridTarget.height, gridTarget.grid])}
             asset={gridTarget}
-            gmToken={gmToken}
+            saving={gridSaving}
+            onSavingChange={setGridSaving}
             onCancel={() => setGridTarget(null)}
-            onSaved={(saved) => {
+            onSaved={(saved, currentEditor) => {
               replace(saved);
-              setGridTarget((open) => (open?.id === saved.id ? null : open));
+              if (currentEditor) setGridTarget((open) => (open?.id === saved.id ? null : open));
             }}
           />
         )}
@@ -259,7 +332,7 @@ function BuiltinCard({ asset }: { asset: LibraryAsset }) {
 
 function UploadButton(props: {
   kind: AssetKind;
-  onUploaded: (gmToken: string, asset: LibraryAsset) => void;
+  onUploaded: (asset: LibraryAsset) => void;
   onError: (message: string | null) => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -269,9 +342,7 @@ function UploadButton(props: {
     props.onError(null);
     try {
       const { width, height } = await imageSize(file);
-      // An upload is a GM write, so this is where the identity is created if there is none.
-      const gmToken = await getGmToken();
-      props.onUploaded(gmToken, await api.library.upload(gmToken, file, { kind: props.kind, name: nameFromFile(file), width, height }));
+      props.onUploaded(await api.library.upload(file, { kind: props.kind, name: nameFromFile(file), width, height }));
     } catch (err) {
       props.onError(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -298,17 +369,16 @@ function UploadButton(props: {
 type DeleteState =
   | { step: "idle" }
   | { step: "checking" }
-  | { step: "confirm"; rooms: { id: string; name: string }[]; creatures: { id: string; name: string }[] }
+  | { step: "confirm"; rooms: { id: string; name: string }[]; creatures: { id: string; name: string }[]; encounters: { id: string; name: string }[] }
   | { step: "deleting" };
 
 function AssetCard(props: {
   asset: LibraryAsset;
-  gmToken: string;
   onChanged: (asset: LibraryAsset) => void;
   onEditGrid: () => void;
   onDeleted: () => void;
 }) {
-  const { asset, gmToken } = props;
+  const { asset } = props;
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(asset.name);
   const [del, setDel] = useState<DeleteState>({ step: "idle" });
@@ -318,7 +388,7 @@ function AssetCard(props: {
     const trimmed = name.trim();
     if (!trimmed || trimmed === asset.name) return setEditing(false);
     try {
-      props.onChanged(await api.library.update(gmToken, asset.id, { name: trimmed }));
+      props.onChanged(await api.library.update(asset.id, { name: trimmed }));
       setEditing(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Rename failed");
@@ -330,8 +400,8 @@ function AssetCard(props: {
     setDel({ step: "checking" });
     try {
       // Ask the server who uses it now, so the warning is never stale (asset-library).
-      const { rooms, creatures } = await api.library.usage(gmToken, asset.id);
-      setDel({ step: "confirm", rooms, creatures });
+      const { rooms, creatures, encounters } = await api.library.usage(asset.id);
+      setDel({ step: "confirm", rooms, creatures, encounters });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not check where this is used");
       setDel({ step: "idle" });
@@ -341,7 +411,7 @@ function AssetCard(props: {
   async function confirmDelete() {
     setDel({ step: "deleting" });
     try {
-      await api.library.remove(gmToken, asset.id);
+      await api.library.remove(asset.id);
       props.onDeleted();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Delete failed");
@@ -394,7 +464,13 @@ function AssetCard(props: {
               <strong>{del.creatures.map((c) => c.name).join(", ")}</strong>. {del.creatures.length === 1 ? "It" : "They"} will lose {del.creatures.length === 1 ? "its" : "their"} image.
             </p>
           )}
-          {del.rooms.length === 0 && del.creatures.length === 0 && <p>Delete “{asset.name}”? This can't be undone.</p>}
+          {del.encounters.length > 0 && (
+            <p>
+              Used by {del.encounters.length === 1 ? "1 encounter template" : `${del.encounters.length} encounter templates`}:{" "}
+              <strong>{del.encounters.map((e) => e.name).join(", ")}</strong>. {del.encounters.length === 1 ? "It" : "They"} can't be used until saved again with another map.
+            </p>
+          )}
+          {del.rooms.length === 0 && del.creatures.length === 0 && del.encounters.length === 0 && <p>Delete “{asset.name}”? This can't be undone.</p>}
           <div className="row">
             <button type="button" className="secondary small" onClick={() => setDel({ step: "idle" })}>
               Cancel
@@ -432,64 +508,73 @@ function AssetCard(props: {
  * A library map's grid, edited without a room (asset-library: Edit a map's grid in the
  * library). Saving writes only the library copy; rooms keep the grid they placed.
  */
-function LibraryGridEditor({ asset, gmToken, onCancel, onSaved }: {
+function LibraryGridEditor({ asset, onCancel, onSaved, saving, onSavingChange }: {
   asset: LibraryAsset;
-  gmToken: string;
   onCancel: () => void;
-  onSaved: (asset: LibraryAsset) => void;
+  onSaved: (asset: LibraryAsset, currentEditor: boolean) => void;
+  saving: boolean;
+  onSavingChange: (saving: boolean) => void;
 }) {
   const saved = asset.grid ?? DEFAULT_GRID;
   // An older grid too fine to draw starts at the smallest drawable size, as placement does.
   const [draft, setDraft] = useState(() => toGridDraft(normalizeLegacyGridForBoard(saved, asset)));
-  const [shown, setShown] = useState<GridSpec>(() => normalizeLegacyGridForBoard(saved, asset));
-  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const active = useRef(true);
   const [error, setError] = useState<string | null>(null);
-  const detection = useGridDetection("library", gmToken, asset.id);
+  // Library maps are read as the signed-in account, so no device token is needed (ADR 0017).
+  const detection = useGridDetection("library", "", asset.id);
+
+  // A delayed upload can replace this editor while its PATCH is still pending.
+  useEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+      onSavingChange(false);
+    };
+  }, [onSavingChange]);
 
   return (
-    <div className="library-grid-editor">
-      {/* An invalid draft leaves the last valid grid on the map. */}
-      <MapGridPreview map={asset} grid={shown} />
-      <div className="stack">
-        <GridForm
-          grid={saved}
-          map={asset}
-          draft={draft}
-          hasDraft
-          onChange={(next) => {
-            setDraft(next);
-            setError(null);
-            const valid = parseGridDraft(next, asset);
-            if (valid) setShown(valid);
-          }}
-          onCancel={onCancel}
-          onApply={async (grid) => {
-            setSaving(true);
-            setError(null);
-            try {
-              onSaved(await api.library.update(gmToken, asset.id, { grid }));
-            } catch (err) {
-              setError(err instanceof Error ? err.message : "Could not save the grid");
-            } finally {
-              setSaving(false);
-            }
-          }}
-          applying={saving}
-          error={error}
-          detection={detection.status}
-          detectionError={detection.error}
-          onRetryDetection={() => { void detection.retry(); }}
-          onUseSuggestion={(candidate) => {
-            const next = withGridSuggestion(draft, candidate);
-            setDraft(next);
-            const valid = parseGridDraft(next, asset);
-            if (valid) setShown(valid);
-          }}
-          submitLabel="Save grid"
-          busyLabel="Saving…"
-        />
-        <p className="muted small-print">Rooms already using this map keep their grid. New placements use this one.</p>
-      </div>
+    <div className="stack">
+      <GridForm
+        grid={saved}
+        map={asset}
+        draft={draft}
+        hasDraft
+        onChange={(next) => {
+          setDraft(next);
+          setError(null);
+        }}
+        onCancel={onCancel}
+        onApply={async (grid) => {
+          if (savingRef.current) return;
+          savingRef.current = true;
+          onSavingChange(true);
+          setError(null);
+          try {
+            const saved = await api.library.update(asset.id, { grid });
+            onSaved(saved, active.current);
+          } catch (err) {
+            if (active.current) setError(err instanceof Error ? err.message : "Could not save the grid");
+          } finally {
+            savingRef.current = false;
+            if (active.current) onSavingChange(false);
+          }
+        }}
+        applying={saving}
+        error={error}
+        detection={detection.status}
+        detectionError={detection.error}
+        onRetryDetection={() => { void detection.retry(); }}
+        onUseSuggestion={(candidate) => {
+          setDraft(withGridSuggestion(draft, candidate));
+          setError(null);
+        }}
+        submitLabel="Save grid"
+        busyLabel="Saving…"
+        cancelLabel={asset.grid ? "Cancel" : "Set up later"}
+        allowUnchanged={!asset.grid}
+      />
+      <p className="muted small-print">Rooms already using this map keep their grid. New placements use this one.</p>
     </div>
   );
 }

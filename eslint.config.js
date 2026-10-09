@@ -4,7 +4,8 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['**/dist/**', '**/node_modules/**', 'openspec/**', 'apps/server/uploads/**'],
+    // .claude/ holds local agent worktrees: full repo copies that are not part of this checkout.
+    ignores: ['**/dist/**', '**/node_modules/**', 'openspec/**', 'apps/server/uploads/**', '.claude/**'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

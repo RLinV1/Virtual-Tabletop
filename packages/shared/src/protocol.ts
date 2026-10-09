@@ -1,11 +1,13 @@
 import { z } from "zod";
-import { Command } from "./commands";
+import { TokenAttacks, type AttackPreset } from "./attackPresets";
+import { Command, DEFAULT_TOKEN_COLOR } from "./commands";
 import { CommittedEvent } from "./events";
 import { GridSpec, Point } from "./geometry";
-import { TokenStats } from "./conditions";
-import { Id, Participant, Token, type RoomState } from "./state";
+import { TokenStats, type ConditionId } from "./conditions";
+import { AreaShape, Id, Participant, Token, type RoomState } from "./state";
 import type { RejectionCode } from "./decide";
 import { RoomUploadPurpose } from "./gridDetection";
+import { MAX_ENCOUNTER_NAME } from "./encounters";
 
 /**
  * WebSocket wire protocol. One socket per client carries two logical channels:
@@ -17,6 +19,34 @@ import { RoomUploadPurpose } from "./gridDetection";
 export const EphemeralPayload = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ping"), at: Point }),
   z.object({ type: z.literal("tokenDragPreview"), tokenId: Id, at: Point }),
+  /**
+   * A die let go over the map (ADR 0014): where it leaves the hand and where it lands, in board
+   * coordinates. Sent just before the sender's `dice.roll`, so every other viewer can replay
+   * the throw at the same spot when that roll arrives. Presentation only: never persisted, and
+   * `expression` (as the server formats it) only pairs it with that roll.
+   */
+  z.object({ type: z.literal("diceDrop"), expression: z.string().min(1).max(32), from: Point, to: Point }),
+  /**
+   * An area template being aimed (KAN-35, ADR 0021), so the others watch it take shape. Null
+   * clears it (placed or cancelled). One per sender; receivers also drop it a second after the
+   * last update. Never persisted: only `template.place` commits.
+   */
+  z.object({
+    type: z.literal("templatePreview"),
+    preview: z.object({
+      shape: AreaShape,
+      origin: Point,
+      toward: Point,
+      size: z.number().positive().max(1000),
+      width: z.number().positive().max(1000).optional(),
+      gmOnly: z.boolean(),
+    }).nullable(),
+    /**
+     * On a clear, whether the aim being cleared was GM-only, so players don't even learn of it.
+     * Required on a clear: the server must never guess, or a GM's clear could reach players.
+     */
+    gmOnly: z.boolean().optional(),
+  }).refine((p) => p.preview !== null || p.gmOnly !== undefined, { message: "A cleared aim must say whether it was GM-only", path: ["gmOnly"] }),
 ]);
 export type EphemeralPayload = z.infer<typeof EphemeralPayload>;
 
@@ -57,7 +87,8 @@ export type ClientMessageInput = z.input<typeof ClientMessage>;
  * Why a seat ended (ADR 0006): the player left, or the GM removed them. Also the handshake error
  * text. `deleted` ends every seat at once, because the owner deleted the room (ADR 0009).
  */
-export type SessionEndReason = "left" | "revoked" | "deleted";
+/** `signed_out`: the sign-in this device's seat was bound to ended (ADR 0017 M4). */
+export type SessionEndReason = "left" | "revoked" | "deleted" | "signed_out";
 
 export type ServerMessage =
   /** Full, filtered snapshot. Client replaces its state and sets lastSeq = seq (FR-PL-06). */
@@ -91,8 +122,10 @@ export const CreateRoomRequest = z.object({
   displayName: z.string().min(1).max(40),
   /** Browser-generated; the server stores only its SHA-256 (DESIGN.md §5). */
   guestToken: z.string().min(16).max(256),
-  /** The creating browser's GM device token; when it resolves, the room is owned by it (ADR 0004). */
-  gmToken: z.string().min(16).max(256).optional(),
+  /** Start the room from one of the signed-in GM's encounter templates (FR-GM-13, ADR 0024). */
+  templateId: z.uuid().optional(),
+  // `gmToken` was removed (ADR 0017): the signed-in account owns the room. zod strips unknown
+  // keys, so an older client that still sends it parses unchanged.
 });
 export type CreateRoomRequest = z.infer<typeof CreateRoomRequest>;
 
@@ -102,6 +135,9 @@ export const JoinRoomRequest = z.object({
   guestToken: z.string().min(16).max(256),
 });
 export type JoinRoomRequest = z.infer<typeof JoinRoomRequest>;
+
+/** The 409 `code` for a join to a room that already holds `MAX_PLAYERS_PER_ROOM` players (room-player-cap). */
+export const ROOM_FULL = "room_full";
 
 export interface RoomCredentials {
   roomId: string;
@@ -125,12 +161,16 @@ export interface UploadResponse {
 
 // ---------- GM identity and asset library (ADR 0004) ----------
 
-/** Browser-generated GM device token. The server stores only its SHA-256, like guest tokens. */
+/**
+ * Legacy GM device token (ADR 0004). No new ones are made since accounts (ADR 0017); an existing
+ * one can still read, edit and delete what it owns, and be moved into an account.
+ */
 export const GmToken = z.string().min(16).max(256);
 
-/** Header carrying the GM token until FR-GM-01 replaces it with a session cookie. */
+/** Header carrying a legacy GM device token. Accounts use the session cookie instead (ADR 0017). */
 export const GM_TOKEN_HEADER = "x-gm-token";
 
+/** Legacy: `POST /api/gm/identify` now answers 410 Gone (ADR 0017). */
 export const GmIdentifyRequest = z.object({ gmToken: GmToken });
 export type GmIdentifyRequest = z.infer<typeof GmIdentifyRequest>;
 
@@ -190,30 +230,48 @@ export interface LibraryAsset {
 
 export interface LibraryUsageResponse {
   rooms: { id: string; name: string }[];
-  /** The GM's creatures that use this token art as their image (ADR 0010). */
+  /** The GM's creatures that use this token art as their image (ADR 0012). */
   creatures: { id: string; name: string }[];
+  /** The GM's encounter templates whose map this is; they cannot be applied once it is deleted (ADR 0024). */
+  encounters: { id: string; name: string }[];
 }
 
 /**
- * A reusable creature in the GM's library (ADR 0010). Built from the token limits so a saved
+ * A reusable creature in the GM's library (ADR 0012). Built from the token limits so a saved
  * creature always places as a valid `token.create`. The name is the name shown on the board.
  */
 export const CreatureFields = z.object({
   name: Token.shape.name.refine((name) => name.trim() !== "", { message: "Name can't be blank" }),
   size: Token.shape.size,
+  /** Starting HP; null/omitted preserves the legacy full-health default. */
+  hp: TokenStats.shape.hp,
+  attacks: TokenAttacks,
   maxHp: TokenStats.shape.maxHp,
   ac: TokenStats.shape.ac,
+  /** The disc colour its tokens get when they have no image (KAN-70). */
+  color: Token.shape.color,
+  /** Conditions its tokens start with, e.g. Prone (KAN-70). No duplicates. */
+  conditions: Token.shape.conditions.refine((c) => new Set(c).size === c.length, { message: "A condition is listed twice" }),
   /** The GM's own token art, or null for a plain colour disc. */
   imageAssetId: z.uuid().nullable(),
 });
 
 export const CreateCreatureRequest = CreatureFields.extend({
   size: Token.shape.size.default(1),
+  hp: TokenStats.shape.hp.default(null),
+  attacks: TokenAttacks.default([]),
   maxHp: TokenStats.shape.maxHp.default(null),
   ac: TokenStats.shape.ac.default(null),
+  color: Token.shape.color.default(DEFAULT_TOKEN_COLOR),
+  conditions: CreatureFields.shape.conditions.default([]),
   imageAssetId: z.uuid().nullable().default(null),
 });
 export type CreateCreatureRequest = z.infer<typeof CreateCreatureRequest>;
+
+/** A saved template must place as a valid token rather than fail on HP > Max HP. */
+export function creatureHpValid(creature: { hp: number | null; maxHp: number | null }): boolean {
+  return creature.hp === null || creature.maxHp === null || creature.hp <= creature.maxHp;
+}
 
 export const UpdateCreatureRequest = CreatureFields.partial().refine((p) => Object.keys(p).length > 0, {
   message: "Nothing to change",
@@ -224,10 +282,38 @@ export interface LibraryCreature {
   id: string;
   name: string;
   size: number;
+  /** Null or absent on older responses means start at Max HP. Zero is explicit. */
+  hp?: number | null;
+  attacks?: AttackPreset[];
   maxHp: number | null;
   ac: number | null;
+  color: string;
+  conditions: ConditionId[];
   imageAssetId: string | null;
   /** Resolved from the linked token art; null when there is none or it was deleted. */
   imageUrl: string | null;
+  createdAt: string;
+}
+
+/** Save a room's board as an encounter template (FR-GM-13, ADR 0024). The board is read on the server. */
+export const SaveEncounterRequest = z.object({
+  roomId: z.uuid(),
+  name: z.string().trim().min(1).max(MAX_ENCOUNTER_NAME),
+});
+export type SaveEncounterRequest = z.infer<typeof SaveEncounterRequest>;
+
+export const RenameEncounterRequest = z.object({
+  name: z.string().trim().min(1).max(MAX_ENCOUNTER_NAME),
+});
+export type RenameEncounterRequest = z.infer<typeof RenameEncounterRequest>;
+
+/** One of the GM's encounter templates, as the library lists it. The board data stays on the server. */
+export interface EncounterSummary {
+  id: string;
+  name: string;
+  /** The library map's name, or null when that map has since been deleted. */
+  mapName: string | null;
+  tokenCount: number;
+  fogCount: number;
   createdAt: string;
 }

@@ -1,8 +1,10 @@
 import {
   Application,
   Assets,
+  ColorMatrixFilter,
   Container,
   Graphics,
+  Matrix,
   Sprite,
   Text,
   Texture,
@@ -23,41 +25,93 @@ import {
   type RoomState,
   type Token,
   type AreaTemplate,
+  type Command,
 } from "@vtt/shared";
 import { footprint, placementPoint, type PlacementGhost } from "./placement";
+import { clientToBoard, type BoardTransform } from "./diceThrow";
 import { recenterOnResize } from "./recenter";
+import { exceedsPanThreshold, pinchIsManual, resizeAction, zoomChangesScale } from "./viewFit";
+import { conditionRowY, tokenLabelFontSize, tokenLabelStroke } from "./tokenLabel";
 import { canRenderGrid, DEFAULT_BOARD_SIZE } from "./gridRenderLimit";
 import { gridLines } from "./gridLines";
-import { areaOrigin, areaShape, areaSizeFromDrag, formatDistance, hitMark, measure, sweepPoints, templateMark, type BoardTool, type Mark } from "./tools";
+import {
+  MAX_ATTACK_EFFECTS,
+  artStyleFor,
+  attackPlan,
+  conditionLoopWanted,
+  loopFrameDue,
+  loopingConditions,
+  prefersReducedMotion,
+  watchReducedMotion,
+  type AttackEffect,
+} from "./effects";
+import { makeFogCanvas } from "./fogTexture";
+import { areaOrigin, areaShape, areaSizeFromDrag, fogRegionAt, formatDistance, hitMark, measure, sweepPoints, templateMark, type BoardTool, type Mark } from "./tools";
+import { aimExpiry, expiredAims } from "./aims";
+import { PING_MS, pingPulse } from "./ping";
+
+/** A fog region as the Fog tool sends it (FR-GM-17, ADR 0016). */
+export type FogDraft = Extract<Command, { type: "fog.add" }>["region"];
+
+/** An area being aimed, as sent to the others (KAN-35); mirrors the `templatePreview` payload. */
+export type AimPreview = { shape: AreaTemplate["shape"]; origin: Point; toward: Point; size: number; width?: number; gmOnly: boolean };
 
 export interface BoardCallbacks {
   /** Commit a move. Resolves false if the server rejected it. */
   moveToken(tokenId: string, to: Point): Promise<boolean>;
+  /** Every pointer move of a token drag; the connection coalesces them (KAN-39). */
   dragPreview(tokenId: string, at: Point): void;
+  /**
+   * The drag ended. `at` is where the token now rests (the drop point, or back where it started),
+   * so other viewers' ghosts end there too; null when there is nothing to show.
+   */
+  dragEnd(tokenId: string, at: Point | null): void;
   ping(at: Point): void;
   /** Place a shared area template (ADR 0007). Resolves false if the server rejected it. */
-  placeTemplate(template: { shape: AreaTemplate["shape"]; origin: Point; toward: Point; size: number; gmOnly: boolean }): Promise<boolean>;
+  placeTemplate(template: { shape: AreaTemplate["shape"]; origin: Point; toward: Point; size: number; width?: number; gmOnly: boolean }): Promise<boolean>;
+  /** The area being aimed, as others should see it (KAN-35); the connection coalesces these. */
+  aimPreview(preview: AimPreview): void;
+  /** Aiming stopped (placed or cancelled): clear it for the others. */
+  aimEnd(gmOnly: boolean): void;
   /** Resolves false if the server rejected the removal. */
   removeTemplate(templateId: string): Promise<boolean>;
+  /** GM: fog a region (FR-GM-17). Resolves false if the server rejected it. */
+  addFog(region: FogDraft): Promise<boolean>;
+  /** GM: remove a fog region. Resolves false if the server rejected it. */
+  removeFog(regionId: string): Promise<boolean>;
   /** The viewer clicked the token `attackerId` attacks (attack-targeting). */
   pickTarget(attackerId: string, targetId: string): void;
   /** The viewer right-clicked while picking a target: stop without attacking. */
   cancelAttack(): void;
   /** The GM clicked a square while placing a new token (place-token-on-board). */
   placeToken(at: Point): void;
+  /** A press on a token that stayed put (a click, not a drag) selects it; a click on bare map clears (null). */
+  selectToken(tokenId: string | null): void;
   /** The GM right-clicked while placing: put the token back. */
   cancelPlacement(): void;
 }
 
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 8;
-const PREVIEW_INTERVAL_MS = 50;
 /** Oldest marks drop off past this, so a long session can't grow the scene without bound. */
 const MAX_MARKS = 100;
 /** A tool drag shorter than this (screen pixels) is a click and makes no mark. */
 const MIN_MARK_DRAG_PX = 4;
 /** Stand-in id for the token being placed; never a real token's id. */
 const GHOST_ID = "placement-ghost";
+/** How close (screen pixels) a click must be to a polygon's first corner to close it. */
+const FOG_CLOSE_PX = 12;
+/** Fog colour. Players see it opaque; the GM sees it at FOG_GM_ALPHA with an outline (FR-GM-17). */
+const FOG_COLOR = 0xc4c9ce;
+/** Fog is drawn this far past its edge in grid cells, so no seam shows at a region's border or the map's. */
+const FOG_BLEED_CELLS = 0.06;
+/** How fast the clouds drift, in board pixels per second, and how often the drift is redrawn. */
+const FOG_DRIFT_PX_PER_S = 38;
+const FOG_DRIFT_INTERVAL_MS = 1000 / 20;
+/** The cloud texture is drawn this many times larger than its 512 px tile, so clouds span several cells. */
+const FOG_CLOUD_SCALE = 2.5;
+const FOG_GM_ALPHA = 0.5;
+const FOG_EDGE = 0x9fb3c8;
 /** How close (screen pixels) the eraser has to come to a line to erase it. */
 const ERASER_REACH_PX = 12;
 /** A brush stroke adds a point once the pointer has moved this far (screen pixels). */
@@ -112,6 +166,12 @@ const TOOL_CURSORS = {
       "<rect x='2' y='8' width='8' height='8' rx='2' fill='#e07a8a'/></g>",
     4, 20,
   ),
+  // A crosshair over a dark fog square.
+  fog: svgCursor(
+    "<rect x='9' y='9' width='13' height='13' rx='2' fill='rgba(11,13,18,0.75)' stroke='#9fb3c8' stroke-width='1.5'/>" +
+      outlined("M5 1v8M1 5h8"),
+    5, 5,
+  ),
   // A red reticle, aimed from its centre.
   attack: svgCursor(
     "<circle cx='12' cy='12' r='7.5' fill='none' stroke='#111' stroke-width='3.6'/>" +
@@ -142,6 +202,11 @@ const failedImageUrls = new Set<string>();
 
 interface TokenView {
   container: Container;
+  /**
+   * The token's body, art and mask. Condition looks (tilt, fade, grey) and shake apply here, never
+   * to `container.position`, which is the token's board position (KAN-76).
+   */
+  art: Container;
   body: Graphics;
   /** Token art clipped to the token circle; hidden when there is none or it failed to load. */
   image: Sprite;
@@ -155,6 +220,22 @@ interface TokenView {
   markers: Container;
   label: Text;
   drawnKey: string;
+  conditions: ConditionId[];
+  /** Conditions whose effect moves, so the condition loop knows whom to redraw. */
+  looping: boolean;
+  /** Offsets from a hit shake and from trembling, added up on `art.position`. */
+  shake: Point;
+  /** The hit whose shake `shake` holds, or null (KAN-76). */
+  shakeOwner: AttackFx | null;
+  tremble: Point;
+  /** Greyscale filter while Unconscious; made once, then reused. */
+  grey: ColorMatrixFilter | null;
+}
+
+/** An attack effect playing; `stop` removes it and gives the tokens back their position. */
+interface AttackFx {
+  step: (now: number) => boolean;
+  stop(): void;
 }
 
 /**
@@ -168,6 +249,22 @@ export class BoardView {
   private world = new Container();
   private mapSprite = new Sprite(Texture.EMPTY);
   private grid = new Graphics();
+  /**
+   * Fog regions (FR-GM-17), between the grid and the tokens: a player's own token stays visible
+   * on top, and anything else under fog is not in a player's state at all (ADR 0016).
+   */
+  private fogGraphics = new Graphics();
+  /** The GM's fog outlines, kept apart so the fog's feathering never blurs them. */
+  private fogEdgeGraphics = new Graphics();
+  private fogLayer = new Container();
+  /** The cloudy fog texture, made on first use and repeated across every region. */
+  private fogTexture: Texture | null = null;
+  /** The fog drift loop is in `animations`. */
+  private gmFogShown = true;
+  private readOnly = false;
+  private fogLoopRegistered = false;
+  private lastFogDraw = 0;
+  private fogOffset = { x: 0, y: 0 };
   private tokenLayer = new Container();
   /** The viewer's own measure, draw and area marks (KAN-69); never sent anywhere. */
   private markLayer = new Container();
@@ -181,6 +278,8 @@ export class BoardView {
   private fxLayer = new Container();
   private tokens = new Map<string, TokenView>();
   private ghosts = new Map<string, { g: Graphics; expires: number }>();
+  /** Other participants' areas being aimed, by sender (KAN-35). Each fades 1 s after its last update. */
+  private aims = new Map<string, { view: Container; expires: number }>();
 
   private state: RoomState | null = null;
   private you: Participant | null = null;
@@ -190,8 +289,10 @@ export class BoardView {
   private mapMissing = false;
   private gridKey = "";
 
-  private drag: { tokenId: string; offset: Point; lastPreview: number } | null = null;
-  private pan: { start: Point; origin: Point } | null = null;
+  private drag: { tokenId: string; offset: Point; movable: boolean } | null = null;
+  /** Screen position where the token press began, to tell a click from a drag. */
+  private dragDownAt: Point | null = null;
+  private pan: { start: Point; origin: Point; button?: number } | null = null;
   private tool: BoardTool = { kind: "select" };
   private marks: Mark[] = [];
   /** Templates sent to the server but not yet back in state, so a release doesn't blink. */
@@ -204,6 +305,14 @@ export class BoardView {
   /** Templates the eraser has asked to remove, so one sweep sends each only once. */
   private removing = new Set<string>();
   private drawnTemplates: RoomState["templates"] | null = null;
+  private drawnFog: RoomState["fog"] | null = null;
+  /** Fog regions sent to the server but not yet back in state, drawn so a release doesn't blink. */
+  private pendingFog: FogDraft[] = [];
+  /** Fog regions Reveal has asked to remove; hidden at once, shown again if refused. */
+  private removingFog = new Set<string>();
+  /** Corners of the fog polygon being clicked out, and the pointer for its next edge. */
+  private fogPoints: Point[] = [];
+  private fogHover: Point | null = null;
   /** The token under the pointer while picking an attack target; null over the map or the attacker. */
   private attackHover: string | null = null;
   /** When a target was last picked: a double-click there is part of the pick, not a ping. */
@@ -240,6 +349,18 @@ export class BoardView {
   private pendingSize: { width: number; height: number } | null = null;
   /** Per-frame animation steps; each returns false once it has finished. */
   private animations = new Set<(now: number) => boolean>();
+  /** Set by a step that skipped its frame, so the frame is not redrawn for nothing. */
+  private stepSkipped = false;
+  /** Attack animations playing (KAN-76), oldest first. */
+  private attackFx: AttackFx[] = [];
+  private reducedMotion = prefersReducedMotion();
+  private stopMotionWatch: (() => void) | null = null;
+  /** The condition loop is in `animations`. */
+  private loopRegistered = false;
+  private lastLoopDraw = 0;
+  /** Told the world transform whenever a frame draws it changed (throw-dice-on-board). */
+  private viewListeners = new Set<(view: BoardTransform) => void>();
+  private lastView: BoardTransform | null = null;
 
   constructor(
     private host: HTMLElement,
@@ -268,7 +389,11 @@ export class BoardView {
     this.measureLabel.anchor.set(0.5, 1.2);
     this.measureLabel.visible = false;
     this.markLayer.addChild(this.marksGraphics, this.overlayGraphics, this.measureLabel);
-    this.world.addChild(this.mapSprite, this.grid, this.tokenLayer, this.markLayer, this.fxLayer);
+    this.fogGraphics.eventMode = "none";
+    this.fogEdgeGraphics.eventMode = "none";
+    this.fogLayer.eventMode = "none";
+    this.fogLayer.addChild(this.fogGraphics, this.fogEdgeGraphics);
+    this.world.addChild(this.mapSprite, this.grid, this.fogLayer, this.tokenLayer, this.markLayer, this.fxLayer);
     this.fxLayer.addChild(this.ghostFootprint);
     this.app.stage.addChild(this.world);
 
@@ -292,9 +417,11 @@ export class BoardView {
     // looking at. Without this a panned board stays pinned to the top-left and drifts.
     let lastSize = { width: this.app.screen.width, height: this.app.screen.height };
     this.app.renderer.on("resize", () => {
+      if (!this.initialized) return;
       const size = { width: this.app.screen.width, height: this.app.screen.height };
-      if (this.autoFit) this.fitToScreen();
-      else {
+      const action = resizeAction(this.autoFit, lastSize, size);
+      if (action === "refit") this.fitToScreen();
+      else if (action === "recenter") {
         const to = recenterOnResize(this.world.position, lastSize, size);
         this.world.position.set(to.x, to.y);
       }
@@ -310,6 +437,16 @@ export class BoardView {
       this.schedule();
     });
     this.hostObserver.observe(this.host);
+    this.stopMotionWatch = watchReducedMotion((reduced) => {
+      this.reducedMotion = reduced;
+      // Effects already playing finish as they are; conditions redraw at once.
+      for (const view of this.tokens.values()) view.drawnKey = "";
+      if (this.state && this.you) this.syncTokens();
+      this.syncConditionLoop();
+      this.syncFogLoop();
+      this.invalidate();
+    });
+    document.addEventListener("visibilitychange", this.onVisibilityChange);
     this.invalidate();
   }
 
@@ -328,8 +465,13 @@ export class BoardView {
     if (!this.initialized) return;
     if (this.pendingSize) this.settleResize();
     if (this.animations.size > 0) {
-      for (const step of this.animations) if (!step(now)) this.animations.delete(step);
-      this.dirty = true;
+      let drew = false;
+      for (const step of this.animations) {
+        this.stepSkipped = false;
+        if (!step(now)) this.animations.delete(step);
+        if (!this.stepSkipped) drew = true;
+      }
+      if (drew) this.dirty = true;
     }
     for (const [id, ghost] of this.ghosts) {
       if (now > ghost.expires) {
@@ -338,13 +480,54 @@ export class BoardView {
         this.dirty = true;
       }
     }
+    for (const from of expiredAims(this.aims, now)) this.clearAim(from);
     if (this.dirty && this.marksScale !== this.world.scale.x) this.redrawMarks();
-    if (this.dirty) this.app.render();
+    if (this.dirty) {
+      this.app.render();
+      this.notifyView();
+    }
     this.dirty = false;
     // Cleared only now, so changes made while drawing this frame don't queue another.
     this.frame = 0;
-    if (this.animations.size > 0 || this.ghosts.size > 0 || this.pendingSize) this.schedule();
+    if (this.animations.size > 0 || this.ghosts.size > 0 || this.aims.size > 0 || this.pendingSize) this.schedule();
   };
+
+  /** In the frame that draws it, so DOM layered over the canvas moves with the picture. */
+  private notifyView() {
+    const view = this.transform;
+    const last = this.lastView;
+    if (last && last.scale === view.scale && last.x === view.x && last.y === view.y) return;
+    this.lastView = view;
+    for (const fn of this.viewListeners) fn(view);
+  }
+
+  /**
+   * Follow the board's world transform: called now with the current one, then once per drawn
+   * frame in which it changed. Returns the unsubscribe.
+   */
+  onViewChange(fn: (view: BoardTransform) => void): () => void {
+    this.viewListeners.add(fn);
+    if (this.initialized) fn(this.transform);
+    return () => this.viewListeners.delete(fn);
+  }
+
+  /** The board's world transform right now. */
+  get transform(): BoardTransform {
+    return { scale: this.world.scale.x, x: this.world.x, y: this.world.y };
+  }
+
+  /** A page point (clientX/Y) in board coordinates, or null when it is not over the canvas. */
+  clientToBoard(clientX: number, clientY: number): Point | null {
+    if (!this.initialized) return null;
+    return clientToBoard({ x: clientX, y: clientY }, this.app.canvas.getBoundingClientRect(), this.transform);
+  }
+
+  /** The board point in the middle of the canvas, or null before the board is ready. */
+  visibleCentre(): Point | null {
+    if (!this.initialized) return null;
+    const canvas = this.app.canvas.getBoundingClientRect();
+    return this.clientToBoard(canvas.left + canvas.width / 2, canvas.top + canvas.height / 2);
+  }
 
   /** Resize the canvas once the host has held the same size for a whole frame. */
   private settleResize() {
@@ -366,6 +549,11 @@ export class BoardView {
     cancelAnimationFrame(this.frame);
     this.frame = 0;
     this.animations.clear();
+    this.attackFx = [];
+    this.loopRegistered = false;
+    this.stopMotionWatch?.();
+    document.removeEventListener("visibilitychange", this.onVisibilityChange);
+    this.viewListeners.clear();
     this.hostObserver?.disconnect();
     this.app.canvas.removeEventListener("wheel", this.onWheel);
     this.app.canvas.removeEventListener("touchstart", this.onTouchStart);
@@ -383,8 +571,9 @@ export class BoardView {
     this.syncMap();
     this.syncGrid();
     this.syncTokens();
-    if (state.templates !== this.drawnTemplates) {
+    if (state.templates !== this.drawnTemplates || state.fog !== this.drawnFog) {
       for (const id of this.removing) if (!state.templates[id]) this.removing.delete(id);
+      for (const id of this.removingFog) if (!state.fog[id]) this.removingFog.delete(id);
       this.removeCancelledAreas();
       this.redrawMarks();
     }
@@ -396,6 +585,29 @@ export class BoardView {
     if (this.autoFit) this.fitToScreen();
     // A grid change moves the squares under a still pointer.
     if (this.placement) this.redrawGhost();
+    this.syncConditionLoop();
+    this.invalidate();
+  }
+
+  /** Previewing as a player (gm-view-as-player): tokens take no pointer input, so nothing can be dragged or aimed. */
+  setReadOnly(readOnly: boolean) {
+    if (this.readOnly === readOnly) return;
+    this.readOnly = readOnly;
+    for (const view of this.tokens.values()) view.drawnKey = "";
+    if (this.initialized && this.state && this.you) this.syncTokens();
+    this.invalidate();
+  }
+
+  /** GM only: false hides the fog tint entirely, leaving a faint outline, so the GM sees everything. */
+  setGmFogShown(shown: boolean) {
+    if (this.gmFogShown === shown) return;
+    this.gmFogShown = shown;
+    if (this.initialized) this.invalidateFog();
+  }
+
+  private invalidateFog() {
+    this.drawnFog = null;
+    this.redrawFog();
     this.invalidate();
   }
 
@@ -412,18 +624,58 @@ export class BoardView {
     const started = performance.now();
     this.animations.add((now) => {
       // rAF timestamps can trail performance.now() slightly on the first frame.
-      const t = Math.max(0, (now - started) / 1200);
-      if (t >= 1 || ring.destroyed) {
+      const pulse = pingPulse((now - started) / PING_MS, this.reducedMotion);
+      if (!pulse || ring.destroyed) {
         if (!ring.destroyed) ring.destroy();
         return false;
       }
       const cell = this.state?.scene.grid.cellSize ?? 70;
       ring
         .clear()
-        .circle(0, 0, cell * (0.2 + t * 1.2))
-        .stroke({ width: 4 / this.world.scale.x, color, alpha: 1 - t });
+        .circle(0, 0, cell * pulse.radiusCells)
+        .stroke({ width: 4 / this.world.scale.x, color, alpha: pulse.alpha });
       return true;
     });
+    this.invalidate();
+  }
+
+  /**
+   * Another participant's area being aimed (KAN-35): a translucent outline with their name at the
+   * origin, replaced on each update and gone a second after the last one. Null clears it.
+   */
+  showAimPreview(from: string, preview: AimPreview | null, label: string) {
+    if (!preview || !this.state) return this.clearAim(from);
+    let aim = this.aims.get(from);
+    if (!aim) {
+      const view = new Container();
+      view.addChild(new Graphics());
+      view.addChild(new Text({ text: "", style: { fill: 0xffffff, fontSize: 13, fontFamily: BOARD_FONT, fontWeight: "600", stroke: { color: 0x000000, width: 4 } } }));
+      this.fxLayer.addChild(view);
+      aim = { view, expires: 0 };
+      this.aims.set(from, aim);
+    }
+    const [g, text] = aim.view.children as [Graphics, Text];
+    const grid = this.state.scene.grid;
+    const px = 1 / this.world.scale.x;
+    const shape = areaShape(preview.shape, preview.origin, preview.toward, preview.size, grid, preview.width);
+    g.clear();
+    if (shape.kind === "circle") g.circle(shape.center.x, shape.center.y, shape.radius);
+    else g.poly(shape.points.flatMap((p) => [p.x, p.y]));
+    const color = preview.gmOnly ? GM_AREA_COLOR : AREA_COLOR;
+    g.fill({ color, alpha: 0.1 }).stroke({ width: 2 * px, color, alpha: 0.6 });
+    text.text = `${label} aiming`;
+    text.scale.set(px);
+    text.position.set(preview.origin.x + 6 * px, preview.origin.y + 6 * px);
+    aim.expires = aimExpiry(performance.now());
+    this.invalidate();
+  }
+
+  private clearAim(from: string) {
+    const aim = this.aims.get(from);
+    if (!aim) return;
+    aim.view.destroy({ children: true });
+    this.aims.delete(from);
+    this.dirty = true;
     this.invalidate();
   }
 
@@ -480,9 +732,12 @@ export class BoardView {
 
   /** Switch the active tool. Changing tool drops the last measurement and any drag in progress. */
   setTool(tool: BoardTool) {
-    if (tool.kind !== this.tool.kind) {
+    if (tool.kind !== this.tool.kind || (tool.kind === "fog" && this.tool.kind === "fog" && tool.mode !== this.tool.mode)) {
+      if (this.gesture && this.tool.kind === "area") this.callbacks.aimEnd(this.tool.gmOnly);
       this.measurement = null;
       this.gesture = null;
+      this.fogPoints = [];
+      this.fogHover = null;
     }
     this.attackHover = null;
     this.tool = tool;
@@ -621,11 +876,158 @@ export class BoardView {
     } else if (tool.kind === "draw" && tool.shape !== "brush" && dragged) {
       this.addMark({ kind: "draw", shape: tool.shape, color: tool.color, from, to });
     } else if (tool.kind === "area") {
+      this.callbacks.aimEnd(tool.gmOnly);
       const area = this.areaFromGesture(gesture, tool);
       if (area?.kind === "area" && this.state) this.placeArea(area, tool.gmOnly);
+    } else if (tool.kind === "fog" && tool.mode === "rect" && dragged) {
+      this.sendFog({ shape: "rect", from, to });
     }
     this.redrawMarks();
   }
+
+  // ---------- fog of war (FR-GM-17, ADR 0016) ----------
+
+  /** Send a fog region; draw it until the server's answer arrives. */
+  private sendFog(region: FogDraft) {
+    this.pendingFog.push(region);
+    const done = () => {
+      this.pendingFog = this.pendingFog.filter((r) => r !== region);
+      this.redrawMarks();
+    };
+    this.callbacks.addFog(region).then(done, done);
+  }
+
+  /** Close the polygon being clicked out and send it. False when it has too few corners. */
+  closeFogPolygon(): boolean {
+    if (this.fogPoints.length < 3) return false;
+    this.sendFog({ shape: "polygon", points: this.fogPoints });
+    this.fogPoints = [];
+    this.fogHover = null;
+    this.redrawMarks();
+    return true;
+  }
+
+  /** Drop the polygon's last corner. False when there is none. */
+  undoFogPoint(): boolean {
+    if (this.fogPoints.length === 0) return false;
+    this.fogPoints = this.fogPoints.slice(0, -1);
+    this.redrawOverlay();
+    return true;
+  }
+
+  /** Abandon the polygon being clicked out. False when there is none, so Escape can leave the tool. */
+  cancelFogPolygon(): boolean {
+    if (this.fogPoints.length === 0) return false;
+    this.fogPoints = [];
+    this.fogHover = null;
+    this.redrawOverlay();
+    return true;
+  }
+
+  /** A Fog tool click: a polygon corner, or a region to reveal. */
+  private fogClick(at: Point, screen: Point) {
+    if (this.tool.kind !== "fog" || !this.state) return;
+    if (this.tool.mode === "reveal") {
+      const visible = Object.fromEntries(Object.entries(this.state.fog).filter(([id]) => !this.removingFog.has(id)));
+      const region = fogRegionAt(visible, at);
+      if (!region) return;
+      this.removingFog.add(region.id);
+      // Cleared on any answer: an undo can bring the same id back, and it must be drawn again.
+      const settle = () => {
+        this.removingFog.delete(region.id);
+        this.redrawMarks();
+      };
+      this.callbacks.removeFog(region.id).then(settle, settle);
+      this.redrawMarks();
+      return;
+    }
+    // Clicking the first corner again closes the polygon.
+    const first = this.fogPoints[0];
+    if (first && this.fogPoints.length >= 3) {
+      const p = this.world.toGlobal(first);
+      if (Math.hypot(p.x - screen.x, p.y - screen.y) <= FOG_CLOSE_PX) {
+        this.closeFogPolygon();
+        return;
+      }
+    }
+    this.fogPoints = [...this.fogPoints, at];
+    this.redrawOverlay();
+  }
+
+  /** Draw fog: opaque for players, see-through with an outline for the GM. */
+  private redrawFog() {
+    const state = this.state;
+    this.drawnFog = state?.fog ?? null;
+    const g = this.fogGraphics.clear();
+    const edge = this.fogEdgeGraphics.clear();
+    if (!state) return;
+    const gm = this.you?.role === "gm";
+    const px = 1 / this.world.scale.x;
+    const cell = state.scene.grid.cellSize;
+    // "See everything": the GM's tint is switched off and only a faint outline marks each region.
+    const tint = !gm || this.gmFogShown;
+    const hasRegions = Object.keys(state.fog).length > 0 || this.pendingFog.length > 0;
+    // The cloud texture is made on first need, so a board with no fog never pays for it.
+    const cloud = tint && hasRegions ? this.fogCloud() : null;
+    // The clouds drift across the board; the texture tiles seamlessly, so any offset is fine.
+    const matrix = new Matrix().scale(FOG_CLOUD_SCALE, FOG_CLOUD_SCALE).translate(this.fogOffset.x, this.fogOffset.y);
+    const fillAlpha = gm ? FOG_GM_ALPHA : 1;
+    const draw = (points: Point[], pending: boolean) => {
+      const flat = points.flatMap((p) => [p.x, p.y]);
+      if (tint) g.poly(flat).fill({ texture: cloud!, matrix, textureSpace: "global", alpha: fillAlpha });
+      if (!gm) g.poly(flat).stroke({ width: 2 * FOG_BLEED_CELLS * cell, join: "miter", texture: cloud!, matrix, textureSpace: "global", alpha: 1 });
+      if (gm) edge.poly(flat).stroke({ width: 2 * px, color: FOG_EDGE, alpha: (pending ? 0.5 : 0.9) * (tint ? 1 : 0.4) });
+    };
+    for (const region of Object.values(state.fog)) {
+      if (!this.removingFog.has(region.id)) draw(region.points, false);
+    }
+    for (const region of this.pendingFog) draw(fogDraftPoints(region), true);
+    this.syncFogLoop();
+  }
+
+  /** The seamless cloud texture, drawn once on first use. */
+  private fogCloud(): Texture {
+    if (!this.fogTexture) {
+      this.fogTexture = Texture.from(makeFogCanvas());
+      this.fogTexture.source.style.addressMode = "repeat";
+    }
+    return this.fogTexture;
+  }
+
+  /**
+   * Runs the fog drift only while fog exists, the page is shown, motion is allowed, and the
+   * fill is drawn: a GM who switched the tint off sees no drift, so there is nothing to animate.
+   */
+  private fogLoopWanted() {
+    const any = Object.keys(this.state?.fog ?? {}).length > 0 || this.pendingFog.length > 0;
+    const tinted = this.you?.role !== "gm" || this.gmFogShown;
+    return any && tinted && document.visibilityState === "visible" && !this.reducedMotion;
+  }
+
+  private syncFogLoop() {
+    if (!this.initialized || this.fogLoopRegistered || !this.fogLoopWanted()) return;
+    this.fogLoopRegistered = true;
+    // So the first frame after a pause does not apply the whole pause as drift.
+    this.lastFogDraw = 0;
+    this.animations.add(this.fogLoop);
+    this.schedule();
+  }
+
+  private fogLoop = (now: number) => {
+    if (!this.fogLoopWanted()) {
+      this.fogLoopRegistered = false;
+      return false;
+    }
+    if (now - this.lastFogDraw < FOG_DRIFT_INTERVAL_MS) {
+      this.stepSkipped = true;
+      return true;
+    }
+    const dt = this.lastFogDraw === 0 ? 0 : (now - this.lastFogDraw) / 1000;
+    this.lastFogDraw = now;
+    this.fogOffset = { x: this.fogOffset.x + FOG_DRIFT_PX_PER_S * dt, y: this.fogOffset.y + FOG_DRIFT_PX_PER_S * 0.35 * dt };
+    this.redrawFog();
+    return true;
+  };
 
   /** Send an area to the table; show it until the server's answer arrives. */
   private placeArea(area: Extract<Mark, { kind: "area" }>, gmOnly: boolean) {
@@ -633,7 +1035,7 @@ export class BoardView {
     const pending = { ...area, origin, free: true, gmOnly };
     this.pendingAreas.push(pending);
     this.callbacks
-      .placeTemplate({ shape: area.shape, origin, toward: area.toward, size: area.size, gmOnly })
+      .placeTemplate({ shape: area.shape, origin, toward: area.toward, size: area.size, width: area.width, gmOnly })
       .then(
         (ok) => {
           // Refused: nothing will arrive to clear, so stop waiting for it.
@@ -662,7 +1064,8 @@ export class BoardView {
     const size = dragged ? areaSizeFromDrag(origin, to, grid, free) : tool.size;
     // A click aims right from the snapped origin, not at the raw press point beside it.
     const toward = dragged ? to : { x: origin.x + 1, y: origin.y };
-    return { kind: "area", shape: tool.shape, size, origin: from, toward, free, gmOnly: tool.gmOnly };
+    const width = tool.shape === "line" ? tool.lineCells * grid.unitsPerCell : undefined;
+    return { kind: "area", shape: tool.shape, size, origin: from, toward, free, gmOnly: tool.gmOnly, width };
   }
 
   /** Remove every mark the eraser touches on its way from `from` to `at`. */
@@ -701,6 +1104,7 @@ export class BoardView {
     }
     for (const area of this.pendingAreas) this.drawMark(g, area);
     for (const mark of this.marks) this.drawMark(g, mark);
+    this.redrawFog();
     this.redrawOverlay();
   }
 
@@ -727,8 +1131,30 @@ export class BoardView {
         if (gesture.dragged) this.showLabel(formatDistance(area.size, this.state!.scene.grid), gesture.to);
       }
     }
+    if (tool.kind === "fog") this.drawFogDraft(g, tool.mode);
     if (tool.kind === "attack") this.drawAttackLine(g, tool.attackerId);
     this.invalidate();
+  }
+
+  /** The fog rectangle being dragged, or the polygon being clicked out with its next edge. */
+  private drawFogDraft(g: Graphics, mode: Extract<BoardTool, { kind: "fog" }>["mode"]) {
+    const px = 1 / this.world.scale.x;
+    const style = { width: 2 * px, color: FOG_EDGE, alpha: 0.95 };
+    const gesture = this.gesture;
+    if (mode === "rect" && gesture?.dragged) {
+      const points = fogDraftPoints({ shape: "rect", from: gesture.from, to: gesture.to });
+      g.poly(points.flatMap((p) => [p.x, p.y])).fill({ color: FOG_COLOR, alpha: 0.4 }).stroke(style);
+      return;
+    }
+    if (mode !== "polygon" || this.fogPoints.length === 0) return;
+    const [first, ...rest] = this.fogPoints;
+    g.moveTo(first!.x, first!.y);
+    for (const p of rest) g.lineTo(p.x, p.y);
+    if (this.fogHover) g.lineTo(this.fogHover.x, this.fogHover.y);
+    g.stroke(style);
+    for (const p of this.fogPoints) g.circle(p.x, p.y, 4 * px).fill({ color: FOG_EDGE });
+    // The first corner is the one to click to close the shape.
+    if (this.fogPoints.length >= 3) g.circle(first!.x, first!.y, FOG_CLOSE_PX * px).stroke(style);
   }
 
   /**
@@ -851,7 +1277,7 @@ export class BoardView {
       }
       case "area": {
         const origin = areaOrigin(mark.origin, grid, mark.free);
-        const shape = areaShape(mark.shape, origin, mark.toward, mark.size, grid);
+        const shape = areaShape(mark.shape, origin, mark.toward, mark.size, grid, mark.width);
         if (shape.kind === "circle") g.circle(shape.center.x, shape.center.y, shape.radius);
         else g.poly(shape.points.flatMap((p) => [p.x, p.y]));
         // Translucent, so tokens under the area stay visible.
@@ -954,6 +1380,8 @@ export class BoardView {
 
     for (const [id, view] of this.tokens) {
       if (!state.tokens[id]) {
+        // A filter is not a child: free the Unconscious greyscale's GPU resources by hand.
+        view.grey?.destroy();
         view.container.destroy({ children: true });
         this.tokens.delete(id);
         this.pendingMoves.delete(id);
@@ -994,23 +1422,29 @@ export class BoardView {
     const imageMask = new Graphics();
     image.mask = imageMask;
     // Disc first so it shows through while the image loads, or instead of one that failed.
-    container.addChild(body, image, imageMask, decor, markers, label);
+    const art = new Container();
+    art.addChild(body, image, imageMask);
+    container.addChild(art, decor, markers, label);
     container.on("pointerdown", (e: FederatedPointerEvent) => this.onTokenDown(e, tokenId));
     this.tokenLayer.addChild(container);
-    return { container, body, image, imageMask, imageUrl: null, radius: 0, decor, markers, label, drawnKey: "" };
+    return {
+      container, art, body, image, imageMask, imageUrl: null, radius: 0, decor, markers, label, drawnKey: "",
+      conditions: [], looping: false, shake: { x: 0, y: 0 }, shakeOwner: null, tremble: { x: 0, y: 0 }, grey: null,
+    };
   }
 
   private drawToken(view: TokenView, token: Token, grid: GridSpec, you: Participant) {
     const owned = token.ownerIds.includes(you.id);
-    const movable = can.moveToken(you, token);
+    const movable = !this.readOnly && can.moveToken(you, token);
     const focused = this.focusedId === token.id;
     const active = this.activeTokenId() === token.id;
     const key = JSON.stringify([
       token.name, token.size, token.rotation, token.color, token.hidden, owned, movable, grid.cellSize,
       token.stats, token.conditions, focused, active, token.imageUrl,
     ]);
-    view.container.eventMode = movable ? "static" : "none";
-    view.container.cursor = this.placement || this.tool.kind !== "select" ? this.toolCursor() : movable ? "grab" : "default";
+    // Every visible token takes presses so a click can select it; only movable ones start a drag.
+    view.container.eventMode = "static";
+    view.container.cursor = this.placement || this.tool.kind !== "select" ? this.toolCursor() : movable ? "grab" : "pointer";
     if (key === view.drawnKey) return;
     view.drawnKey = key;
 
@@ -1022,10 +1456,134 @@ export class BoardView {
     view.image.rotation = token.rotation * Math.PI / 180;
     view.container.alpha = token.hidden ? 0.45 : 1;
     view.label.text = token.hidden ? `${token.name} (hidden)` : token.name;
+    const fontSize = tokenLabelFontSize(r);
+    view.label.style.fontSize = fontSize;
+    view.label.style.stroke = { color: 0x000000, width: tokenLabelStroke(fontSize) };
     view.label.position.set(0, r + 2);
 
     this.drawDecor(view, token, r, focused, active, owned);
     this.drawConditions(view, token.conditions, r);
+    this.drawConditionLook(view, token.conditions);
+  }
+
+  /**
+   * The fixed effect of each condition (KAN-76): a look for the art wrapper (fade, tilt, grey) and
+   * decoration in the effects layer. Looping ones are redrawn by `conditionLoop`; with reduced
+   * motion, or while the loop is not running, they show their still pose.
+   */
+  private drawConditionLook(view: TokenView, conditions: ConditionId[]) {
+    view.conditions = conditions;
+    view.looping = !this.reducedMotion && loopingConditions(conditions).length > 0;
+    const style = artStyleFor(conditions, this.reducedMotion);
+    const { art } = view;
+    art.alpha = style.alpha;
+    art.rotation = (style.tilt * Math.PI) / 180;
+    art.scale.set(1, style.squash);
+    if (style.greyscale) {
+      view.grey ??= new ColorMatrixFilter();
+      view.grey.greyscale(0.6, false);
+      art.filters = [view.grey];
+    } else {
+      art.filters = null;
+    }
+    if (!view.looping) this.applyArtOffset(view, 0, 0);
+  }
+
+  /** Trembling and a hit's shake move the art inside the token; `container.position` is never touched. */
+  private applyArtOffset(view: TokenView, trembleX: number, trembleY: number) {
+    view.tremble.x = trembleX;
+    view.tremble.y = trembleY;
+    view.art.position.set(view.shake.x + trembleX, view.shake.y + trembleY);
+  }
+
+  private loopWanted() {
+    let loopingTokens = 0;
+    for (const view of this.tokens.values()) if (view.looping && view.container.visible) loopingTokens++;
+    return conditionLoopWanted({ loopingTokens, pageVisible: document.visibilityState === "visible", reducedMotion: this.reducedMotion });
+  }
+
+  /** A page that becomes visible again restarts any loop that stopped while it was hidden. */
+  private onVisibilityChange = () => {
+    // Browsers pause animation frames in a hidden tab, so the drift clock must not count the pause.
+    if (document.visibilityState === "hidden") this.lastFogDraw = 0;
+    this.syncConditionLoop();
+    this.syncFogLoop();
+  };
+
+  /** Runs the condition loop only while a visible token has a moving effect, the page is shown and motion is allowed. */
+  private syncConditionLoop = () => {
+    if (!this.initialized || this.loopRegistered || !this.loopWanted()) return;
+    this.loopRegistered = true;
+    this.animations.add(this.conditionLoop);
+    this.schedule();
+  };
+
+  /** One step of `animations` for every looping condition: redraws at most 30 times a second, then unregisters itself. */
+  private conditionLoop = (now: number) => {
+    if (!this.loopWanted()) {
+      this.loopRegistered = false;
+      for (const view of this.tokens.values()) if (view.tremble.x !== 0 || view.tremble.y !== 0) this.applyArtOffset(view, 0, 0);
+      return false;
+    }
+    if (!loopFrameDue(now, this.lastLoopDraw)) {
+      this.stepSkipped = true;
+      return true;
+    }
+    this.lastLoopDraw = now;
+    const t = now / 1000;
+    for (const view of this.tokens.values()) {
+      if (!view.looping) continue;
+      const amp = artStyleFor(view.conditions, false).tremble * view.radius;
+      this.applyArtOffset(view, Math.sin(t * 61) * amp, Math.cos(t * 53) * amp);
+    }
+    return true;
+  };
+
+  /**
+   * The board's part of an attack effect (KAN-76): a hit shakes the target's art. The projectile,
+   * flash, miss and damage number are drawn by the React effects overlay (board-effects-overlay).
+   * The shake follows the token and never changes its recorded position.
+   */
+  playAttackEffect(effect: AttackEffect) {
+    if (!this.initialized || !this.state || effect.kind !== "hit") return;
+    const target = this.tokens.get(effect.tokenId);
+    if (!target || target.container.destroyed) return;
+    while (this.attackFx.length >= MAX_ATTACK_EFFECTS) this.endAttackFx(this.attackFx[0]!);
+
+    const plan = attackPlan(effect, this.reducedMotion);
+    const started = performance.now();
+    const fx: AttackFx = {
+      step: (now) => {
+        const t = Math.max(0, (now - started) / plan.durationMs);
+        if (t >= 1 || target.container.destroyed) {
+          this.endAttackFx(fx);
+          return false;
+        }
+        const r = target.radius;
+        // The newest hit on a token owns its shake, so an older one ending can't cut it off.
+        target.shakeOwner = fx;
+        target.shake.x = plan.motion ? Math.sin(t * 40) * r * 0.12 * (1 - t) : 0;
+        this.applyArtOffset(target, target.tremble.x, target.tremble.y);
+        return true;
+      },
+      stop: () => {
+        if (!target.container.destroyed && target.shakeOwner === fx) {
+          target.shakeOwner = null;
+          target.shake.x = 0;
+          this.applyArtOffset(target, target.tremble.x, target.tremble.y);
+        }
+      },
+    };
+    this.attackFx.push(fx);
+    this.animations.add(fx.step);
+    this.invalidate();
+  }
+
+  private endAttackFx(fx: AttackFx) {
+    this.animations.delete(fx.step);
+    this.attackFx = this.attackFx.filter((f) => f !== fx);
+    fx.stop();
+    this.invalidate();
   }
 
   /**
@@ -1097,6 +1655,8 @@ export class BoardView {
     if (conditions.length === 0) return;
 
     const size = Math.max(11, r * 0.34);
+    // Below the name label, which scales with the token, so the name never covers the markers.
+    const y = conditionRowY(view.label.position.y, view.label.height, size);
     const step = size * 2.1;
     const startX = -((conditions.length - 1) * step) / 2;
 
@@ -1119,7 +1679,7 @@ export class BoardView {
       });
       text.anchor.set(0.5);
       marker.addChild(shape, text);
-      marker.position.set(startX + i * step, r + 22);
+      marker.position.set(startX + i * step, y);
       view.markers.addChild(marker);
     });
   }
@@ -1143,13 +1703,17 @@ export class BoardView {
     if (e.button !== 0 || this.tool.kind !== "select" || this.placement) return;
     e.stopPropagation();
     const view = this.tokens.get(tokenId);
-    if (!view) return;
+    const token = this.state?.tokens[tokenId];
+    if (!view || !token || !this.you) return;
+    const movable = !this.readOnly && can.moveToken(this.you, token);
     const p = this.toBoard(e.global);
     this.drag = {
       tokenId,
       offset: { x: p.x - view.container.x, y: p.y - view.container.y },
-      lastPreview: 0,
+      movable,
     };
+    this.dragDownAt = { x: e.global.x, y: e.global.y };
+    if (!movable) return;
     view.container.cursor = "grabbing";
     this.tokenLayer.addChild(view.container); // bring to front
     this.invalidate();
@@ -1174,6 +1738,9 @@ export class BoardView {
       this.pan = { start: { x: e.global.x, y: e.global.y }, origin: { x: this.world.x, y: this.world.y } };
       return;
     }
+    if (this.tool.kind === "fog" && this.tool.mode !== "rect" && e.button === 0) {
+      return this.fogClick(this.toBoard(e.global), { x: e.global.x, y: e.global.y });
+    }
     if (this.tool.kind !== "select" && e.button === 0) {
       const at = this.toBoard(e.global);
       this.gesture = { from: at, to: at, screenFrom: { x: e.global.x, y: e.global.y }, free: e.altKey, dragged: false, path: [at] };
@@ -1182,7 +1749,7 @@ export class BoardView {
       this.redrawOverlay();
       return;
     }
-    this.pan = { start: { x: e.global.x, y: e.global.y }, origin: { x: this.world.x, y: this.world.y } };
+    this.pan = { start: { x: e.global.x, y: e.global.y }, origin: { x: this.world.x, y: this.world.y }, button: e.button };
   };
 
   private onPointerMove = (e: FederatedPointerEvent) => {
@@ -1197,6 +1764,10 @@ export class BoardView {
         this.redrawOverlay();
       }
     }
+    if (this.tool.kind === "fog" && this.tool.mode === "polygon" && this.fogPoints.length > 0) {
+      this.fogHover = this.toBoard(e.global);
+      this.redrawOverlay();
+    }
     if (this.gesture) {
       const gesture = this.gesture;
       const previous = gesture.to;
@@ -1208,21 +1779,27 @@ export class BoardView {
       const step = Math.hypot(gesture.to.x - last.x, gesture.to.y - last.y) * this.world.scale.x;
       const brushing = this.tool.kind === "draw" && this.tool.shape === "brush";
       if (brushing && step >= BRUSH_STEP_PX && gesture.path.length < MAX_STROKE_POINTS) gesture.path.push(gesture.to);
+      // Aiming an area: the others see it take shape (KAN-35).
+      if (this.tool.kind === "area" && this.state) {
+        const area = this.areaFromGesture(gesture, this.tool);
+        if (area?.kind === "area") {
+          const origin = areaOrigin(area.origin, this.state.scene.grid, area.free);
+          this.callbacks.aimPreview({ shape: area.shape, origin, toward: area.toward, size: area.size, width: area.width, gmOnly: this.tool.gmOnly });
+        }
+      }
       this.redrawOverlay();
     } else if (this.drag) {
+      if (!this.drag.movable) return;
       const view = this.tokens.get(this.drag.tokenId);
       if (!view) return;
       const p = this.toBoard(e.global);
       const at = { x: p.x - this.drag.offset.x, y: p.y - this.drag.offset.y };
       view.container.position.set(at.x, at.y);
-      const now = performance.now();
-      if (now - this.drag.lastPreview > PREVIEW_INTERVAL_MS) {
-        this.drag.lastPreview = now;
-        this.callbacks.dragPreview(this.drag.tokenId, at);
-      }
+      this.callbacks.dragPreview(this.drag.tokenId, at);
       this.invalidate();
     } else if (this.pan) {
-      this.autoFit = false;
+      // A press that hardly moves is a tap, not a deliberate pan (KAN-54).
+      if (exceedsPanThreshold(this.pan.start, e.global)) this.autoFit = false;
       this.world.position.set(
         this.pan.origin.x + e.global.x - this.pan.start.x,
         this.pan.origin.y + e.global.y - this.pan.start.y,
@@ -1232,7 +1809,11 @@ export class BoardView {
   };
 
   private onPointerUp = (e: FederatedPointerEvent) => {
+    const pan = this.pan;
     this.pan = null;
+    if (pan && pan.button === 0 && !this.placement && !this.gesture && this.tool.kind === "select" && !exceedsPanThreshold(pan.start, e.global)) {
+      this.callbacks.selectToken(null);
+    }
     const down = this.placeDown;
     this.placeDown = null;
     if (down && this.placement && this.state) {
@@ -1242,28 +1823,42 @@ export class BoardView {
     }
     if (this.gesture) return this.finishGesture();
     const drag = this.drag;
+    const downAt = this.dragDownAt;
     this.drag = null;
-    if (!drag || !this.state) return;
-    const token = this.state.tokens[drag.tokenId];
+    this.dragDownAt = null;
+    if (!drag) return;
+    // A press that stays put is a click: select the token. Anything further is a drag and moves it.
+    const clicked = downAt !== null && Math.hypot(e.global.x - downAt.x, e.global.y - downAt.y) < MIN_MARK_DRAG_PX;
+    if (clicked) this.callbacks.selectToken(drag.tokenId);
+    const token = this.state?.tokens[drag.tokenId];
     const view = this.tokens.get(drag.tokenId);
-    if (!token || !view) return;
+    if (!drag.movable) return;
+    if (!this.state || !token || !view) return this.callbacks.dragEnd(drag.tokenId, null);
     view.container.cursor = "grab";
+    if (clicked) {
+      // A click never moves the token, even one placed off-centre: put it back and end the ghost.
+      view.container.position.set(token.position.x, token.position.y);
+      this.invalidate();
+      return this.callbacks.dragEnd(token.id, token.position);
+    }
 
     this.invalidate();
     const dropped = { x: view.container.x, y: view.container.y };
     // Snap by default; hold Alt for free placement (FR-TAC-02).
     const to = e.altKey ? dropped : snapTokenCenter(dropped, token.size, this.state.scene.grid);
-    if (to.x === token.position.x && to.y === token.position.y) {
-      view.container.position.set(to.x, to.y);
-      return;
-    }
     view.container.position.set(to.x, to.y);
+    this.callbacks.dragEnd(token.id, to);
+    if (to.x === token.position.x && to.y === token.position.y) return;
     this.pendingMoves.set(token.id, to);
     this.callbacks.moveToken(token.id, to).then((ok) => {
       if (ok) return;
       this.pendingMoves.delete(token.id);
       const current = this.state?.tokens[token.id];
-      if (current) this.tokens.get(token.id)?.container.position.set(current.position.x, current.position.y);
+      if (current) {
+        this.tokens.get(token.id)?.container.position.set(current.position.x, current.position.y);
+        // Rejected: the others' ghost goes back to where the token still is.
+        this.callbacks.dragEnd(token.id, current.position);
+      }
       this.invalidate();
     });
   };
@@ -1277,7 +1872,7 @@ export class BoardView {
    * which is what makes a pinch feel like it is grabbing the map rather than scaling it
    * around some arbitrary centre.
    */
-  private pinch: { distance: number; midpoint: Point; scale: number } | null = null;
+  private pinch: { distance: number; midpoint: Point; scale: number; start: Point } | null = null;
   private lastTap = { at: 0, x: 0, y: 0 };
 
   private touchInfo(touches: TouchList) {
@@ -1308,17 +1903,17 @@ export class BoardView {
       const view = this.tokens.get(this.drag.tokenId);
       const token = this.state?.tokens[this.drag.tokenId];
       if (view && token) view.container.position.set(token.position.x, token.position.y);
+      this.callbacks.dragEnd(this.drag.tokenId, token?.position ?? null);
       this.drag = null;
       this.invalidate();
     }
     const { distance, midpoint } = this.touchInfo(e.touches);
-    this.pinch = { distance, midpoint, scale: this.world.scale.x };
+    this.pinch = { distance, midpoint, scale: this.world.scale.x, start: midpoint };
   };
 
   private onTouchMove = (e: TouchEvent) => {
     if (!this.pinch || e.touches.length !== 2) return;
     e.preventDefault();
-    this.autoFit = false;
     const { distance, midpoint } = this.touchInfo(e.touches);
     if (this.pinch.distance === 0) return;
 
@@ -1331,9 +1926,10 @@ export class BoardView {
       x: (this.pinch.midpoint.x - this.world.x) / this.world.scale.x,
       y: (this.pinch.midpoint.y - this.world.y) / this.world.scale.y,
     };
+    if (pinchIsManual(this.pinch.start, midpoint, this.world.scale.x, scale)) this.autoFit = false;
     this.world.scale.set(scale);
     this.world.position.set(midpoint.x - anchor.x * scale, midpoint.y - anchor.y * scale);
-    this.pinch = { distance, midpoint, scale };
+    this.pinch = { ...this.pinch, distance, midpoint, scale };
     this.invalidate();
   };
 
@@ -1366,12 +1962,12 @@ export class BoardView {
 
   private onWheel = (e: WheelEvent) => {
     e.preventDefault();
-    this.autoFit = false;
     const rect = this.app.canvas.getBoundingClientRect();
     const screenPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     const before = this.toBoard(screenPoint);
     const factor = Math.exp(-e.deltaY * 0.0015);
     const scale = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, this.world.scale.x * factor));
+    if (zoomChangesScale(this.world.scale.x, scale)) this.autoFit = false;
     this.world.scale.set(scale);
     this.world.position.set(screenPoint.x - before.x * scale, screenPoint.y - before.y * scale);
     this.invalidate();
@@ -1438,4 +2034,13 @@ function drawShape(g: Graphics, shape: ConditionShape, size: number) {
       return;
     }
   }
+}
+
+/** The corners of a fog draft, as `decide` will store them (a rectangle becomes four corners). */
+function fogDraftPoints(region: FogDraft): Point[] {
+  if (region.shape === "polygon") return region.points;
+  const { from, to } = region;
+  const [x0, x1] = [Math.min(from.x, to.x), Math.max(from.x, to.x)];
+  const [y0, y1] = [Math.min(from.y, to.y), Math.max(from.y, to.y)];
+  return [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
 }

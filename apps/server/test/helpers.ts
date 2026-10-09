@@ -1,30 +1,56 @@
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { io, type Socket } from "socket.io-client";
 import {
   SOCKET_EVENTS,
   emptyRoomState,
-  reduce,
+  filterStateForViewer,
+  reduceReceived,
+  type AccountView,
   type ClientMessageInput,
   type CreateRoomResponse,
   type JoinRoomResponse,
   type RoomState,
   type ServerMessage,
 } from "@vtt/shared";
-import { buildApp } from "../src/app";
+import { buildApp, type App } from "../src/app";
 import type { Detector, GridDetectionDispatcher } from "../src/domain/gridDetection";
 import { MemoryRoomStore } from "../src/store/memoryRoomStore";
 
-/** `store` lets a test start a second server on the same data, i.e. simulate a restart. */
-export async function startServer(store: MemoryRoomStore = new MemoryRoomStore(), options: { detector?: Detector; dispatcher?: GridDetectionDispatcher } = {}) {
+/**
+ * Ports `fetch` refuses to connect to (the Fetch standard's "bad ports"), at or above 1024, the
+ * lowest port Windows hands out for port 0. Linux starts its random ports above all of them.
+ */
+const FETCH_BAD_PORTS = new Set([1719, 1720, 1723, 2049, 3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080]);
+
+/**
+ * Listens on a random local port that `fetch` will connect to, and returns the server's base URL.
+ * Plain port 0 sometimes lands on a bad port on Windows, failing a test with "fetch failed: bad port".
+ */
+export async function listenForFetch(app: App): Promise<string> {
+  for (;;) {
+    await app.listen({ port: 0, host: "127.0.0.1" });
+    const addr = app.server.address();
+    if (!addr || typeof addr === "string") throw new Error("no address");
+    if (!FETCH_BAD_PORTS.has(addr.port)) return `http://127.0.0.1:${addr.port}`;
+    await new Promise<void>((resolve, reject) => app.server.close((err) => (err ? reject(err) : resolve())));
+  }
+}
+
+/**
+ * `store` lets a test start a second server on the same data, i.e. simulate a restart. `now`
+ * replaces the clock that sessions and rate limits read. `detector` and `dispatcher` stand in for
+ * the vision service and its job queue.
+ */
+export async function startServer(
+  store: MemoryRoomStore = new MemoryRoomStore(),
+  opts: { now?: () => number; detector?: Detector; dispatcher?: GridDetectionDispatcher } = {},
+) {
   const uploadDir = await mkdtemp(path.join(tmpdir(), "vtt-uploads-"));
-  const app = await buildApp({ store, uploadDir, clientOrigin: "*", detector: options.detector, dispatcher: options.dispatcher });
-  await app.listen({ port: 0, host: "127.0.0.1" });
-  const addr = app.server.address();
-  if (!addr || typeof addr === "string") throw new Error("no address");
-  const base = `http://127.0.0.1:${addr.port}`;
+  const app = await buildApp({ store, uploadDir, clientOrigin: "*", now: opts.now, detector: opts.detector, dispatcher: opts.dispatcher });
+  const base = await listenForFetch(app);
 
   const post = async <T>(url: string, body: unknown): Promise<T> => {
     const res = await fetch(base + url, {
@@ -36,21 +62,56 @@ export async function startServer(store: MemoryRoomStore = new MemoryRoomStore()
     return (await res.json()) as T;
   };
 
+  /** Signs up a fresh account (unique email unless given) and returns it signed in. */
+  const signUp = async (opts: { email?: string; password?: string; displayName?: string } = {}) => {
+    const email = opts.email ?? `${randomUUID()}@example.com`;
+    const password = opts.password ?? "correct horse battery";
+    const account = new HttpAccount(base, email, password);
+    const res = await account.request("POST", "/api/auth/signup", {
+      email, password, displayName: opts.displayName ?? "Sam",
+    });
+    if (res.status !== 201) throw new Error(`signup ${res.status} ${await res.text()}`);
+    account.view = ((await res.json()) as { account: AccountView }).account;
+    return account;
+  };
+
+  /** Signs in as an existing account, as a new device would: a fresh cookie jar. */
+  const signIn = async (email: string, password: string) => {
+    const account = new HttpAccount(base, email, password);
+    const res = await account.request("POST", "/api/auth/signin", { email, password });
+    if (res.status !== 200) throw new Error(`signin ${res.status} ${await res.text()}`);
+    account.view = ((await res.json()) as { account: AccountView }).account;
+    return account;
+  };
+
   return {
     base,
     store,
+    app,
+    /** Where this server stores uploaded pictures (local disk in tests). */
+    uploadDir,
+    signUp,
+    signIn,
+    /** A cookie-less client for requests made signed out. */
+    anonymous: () => new HttpAccount(base, "", ""),
     close: () => app.close(),
     /** Mirrors the browser: the client generates its own credential (DESIGN.md §5). */
     newGuestToken,
-    createRoom: async (displayName = "GM", opts: { gmToken?: string; roomName?: string } = {}) => {
+    /**
+     * Creates a room as a signed-in GM (hosting requires an account, FR-GM-01). `cookie` is that
+     * account's session cookie; without one, a fresh account is signed up for the room.
+     */
+    createRoom: async (displayName = "GM", opts: { cookie?: string; roomName?: string } = {}) => {
+      const cookie = opts.cookie ?? (await signUp()).cookie;
       const guestToken = newGuestToken();
-      const room = await post<CreateRoomResponse>("/api/rooms", {
-        roomName: opts.roomName ?? "Test",
-        displayName,
-        guestToken,
-        gmToken: opts.gmToken,
+      const res = await fetch(base + "/api/rooms", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie },
+        body: JSON.stringify({ roomName: opts.roomName ?? "Test", displayName, guestToken }),
       });
-      return { ...room, guestToken };
+      if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+      const room = (await res.json()) as CreateRoomResponse;
+      return { ...room, guestToken, cookie };
     },
     join: async (inviteCode: string, displayName: string) => {
       const guestToken = newGuestToken();
@@ -68,10 +129,66 @@ export async function startServer(store: MemoryRoomStore = new MemoryRoomStore()
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ displayName, guestToken }),
       });
-      return { status: res.status, body: (await res.json()) as Partial<JoinRoomResponse> & { error?: string }, guestToken };
+      return { status: res.status, body: (await res.json()) as Partial<JoinRoomResponse> & { error?: string; code?: string }, guestToken };
     },
     connect: (creds: TestCredentials) => TestClient.connect(base, creds),
+    /** A join made while signed in as `who` (room-membership): the seat is kept on the account. */
+    joinAs: async (who: HttpAccount, inviteCode: string, displayName: string) => {
+      const guestToken = newGuestToken();
+      const res = await who.request("POST", `/api/invites/${inviteCode}/join`, { displayName, guestToken });
+      return { status: res.status, body: (await res.json()) as Partial<JoinRoomResponse> & { error?: string; code?: string }, guestToken };
+    },
+    /** Resumes `who`'s seat in the room from this "device" (room-membership, ADR 0017 M2). */
+    resume: async (who: HttpAccount, roomId: string) => {
+      const guestToken = newGuestToken();
+      const res = await who.request("POST", `/api/rooms/${roomId}/seat`, { guestToken });
+      return { status: res.status, body: (await res.json()) as { participantId?: string; role?: string; reason?: string }, roomId, guestToken };
+    },
   };
+}
+
+/**
+ * A browser's view of the account API: one cookie jar, so each instance is one device. Requests
+ * go through `fetch` with the jar's cookie, and any `Set-Cookie` in a response updates the jar.
+ */
+export class HttpAccount {
+  cookie = "";
+  view: AccountView | null = null;
+
+  constructor(
+    readonly base: string,
+    readonly email: string,
+    public password: string,
+  ) {}
+
+  async request(method: string, url: string, body?: unknown, headers: Record<string, string> = {}) {
+    const res = await fetch(this.base + url, {
+      method,
+      headers: {
+        ...(body !== undefined && { "content-type": "application/json" }),
+        ...(this.cookie && { cookie: this.cookie }),
+        ...headers,
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    for (const line of res.headers.getSetCookie()) {
+      const [pair] = line.split(";");
+      const value = pair!.slice(pair!.indexOf("=") + 1);
+      this.cookie = value ? pair! : "";
+    }
+    return res;
+  }
+
+  async json<T>(method: string, url: string, body?: unknown): Promise<T> {
+    const res = await this.request(method, url, body);
+    if (!res.ok) throw new Error(`${method} ${url}: ${res.status} ${await res.text()}`);
+    return (res.status === 204 ? undefined : await res.json()) as T;
+  }
+
+  /** Who the server thinks this device is. */
+  async me() {
+    return ((await this.json<{ account: AccountView | null }>("GET", "/api/auth/me")).account);
+  }
 }
 
 /** 32 bytes of entropy, as the browser produces in apps/web/src/net/identity.ts. */
@@ -93,6 +210,7 @@ export class TestClient {
   readonly rawLog: string[] = [];
   private inbox: ServerMessage[] = [];
   private waiters: Array<() => void> = [];
+  private listeners = new Set<(msg: ServerMessage) => void>();
   private nextId = 0;
 
   /** Resolves with Socket.IO's reason once this client is disconnected, by either side. */
@@ -102,6 +220,7 @@ export class TestClient {
     this.disconnected = new Promise((resolve) => socket.once("disconnect", (reason) => resolve(reason)));
     socket.on(SOCKET_EVENTS.event, (msg: ServerMessage) => {
       this.rawLog.push(JSON.stringify(msg));
+      this.listeners.forEach((fn) => fn(msg));
       this.apply(msg);
       this.inbox.push(msg);
       this.waiters.splice(0).forEach((w) => w());
@@ -125,6 +244,12 @@ export class TestClient {
     const reply = await client.waitFor((m) => m.type === "welcome" || m.type === "error");
     if (reply.type === "error") throw new Error(`${reply.code}: ${reply.message}`);
     return client;
+  }
+
+  /** Called synchronously as each message arrives, before it is queued; for timing (KAN-39). */
+  onMessage(fn: (msg: ServerMessage) => void) {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
   }
 
   send(msg: ClientMessageInput) {
@@ -186,7 +311,8 @@ export class TestClient {
         break;
       case "event":
         if (msg.committed.seq !== this.seq + 1) throw new Error(`Gap: have ${this.seq}, got ${msg.committed.seq}`);
-        this.state = reduce(this.state, msg.committed.event);
+        // As the browser does: only the GM's events carry `commandId` (ADR 0013).
+        this.state = reduceReceived(this.state, msg.committed);
         this.seq = msg.committed.seq;
         break;
       case "redacted":
@@ -195,4 +321,14 @@ export class TestClient {
         break;
     }
   }
+}
+
+/**
+ * What `client` should hold when it has caught up with `state`: the server's filtered view for
+ * that participant. Players never get GM-only data such as the undo history (ADR 0013).
+ */
+export function viewFor(state: RoomState, client: TestClient): RoomState {
+  const viewer = state.participants[client.participantId];
+  if (!viewer) throw new Error(`No participant ${client.participantId}`);
+  return filterStateForViewer(state, viewer);
 }

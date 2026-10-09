@@ -1,16 +1,17 @@
 import { randomUUID } from "node:crypto";
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
-import { CreateCreatureRequest, UpdateCreatureRequest, type LibraryCreature } from "@vtt/shared";
+import { CreateCreatureRequest, UpdateCreatureRequest, creatureHpValid, type LibraryCreature } from "@vtt/shared";
 import { CreatureImageMissingError, type LibraryCreatureRecord } from "../store/libraryStore";
+import { requireAccountOwner, type Owner } from "../ownership/resolveOwner";
 import type { RoomStore } from "../store/roomStore";
 
 const CreatureIdParam = z.uuid();
 
-type WithGm = (req: Request, res: Response, handler: (gmId: string) => Promise<void>) => Promise<void>;
+type WithGm = (req: Request, res: Response, handler: (gmId: string, owner: Owner) => Promise<void>) => Promise<void>;
 
 /**
- * Reusable creatures (ADR 0010), beside the asset library and under the same rules: GM-only,
+ * Reusable creatures (ADR 0012), beside the asset library and under the same rules: GM-only,
  * and another GM's creature answers 404, the same as one that does not exist.
  */
 export function registerCreatureRoutes(app: Express, deps: { store: RoomStore; withGm: WithGm }) {
@@ -33,9 +34,11 @@ export function registerCreatureRoutes(app: Express, deps: { store: RoomStore; w
   });
 
   app.post("/api/library/creatures", (req, res) => {
-    void withGm(req, res, async (gmId) => {
+    void withGm(req, res, async (gmId, owner) => {
+      if (!requireAccountOwner(owner, res)) return;
       const body = CreateCreatureRequest.safeParse(req.body);
       if (!body.success) return void res.status(400).json({ error: body.error.issues });
+      if (!creatureHpValid(body.data)) return void res.status(400).json({ error: "Starting HP cannot exceed Max HP" });
       if (!(await ownTokenArt(gmId, body.data.imageAssetId))) return void imageRejected(res);
       try {
         const created = await store.createCreature({
@@ -55,7 +58,9 @@ export function registerCreatureRoutes(app: Express, deps: { store: RoomStore; w
       if (!id.success) return void notFound(res);
       const patch = UpdateCreatureRequest.safeParse(req.body);
       if (!patch.success) return void res.status(400).json({ error: patch.error.issues });
-      if (!(await store.findCreature(id.data, gmId))) return void notFound(res);
+      const existing = await store.findCreature(id.data, gmId);
+      if (!existing) return void notFound(res);
+      if (!creatureHpValid({ ...existing, ...patch.data })) return void res.status(400).json({ error: "Starting HP cannot exceed Max HP" });
       if (!(await ownTokenArt(gmId, patch.data.imageAssetId))) return void imageRejected(res);
       try {
         const updated = await store.updateCreature(id.data, gmId, patch.data);
@@ -91,8 +96,12 @@ function toWire(record: LibraryCreatureRecord): LibraryCreature {
     id: record.id,
     name: record.name,
     size: record.size,
+    hp: record.hp,
+    attacks: record.attacks,
     maxHp: record.maxHp,
     ac: record.ac,
+    color: record.color,
+    conditions: record.conditions,
     imageAssetId: record.imageAssetId,
     imageUrl: record.imageUrl,
     createdAt: record.createdAt,

@@ -14,6 +14,7 @@ import {
   ArrowRight,
   CircleHalfTilt,
   DiceFive,
+  DoorOpen,
   Eye,
   EyeSlash,
   GridFour,
@@ -23,12 +24,14 @@ import {
   Stack,
   Sun,
 } from "@phosphor-icons/react";
+import { useAccount } from "../account/accountStore";
 import { Link } from "../Link";
 import { revealOnEnter } from "../ui/reveal";
 import { navigate } from "../router";
 import { useGroundTheme, type ThemeChoice } from "../theme";
 import { DiceTray } from "../ui/DiceTray";
 import { BUILTIN_ASSETS } from "../net/builtinAssets";
+import { listJoinedRooms } from "../net/identity";
 
 /**
  * Every home crop is 20 squares wide and starts on a grid line of its map, cut by
@@ -228,17 +231,35 @@ function TokenChip(props: {
   );
 }
 
+/** Top bar: sign in or create an account; signed in, the way back to your rooms. */
+function AccountLinks() {
+  const account = useAccount();
+  if (account.status === "loading") return null;
+  if (account.status === "signedIn") {
+    return (
+      <Link href="/gm-dashboard" className="nav-cta">
+        Your rooms
+      </Link>
+    );
+  }
+  return (
+    <>
+      <Link href="/signin" className="nav-link">
+        Sign in
+      </Link>
+      <Link href="/signup" className="nav-cta">
+        Create account
+      </Link>
+    </>
+  );
+}
+
 function Landing({ theme, onTheme }: ThemeProps) {
   return (
     <>
       <div className="landing-shell landing-bar">
         <HomeBar theme={theme} onTheme={onTheme}>
-          <Link href="/signin" className="nav-link">
-            Sign in
-          </Link>
-          <Link href="/signup" className="nav-cta">
-            Create account
-          </Link>
+          <AccountLinks />
         </HomeBar>
       </div>
 
@@ -253,6 +274,7 @@ function Landing({ theme, onTheme }: ThemeProps) {
             {/* Two readers arrive here. Players outnumber GMs at every table and their path is
                 one field, so it comes first; the GM's path keeps the only filled button. */}
             <div className="hero-paths enter enter-3">
+              <JoinedRooms />
               <JoinBlock />
               <RunBlock />
             </div>
@@ -374,9 +396,9 @@ function GridChapter() {
 }
 
 /**
- * The asset library, described rather than linked: the GM dashboard is its way in
- * (gm-dashboard). No login: the library is keyed to this browser's GM identity until
- * FR-GM-01 lands, and the note below says so rather than implying an account exists.
+ * The asset library, described rather than linked: the rooms page is its way in
+ * (gm-dashboard). It is kept in the GM's free account, so the note says it follows them to any
+ * device (gm-home: The home page does not overstate what is saved).
  */
 function LibraryChapter() {
   return (
@@ -414,11 +436,11 @@ function LibraryChapter() {
           );
         })}
       </ul>
-      {/* The library itself is reached from the GM dashboard only (gm-dashboard). */}
+      {/* The library itself is reached from the rooms page only (gm-dashboard). */}
       <div className="shelf-foot">
         <p className="muted small-print">
-          You'll find it on your GM dashboard. No sign-in needed: it's saved in this browser until accounts
-          arrive, so it won't follow you to another computer or phone yet.
+          You'll find it on your rooms page. It's kept in your free account, so it's there on any computer or phone you
+          sign in on.
         </p>
       </div>
     </section>
@@ -584,7 +606,8 @@ function DiceChapter() {
 
 /**
  * The GM's way in, second in the hero. The dashboard applies the entry rule (gm-dashboard),
- * so this is a plain link: sign-in first for a new browser, straight in once recognised.
+ * so this is a plain link: sign-in first when signed out, straight in when signed in. The rule
+ * it costs is stated right here, not discovered at the password field (gm-home).
  */
 function RunBlock() {
   return (
@@ -593,7 +616,7 @@ function RunBlock() {
         <MapTrifold weight="bold" aria-hidden="true" />
         Running a game?
       </p>
-      <p className="path-hint">Create a room or reopen one you've run.</p>
+      <p className="path-hint">Free account required to host; players join without one.</p>
       <Link href="/gm-dashboard" className="cta">
         Set up a room
         <ArrowRight weight="bold" aria-hidden="true" />
@@ -622,6 +645,37 @@ function useJoinByInvite() {
   }
 
   return { value, setValue, error, onSubmit };
+}
+
+/**
+ * Rooms this browser joined as a guest (KAN-64), so a player who closed the tab can get back
+ * without the invite link. Per browser until accounts and the rooms hub (KAN-57) replace it.
+ * Seats the server refuses are forgotten by the room page, so every row here is one to open.
+ * Renders nothing when there are none, including when storage is unavailable.
+ */
+function JoinedRooms() {
+  const [rooms] = useState(() => listJoinedRooms());
+  if (rooms.length === 0) return null;
+
+  return (
+    <section className="joined-rooms" aria-labelledby="joined-rooms-label">
+      <p id="joined-rooms-label" className="path-label">
+        <DoorOpen weight="bold" aria-hidden="true" />
+        Rooms you've joined
+      </p>
+      <p className="path-hint">Pick up where you left off. Saved in this browser only.</p>
+      <ul className="plain joined-list">
+        {rooms.map((room) => (
+          <li key={room.roomId} className="joined-row">
+            <Link href={`/r/${encodeURIComponent(room.roomId)}`} className="joined-name">
+              {room.roomName ?? "A room you joined"}
+              <ArrowRight weight="bold" aria-hidden="true" />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }
 
 /** The player's way in, first in the hero. "You" here is someone their GM invited. */

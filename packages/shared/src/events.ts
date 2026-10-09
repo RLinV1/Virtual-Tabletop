@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ConditionId, TokenStats } from "./conditions";
 import { DiceRoll, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
-import { AreaTemplate, Id, Initiative, MapImage, Participant, Token } from "./state";
+import { AreaTemplate, ChatMessage, Checkpoint, DiceLookOnTable, FogRegion, Id, Initiative, InitiativeScore, MapImage, Participant, TableState, Token } from "./state";
 
 /**
  * Events are FACTS the server has committed. They are append-only and never edited.
@@ -27,6 +27,13 @@ export const DomainEvent = z.discriminatedUnion("type", [
     participantId: Id,
     displayName: z.string(),
     previous: z.string(),
+  }),
+  /** A participant's dice look on the table changed; `previous` is what it replaced (invariant 6, ADR 0018). */
+  z.object({
+    type: z.literal("ParticipantDiceLookSet"),
+    participantId: Id,
+    look: DiceLookOnTable.nullable(),
+    previous: DiceLookOnTable.nullable(),
   }),
   /** Carries the whole participant as it was before leaving (invariant 6, ADR 0006). */
   z.object({
@@ -112,6 +119,13 @@ export const DomainEvent = z.discriminatedUnion("type", [
     type: z.literal("InitiativeStarted"),
     initiative: Initiative,
     previous: Initiative.nullable(),
+    /**
+     * The scores the GM entered, saved on their tokens, each with the value it replaced.
+     * Absent on events from before scores were saved.
+     */
+    scores: z
+      .array(z.object({ tokenId: Id, score: InitiativeScore, previous: InitiativeScore.nullable() }))
+      .optional(),
   }),
   z.object({
     type: z.literal("InitiativeAdvanced"),
@@ -142,6 +156,24 @@ export const DomainEvent = z.discriminatedUnion("type", [
     rollId: Id,
     amount: z.number().int().min(0),
   }),
+  /**
+   * Undo of a damage apply (ADR 0013): the roll no longer reads Applied. Only undo emits it,
+   * just before the `TokenStatsSet` that puts the HP back. The inverse of `RollDamageApplied`,
+   * which carries no `previous` because it always replaces `false` (ADR 0011).
+   */
+  z.object({
+    type: z.literal("RollDamageUnapplied"),
+    rollId: Id,
+    amount: z.number().int().min(0),
+  }),
+  /**
+   * Someone sent a chat message (KAN-75, ADR 0015). The sender is the acting participant, set by
+   * `decide`. Replaces nothing, so there is no `previous`; the time is the commit's `at`.
+   */
+  z.object({
+    type: z.literal("ChatMessageSent"),
+    message: ChatMessage.omit({ at: true }),
+  }),
   z.object({
     type: z.literal("TemplatePlaced"),
     template: AreaTemplate,
@@ -150,6 +182,53 @@ export const DomainEvent = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("TemplateRemoved"),
     template: AreaTemplate,
+  }),
+  /** The GM fogged a region of the map (FR-GM-17, ADR 0016). */
+  z.object({
+    type: z.literal("FogAdded"),
+    region: FogRegion,
+  }),
+  /** Carries the whole region as it was, so undo can restore it (invariant 6). */
+  z.object({
+    type: z.literal("FogRemoved"),
+    region: FogRegion,
+  }),
+  /** The GM saved a named restore point (FR-REC-02, ADR 0019). */
+  z.object({
+    type: z.literal("CheckpointCreated"),
+    checkpoint: Checkpoint,
+  }),
+  /**
+   * The GM put the board back as it was at a checkpoint (ADR 0019). Carries the board it
+   * replaced (invariant 6), so the restore itself can be undone. GM-only: players resync.
+   */
+  z.object({
+    type: z.literal("CheckpointRestored"),
+    checkpointId: Id,
+    name: z.string(),
+    restored: TableState,
+    previous: TableState,
+  }),
+  /**
+   * The GM replaced the board with a saved encounter template (FR-GM-13, ADR 0024). `applied` is
+   * the new board, with fresh token ids; `previous` is the board it replaced (invariant 6), so
+   * the apply can be undone. GM-only: players resync.
+   */
+  z.object({
+    type: z.literal("EncounterApplied"),
+    templateId: Id,
+    name: z.string(),
+    applied: TableState,
+    previous: TableState,
+  }),
+  /**
+   * The GM undid one earlier action (FR-REC-02, ADR 0013). Comes last in its batch, after the
+   * compensating events that restored the old values. `commandId` names the undone action; its
+   * details are in the undo history of the state just before this event.
+   */
+  z.object({
+    type: z.literal("ActionUndone"),
+    commandId: Id,
   }),
 ]);
 export type DomainEvent = z.infer<typeof DomainEvent>;
@@ -163,6 +242,12 @@ export const CommittedEvent = z.object({
   at: z.string(),
   /** Participant who caused it; null for system events. */
   actorId: Id.nullable(),
+  /**
+   * The server's id for the command (or system batch) that produced this event, shared by every
+   * event of that batch, so undo reverses a command as one unit (ADR 0013). Absent on events
+   * committed before undo existed, and on events sent to players.
+   */
+  commandId: Id.optional(),
   event: DomainEvent,
 });
 export type CommittedEvent = z.infer<typeof CommittedEvent>;

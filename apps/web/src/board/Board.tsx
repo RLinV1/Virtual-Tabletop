@@ -1,21 +1,37 @@
-import { CornersOut } from "@phosphor-icons/react";
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
-import { DEFAULT_TOKEN_COLOR, EMPTY_STATS, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
+import { CornersOut, Eye, EyeSlash } from "@phosphor-icons/react";
+import { Suspense, forwardRef, lazy, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
+import { DEFAULT_TOKEN_COLOR, EMPTY_STATS, conditionSpec, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
+import { guardedConnection } from "../net/previewConnection";
 import { DEFAULT_TOOL_OPTIONS, ToolRail, toolFor, type ToolOptions } from "../ui/ToolRail";
+import { isBoolean, usePersistentState } from "../ui/usePersistentState";
+import { canAnimateDice, type TrayRoll } from "../ui/Die3D";
+import { ThrownDice, type ActiveThrow } from "./ThrownDice";
 import { BoardView } from "./boardView";
+import { MAX_ATTACK_EFFECTS, attackEffectFor, attackPlan, prefersReducedMotion, type AttackEffect } from "./effects";
+import type { OverlayEffect } from "./EffectsOverlay";
+import { boardDieSize, centreThrow, onMap, throwLanding, type BoardThrow, type BoardTransform } from "./diceThrow";
 import { autoPlacementPoint, type PlacementGhost, type TokenDraft } from "./placement";
 import type { BoardTool } from "./tools";
+
+/** Loaded when the first effect or condition needs it, so the board paints before the libraries arrive. */
+const EffectsOverlay = lazy(() => import("./EffectsOverlay"));
 
 interface Props {
   connection: RoomConnection;
   state: RoomState;
   you: Participant;
   gridPreview: GridSpec | null;
+  /** The GM is previewing as a player (gm-view-as-player): no tool, drag, placement or targeting. Pan and zoom still work. */
+  readOnly?: boolean;
   /** Plain React controls shown top left, before Fit (e.g. the participants button). */
   toolbar?: ReactNode;
   /** Notices pinned to the top right of the board, e.g. the GM's "Sam left the table". */
   notices?: ReactNode;
+  /** Drawn over the map, under the toolbar and notices; never takes pointer input. */
+  overlay?: ReactNode;
+  /** The roll whose dice have just landed; an attack's strike plays then, not while they are in the air (KAN-76). */
+  landedRollId?: string | null;
   /** The viewer clicked the token `attackerId` attacks, in Pick on board (attack-targeting). */
   onPickTarget?: (attackerId: string, targetId: string) => void;
 }
@@ -29,7 +45,26 @@ export interface BoardHandle {
   startAttack(tokenId: string): void;
   /** Show a ping on this viewer's board only, e.g. the one an attack roll just sent. */
   showPing(at: Point): void;
+  /**
+   * Where dice released at this page point with this velocity (page px/ms) would fly, in board
+   * coordinates, or null when the point is not over the map (throw-dice-on-board).
+   */
+  aimThrow(client: Point, velocity: Point): { from: Point; to: Point } | null;
+  /** Where a roll made with Roll is thrown: into the middle of the visible board, kept on the map. */
+  centreAim(): { from: Point; to: Point } | null;
+  /**
+   * Throw a roll's dice on this viewer's board. False when they can't be animated here (reduced
+   * motion, no Web Animations, the board not ready); then neither callback is called. `onGone`
+   * comes once the dice have faded off the board, or were cleared early.
+   */
+  throwDice(t: BoardThrow, roll: TrayRoll, onLanded: () => void, onGone?: () => void): boolean;
 }
+
+/** What the Dice panel needs from the board to throw dice onto it (throw-dice-on-board). */
+export type DiceBoard = Pick<BoardHandle, "aimThrow">;
+
+/** Rolls on the board at once; a fourth throw clears the oldest away. */
+const MAX_BOARD_THROWS = 3;
 
 const PLACING_HINT = "Click a square to place the token · drag to pan · hold Alt to place freely · Esc to cancel";
 
@@ -40,10 +75,21 @@ const HINTS: Record<BoardTool["kind"], string> = {
   area: "Drag to size and aim · click to place the chosen size · hold Alt to place freely · everyone at the table sees areas",
   erase: "Click or drag over your marks and areas to erase them · Esc to stop",
   attack: "Click the token to attack · Esc or right-click to cancel",
+  fog: "",
 };
+
+/** Fog hints by mode (FR-GM-17). Players never get the Fog tool. */
+const FOG_HINTS = {
+  rect: "Drag a rectangle to hide it from players · Esc to stop",
+  polygon: "Click corners · click the first corner or press Enter to close · Backspace removes a corner · Esc cancels",
+  reveal: "Click fog to remove it and show players what is under it · undo from the activity log",
+} as const;
 
 /** With GM only ticked, the areas are the GM's alone; saying "everyone sees them" would mislead. */
 const GM_ONLY_AREA_HINT = "Drag to size and aim · click to place the chosen size · GM only: players won't see these areas";
+
+/** A strike waits for its dice at most this long, in case their landing is never reported. */
+const STRIKE_WAIT_MS = 5000;
 
 /** Keys typed into a field belong to that field, not to the board. */
 function isTyping(target: EventTarget | null) {
@@ -51,11 +97,22 @@ function isTyping(target: EventTarget | null) {
 }
 
 /** The PixiJS board plus its React toolbar and notices; Pixi objects stay inside `BoardView`. */
-export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, toolbar, notices, onPickTarget }, ref) {
+export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, readOnly = false, toolbar, notices, overlay, landedRollId, onPickTarget }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<BoardView | null>(null);
-  const latest = useRef({ state, you, gridPreview, onPickTarget });
-  latest.current = { state, you, gridPreview, onPickTarget };
+  /** GM only: false shows everything through the fog (this browser remembers it). */
+  const [gmFog, setGmFog] = usePersistentState("vtt.ui.gmFog", true, isBoolean);
+  const hasFog = Object.keys(state.fog).length > 0;
+  /** Strikes waiting for their thrown dice to land, by roll id, oldest first (KAN-76). */
+  const waitingStrikes = useRef(new Map<string, { effect: AttackEffect; timer: number }>());
+  const latest = useRef({ state, you, gridPreview, onPickTarget, gmFog: true, readOnly: false });
+  latest.current = { state, you, gridPreview, onPickTarget, gmFog, readOnly };
+  // Sends nothing while previewing as a player, whatever the board is asked to do. Stable for as
+  // long as the connection is, so entering and leaving a preview never rebuilds the board view.
+  const guarded = useMemo(() => guardedConnection(connection, () => latest.current.readOnly), [connection]);
+  /** The token the viewer clicked (not dragged); its details show beside the board. */
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = selectedId ? state.tokens[selectedId] ?? null : null;
   const [tool, setTool] = useState<BoardTool>({ kind: "select" });
   const [toolOptions, setToolOptions] = useState<ToolOptions>(DEFAULT_TOOL_OPTIONS);
   const toolRef = useRef(tool);
@@ -84,16 +141,60 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   const ghostRef = useRef(ghost);
   ghostRef.current = ghost;
   const placeAutomaticallyRef = useRef<HTMLButtonElement>(null);
+  /** Dice thrown on this board (throw-dice-on-board); a ref too, so evictions are side-effect free. */
+  const [throws, setThrows] = useState<ActiveThrow[]>([]);
+  const throwsRef = useRef(throws);
+  const setBoardThrows = (next: ActiveThrow[]) => {
+    throwsRef.current = next;
+    setThrows(next);
+  };
+  /** Attack effects the React overlay is playing, oldest first (board-effects-overlay). */
+  const [overlayEffects, setOverlayEffects] = useState<OverlayEffect[]>([]);
+  const nextEffectId = useRef(0);
+  const dropEffect = useCallback((id: number) => setOverlayEffects((all) => (all.some((e) => e.id === id) ? all.filter((e) => e.id !== id) : all)), []);
+  /** The hit shake is the board's; everything else is the overlay's. */
+  const playEffect = (effect: AttackEffect) => {
+    viewRef.current?.playAttackEffect(effect);
+    const id = nextEffectId.current++;
+    setOverlayEffects((all) => [...all, { id, effect }].slice(-MAX_ATTACK_EFFECTS));
+    // Also removed here, so an effect that waited for the overlay to load never plays late.
+    window.setTimeout(() => dropEffect(id), attackPlan(effect, prefersReducedMotion()).durationMs + 300);
+  };
+  const playEffectRef = useRef(playEffect);
+  playEffectRef.current = playEffect;
+  const followView = useCallback((fn: (view: BoardTransform) => void) => viewRef.current?.onViewChange(fn) ?? (() => {}), []);
+  const throwDone = useCallback((rollId: string) => {
+    const done = throwsRef.current.filter((t) => t.throw.rollId === rollId);
+    setBoardThrows(throwsRef.current.filter((t) => t.throw.rollId !== rollId));
+    done.forEach((t) => t.onGone());
+  }, []);
+  // Don't leave the Dice panel waiting on dice that are no longer drawn.
+  useEffect(
+    () => () =>
+      throwsRef.current.forEach((t) => {
+        t.onLanded();
+        t.onGone();
+      }),
+    [],
+  );
 
   /** Create the token at `at`. One at a time: a second click while the first is in flight does nothing. */
-  const place = async (at: Point) => {
+  const place = async (at: Point, batch = false) => {
     const current = placingRef.current;
     if (!current || current.busy) return;
     placingRef.current = { ...current, busy: true };
     setPlacing(placingRef.current);
-    const result = await connection.command({ ...current.draft, position: at });
+    // Several tokens are placed one click each, so the GM chooses every square; the server
+    // numbers the duplicates (KAN-62).
+    const left = current.draft.count ?? 1;
+    // Automatic placement can put the whole remaining batch on nearby free squares in one action.
+    const result = await guarded.command({ ...current.draft, count: batch ? left : 1, position: at });
     // Keep the draft on a rejection, so the GM can read why and try another square.
-    setPlacing((now) => (now?.draft !== current.draft ? now : result.ok ? null : { ...now, busy: false, error: result.message }));
+    setPlacing((now) => {
+      if (now?.draft !== current.draft) return now;
+      if (!result.ok) return { ...now, busy: false, error: result.message };
+      return !batch && left > 1 ? { draft: { ...current.draft, count: left - 1 }, busy: false, error: null } : null;
+    });
   };
   const placeRef = useRef(place);
   placeRef.current = place;
@@ -101,23 +202,38 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   useEffect(() => {
     const view = new BoardView(hostRef.current!, {
       moveToken: async (tokenId, to) => {
-        const result = await connection.command({ type: "token.move", tokenId, to });
+        const result = await guarded.command({ type: "token.move", tokenId, to });
         if (!result.ok) console.warn("Move rejected:", result.message);
         return result.ok;
       },
-      dragPreview: (tokenId, at) => connection.ephemeral({ type: "tokenDragPreview", tokenId, at }),
-      ping: (at) => connection.ephemeral({ type: "ping", at }),
+      dragPreview: (tokenId, at) => guarded.preview(`drag:${tokenId}`, { type: "tokenDragPreview", tokenId, at }),
+      dragEnd: (tokenId, at) => guarded.endPreview(`drag:${tokenId}`, at && { type: "tokenDragPreview", tokenId, at }),
+      ping: (at) => guarded.ephemeral({ type: "ping", at }),
+      // Aiming is shared live and coalesced like drags (KAN-35, KAN-39); the clear goes at once.
+      aimPreview: (preview) => guarded.preview("aim", { type: "templatePreview", preview }),
+      aimEnd: (gmOnly) => guarded.endPreview("aim", { type: "templatePreview", preview: null, gmOnly }),
       placeTemplate: async (template) => {
-        const result = await connection.command({ type: "template.place", ...template });
+        const result = await guarded.command({ type: "template.place", ...template });
         if (!result.ok) console.warn("Area rejected:", result.message);
         return result.ok;
       },
       removeTemplate: async (templateId) => {
-        const result = await connection.command({ type: "template.remove", templateId });
+        const result = await guarded.command({ type: "template.remove", templateId });
         if (!result.ok) console.warn("Area removal rejected:", result.message);
         return result.ok;
       },
+      addFog: async (region) => {
+        const result = await guarded.command({ type: "fog.add", region });
+        if (!result.ok) console.warn("Fog rejected:", result.message);
+        return result.ok;
+      },
+      removeFog: async (regionId) => {
+        const result = await guarded.command({ type: "fog.remove", regionId });
+        if (!result.ok) console.warn("Fog removal rejected:", result.message);
+        return result.ok;
+      },
       placeToken: (at) => void placeRef.current(at),
+      selectToken: (tokenId) => setSelectedId(tokenId),
       cancelPlacement: () => setPlacing(null),
       pickTarget: (attackerId, targetId) => {
         endAttack();
@@ -130,6 +246,8 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     view.init().then(() => {
       if (disposed) return view.destroy();
       viewRef.current = view;
+      view.setGmFogShown(latest.current.gmFog);
+      view.setReadOnly(latest.current.readOnly);
       view.setGridPreview(latest.current.gridPreview);
       view.update(latest.current.state, latest.current.you);
       view.setTool(toolRef.current);
@@ -138,11 +256,43 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     const stopEphemeral = connection.onEphemeral((_from, payload) => {
       if (payload.type === "ping") view.showPing(payload.at, 0x3498db);
       else if (payload.type === "tokenDragPreview") view.showDragPreview(payload.tokenId, payload.at);
+      else if (payload.type === "templatePreview") {
+        view.showAimPreview(_from, payload.preview, latest.current.state.participants[_from]?.displayName ?? "Someone");
+      }
+    });
+
+    // Live events only, already filtered for this viewer; a snapshot never gets here (KAN-76).
+    const stopCommitted = connection.onCommitted((committed, _before, after) => {
+      const viewer = latest.current.you;
+      const effect = attackEffectFor(committed.event, after, viewer);
+      if (!effect) return;
+      // Every public roll is thrown over the board first: the strike leaves when the dice land.
+      // Rulings and damage have no dice and play at once.
+      if (effect.kind === "strike" && committed.event.type === "DiceRolled") {
+        const rollId = committed.event.roll.id;
+        // A flood of rolls must not pile up strikes and timers: keep only the newest few.
+        const waiting = waitingStrikes.current;
+        while (waiting.size >= MAX_ATTACK_EFFECTS) {
+          const [oldest, strike] = waiting.entries().next().value!;
+          window.clearTimeout(strike.timer);
+          waiting.delete(oldest);
+        }
+        const timer = window.setTimeout(() => {
+          waitingStrikes.current.delete(rollId);
+          playEffectRef.current(effect);
+        }, STRIKE_WAIT_MS);
+        waitingStrikes.current.set(rollId, { effect, timer });
+      } else {
+        playEffectRef.current(effect);
+      }
     });
 
     return () => {
       disposed = true;
       stopEphemeral();
+      stopCommitted();
+      waitingStrikes.current.forEach((waiting) => window.clearTimeout(waiting.timer));
+      waitingStrikes.current.clear();
       if (viewRef.current === view) {
         view.destroy();
         viewRef.current = null;
@@ -153,6 +303,30 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   useEffect(() => {
     viewRef.current?.update(state, you);
   }, [state, you]);
+
+  // Landing a roll releases its own strike. Each roll is thrown on its own, so the others keep
+  // waiting for their dice, or for the fallback timer if a landing never reaches us.
+  useEffect(() => {
+    const waiting = waitingStrikes.current;
+    const strike = landedRollId ? waiting.get(landedRollId) : undefined;
+    if (!landedRollId || !strike) return;
+    waiting.delete(landedRollId);
+    window.clearTimeout(strike.timer);
+    playEffectRef.current(strike.effect);
+  }, [landedRollId]);
+
+  useEffect(() => {
+    viewRef.current?.setReadOnly(readOnly);
+    if (readOnly) {
+      // Nothing to place, aim or draw while previewing.
+      setPlacing(null);
+      setTool({ kind: "select" });
+    }
+  }, [readOnly]);
+
+  useEffect(() => {
+    viewRef.current?.setGmFogShown(gmFog);
+  }, [gmFog, state.fog, connection]);
 
   useEffect(() => {
     viewRef.current?.setGridPreview(gridPreview);
@@ -189,7 +363,12 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   useEffect(() => {
     if (tool.kind === "select") return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || e.defaultPrevented || isTyping(e.target) || document.querySelector("dialog[open]")) return;
+      if (e.defaultPrevented || isTyping(e.target) || document.querySelector("dialog[open]")) return;
+      // The Fog polygon takes Enter to close and Backspace to drop a corner; Escape abandons it first.
+      if (toolRef.current.kind === "fog" && e.key === "Enter" && viewRef.current?.closeFogPolygon()) return e.preventDefault();
+      if (toolRef.current.kind === "fog" && e.key === "Backspace" && viewRef.current?.undoFogPoint()) return e.preventDefault();
+      if (e.key !== "Escape") return;
+      if (viewRef.current?.cancelFogPolygon()) return;
       if (toolRef.current.kind === "attack") endAttack();
       else setTool({ kind: "select" });
     };
@@ -218,19 +397,71 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       setTool({ kind: "attack", attackerId: tokenId });
     },
     showPing: (at: Point) => viewRef.current?.showPing(at),
+    aimThrow: (client: Point, velocity: Point) => {
+      const view = viewRef.current;
+      const { map, grid } = latest.current.state.scene;
+      if (!view || !map) return null;
+      const from = view.clientToBoard(client.x, client.y);
+      if (!from || !onMap(from, map)) return null;
+      return { from, to: throwLanding(from, velocity, view.transform, grid, map) };
+    },
+    centreAim: () => {
+      const view = viewRef.current;
+      const centre = view?.visibleCentre();
+      if (!view || !centre) return null;
+      const { map, grid } = latest.current.state.scene;
+      return centreThrow(centre, view.transform, grid, map);
+    },
+    throwDice: (t: BoardThrow, roll: TrayRoll, onLanded: () => void, onGone?: () => void) => {
+      const view = viewRef.current;
+      const { map, grid } = latest.current.state.scene;
+      if (!view || !canAnimateDice(hostRef.current)) return false;
+      let landed = false;
+      const once = () => {
+        if (landed) return;
+        landed = true;
+        onLanded();
+      };
+      const next = [...throwsRef.current, { throw: t, roll, size: boardDieSize(grid, view.transform), map, onLanded: once, onGone: onGone ?? (() => {}) }];
+      const evicted = next.splice(0, Math.max(0, next.length - MAX_BOARD_THROWS));
+      setBoardThrows(next);
+      evicted.forEach((e) => {
+        e.onLanded();
+        e.onGone();
+      });
+      return true;
+    },
   }), []);
 
   return (
     <div className="board" data-tour="board">
       <div ref={hostRef} className="board-canvas" />
+      {(overlayEffects.length > 0 || Object.values(state.tokens).some((t) => t.conditions.length > 0)) && (
+        <Suspense fallback={null}>
+          <EffectsOverlay state={state} effects={overlayEffects} subscribe={followView} onDone={dropEffect} isGm={you.role === "gm"} />
+        </Suspense>
+      )}
+      {throws.length > 0 && <ThrownDice throws={throws} subscribe={followView} onDone={throwDone} />}
       <div className="board-toolbar">
         {toolbar}
         <button type="button" className="tool-button" data-tour="fit" onClick={() => viewRef.current?.resetView()} title="Fit the map to the screen">
           <CornersOut size={16} aria-hidden="true" />
           Fit
         </button>
+        {you.role === "gm" && hasFog && (
+          <button
+            type="button"
+            className="tool-button"
+            onClick={() => setGmFog(!gmFog)}
+            title={gmFog ? "See everything: hide the fog tint on your view" : "Show the fog tint on your view again"}
+          >
+            {gmFog ? <Eye size={16} aria-hidden="true" /> : <EyeSlash size={16} aria-hidden="true" />}
+            {gmFog ? "Fog on" : "Fog off"}
+          </button>
+        )}
       </div>
       {gridPreview && <p className="grid-preview-label" role="status">Preview · Not applied</p>}
+      {!readOnly && (
       <ToolRail
         active={tool.kind}
         options={toolOptions}
@@ -246,11 +477,53 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
         }}
         onClear={() => viewRef.current?.clearMarks()}
       />
+      )}
+      {overlay}
       {notices}
+      {selected && (
+        <aside className="token-card" aria-label={`${selected.name} details`}>
+          <div className="token-card-head">
+            <span className="token-card-swatch" style={{ background: selected.color }} aria-hidden="true" />
+            <strong>{selected.name}</strong>
+            <button type="button" className="secondary" onClick={() => setSelectedId(null)} aria-label="Close token details">×</button>
+          </div>
+          <dl>
+            <dt>HP</dt>
+            <dd>{selected.stats.hp === null ? "Not tracked" : selected.stats.maxHp === null ? selected.stats.hp : `${selected.stats.hp} / ${selected.stats.maxHp}`}</dd>
+            {selected.stats.ac !== null && (
+              <>
+                <dt>AC</dt>
+                <dd>{selected.stats.ac}</dd>
+              </>
+            )}
+            <dt>Status</dt>
+            <dd>{selected.conditions.length ? selected.conditions.map((c) => conditionSpec(c).label).join(", ") : "None"}</dd>
+            {you.role === "gm" && (
+              <>
+                <dt>Owners</dt>
+                <dd>
+                  {selected.ownerIds.length
+                    ? selected.ownerIds.map((id) => state.participants[id]?.displayName ?? "Unknown").join(", ")
+                    : "GM only"}
+                </dd>
+                <dt>Visible</dt>
+                <dd>{selected.hidden ? "Hidden from players" : "Everyone"}</dd>
+                {selected.initiative != null && (
+                  <>
+                    <dt>Initiative</dt>
+                    <dd>{String(selected.initiative)}</dd>
+                  </>
+                )}
+              </>
+            )}
+          </dl>
+        </aside>
+      )}
       {placing && (
         <div className="placement-bar">
           <p aria-live="polite">
-            Placing <strong>{placing.draft.name}</strong>: click a square on the map.
+            Placing <strong>{placing.draft.name}</strong>
+            {(placing.draft.count ?? 1) > 1 ? ` (${placing.draft.count} left)` : ""}: click a square on the map.
           </p>
           {placing.error && <p role="alert" className="error">{placing.error}</p>}
           <div className="row">
@@ -259,9 +532,9 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
               type="button"
               className="secondary"
               disabled={placing.busy}
-              onClick={() => void place(autoPlacementPoint(state, placing.draft.size ?? 1))}
+              onClick={() => void place(autoPlacementPoint(state, placing.draft.size ?? 1), true)}
             >
-              Place automatically
+              {(placing.draft.count ?? 1) > 1 ? "Place all automatically" : "Place automatically"}
             </button>
             <button type="button" className="secondary" disabled={placing.busy} onClick={() => setPlacing(null)}>
               Cancel
@@ -269,8 +542,9 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
           </div>
         </div>
       )}
-      <p className="board-hint">
-        {placing ? PLACING_HINT : tool.kind === "area" && tool.gmOnly ? GM_ONLY_AREA_HINT : HINTS[tool.kind]}
+      {/* Announced when the tool changes; while placing, the placement bar already speaks. */}
+      <p className="board-hint" aria-live={placing ? "off" : "polite"}>
+        {placing ? PLACING_HINT : tool.kind === "area" && tool.gmOnly ? GM_ONLY_AREA_HINT : tool.kind === "fog" ? FOG_HINTS[tool.mode] : HINTS[tool.kind]}
       </p>
     </div>
   );
