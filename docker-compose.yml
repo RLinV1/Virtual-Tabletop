@@ -41,6 +41,15 @@ services:
       PORT: 8000
       OPENCV_IO_MAX_IMAGE_PIXELS: 40000000
     ports: ["127.0.0.1:8000:8000"]
+  # BullMQ consumer for wall detection (FR-GM-11, ADR 0025). Same image; no ports: it only
+  # talks to Redis, taking jobs from the app server and returning walls and a preview.
+  vision-walls:
+    build: ./services/vision
+    command: ["python", "wall_worker.py"]
+    environment:
+      REDIS_URL: redis://redis:6379
+      OPENCV_IO_MAX_IMAGE_PIXELS: 40000000
+    depends_on: [redis]
 volumes:
   pgdata:
   redisdata:

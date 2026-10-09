@@ -17,8 +17,8 @@
 
 ## 3. Vision worker (Python)
 
-- [ ] 3.1 Implement `services/vision/walls.py` (bounded decode, colour mask, morphology, thinning, graph tracing, RDP, welding, preview render); verify with pytest on synthetic maps: walls found along thick strokes, none along thin grid lines, zero on an empty floor, invalid bytes rejected.
-- [ ] 3.2 Implement `services/vision/wall_worker.py` consuming the `wall-detection` BullMQ queue and returning `{walls, preview}`; add `bullmq` to requirements, a `vision-walls` Compose service, and update the Dockerfile; verify with a pytest that runs the job handler directly.
+- [x] 3.1 Implement `services/vision/walls.py` (bounded decode, colour mask, morphology, thinning, graph tracing, RDP, welding, preview render); verify with pytest on synthetic maps: walls found along thick strokes, none along thin grid lines, zero on an empty floor, invalid bytes rejected.
+- [x] 3.2 Implement `services/vision/wall_worker.py` consuming the `wall-detection` BullMQ queue and returning `{walls, preview}`; add `bullmq` to requirements, a `vision-walls` Compose service, and update the Dockerfile; verify with a pytest that runs the job handler directly.
 
 ## 4. App server
 

@@ -37,11 +37,11 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Test vision fixtures
+      - name: Test vision service (grid and wall detection)
         run: |
           python -m pip install -r services/vision/requirements.txt
           cd services/vision
-          python -m unittest -v test_detector.py
+          python -m unittest -v test_detector.py test_walls.py test_wall_worker.py
 
       - name: Build
         run: npm run build
