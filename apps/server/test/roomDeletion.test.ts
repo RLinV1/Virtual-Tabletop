@@ -10,7 +10,7 @@ import {
 } from "@vtt/shared";
 import { buildApp } from "../src/app";
 import { MemoryRoomStore } from "../src/store/memoryRoomStore";
-import { newGuestToken, startServer, type TestClient } from "./helpers";
+import { listenForFetch, newGuestToken, startServer, type TestClient } from "./helpers";
 
 let server: Awaited<ReturnType<typeof startServer>>;
 const clients: TestClient[] = [];
@@ -208,10 +208,7 @@ describe("room deletion: uploads racing the delete (KAN-72)", () => {
     }
     const uploadDir = await mkdtemp(path.join(tmpdir(), "vtt-uploads-"));
     const app = await buildApp({ store: new RoomGoneStore(), uploadDir, clientOrigin: "*" });
-    await app.listen({ port: 0, host: "127.0.0.1" });
-    const addr = app.server.address();
-    if (!addr || typeof addr === "string") throw new Error("no address");
-    const base = `http://127.0.0.1:${addr.port}`;
+    const base = await listenForFetch(app);
     try {
       const signedUp = await fetch(`${base}/api/auth/signup`, {
         method: "POST",

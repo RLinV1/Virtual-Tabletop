@@ -25,6 +25,7 @@ import type { AssetStore } from "../store/assetStore";
 import type { RoomRegistry } from "../domain/roomRegistry";
 import type { RoomStore } from "../store/roomStore";
 import { requireAccount, signedIn } from "../identity/middleware";
+import { refused, type AccountLimits } from "../identity/routes";
 import { registerMembershipRoutes } from "../membership/routes";
 import { registerDiceLookRoutes } from "../ownership/diceLooks";
 import { registerLegacyRoutes } from "../ownership/legacy";
@@ -36,9 +37,9 @@ import { registerLibraryRoutes } from "./library";
 /** Registers the REST API: rooms, invite joins, uploads, the library and GM history. */
 export function registerRoutes(
   app: Express,
-  deps: { store: RoomStore; registry: RoomRegistry; uploadDir: string; assets: AssetStore },
+  deps: { store: RoomStore; registry: RoomRegistry; uploadDir: string; assets: AssetStore; limits: AccountLimits },
 ) {
-  const { store, registry, uploadDir, assets } = deps;
+  const { store, registry, uploadDir, assets, limits } = deps;
 
   const receiveImage = imageUploader(uploadDir);
 
@@ -115,6 +116,10 @@ export function registerRoutes(
       const roomId = await store.findRoomByInvite(req.params.inviteCode);
       const room = roomId ? await registry.get(roomId) : null;
       if (!roomId || !room || room.closed) return res.status(404).json({ error: "Invite not found" });
+      // Every attempt counts, accepted or not: each join and its leave are permanent events, and
+      // the player cap bounds seats held at once, not seats a room stores (security-hardening D2).
+      const limit = limits.joinsPerIpPerRoom.hit(`join:${roomId}:${req.ip}`);
+      if (refused(res, limit, "Too many joins from this address. Try again later.")) return;
 
       const account = signedIn(res);
       const participantId = randomUUID();
