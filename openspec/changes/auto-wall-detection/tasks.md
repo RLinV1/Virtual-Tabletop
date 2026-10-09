@@ -2,18 +2,18 @@
 
 ## 1. Contract and ADR
 
-- [ ] 1.1 Write `docs/adr/0025-walls-and-wall-detection.md` covering the wall model, commands, events, GM-only visibility, queue topology and the BullMQ-consumer choice; verify it is linked from DESIGN.md.
-- [ ] 1.2 Add `Wall`, `MAX_WALLS`, `RoomState.walls`, optional `TableState.walls`, `tableOf` and `emptyRoomState` in `packages/shared/src/state.ts`; verify `npm run typecheck`.
-- [ ] 1.3 Add segment/footprint geometry (`segmentsCross`, `segmentCrossesFootprint`, `blockedByWalls`, `pathCrossesWall`) and a `blocked` predicate on `spreadPositions` in `geometry.ts`; verify with unit tests, including the cell-edge case.
-- [ ] 1.4 Add `wall.applyDetected`, `wall.remove`, `wall.clear` commands and `WallsAdded`/`WallsRemoved` events; add the `wallDetection.ts` schemas (`WallDetectionStatus`, `WallDetectionResult`) and the `wallDetection` server message; verify typecheck.
+- [x] 1.1 Write `docs/adr/0025-walls-and-wall-detection.md` covering the wall model, commands, events, GM-only visibility, queue topology and the BullMQ-consumer choice; verify it is linked from DESIGN.md.
+- [x] 1.2 Add `Wall`, `MAX_WALLS`, `RoomState.walls`, optional `TableState.walls`, `tableOf` and `emptyRoomState` in `packages/shared/src/state.ts`; verify `npm run typecheck`.
+- [x] 1.3 Add segment/footprint geometry (`segmentsCross`, `segmentCrossesFootprint`, `blockedByWalls`, `pathCrossesWall`) and a `blocked` predicate on `spreadPositions` in `geometry.ts`; verify with unit tests, including the cell-edge case.
+- [x] 1.4 Add `wall.applyDetected`, `wall.remove`, `wall.clear` commands and `WallsAdded`/`WallsRemoved` events; add the `wallDetection.ts` schemas (`WallDetectionStatus`, `WallDetectionResult`) and the `wallDetection` server message; verify typecheck.
 
 ## 2. Rules, state and visibility
 
-- [ ] 2.1 Handle the wall commands in `decide` (GM only, current-map check, `detectedWalls` context hook, replace-on-apply) and the events in `reduce`; verify with unit tests in `packages/shared/test/walls.test.ts` (FR-GM-11).
-- [ ] 2.2 Block token create/move/configure onto walls for everyone and player moves through walls; verify with unit tests for drop-on-wall, beside-wall, spread copies, player crossing and GM crossing.
-- [ ] 2.3 Clear walls in `scene.setMap` to a new URL, `encounterTable` → `walls: {}`, and restore walls through checkpoints; verify with unit tests.
-- [ ] 2.4 Make `WallsAdded`/`WallsRemoved` reversible in `undo.ts` and describe them in `activityLog.ts`; verify undo-of-apply restores prior walls in a unit test.
-- [ ] 2.5 Strip walls from player snapshots and redact wall events in `visibility.ts`; verify with a unit test asserting a player's state and events contain no wall data.
+- [x] 2.1 Handle the wall commands in `decide` (GM only, current-map check, `detectedWalls` context hook, replace-on-apply) and the events in `reduce`; verify with unit tests in `packages/shared/test/walls.test.ts` (FR-GM-11).
+- [x] 2.2 Block token create/move/configure onto walls for everyone and player moves through walls; verify with unit tests for drop-on-wall, beside-wall, spread copies, player crossing and GM crossing.
+- [x] 2.3 Clear walls in `scene.setMap` to a new URL, `encounterTable` → `walls: {}`, and restore walls through checkpoints; verify with unit tests.
+- [x] 2.4 Make `WallsAdded`/`WallsRemoved` reversible in `undo.ts` and describe them in `activityLog.ts`; verify undo-of-apply restores prior walls in a unit test.
+- [x] 2.5 Strip walls from player snapshots and redact wall events in `visibility.ts`; verify with a unit test asserting a player's state and events contain no wall data.
 
 ## 3. Vision worker (Python)
 

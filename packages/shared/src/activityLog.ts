@@ -33,6 +33,9 @@ export type HistoryResponse = z.infer<typeof HistoryResponse>;
 /** "rectangle" or "polygon", for fog sentences (FR-GM-17). */
 const fogLabel = (shape: "rect" | "polygon") => (shape === "rect" ? "rectangle" : "polygon");
 
+/** "1 wall", "42 walls" (ADR 0025). */
+const wallCount = (n: number) => `${n} ${n === 1 ? "wall" : "walls"}`;
+
 /** A board point for a sentence: at most 2 decimals, so float noise like 829.1000000000001 reads 829.1. */
 const formatPoint = (p: { x: number; y: number }) => `(${Number(p.x.toFixed(2))}, ${Number(p.y.toFixed(2))})`;
 
@@ -111,6 +114,8 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
     case "TemplateRemoved": return `${actorName} removed a ${templateLabel(event.template)}${event.template.gmOnly ? " (GM only)" : ""}`;
     case "FogAdded": return `${actorName} added a fog ${fogLabel(event.region.shape)}`;
     case "FogRemoved": return `${actorName} removed a fog ${fogLabel(event.region.shape)}`;
+    case "WallsAdded": return `${actorName} applied ${wallCount(event.walls.length)}`;
+    case "WallsRemoved": return `${actorName} removed ${wallCount(event.walls.length)}`;
     case "CheckpointCreated": return `${actorName} saved checkpoint "${event.checkpoint.name}"`;
     case "CheckpointRestored": return `${actorName} restored checkpoint "${event.name}"`;
     case "EncounterApplied": return `${actorName} applied encounter template "${event.name}"`;

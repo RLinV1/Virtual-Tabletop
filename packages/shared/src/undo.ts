@@ -1,6 +1,6 @@
 import { formatAttackParties } from "./dice";
 import type { CommittedEvent, DomainEvent } from "./events";
-import { MAX_FOG_REGIONS, tableOf, type RoomState } from "./state";
+import { MAX_FOG_REGIONS, MAX_WALLS, tableOf, type RoomState, type TableState } from "./state";
 
 /**
  * Undo for reversible actions (FR-REC-02, FR-REC-03, ADR 0013).
@@ -26,6 +26,8 @@ export const REVERSIBLE_EVENT_TYPES = [
   "RollDamageApplied",
   "FogAdded",
   "FogRemoved",
+  "WallsAdded",
+  "WallsRemoved",
   "CheckpointRestored",
   "EncounterApplied",
 ] as const;
@@ -117,7 +119,11 @@ function withLabels(
   event: ReversibleEvent,
 ): Pick<UndoEntry, "tokenNames" | "rollLabels"> {
   const { tokenNames, rollLabels } = labels;
-  if (event.type === "FogAdded" || event.type === "FogRemoved" || event.type === "CheckpointRestored" || event.type === "EncounterApplied") return labels;
+  if (event.type === "FogAdded" || event.type === "FogRemoved" || event.type === "WallsAdded" || event.type === "WallsRemoved" ||
+    event.type === "CheckpointRestored" || event.type === "EncounterApplied") {
+    // Only the labels: `labels` may be the whole open entry, whose `events` must not come back.
+    return { tokenNames, rollLabels };
+  }
   if ("tokenId" in event) {
     const token = state.tokens[event.tokenId];
     return token ? { tokenNames: { ...tokenNames, [token.id]: token.name }, rollLabels } : { tokenNames, rollLabels };
@@ -164,6 +170,10 @@ export function inverseOf(event: ReversibleEvent): DomainEvent {
       return { type: "FogRemoved", region: event.region };
     case "FogRemoved":
       return { type: "FogAdded", region: event.region };
+    case "WallsAdded":
+      return { type: "WallsRemoved", walls: event.walls };
+    case "WallsRemoved":
+      return { type: "WallsAdded", walls: event.walls };
     case "CheckpointRestored":
       // Puts back the board the restore replaced (ADR 0019).
       return { ...event, restored: event.previous, previous: event.restored };
@@ -178,14 +188,28 @@ export function inverseOf(event: ReversibleEvent): DomainEvent {
  * still current. Conditions compare as sets: order carries no meaning.
  */
 export function undoConflict(state: RoomState, entry: UndoEntry): string | null {
+  // Walls the undo would leave behind: today's, less those the action added, plus those it removed.
+  const wallsAfter = Object.keys(state.walls).length + entry.events.reduce((n, e) =>
+    e.type === "WallsAdded" ? n - e.walls.filter((w) => state.walls[w.id]).length
+    : e.type === "WallsRemoved" ? n + e.walls.length : n, 0);
+  if (wallsAfter > MAX_WALLS) return `Can't undo: the room would hold more than ${MAX_WALLS} walls.`;
   for (const event of entry.events) {
     if (event.type === "CheckpointRestored") {
       // A whole-board swap: undo only while the board is still exactly what the restore made it.
-      if (!sameValue(tableOf(state), event.restored)) return `Can't undo: the board has changed since "${event.name}" was restored.`;
+      if (!sameValue(tableOf(state), withWalls(event.restored))) return `Can't undo: the board has changed since "${event.name}" was restored.`;
       continue;
     }
     if (event.type === "EncounterApplied") {
-      if (!sameValue(tableOf(state), event.applied)) return `Can't undo: the board has changed since "${event.name}" was applied.`;
+      if (!sameValue(tableOf(state), withWalls(event.applied))) return `Can't undo: the board has changed since "${event.name}" was applied.`;
+      continue;
+    }
+    // Walls are never edited in place either: each must still be there, or still gone (ADR 0025).
+    if (event.type === "WallsAdded") {
+      if (event.walls.some((w) => !state.walls[w.id])) return "Can't undo: some of those walls have already been removed.";
+      continue;
+    }
+    if (event.type === "WallsRemoved") {
+      if (event.walls.some((w) => state.walls[w.id])) return "Can't undo: those walls are already back.";
       continue;
     }
     // Fog regions are never edited in place, so "still current" is just "still there" (or still gone).
@@ -220,6 +244,9 @@ export function undoConflict(state: RoomState, entry: UndoEntry): string | null 
   }
   return null;
 }
+
+/** A table as `reduce` applies it: one from before walls existed had none (ADR 0025). */
+const withWalls = (table: TableState): TableState => ({ ...table, walls: table.walls ?? {} });
 
 /** Deep equality for plain data, ignoring object key order. */
 function sameValue(a: unknown, b: unknown): boolean {
@@ -261,6 +288,16 @@ export function describeUndo(entry: UndoEntry, tokens: RoomState["tokens"]): { v
   }
   if (first.type === "EncounterApplied") {
     return { verb: `apply of "${first.name}"`, noun: `applying encounter template "${first.name}"` };
+  }
+  // Applying walls replaces the old ones, so the action reads as the apply (ADR 0025).
+  const wallsAdded = entry.events.find((e) => e.type === "WallsAdded");
+  if (wallsAdded) {
+    const what = `${wallsAdded.walls.length} ${wallsAdded.walls.length === 1 ? "wall" : "walls"}`;
+    return { verb: `apply of ${what}`, noun: `applying ${what}` };
+  }
+  if (first.type === "WallsAdded" || first.type === "WallsRemoved") {
+    const what = `${first.walls.length} ${first.walls.length === 1 ? "wall" : "walls"}`;
+    return { verb: `removal of ${what}`, noun: `removing ${what}` };
   }
   if (first.type === "FogAdded" || first.type === "FogRemoved") {
     const what = first.region.shape === "rect" ? "fog rectangle" : "fog polygon";

@@ -168,6 +168,21 @@ export const FogRegion = z.object({
 });
 export type FogRegion = z.infer<typeof FogRegion>;
 
+/** Most walls a room holds at once (ADR 0025), so one detection can't grow state without bound. */
+export const MAX_WALLS = 1500;
+
+/**
+ * A wall: a straight segment the GM applied from detection (FR-GM-11, ADR 0025). Board
+ * coordinates (invariant 8). Tokens can't stand across one; players can't move through one.
+ * GM-only: never sent to players.
+ */
+export const Wall = z.object({
+  id: Id,
+  a: Point,
+  b: Point,
+});
+export type Wall = z.infer<typeof Wall>;
+
 /**
  * The authoritative state of one room. Produced only by folding committed events
  * through `reduce` — never mutated directly.
@@ -199,12 +214,14 @@ export const TableState = z.object({
   templates: z.record(Id, AreaTemplate),
   fog: z.record(Id, FogRegion),
   initiative: Initiative.nullable(),
+  /** Optional: tables in events from before walls existed have none (ADR 0025). */
+  walls: z.record(Id, Wall).optional(),
 });
 export type TableState = z.infer<typeof TableState>;
 
 /** The table part of a room state. */
 export function tableOf(state: Pick<RoomState, keyof TableState>): TableState {
-  return { scene: state.scene, tokens: state.tokens, templates: state.templates, fog: state.fog, initiative: state.initiative };
+  return { scene: state.scene, tokens: state.tokens, templates: state.templates, fog: state.fog, initiative: state.initiative, walls: state.walls };
 }
 
 /** Most checkpoints a room keeps; the oldest drops off past this (ADR 0019). */
@@ -259,6 +276,8 @@ export interface RoomState {
   chat: ChatMessage[];
   /** Fog regions, in the order they were added (FR-GM-17, ADR 0016). Sent to players: they are the mask. */
   fog: Record<Id, FogRegion>;
+  /** Applied walls (FR-GM-11, ADR 0025). GM-only: players always get none. */
+  walls: Record<Id, Wall>;
   /** Named restore points, oldest first, capped at MAX_CHECKPOINTS (ADR 0019). GM-only. */
   checkpoints: Checkpoint[];
   /**
@@ -280,6 +299,7 @@ export function emptyRoomState(roomId: Id): RoomState {
     templates: {},
     chat: [],
     fog: {},
+    walls: {},
     checkpoints: [],
     undo: [],
   };

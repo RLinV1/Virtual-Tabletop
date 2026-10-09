@@ -67,7 +67,8 @@ export function filterStateForViewer(state: RoomState, viewer: Participant): Roo
   // Fog regions stay: they are the mask the player's board draws, and name nothing (ADR 0016).
   // Chat is public, so `chat` stays as it is in the spread below (ADR 0015).
   // Undo is GM-only, and its entries name hidden tokens and their old values (ADR 0013).
-  return { ...state, tokens, rolls, initiative, templates, undo: [], checkpoints: [] };
+  // Walls are GM-only: inside fog they would draw rooms the players haven't seen (ADR 0025).
+  return { ...state, tokens, rolls, initiative, templates, walls: {}, undo: [], checkpoints: [] };
 }
 
 export type FilteredEvent =
@@ -102,6 +103,10 @@ export function filterEventForViewer(
     wasConcealed !== isConcealed ? { kind: "resync" } : isConcealed ? redacted : pass;
 
   switch (e.type) {
+    // GM-only geometry (ADR 0025): players learn only that a seq happened.
+    case "WallsAdded":
+    case "WallsRemoved":
+      return redacted;
     case "TokenCreated":
     case "TokenDeleted":
       return concealedFrom(before.fog, e.token, viewer) ? redacted : {

@@ -13,6 +13,7 @@ This document covers architecture, stack, repository, and the running prototype.
 | [`adr/0001-event-model.md`](adr/0001-event-model.md) | Why state is an event log |
 | [`adr/0002-transport-and-identity.md`](adr/0002-transport-and-identity.md) | Socket.IO handshake, guest tokens |
 | [`adr/0003-tactical-state.md`](adr/0003-tactical-state.md) | Stats, conditions, initiative, dice |
+| [`adr/0025-walls-and-wall-detection.md`](adr/0025-walls-and-wall-detection.md) | Walls as room state, BullMQ wall detection |
 
 ---
 

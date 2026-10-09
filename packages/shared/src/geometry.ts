@@ -146,6 +146,8 @@ export function spreadPositions(
   grid: GridSpec,
   map: { width: number; height: number } | null,
   occupied: readonly { position: Point; size: number }[],
+  /** Spots a copy may not take, e.g. a footprint crossing a wall (ADR 0025). Never asked of `origin`. */
+  blocked: (p: Point) => boolean = () => false,
 ): Point[] {
   const step = sizeInCells * grid.cellSize;
   const taken = occupied.map((o) => ({ p: o.position, half: (o.size * grid.cellSize) / 2 }));
@@ -165,7 +167,7 @@ export function spreadPositions(
       for (let dx = -ring; dx <= ring && out.length < count; dx += stride) {
 
         const p = { x: origin.x + dx * step, y: origin.y + dy * step };
-        if (!onMap(p) || !free(p)) continue;
+        if (!onMap(p) || !free(p) || blocked(p)) continue;
         out.push(p);
         taken.push({ p, half: step / 2 });
       }
@@ -173,4 +175,71 @@ export function spreadPositions(
   }
   while (out.length < count) out.push(origin);
   return out;
+}
+
+/** A straight segment in board coordinates: a wall, or the path of a move (ADR 0025). */
+export interface Segment {
+  a: Point;
+  b: Point;
+}
+
+const orient = (o: Point, a: Point, b: Point) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+const onSegment = (p: Point, s: Segment) =>
+  Math.min(s.a.x, s.b.x) <= p.x && p.x <= Math.max(s.a.x, s.b.x) &&
+  Math.min(s.a.y, s.b.y) <= p.y && p.y <= Math.max(s.a.y, s.b.y);
+
+/** Whether two segments share any point, touching included. */
+export function segmentsCross(p: Segment, q: Segment): boolean {
+  const d1 = orient(q.a, q.b, p.a);
+  const d2 = orient(q.a, q.b, p.b);
+  const d3 = orient(p.a, p.b, q.a);
+  const d4 = orient(p.a, p.b, q.b);
+  if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return true;
+  return (d1 === 0 && onSegment(p.a, q)) || (d2 === 0 && onSegment(p.b, q)) ||
+    (d3 === 0 && onSegment(q.a, p)) || (d4 === 0 && onSegment(q.b, p));
+}
+
+/** Whether a segment passes through the open rectangle (Liang–Barsky clipping). */
+export function segmentCrossesRect(s: Segment, rect: { minX: number; minY: number; maxX: number; maxY: number }): boolean {
+  const dx = s.b.x - s.a.x;
+  const dy = s.b.y - s.a.y;
+  let t0 = 0;
+  let t1 = 1;
+  // Each pair is one side: p * t < q keeps the part of the line inside it.
+  const sides: [number, number][] = [
+    [-dx, s.a.x - rect.minX], [dx, rect.maxX - s.a.x],
+    [-dy, s.a.y - rect.minY], [dy, rect.maxY - s.a.y],
+  ];
+  for (const [p, q] of sides) {
+    if (p === 0) {
+      if (q <= 0) return false;
+      continue;
+    }
+    const t = q / p;
+    if (p < 0) t0 = Math.max(t0, t);
+    else t1 = Math.min(t1, t);
+    if (t0 >= t1) return false;
+  }
+  return true;
+}
+
+/**
+ * Share of a token's width trimmed from each side before testing it against walls (ADR 0025), so
+ * a token may stand in the cell beside a wall drawn along the cell's edge.
+ */
+export const WALL_FOOTPRINT_INSET = 0.1;
+
+/** Whether any wall crosses the footprint of a token of `sizeInCells` centred on `center`. */
+export function footprintCrossesWall(center: Point, sizeInCells: number, grid: GridSpec, walls: Iterable<Segment>): boolean {
+  const half = (sizeInCells * grid.cellSize / 2) * (1 - 2 * WALL_FOOTPRINT_INSET);
+  const rect = { minX: center.x - half, minY: center.y - half, maxX: center.x + half, maxY: center.y + half };
+  for (const wall of walls) if (segmentCrossesRect(wall, rect)) return true;
+  return false;
+}
+
+/** Whether the straight path from `from` to `to` crosses any wall. */
+export function pathCrossesWall(from: Point, to: Point, walls: Iterable<Segment>): boolean {
+  const path = { a: from, b: to };
+  for (const wall of walls) if (segmentsCross(path, wall)) return true;
+  return false;
 }
