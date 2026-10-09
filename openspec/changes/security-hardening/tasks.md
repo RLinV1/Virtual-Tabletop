@@ -13,3 +13,4 @@
 
 - [x] 2.1 Run `npm run lint && npm run typecheck && npm test`, and `openspec validate security-hardening --strict`. Verify all clean.
 - [x] 2.2 Live check in the browser (Playwright): the join page shows the 429 message after the join limit is reached.
+- [x] 2.3 Fix the Windows-only test flake found while verifying (not a product change): `startServer` listened on port 0, and Windows hands out ports from 1024, so a test server sometimes landed on one of `fetch`'s "bad ports" (e.g. 6000, 6666) and a random test failed with "fetch failed: bad port". `listenForFetch` in `apps/server/test/helpers.ts` listens again until the port is fetchable. Verify the server suite passes repeatedly on Windows.

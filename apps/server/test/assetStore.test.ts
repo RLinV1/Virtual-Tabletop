@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../src/app";
 import { DEV_MINIO_ENDPOINT, LocalDiskAssetStore, createAssetStore, type AssetStore } from "../src/store/assetStore";
 import { MemoryRoomStore } from "../src/store/memoryRoomStore";
+import { listenForFetch } from "./helpers";
 
 /** Stands in for a connected MinIO: reads come from an in-memory map. */
 function fakeMinio(objects: Record<string, string> = {}): AssetStore {
@@ -110,10 +111,7 @@ describe("serving uploads while MinIO is in use (upload-storage)", () => {
     const uploadDir = await mkdtemp(path.join(tmpdir(), "vtt-uploads-"));
     await writeFile(path.join(uploadDir, "old.png"), "from-disk");
     const app = await buildApp({ store: new MemoryRoomStore(), uploadDir, assets: fakeMinio({ "new.png": "from-minio" }) });
-    await app.listen({ port: 0, host: "127.0.0.1" });
-    const addr = app.server.address();
-    if (!addr || typeof addr === "string") throw new Error("no address");
-    const base = `http://127.0.0.1:${addr.port}`;
+    const base = await listenForFetch(app);
     try {
       expect(await (await fetch(`${base}/uploads/new.png`)).text()).toBe("from-minio");
       expect(await (await fetch(`${base}/uploads/old.png`)).text()).toBe("from-disk");
