@@ -9,6 +9,7 @@ import { Modal } from "../ui/Modal";
 import { CheckpointsPanel } from "../panels/CheckpointsPanel";
 import { EncounterPanel } from "../panels/EncounterPanel";
 import { FogPanel } from "../panels/FogPanel";
+import { WallsPanel } from "../panels/WallsPanel";
 import { PanelSection } from "../ui/PanelSection";
 import { withGridSuggestion, type GridDraft } from "./gridDraft";
 import { GridForm } from "./GridForm";
@@ -82,6 +83,7 @@ export function GmPanel({
         )}
       />
       <FogPanel connection={connection} state={state} />
+      <WallsPanel connection={connection} state={state} token={token} />
       <CheckpointsPanel connection={connection} state={state} />
       <EncounterPanel connection={connection} state={state} />
     </>

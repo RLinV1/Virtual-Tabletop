@@ -9,6 +9,7 @@ import {
   type EncounterSummary,
   type GridSpec,
   GridDetectionStatus,
+  WallDetectionStatus,
   type InviteSeatResponse,
   type LegacySummary,
   type LibraryAsset,
@@ -164,6 +165,35 @@ export const api = {
     });
     if (!res.ok) throw await errorFrom(res);
     return (await res.json()) as UploadResponse;
+  },
+
+  /** Wall detection for the room's map, as its GM (FR-GM-11, ADR 0025). */
+  walls: {
+    /** Queues an analysis of the room's current map. */
+    async detect(roomId: string, token: string): Promise<WallDetectionStatus> {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/wall-detection`, {
+        method: "POST", headers: { authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw await errorFrom(res);
+      return WallDetectionStatus.parse(await res.json());
+    },
+    /** The latest analysis of this map, or null when the room never analyzed it. */
+    async status(roomId: string, token: string, mapUrl: string, signal?: AbortSignal): Promise<WallDetectionStatus | null> {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/wall-detection?map=${encodeURIComponent(mapUrl)}`, {
+        headers: { authorization: `Bearer ${token}` }, signal, cache: "no-store",
+      });
+      if (res.status === 404) return null;
+      if (!res.ok) throw await errorFrom(res);
+      return WallDetectionStatus.parse(await res.json());
+    },
+    /** The rendered preview, fetched with the GM's credential (an <img> can't send it). */
+    async preview(roomId: string, token: string, mapUrl: string, signal?: AbortSignal): Promise<Blob> {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/wall-detection/preview?map=${encodeURIComponent(mapUrl)}`, {
+        headers: { authorization: `Bearer ${token}` }, signal, cache: "no-store",
+      });
+      if (!res.ok) throw await errorFrom(res);
+      return res.blob();
+    },
   },
 
   detection: {

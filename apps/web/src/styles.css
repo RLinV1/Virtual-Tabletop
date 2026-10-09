@@ -2261,3 +2261,24 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 }
 .participant-view-as { margin-left: auto; }
 .preview-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; display: contents; }
+
+/* Automatic walls (FR-GM-11, ADR 0025): the GM reviews the rendered detection before applying. */
+.walls-status { margin: 0; font-weight: 600; }
+.walls-preview { margin: 0; display: grid; gap: var(--space-1); }
+.walls-preview img, .walls-preview-placeholder {
+  width: 100%; aspect-ratio: 16 / 9; object-fit: contain; border-radius: var(--radius);
+  border: 1px solid var(--border); background: var(--raised);
+}
+.walls-preview figcaption { font-size: var(--fs-sm); color: var(--muted); }
+
+/* A refused move, e.g. into or through a wall (ADR 0025): bottom centre, clear of notices and hints. */
+.board-refusal {
+  position: absolute; left: 50%; bottom: calc(var(--space-3) * 4); transform: translateX(-50%); z-index: 7;
+  margin: 0; padding: var(--space-2) var(--space-3); max-width: min(24rem, calc(100% - 2 * var(--space-3)));
+  background: var(--raised); border: 1px solid var(--border-strong); border-left: 3px solid var(--danger);
+  border-radius: var(--radius); box-shadow: 0 10px 28px var(--shadow); font-size: var(--fs-sm);
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .board-refusal { animation: modal-in 0.16s ease-out; }
+}

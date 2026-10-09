@@ -13,6 +13,7 @@ import base64
 import binascii
 import os
 import signal
+import time
 
 from bullmq import Worker
 
@@ -35,8 +36,12 @@ async def process(job, _token=None) -> dict:
     cell = float(data.get("cellSize") or 0)
     if not 0 <= cell <= 2000:
         raise ValueError("Invalid cell size")
+    started = time.monotonic()
     # OpenCV releases the GIL, so a thread keeps the worker's lock renewals running meanwhile.
-    return await asyncio.to_thread(analyze, image, width, height, cell)
+    result = await asyncio.to_thread(analyze, image, width, height, cell)
+    # Sizes and timings only: never image contents or results.
+    print(f"[vision] job {job.id}: {width}x{height}, {len(result['walls'])} walls in {time.monotonic() - started:.1f}s", flush=True)
+    return result
 
 
 async def main() -> None:

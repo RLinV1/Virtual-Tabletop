@@ -28,15 +28,15 @@
 
 ## 5. Web
 
-- [ ] 5.1 Add the `api.walls` client calls and surface the `wallDetection` notice in `RoomConnection`; verify typecheck.
-- [ ] 5.2 Add the GM-only Walls panel (status, preview image, Detect / Apply / Clear / Try again) to the GM panel; verify in the running app.
-- [ ] 5.3 Draw walls for the GM in `board/boardView.ts`; verify in the running app.
+- [x] 5.1 Add the `api.walls` client calls and surface the `wallDetection` notice in `RoomConnection`; verify typecheck.
+- [x] 5.2 Add the GM-only Walls panel (status, preview image, Detect / Apply / Clear / Try again) to the GM panel; verify in the running app.
+- [x] 5.3 Draw walls for the GM in `board/boardView.ts`; verify in the running app.
 
 ## 6. End-to-end verification
 
-- [ ] 6.1 Run `npm run lint && npm run typecheck && npm test` and `pytest` in `services/vision`; all green.
-- [ ] 6.2 Run Redis, the Python wall worker and the app together; upload maps, apply walls, try to drop a token on a wall, and capture Playwright screenshots of the detected walls.
-- [ ] 6.3 Update `docs/DESIGN.md` (architecture note, FR-GM-11 traceability) and add `docs/WALL-DETECTION.md` with run instructions.
+- [x] 6.1 Run `npm run lint && npm run typecheck && npm test` and `pytest` in `services/vision`; all green.
+- [x] 6.2 Run Redis, the Python wall worker and the app together; upload maps, apply walls, try to drop a token on a wall, and capture Playwright screenshots of the detected walls.
+- [x] 6.3 Update `docs/DESIGN.md` (architecture note, FR-GM-11 traceability) and add `docs/WALL-DETECTION.md` with run instructions.
 
 ## Workflow follow-up
 

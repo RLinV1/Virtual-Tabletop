@@ -265,6 +265,9 @@ export class BoardView {
   private fogLoopRegistered = false;
   private lastFogDraw = 0;
   private fogOffset = { x: 0, y: 0 };
+  /** GM only: the applied walls (FR-GM-11, ADR 0025); players never receive any. */
+  private wallGraphics = new Graphics();
+  private drawnWalls: RoomState["walls"] | null = null;
   private tokenLayer = new Container();
   /** The viewer's own measure, draw and area marks (KAN-69); never sent anywhere. */
   private markLayer = new Container();
@@ -393,7 +396,8 @@ export class BoardView {
     this.fogEdgeGraphics.eventMode = "none";
     this.fogLayer.eventMode = "none";
     this.fogLayer.addChild(this.fogGraphics, this.fogEdgeGraphics);
-    this.world.addChild(this.mapSprite, this.grid, this.fogLayer, this.tokenLayer, this.markLayer, this.fxLayer);
+    this.wallGraphics.eventMode = "none";
+    this.world.addChild(this.mapSprite, this.grid, this.fogLayer, this.wallGraphics, this.tokenLayer, this.markLayer, this.fxLayer);
     this.fxLayer.addChild(this.ghostFootprint);
     this.app.stage.addChild(this.world);
 
@@ -570,6 +574,7 @@ export class BoardView {
     this.you = you;
     this.syncMap();
     this.syncGrid();
+    this.syncWalls();
     this.syncTokens();
     if (state.templates !== this.drawnTemplates || state.fog !== this.drawnFog) {
       for (const id of this.removing) if (!state.templates[id]) this.removing.delete(id);
@@ -587,6 +592,24 @@ export class BoardView {
     if (this.placement) this.redrawGhost();
     this.syncConditionLoop();
     this.invalidate();
+  }
+
+  /**
+   * Draws the room's walls over the map, under tokens (ADR 0025). Only the GM's state holds any;
+   * the line scales with the grid so it reads at every zoom. Board coordinates (invariant 8).
+   */
+  private syncWalls() {
+    const state = this.state;
+    if (!state || state.walls === this.drawnWalls) return;
+    this.drawnWalls = state.walls;
+    const g = this.wallGraphics.clear();
+    const walls = Object.values(state.walls);
+    if (walls.length === 0) return;
+    const width = Math.max(3, state.scene.grid.cellSize * 0.09);
+    for (const wall of walls) g.moveTo(wall.a.x, wall.a.y).lineTo(wall.b.x, wall.b.y);
+    g.stroke({ width: width + 4, color: 0x111111, alpha: 0.8, cap: "round", join: "round" });
+    for (const wall of walls) g.moveTo(wall.a.x, wall.a.y).lineTo(wall.b.x, wall.b.y);
+    g.stroke({ width, color: 0xff6b2c, alpha: 0.95, cap: "round", join: "round" });
   }
 
   /** Previewing as a player (gm-view-as-player): tokens take no pointer input, so nothing can be dragged or aimed. */

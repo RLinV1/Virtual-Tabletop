@@ -112,6 +112,13 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   const guarded = useMemo(() => guardedConnection(connection, () => latest.current.readOnly), [connection]);
   /** The token the viewer clicked (not dragged); its details show beside the board. */
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  /** Why the server refused the last drag, e.g. a wall in the way (ADR 0025); shown briefly. */
+  const [moveRefusal, setMoveRefusal] = useState<{ message: string; at: number } | null>(null);
+  useEffect(() => {
+    if (!moveRefusal) return;
+    const timer = setTimeout(() => setMoveRefusal(null), 4000);
+    return () => clearTimeout(timer);
+  }, [moveRefusal]);
   const selected = selectedId ? state.tokens[selectedId] ?? null : null;
   const [tool, setTool] = useState<BoardTool>({ kind: "select" });
   const [toolOptions, setToolOptions] = useState<ToolOptions>(DEFAULT_TOOL_OPTIONS);
@@ -203,7 +210,8 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     const view = new BoardView(hostRef.current!, {
       moveToken: async (tokenId, to) => {
         const result = await guarded.command({ type: "token.move", tokenId, to });
-        if (!result.ok) console.warn("Move rejected:", result.message);
+        // The token snaps back; say why, so a wall the player can't see isn't a mystery (ADR 0025).
+        if (!result.ok && result.code !== "offline") setMoveRefusal({ message: result.message, at: Date.now() });
         return result.ok;
       },
       dragPreview: (tokenId, at) => guarded.preview(`drag:${tokenId}`, { type: "tokenDragPreview", tokenId, at }),
@@ -480,6 +488,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       )}
       {overlay}
       {notices}
+      {moveRefusal && <p key={moveRefusal.at} className="board-refusal" role="alert">{moveRefusal.message}</p>}
       {selected && (
         <aside className="token-card" aria-label={`${selected.name} details`}>
           <div className="token-card-head">

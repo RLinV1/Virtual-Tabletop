@@ -12,6 +12,7 @@ import {
   type Participant,
   type RoomState,
   type ServerMessage,
+  type WallDetectionStatus,
   type SessionEndReason,
 } from "@vtt/shared";
 
@@ -45,6 +46,7 @@ type EphemeralListener = (from: string, payload: EphemeralPayload) => void;
 /** Called with a live event and the viewer's state before and after it (KAN-76). */
 type CommittedListener = (committed: CommittedEvent, before: RoomState, after: RoomState) => void;
 type RollListener = (roll: DiceRoll) => void;
+type WallDetectionListener = (mapUrl: string, status: WallDetectionStatus) => void;
 
 /** Shortest gap between two messages of one preview stream: at most 20 per second. */
 export const PREVIEW_INTERVAL_MS = 50;
@@ -81,6 +83,7 @@ export class RoomConnection {
   private ephemeralListeners = new Set<EphemeralListener>();
   private committedListeners = new Set<CommittedListener>();
   private rollListeners = new Set<RollListener>();
+  private wallListeners = new Set<WallDetectionListener>();
   private previews = new Map<string, PreviewStream>();
 
   readonly store: StoreApi<RoomSnapshot> = createStore<RoomSnapshot>(() => ({
@@ -147,6 +150,12 @@ export class RoomConnection {
   onCommitted(fn: CommittedListener) {
     this.committedListeners.add(fn);
     return () => this.committedListeners.delete(fn);
+  }
+
+  /** GM only: a wall analysis of `mapUrl` changed state (ADR 0025). Not room state. */
+  onWallDetection(fn: WallDetectionListener) {
+    this.wallListeners.add(fn);
+    return () => this.wallListeners.delete(fn);
   }
 
   command(command: CommandInput): Promise<CommandResult> {
@@ -256,6 +265,10 @@ export class RoomConnection {
 
       case "ephemeral":
         this.ephemeralListeners.forEach((fn) => fn(msg.from, msg.payload));
+        return;
+
+      case "wallDetection":
+        this.wallListeners.forEach((fn) => fn(msg.mapUrl, msg.status));
         return;
 
       case "sessionEnded":

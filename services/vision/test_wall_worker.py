@@ -10,7 +10,7 @@ from wall_worker import process
 
 
 def job(**data):
-    return SimpleNamespace(data=data)
+    return SimpleNamespace(id="test", data=data)
 
 
 class WallWorkerTest(unittest.TestCase):
