@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { DEFAULT_PRESET_ID, GAME_PRESETS, presetOf } from "@vtt/shared";
 import type { EncounterSummary, GmRoomSummary, LegacySummary, MyRoomsResponse } from "@vtt/shared";
 import { AccountMenu } from "../account/AccountPages";
 import { RequireAccount } from "../account/RequireAccount";
@@ -77,6 +78,8 @@ function CreateRoomCard() {
   /** The GM's saved encounters, offered as a starting board (encounter-templates, FR-GM-13). */
   const [templates, setTemplates] = useState<EncounterSummary[]>([]);
   const [templateId, setTemplateId] = useState("");
+  /** The game the room is set up for (KAN-63); the registry's default unless the GM picks another. */
+  const [preset, setPreset] = useState(DEFAULT_PRESET_ID);
 
   useEffect(() => {
     let live = true;
@@ -93,7 +96,7 @@ function CreateRoomCard() {
     setError(null);
     try {
       const guestToken = newGuestToken();
-      const created = await api.createRoom({ roomName, displayName, guestToken, ...(templateId && { templateId }) });
+      const created = await api.createRoom({ roomName, displayName, guestToken, preset, ...(templateId && { templateId }) });
       saveCredentials({ ...created, guestToken, viaAccount: true });
       navigate(`/r/${created.roomId}`);
     } catch (err) {
@@ -125,6 +128,18 @@ function CreateRoomCard() {
           placeholder="Your name"
         />
       </label>
+      <fieldset className="preset-choice">
+        <legend>Game</legend>
+        {GAME_PRESETS.map((p) => (
+          <label key={p.id} className="preset-option">
+            <input type="radio" name="preset" value={p.id} checked={preset === p.id} onChange={() => setPreset(p.id)} />
+            <span>
+              <strong>{p.name}</strong>
+              <span className="muted small-print">{p.description}</span>
+            </span>
+          </label>
+        ))}
+      </fieldset>
       {templates.length > 0 && (
         <label>
           Start from template
@@ -175,7 +190,7 @@ function RoomRow(props: { room: GmRoomSummary; opening: boolean; onOpen: () => v
     <li>
       <div>
         <strong>{name}</strong>
-        <span className="muted"> · active {formatRelative(props.room.lastActiveAt)}</span>
+        <span className="muted"> · {presetOf(props.room).name} · active {formatRelative(props.room.lastActiveAt)}</span>
       </div>
       <div className="row">
         <button type="button" className="secondary small" onClick={props.onOpen} disabled={props.opening}>

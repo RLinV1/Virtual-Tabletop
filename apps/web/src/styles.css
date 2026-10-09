@@ -2257,3 +2257,11 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 }
 .participant-view-as { margin-left: auto; }
 .preview-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; display: contents; }
+
+/* Game presets (KAN-63): the create-room choice and the room's preset badge. */
+.preset-choice { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); }
+.preset-choice legend { padding: 0 var(--space-1); }
+.preset-option { display: flex; flex-direction: row; align-items: flex-start; gap: var(--space-2); margin: 0; cursor: pointer; }
+.preset-option > span { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+.preset-option input { margin-top: 0.25rem; }
+.preset-badge { flex-shrink: 0; padding: 0.05rem 0.45rem; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: var(--fs-sm); white-space: nowrap; }
