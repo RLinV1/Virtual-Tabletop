@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_GRID, emptyRoomState, type CommandInput, type Point, type RoomState, type Wall, type WallDetectionStatus } from "@vtt/shared";
+import { DEFAULT_GRID, emptyRoomState, SAMPLE_TOLERANCE_DEFAULT, type CommandInput, type Point, type RoomState, type Wall, type WallDetectionStatus } from "@vtt/shared";
 import { api } from "../src/net/api";
 import type { RoomConnection } from "../src/net/roomConnection";
 import { GmPanel } from "../src/pages/GmPanel";
@@ -147,13 +147,13 @@ describe("map editor walls (FR-GM-09, FR-GM-11)", () => {
     await waitFor(() => expect(commands).toEqual([{ type: "wall.remove", wallIds: ["w1"] }]));
   });
 
-  it("sends the clicked map point to Detect like this", async () => {
+  it("sends the clicked map point and the colour range to Detect like this", async () => {
     const detect = vi.spyOn(api.walls, "detect").mockResolvedValue({ status: "queued" });
     mount();
     await waitFor(() => expect((tool("Detect like this") as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(tool("Detect like this"));
     click(canvas(), { x: 321, y: 123 });
-    await waitFor(() => expect(detect).toHaveBeenCalledWith("r1", TOKEN, { x: 321, y: 123 }));
+    await waitFor(() => expect(detect).toHaveBeenCalledWith("r1", TOKEN, { x: 321, y: 123 }, SAMPLE_TOLERANCE_DEFAULT));
   });
 
   it("shows how many walls a finished detection found and applies them", async () => {
