@@ -2315,7 +2315,9 @@ dialog.modal.map-editor {
 }
 .map-editor-heading { margin: 0; font-size: var(--fs-md); }
 .map-editor-empty { margin: var(--space-4) auto; max-width: 32rem; text-align: center; color: var(--muted); }
-.map-editor-grid { max-width: 1120px; margin: 0 auto; }
+.map-editor-grid { max-width: 1800px; margin: 0 auto; }
+/* The Grid step's map gets most of the window; the form scrolls below it (map-editor D2). */
+.map-editor-grid .map-grid-canvas { height: clamp(16rem, 64dvh, 70rem); }
 .map-editor-modes { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
 .map-editor-mode { display: inline-flex; align-items: center; justify-content: flex-start; gap: var(--space-2); min-height: 44px; padding: 0.35rem 0.6rem; }
 .map-editor-mode[aria-checked="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
