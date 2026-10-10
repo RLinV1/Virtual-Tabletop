@@ -449,7 +449,15 @@ export function TokenEditor({
             <input type="number" inputMode="numeric" value={copies} onChange={(e) => setCopies(e.target.value)}
               min="1" max={MAX_TOKENS_PER_CREATE} step="1" aria-describedby="duplicate-hint" />
           </label>
-          <button type="button" className="secondary" disabled={busy || !validCopies} onClick={() => void onDuplicate(copyCount)}>
+          <button type="button" className="secondary" disabled={busy || !validCopies} onClick={async () => {
+            // Busy while the command is in flight, so a double click can't send it twice.
+            setBusy(true);
+            try {
+              await onDuplicate(copyCount);
+            } finally {
+              setBusy(false);
+            }
+          }}>
             Duplicate
           </button>
           <span id="duplicate-hint" className="muted small-print">Same stats, conditions, owner and visibility, beside this token.</span>

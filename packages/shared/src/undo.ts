@@ -248,6 +248,11 @@ export function undoConflict(state: RoomState, entry: UndoEntry): string | null 
     }
     if (event.type === "InitiativeStarted") {
       if (!sameValue(state.initiative, event.initiative)) return "Can't undo: the turn order has changed since the encounter started.";
+      // Starting the same order again with new scores leaves the order equal, so check each saved score too.
+      for (const { tokenId, score } of event.scores ?? []) {
+        const token = state.tokens[tokenId];
+        if (token && (token.initiative ?? null) !== score) return `Can't undo: ${token.name} has changed since.`;
+      }
       continue;
     }
     if (event.type === "CheckpointRestored") {

@@ -136,6 +136,16 @@ describe("Undo group changes and encounter starts (KAN-82, FR-REC-02)", () => {
     expect(ids.map((id) => room.state.tokens[id]!.initiative ?? null)).toEqual(before.scores);
   });
 
+  it("refuses to undo a start when a later start of the same order saved new scores", () => {
+    const { room, ids } = table();
+    const first = room.run(gm, { type: "initiative.start", entries: [{ tokenId: ids[0]!, score: 14 }, { tokenId: ids[1]!, score: 9 }] });
+    room.run(gm, { type: "initiative.start", entries: [{ tokenId: ids[0]!, score: 20 }, { tokenId: ids[1]!, score: 9 }] });
+    expect(room.attempt(gm, { type: "history.undo", commandId: first.commandId })).toMatchObject({
+      ok: false, message: expect.stringContaining("has changed since"),
+    });
+    expect(room.state.tokens[ids[0]!]!.initiative).toBe(20);
+  });
+
   it("refuses to undo a start once the turn has advanced", () => {
     const { room, ids } = table();
     const { commandId } = room.run(gm, { type: "initiative.start", entries: [{ tokenId: ids[0]!, score: 14 }, { tokenId: ids[1]!, score: 9 }] });
