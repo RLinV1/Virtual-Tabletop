@@ -84,7 +84,7 @@ describe("map editor walls (FR-GM-09, FR-GM-11)", () => {
     await waitFor(() => expect((tool("Detect like this") as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(tool("Detect like this"));
     click(canvas(), { x: 321, y: 123 });
-    await waitFor(() => expect(detect).toHaveBeenCalledWith("r1", TOKEN, { x: 321, y: 123 }));
+    await waitFor(() => expect(detect).toHaveBeenCalledWith("r1", TOKEN, { x: 321, y: 123 }, expect.any(Number)));
   });
 
   it("shows how many walls a finished detection found and applies them", async () => {
