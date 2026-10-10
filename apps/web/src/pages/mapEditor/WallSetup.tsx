@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { Eraser, Eyedropper, Hand, LineSegments } from "@phosphor-icons/react";
-import type { CommandInput, Point, RoomState, WallDetectionAvailability, WallDetectionStatus } from "@vtt/shared";
+import {
+  SAMPLE_TOLERANCE_DEFAULT, SAMPLE_TOLERANCE_MAX, SAMPLE_TOLERANCE_MIN,
+  type CommandInput, type Point, type RoomState, type WallDetectionAvailability, type WallDetectionStatus,
+} from "@vtt/shared";
 import { api } from "../../net/api";
 import type { RoomConnection } from "../../net/roomConnection";
 import { WallCanvas, type CanvasMode } from "./WallCanvas";
@@ -33,6 +36,7 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
   const [detection, setDetection] = useState<{ mapUrl: string; status: WallDetectionStatus | null }>({ mapUrl, status: null });
   const [preview, setPreview] = useState<{ mapUrl: string; url: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [tolerance, setTolerance] = useState(SAMPLE_TOLERANCE_DEFAULT);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
   const status = detection.mapUrl === mapUrl ? detection.status : null;
   const canDetect = availability?.available === true;
@@ -85,7 +89,7 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
     setBusy(true);
     setMessage(null);
     try {
-      setDetection({ mapUrl, status: await api.walls.detect(state.roomId, token, sample) });
+      setDetection({ mapUrl, status: await api.walls.detect(state.roomId, token, sample, sample ? tolerance : undefined) });
       setMessage({ text: sample ? "Detecting walls like the one you clicked…" : "Detecting walls…", error: false });
     } catch (err) {
       setMessage({ text: err instanceof Error ? err.message : "Couldn't start wall detection", error: true });
@@ -140,6 +144,20 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
             })}
           </div>
           <p className="muted small-print">{HINTS[mode]}</p>
+          {mode === "sample" && (
+            <label className="stack">
+              <span className="small-print">Colour range: {tolerance}</span>
+              <input
+                type="range"
+                min={SAMPLE_TOLERANCE_MIN}
+                max={SAMPLE_TOLERANCE_MAX}
+                value={tolerance}
+                onChange={(event) => setTolerance(Number(event.target.value))}
+                aria-describedby="wall-tolerance-hint"
+              />
+              <span id="wall-tolerance-hint" className="muted small-print">Lower finds only walls very close to the clicked colour; higher also finds paler or darker stone, and more noise.</span>
+            </label>
+          )}
           <p className="map-editor-count">
             {wallCount} {wallCount === 1 ? "wall" : "walls"} on this map. Tokens can't be placed on them, and players can't move through them. Only you see them.
           </p>

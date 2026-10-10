@@ -145,6 +145,15 @@ class WallDetectionTest(unittest.TestCase):
         on_rooms = [w for w in walls if near_room_edge(w)]
         self.assertGreaterEqual(total_length(on_rooms) / ROOM_PERIMETER, 0.7)
 
+    def test_sample_tolerance_is_honoured(self):
+        img = painted_hall()
+        point = {"x": 385, "y": 140}
+        self.assertEqual(detect_walls(img, CELL, point), detect_walls(img, CELL, point, 30))
+        tight = detect_walls(img, CELL, point, 12)["walls"]
+        self.assertGreaterEqual(total_length([w for w in tight if near_room_edge(w)]) / ROOM_PERIMETER, 0.5)
+        # A range wide enough to take in the floor leaves no wall to tell apart.
+        self.assertEqual(detect_walls(img, CELL, point, 45)["walls"], [])
+
     def test_sample_outside_the_image_is_refused(self):
         with self.assertRaises(ValueError):
             analyze(encode(ink_dungeon()), SIZE[1], SIZE[0], CELL, {"x": SIZE[1] + 5, "y": 10})

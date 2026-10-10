@@ -254,11 +254,11 @@ export function registerRoutes(
       const map = room?.currentMap();
       if (!room || !map) return res.status(404).json({ error: "Set a map first." });
       // A sampled wall must be on the map: board coordinates are the map's pixels (invariant 8).
-      const { sample } = body.data;
+      const { sample, tolerance } = body.data;
       if (sample && !(sample.x >= 0 && sample.y >= 0 && sample.x <= map.width && sample.y <= map.height)) {
         return res.status(400).json({ error: "Click on the map to pick a wall." });
       }
-      const started = await walls.start(room.roomId, map, room.currentGrid().cellSize, sample);
+      const started = await walls.start(room.roomId, map, room.currentGrid().cellSize, sample, tolerance);
       if (started === "busy") return res.status(409).json({ error: "Walls are already being detected for this map." });
       if (started === "unreadable") return res.status(422).json({ error: "This map's image can't be analyzed." });
       if (started === "unavailable") return res.status(503).json({ error: "Wall detection is unavailable right now." });

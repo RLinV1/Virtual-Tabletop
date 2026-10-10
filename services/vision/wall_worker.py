@@ -4,8 +4,8 @@ The app server produces jobs on the `wall-detection` queue in the app's Redis; t
 consumes them and returns `{walls, preview}` as the job's return value. The app server learns of
 completion from BullMQ's queue events, validates the result, and notifies the room's GM.
 
-Job data: `{ image: base64 bytes, width, height, cellSize, sample? }`, where `sample` is a
-point on a wall the GM clicked (wall-editing). The bytes were read by the app server
+Job data: `{ image: base64 bytes, width, height, cellSize, sample?, tolerance? }`, where `sample` is a
+point on a wall the GM clicked and `tolerance` its colour range in Lab units (wall-editing). The bytes were read by the app server
 from its own storage; this worker never fetches a URL, and holds no database or storage credentials.
 """
 
@@ -19,7 +19,7 @@ import time
 from bullmq import Worker
 import redis.asyncio as aioredis
 
-from walls import MAX_BYTES, analyze
+from walls import MAX_BYTES, SAMPLE_TOLERANCE, analyze
 
 QUEUE = "wall-detection"
 # The app server reads this key to know a worker is up (map-editor D4); it must match
@@ -27,6 +27,9 @@ QUEUE = "wall-detection"
 HEARTBEAT_KEY = "vtt:wall-worker:heartbeat"
 HEARTBEAT_EVERY_S = 10
 HEARTBEAT_TTL_S = 30
+# Must match SAMPLE_TOLERANCE_MIN and _MAX in packages/shared/src/wallDetection.ts.
+MIN_TOLERANCE = 10
+MAX_TOLERANCE = 60
 
 
 async def process(job, _token=None) -> dict:
@@ -49,9 +52,12 @@ async def process(job, _token=None) -> dict:
             sample = {"x": float(sample["x"]), "y": float(sample["y"])}
         except (KeyError, TypeError, ValueError) as err:
             raise ValueError("Invalid sample") from err
+    tolerance = data.get("tolerance", SAMPLE_TOLERANCE)
+    if isinstance(tolerance, bool) or not isinstance(tolerance, (int, float)) or not MIN_TOLERANCE <= tolerance <= MAX_TOLERANCE:
+        raise ValueError("Invalid tolerance")
     started = time.monotonic()
     # OpenCV releases the GIL, so a thread keeps the worker's lock renewals running meanwhile.
-    result = await asyncio.to_thread(analyze, image, width, height, cell, sample)
+    result = await asyncio.to_thread(analyze, image, width, height, cell, sample, float(tolerance))
     # Sizes and timings only: never image contents or results.
     print(f"[vision] job {job.id}: {width}x{height}, {len(result['walls'])} walls in {time.monotonic() - started:.1f}s", flush=True)
     return result

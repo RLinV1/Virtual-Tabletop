@@ -34,6 +34,8 @@ export interface WallJobData {
   cellSize: number;
   /** A point on a wall the GM clicked, in image pixels: detect walls of its colour (wall-editing). */
   sample?: { x: number; y: number };
+  /** With a sample: how far a colour may differ from it, in Lab units (wall-editing). */
+  tolerance?: number;
 }
 
 /** A queue event about one job, as BullMQ's `QueueEvents` reports it. */
@@ -116,6 +118,7 @@ export class WallDetections {
     map: Pick<MapImage, "url" | "width" | "height">,
     cellSize: number,
     sample?: { x: number; y: number },
+    tolerance?: number,
   ): Promise<StartResult> {
     if (!this.queue) return "unavailable";
     const key = uploadKey(map.url);
@@ -137,7 +140,7 @@ export class WallDetections {
         width: map.width,
         height: map.height,
         cellSize: Number.isFinite(cellSize) && cellSize > 0 ? cellSize : 0,
-        ...(sample && { sample }),
+        ...(sample && { sample, ...(tolerance !== undefined && { tolerance }) }),
       });
     } catch {
       this.finish(entry, { status: "failed", message: "Wall detection is unavailable right now." }, null);

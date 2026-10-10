@@ -37,13 +37,22 @@ export function wallsFitMap(walls: readonly DetectedWall[], map: { width: number
   return walls.every((w) => inside(w.a) && inside(w.b));
 }
 
+/** How far a pixel's colour may be from the sampled wall's, in Lab units: the slider's range and its default. */
+export const SAMPLE_TOLERANCE_MIN = 10;
+export const SAMPLE_TOLERANCE_MAX = 60;
+export const SAMPLE_TOLERANCE_DEFAULT = 30;
+
 /**
  * What the GM may send when starting an analysis (wall-editing). `sample` is a point on a wall in
  * board coordinates: the worker then looks for walls of that colour instead of guessing.
+ * `tolerance` widens or narrows what counts as that colour, and only makes sense with a sample.
  */
 export const WallDetectionRequest = z.object({
   sample: Point.optional(),
-}).strict();
+  tolerance: z.number().min(SAMPLE_TOLERANCE_MIN).max(SAMPLE_TOLERANCE_MAX).optional(),
+}).strict().refine((request) => request.tolerance === undefined || request.sample !== undefined, {
+  message: "tolerance needs a sample",
+});
 export type WallDetectionRequest = z.infer<typeof WallDetectionRequest>;
 
 /** Whether this server can detect walls right now (map-editor): a queue and a running worker. */

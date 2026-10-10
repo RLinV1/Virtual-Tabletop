@@ -193,13 +193,13 @@ export const api = {
   walls: {
     /**
      * Queues an analysis of the room's current map. With `sample`, a point on a wall the GM
-     * clicked, the worker looks for walls of that colour (wall-editing).
+     * clicked, the worker looks for walls of that colour, within `tolerance` Lab units of it (wall-editing).
      */
-    async detect(roomId: string, token: string, sample?: Point): Promise<WallDetectionStatus> {
+    async detect(roomId: string, token: string, sample?: Point, tolerance?: number): Promise<WallDetectionStatus> {
       const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/wall-detection`, {
         method: "POST",
         headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-        body: JSON.stringify(sample ? { sample } : {}),
+        body: JSON.stringify(sample ? { sample, ...(tolerance !== undefined && { tolerance }) } : {}),
       });
       if (!res.ok) throw await errorFrom(res);
       return WallDetectionStatus.parse(await res.json());

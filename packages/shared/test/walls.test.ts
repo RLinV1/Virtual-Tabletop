@@ -243,6 +243,10 @@ describe("drawing walls by hand (FR-GM-09, wall-editing)", () => {
     expect(WallDetectionRequest.parse({ sample: { x: 10, y: 20 } })).toEqual({ sample: { x: 10, y: 20 } });
     expect(WallDetectionRequest.parse({})).toEqual({});
     expect(WallDetectionRequest.safeParse({ sample: { x: 10 } }).success).toBe(false);
+    expect(WallDetectionRequest.parse({ sample: { x: 1, y: 2 }, tolerance: 20 }).tolerance).toBe(20);
+    expect(WallDetectionRequest.safeParse({ tolerance: 20 }).success).toBe(false);
+    expect(WallDetectionRequest.safeParse({ sample: { x: 1, y: 2 }, tolerance: 5 }).success).toBe(false);
+    expect(WallDetectionRequest.safeParse({ sample: { x: 1, y: 2 }, tolerance: 61 }).success).toBe(false);
     expect(WallDetectionRequest.safeParse({ colour: "#fff" }).success).toBe(false);
   });
 });
