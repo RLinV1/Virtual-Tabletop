@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Eye, Hand, Polygon, Rectangle } from "@phosphor-icons/react";
+import { Eye, Hand, Polygon, Rectangle, UserFocus } from "@phosphor-icons/react";
 import type { RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../../net/roomConnection";
 import { FogControls } from "../../panels/FogPanel";
@@ -28,6 +28,7 @@ export function FogSetup({ connection, state }: { connection: RoomConnection; st
   const map = state.scene.map;
   const [mode, setMode] = useState<FogCanvasMode>("rect");
   const [busy, setBusy] = useState(false);
+  const [playerView, setPlayerView] = useState(false);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
 
   if (!map) return <p className="map-editor-empty">Apply a map in the Map step first, then set up its fog here.</p>;
@@ -51,6 +52,7 @@ export function FogSetup({ connection, state }: { connection: RoomConnection; st
         onAdd={(region) => void send({ type: "fog.add", region })}
         onRemove={(regionId) => void send({ type: "fog.remove", regionId })}
         onNotice={(text) => setMessage({ text, error: true })}
+        playerView={playerView}
       />
       <aside className="map-editor-hud" aria-label="Fog tools">
         <section className="stack">
@@ -71,13 +73,22 @@ export function FogSetup({ connection, state }: { connection: RoomConnection; st
             ))}
           </div>
           <p className="muted small-print">{HINTS[mode]}</p>
+          <button
+            type="button"
+            className="tool-button map-editor-mode"
+            aria-pressed={playerView}
+            onClick={() => setPlayerView((on) => !on)}
+          >
+            <UserFocus size={18} aria-hidden="true" />
+            <span>Player view</span>
+          </button>
           <p className="map-editor-count">
-            {regions} fogged {regions === 1 ? "region" : "regions"}. Players can't see anything under fog. Only you see it as drawn here.
+            {regions} fogged {regions === 1 ? "region" : "regions"}. Players can't see anything under fog. {playerView ? "Shown as players see it." : "Only you see it as drawn here."}
           </p>
         </section>
         <section className="stack">
           <h3 className="map-editor-heading">Fog controls</h3>
-          <FogControls connection={connection} state={state} intro="Fog the whole map, or a block of cells, without the pointer." />
+          <FogControls connection={connection} state={state} intro="Fog the whole map without the pointer." />
         </section>
         {message && <p className={message.error ? "error" : "muted"} role={message.error ? "alert" : "status"}>{message.text}</p>}
       </aside>

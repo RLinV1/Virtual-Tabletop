@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { MAX_FOG_POINTS, type Command, type FogRegion, type GridSpec, type MapImage, type Point } from "@vtt/shared";
-import { fogRegionAt, type FogMode } from "../../board/tools";
+import { fogRegionAt } from "../../board/tools";
 import { MapCanvas } from "./MapCanvas";
 
 /** A polygon closes when a click lands this close to its first corner, in screen pixels. */
 const CLOSE_PX = 12;
 
-export type FogCanvasMode = FogMode | "pan";
+/** Drag a rectangle, click out a polygon, click a region to reveal it, or pan. */
+export type FogCanvasMode = "rect" | "polygon" | "reveal" | "pan";
 export type FogAdd = Extract<Command, { type: "fog.add" }>["region"];
 
 const clamp = (p: Point, map: MapImage): Point => ({
@@ -19,7 +20,10 @@ const clamp = (p: Point, map: MapImage): Point => ({
  * coordinates (invariant 8). Rectangle drags out a region, Polygon clicks out its corners, and
  * Reveal removes the topmost region under the click.
  */
-export function FogCanvas({ map, grid, fog, mode, onAdd, onRemove, onNotice, busy }: {
+/** Fog as players see it: opaque, in the grey of the board's cloud fog (board/fogTexture.ts). */
+const PLAYER_FOG = "#c4c9ce";
+
+export function FogCanvas({ map, grid, fog, mode, onAdd, onRemove, onNotice, busy, playerView = false }: {
   map: MapImage;
   grid: GridSpec;
   fog: Record<string, FogRegion>;
@@ -29,6 +33,8 @@ export function FogCanvas({ map, grid, fog, mode, onAdd, onRemove, onNotice, bus
   /** A message for the GM, such as the corner limit. */
   onNotice: (text: string) => void;
   busy: boolean;
+  /** Draw fog the way players see it, with no outlines. */
+  playerView?: boolean;
 }) {
   const [corners, setCorners] = useState<Point[]>([]);
   const [anchor, setAnchor] = useState<Point | null>(null);
@@ -107,9 +113,9 @@ export function FogCanvas({ map, grid, fog, mode, onAdd, onRemove, onNotice, bus
               <polygon
                 key={region.id}
                 points={region.points.map((p) => `${p.x},${p.y}`).join(" ")}
-                fill="#0b0d12"
-                fillOpacity={0.62}
-                stroke={revealing?.id === region.id ? "#e74c3c" : "#9aa4b2"}
+                fill={playerView ? PLAYER_FOG : "#0b0d12"}
+                fillOpacity={playerView ? 1 : 0.62}
+                stroke={revealing?.id === region.id ? "#e74c3c" : playerView ? "none" : "#9aa4b2"}
                 strokeWidth={(revealing?.id === region.id ? 3 : 1.5) * px}
                 strokeDasharray={`${6 * px} ${4 * px}`}
               />

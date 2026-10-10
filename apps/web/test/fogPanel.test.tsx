@@ -22,11 +22,10 @@ describe("fog of war by keyboard: the GM's Fog section (FR-GM-17)", () => {
     expect(html).not.toContain("Fog whole map");
   });
 
-  it("offers fogging the whole map and a block of cells, with the grid's size", () => {
+  it("offers fogging the whole map, and no block-of-cells form", () => {
     const html = render(room());
     expect(html).toContain("Fog whole map");
-    expect(text(html)).toContain("Count from the top-left of the map: 10 columns, 5 rows.");
-    for (const label of ["From column", "From row", "To column", "To row"]) expect(html).toContain(`<span>${label}</span><input`);
+    expect(html).not.toContain("From column");
     expect(text(html)).toContain("No fog on the map.");
   });
 
