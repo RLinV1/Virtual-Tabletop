@@ -25,9 +25,9 @@ See proposal.md for motivation. What exists today:
 
 ### 1. Server builds frames with the live-sync filters
 
-`replayFrom(roomId, events, viewer, fromSeq, limit)` in `packages/shared/src/replay.ts`:
+`replayFrom(roomId, events, viewer, point, limit)` in `packages/shared/src/replay.ts`, where `point` is a `ReplayPoint` from the viewer's own list:
 
-1. Fold the log to `fromSeq`; `start = filterStateForViewer(state, viewer)`.
+1. Fold the log to `point.seq`; `start = filterStateForViewer(state, viewer)`.
 2. For each later event: `f = filterEventForViewer(committed, state, viewer)`; `next = reduceCommitted(state, committed)`.
    - `event` → frame `{ kind: "event", committed: f.committed, sentence }`.
    - `resync` → frame `{ kind: "table", seq, at, table: tableOf(filterStateForViewer(next, viewer)), sentence }`.
@@ -42,17 +42,17 @@ The client folds frames onto `start`: `event` frames with `reduceReceived` (as l
 
 ### 2. Sentences only from what the viewer may see
 
-For `event` frames: `formatActivity(f.committed.event, actorName, filterStateForViewer(before, viewer))`, the same call `activityHistory` makes. For `table` frames a neutral sentence by event type that names nothing ("The turn order changed", "The fog changed", "A token appeared or disappeared", "The board was restored to a checkpoint"), never the event's own fields. Actor names come from the filtered participant list (public, ADR 0006).
+For `event` frames: `formatActivity(f.committed.event, actorName, filterStateForViewer(before, viewer))`, the same call `activityHistory` makes. For `table` frames a neutral sentence by event type that names only the actor and the kind of change ("GM started initiative", "GM advanced the turn", "GM changed the fog", "GM rolled dice", "GM changed what is on the board", "GM restored the board to a checkpoint", "GM set up an encounter", otherwise "The board changed"), never the event's own fields. Actor names come from the filtered participant list (public, ADR 0006).
 
 ### 3. Replay points derived from the log, not from `state.checkpoints`
 
-`replayPoints(roomId, events, viewer)` scans the log:
+`replayPoints(events, viewer)` scans the log:
 
 - `{ id: "start", seq: <seq of RoomCreated>, label: "Start of the room" }`.
-- For each `InitiativeStarted`: `{ id: "s<seq-1>", seq: seq - 1, label: "Encounter N starts" }` (the point is just before the start, so the start itself is the first step).
-- For each `CheckpointCreated`: `{ id: "s<seq>", seq: checkpoint.seq, label }` where the label is the name for the GM and "Checkpoint N" for players.
+- For each `InitiativeStarted`: `{ id: "e<seq>", seq: seq - 1, label: "Encounter N starts" }` (the point is just before the start, so the start itself is the first step).
+- For each `CheckpointCreated` (the n-th): `{ id: "c<n>", seq: checkpoint.seq, label }` where the label is the name for the GM and "Checkpoint N" for players.
 
-Point ids are `s<seq>` (plus `start`), never checkpoint ids, so a player response carries no checkpoint id. The fetch endpoint accepts only an id that is in the viewer's own point list, which keeps replays to meaningful starting places and bounds the work to known seqs. Scanning the log rather than `state.checkpoints` also keeps points for checkpoints that fell off the 50-entry cap.
+Point ids are `start`, `e<seq>` and `c<n>`, never checkpoint ids, so a player response carries no checkpoint id. The fetch endpoint accepts only an id that is in the viewer's own point list, which keeps replays to meaningful starting places and bounds the work to known seqs. Scanning the log rather than `state.checkpoints` also keeps points for checkpoints that fell off the 50-entry cap.
 
 Disclosure: a player learns that the GM saved a checkpoint and when. They already learn that *some* event happened at that seq (it is `redacted`, not hidden), so this adds only the kind of event. Recorded in ADR 0025.
 
@@ -62,7 +62,7 @@ Disclosure: a player learns that the GM saved a checkpoint and when. They alread
 
 ### 5. Client: replay replaces the shown state, like "View as player"
 
-`RoomPage` gains `replay` state: `{ point, start, frames, index, playing }`. When set, `shownState` is the folded state at `index`, `readOnly` is true and `shownConnection` is a `previewConnection`, so every existing read-only path (board, panels, chat) applies unchanged. States are folded once when the replay loads into an array (structural sharing keeps this small) so stepping back is O(1). Play advances every 800 ms (instant steps under `prefers-reduced-motion`). Replay and "View as player" are mutually exclusive; the Replay button is hidden during a preview and vice versa.
+`RoomPage` gains `replay` state: `{ point, start, frames, index, playing }`. When set, `shownState` is the folded state at `index`, `readOnly` is true and `shownConnection` is a `previewConnection`, so every existing read-only path (board, panels, chat) applies unchanged. States are folded once when the replay loads into an array (structural sharing keeps this small) so stepping back is O(1). Play advances every 800 ms. A step swaps the shown state with no animation, so `prefers-reduced-motion` needs no special case: stepping instantly would make Play jump straight to the end. Replay and "View as player" are mutually exclusive; the Replay button is hidden during a preview and vice versa.
 
 `ReplayBar` (bottom of the board, like `PreviewBanner`): point `<select>`, back / play-pause / forward buttons with text labels, a range slider, "Step i of n", the step's sentence, a truncation note when set, and "Back to the live table". Keyboard: Left/Right step, Space toggles play, Esc exits — only while focus is not in a field.
 

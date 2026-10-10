@@ -1,8 +1,8 @@
 ## 1. Contract (packages/shared)
 
 - [x] 1.1 Add `src/replay.ts` with zod schemas `ReplayPoint`, `ReplayPointsResponse`, `ReplayFrame` (`event` | `table`, the latter with filtered `table` and `rolls`), `ReplayResponse`, and `MAX_REPLAY_FRAMES = 2000`; export from `index.ts`; verify `npm run typecheck` passes
-- [x] 1.2 Implement `replayPoints(roomId, events, viewer)` (start, encounter starts, checkpoints; names for the GM, "Checkpoint N" for players, ids `start`/`s<seq>`); verify unit tests in `test/replay.test.ts` (FR-PL-07) cover both roles and that a player response contains no checkpoint id or name
-- [x] 1.3 Implement `replayFrom(roomId, events, viewer, pointSeq, limit)` using `filterEventForViewer` / `filterStateForViewer` / `formatActivity`, neutral sentences for `table` frames; verify tests: hidden token never appears in a player's replay, reveal appears at the reveal step, GM-only roll has no player frame, GM sees everything, no `commandId` / undo / checkpoints in player output, truncation at the limit
+- [x] 1.2 Implement `replayPoints(events, viewer)` (start, encounter starts, checkpoints; names for the GM, "Checkpoint N" for players, ids `start`/`e<seq>`/`c<n>`); verify unit tests in `test/replay.test.ts` (FR-PL-07) cover both roles and that a player response contains no checkpoint id or name
+- [x] 1.3 Implement `replayFrom(roomId, events, viewer, point, limit)` using `filterEventForViewer` / `filterStateForViewer` / `formatActivity`, neutral sentences for `table` frames; verify tests: hidden token never appears in a player's replay, reveal appears at the reveal step, GM-only roll has no player frame, GM sees everything, no `commandId` / undo / checkpoints in player output, truncation at the limit
 - [x] 1.4 Add `applyReplayFrame(state, frame)` (client fold) and verify a property-style test: for a scripted session with hidden tokens, fog, initiative and a checkpoint restore, the folded player state equals `filterStateForViewer` of the true state at every step (tokens, templates, fog, initiative, rolls)
 
 ## 2. Server
@@ -13,7 +13,7 @@
 ## 3. Web
 
 - [x] 3.1 Add `fetchReplayPoints` / `fetchReplay` to `net/api.ts` with zod parsing; verify typecheck
-- [x] 3.2 Add `ui/ReplayBar.tsx` (point select, back / play-pause / forward, slider, step counter and sentence, truncation note, exit; keyboard Left/Right/Space/Esc outside fields; reduced-motion aware) and a component test in `apps/web/test` for stepping, play-to-end stop and exit
+- [x] 3.2 Add `ui/ReplayBar.tsx` (point select, back / play-pause / forward, slider, step counter and sentence, truncation note, exit; keyboard Left/Right/Space/Esc outside fields; steps are not animated, so no reduced-motion variant is needed) and a component test in `apps/web/test` for stepping, play-to-end stop and exit
 - [x] 3.3 Wire replay into `pages/RoomPage.tsx`: top-bar Replay button (hidden during "View as player", and vice versa), `shownState` from the folded frames, `readOnly` board and panels via `previewConnection`; verify typecheck and lint
 - [x] 3.4 CSS for the replay bar at desktop and phone width (no horizontal scroll, controls reachable)
 
