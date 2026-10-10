@@ -34,6 +34,11 @@ interface Props {
   landedRollId?: string | null;
   /** The viewer clicked the token `attackerId` attacks, in Pick on board (attack-targeting). */
   onPickTarget?: (attackerId: string, targetId: string) => void;
+  /**
+   * GM: detect walls like the one at `at` (wall-editing). Resolves with what to tell the GM; the
+   * result itself arrives in the Walls panel. Absent where nothing can start detection.
+   */
+  onDetectWalls?: (at: Point) => Promise<string>;
 }
 
 /** What the roster and initiative list can ask the canvas to do (FR-GM-24). */
@@ -76,7 +81,15 @@ const HINTS: Record<BoardTool["kind"], string> = {
   erase: "Click or drag over your marks and areas to erase them · Esc to stop",
   attack: "Click the token to attack · Esc or right-click to cancel",
   fog: "",
+  walls: "",
 };
+
+/** Walls hints by mode (wall-editing). Players never get the Walls tool. */
+const WALL_HINTS = {
+  draw: "Click to start a wall, click again to end it and start the next · ends snap to grid corners, hold Alt to place freely · Enter, Esc or right-click stops",
+  erase: "Click a wall to remove it · undo from the activity log",
+  sample: "Click on a wall in the map: walls that look like it are detected across the map · review them in Manage › Walls",
+} as const;
 
 /** Fog hints by mode (FR-GM-17). Players never get the Fog tool. */
 const FOG_HINTS = {
@@ -97,7 +110,7 @@ function isTyping(target: EventTarget | null) {
 }
 
 /** The PixiJS board plus its React toolbar and notices; Pixi objects stay inside `BoardView`. */
-export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, readOnly = false, toolbar, notices, overlay, landedRollId, onPickTarget }, ref) {
+export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, readOnly = false, toolbar, notices, overlay, landedRollId, onPickTarget, onDetectWalls }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<BoardView | null>(null);
   /** GM only: false shows everything through the fog (this browser remembers it). */
@@ -105,20 +118,20 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   const hasFog = Object.keys(state.fog).length > 0;
   /** Strikes waiting for their thrown dice to land, by roll id, oldest first (KAN-76). */
   const waitingStrikes = useRef(new Map<string, { effect: AttackEffect; timer: number }>());
-  const latest = useRef({ state, you, gridPreview, onPickTarget, gmFog: true, readOnly: false });
-  latest.current = { state, you, gridPreview, onPickTarget, gmFog, readOnly };
+  const latest = useRef({ state, you, gridPreview, onPickTarget, onDetectWalls, gmFog: true, readOnly: false });
+  latest.current = { state, you, gridPreview, onPickTarget, onDetectWalls, gmFog, readOnly };
   // Sends nothing while previewing as a player, whatever the board is asked to do. Stable for as
   // long as the connection is, so entering and leaving a preview never rebuilds the board view.
   const guarded = useMemo(() => guardedConnection(connection, () => latest.current.readOnly), [connection]);
   /** The token the viewer clicked (not dragged); its details show beside the board. */
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  /** Why the server refused the last drag, e.g. a wall in the way (ADR 0025); shown briefly. */
-  const [moveRefusal, setMoveRefusal] = useState<{ message: string; at: number } | null>(null);
+  /** A short message on the board: why a drag or a wall was refused (ADR 0025), or that detection started. */
+  const [boardMessage, setBoardMessage] = useState<{ message: string; at: number; refused: boolean } | null>(null);
   useEffect(() => {
-    if (!moveRefusal) return;
-    const timer = setTimeout(() => setMoveRefusal(null), 4000);
+    if (!boardMessage) return;
+    const timer = setTimeout(() => setBoardMessage(null), 4000);
     return () => clearTimeout(timer);
-  }, [moveRefusal]);
+  }, [boardMessage]);
   const selected = selectedId ? state.tokens[selectedId] ?? null : null;
   const [tool, setTool] = useState<BoardTool>({ kind: "select" });
   const [toolOptions, setToolOptions] = useState<ToolOptions>(DEFAULT_TOOL_OPTIONS);
@@ -211,7 +224,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       moveToken: async (tokenId, to) => {
         const result = await guarded.command({ type: "token.move", tokenId, to });
         // The token snaps back; say why, so a wall the player can't see isn't a mystery (ADR 0025).
-        if (!result.ok && result.code !== "offline") setMoveRefusal({ message: result.message, at: Date.now() });
+        if (!result.ok && result.code !== "offline") setBoardMessage({ message: result.message, at: Date.now(), refused: true });
         return result.ok;
       },
       dragPreview: (tokenId, at) => guarded.preview(`drag:${tokenId}`, { type: "tokenDragPreview", tokenId, at }),
@@ -234,6 +247,24 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
         const result = await guarded.command({ type: "fog.add", region });
         if (!result.ok) console.warn("Fog rejected:", result.message);
         return result.ok;
+      },
+      addWall: async (a, b) => {
+        const result = await guarded.command({ type: "wall.add", walls: [{ a, b }] });
+        if (!result.ok && result.code !== "offline") setBoardMessage({ message: result.message, at: Date.now(), refused: true });
+        return result.ok;
+      },
+      removeWall: async (wallId) => {
+        const result = await guarded.command({ type: "wall.remove", wallIds: [wallId] });
+        if (!result.ok && result.code !== "offline") setBoardMessage({ message: result.message, at: Date.now(), refused: true });
+        return result.ok;
+      },
+      detectWallsAt: (at) => {
+        const detect = latest.current.onDetectWalls;
+        if (!detect) return;
+        void detect(at).then(
+          (message) => setBoardMessage({ message, at: Date.now(), refused: false }),
+          (err: unknown) => setBoardMessage({ message: err instanceof Error ? err.message : "Couldn't start wall detection", at: Date.now(), refused: true }),
+        );
       },
       removeFog: async (regionId) => {
         const result = await guarded.command({ type: "fog.remove", regionId });
@@ -374,6 +405,8 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       if (e.defaultPrevented || isTyping(e.target) || document.querySelector("dialog[open]")) return;
       // The Fog polygon takes Enter to close and Backspace to drop a corner; Escape abandons it first.
       if (toolRef.current.kind === "fog" && e.key === "Enter" && viewRef.current?.closeFogPolygon()) return e.preventDefault();
+      // A wall chain ends on Enter or Escape; Escape with no chain leaves the tool.
+      if (toolRef.current.kind === "walls" && (e.key === "Enter" || e.key === "Escape") && viewRef.current?.endWallChain()) return e.preventDefault();
       if (toolRef.current.kind === "fog" && e.key === "Backspace" && viewRef.current?.undoFogPoint()) return e.preventDefault();
       if (e.key !== "Escape") return;
       if (viewRef.current?.cancelFogPolygon()) return;
@@ -488,7 +521,11 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       )}
       {overlay}
       {notices}
-      {moveRefusal && <p key={moveRefusal.at} className="board-refusal" role="alert">{moveRefusal.message}</p>}
+      {boardMessage && (
+        <p key={boardMessage.at} className={boardMessage.refused ? "board-refusal" : "board-refusal board-message"} role={boardMessage.refused ? "alert" : "status"}>
+          {boardMessage.message}
+        </p>
+      )}
       {selected && (
         <aside className="token-card" aria-label={`${selected.name} details`}>
           <div className="token-card-head">
@@ -553,7 +590,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       )}
       {/* Announced when the tool changes; while placing, the placement bar already speaks. */}
       <p className="board-hint" aria-live={placing ? "off" : "polite"}>
-        {placing ? PLACING_HINT : tool.kind === "area" && tool.gmOnly ? GM_ONLY_AREA_HINT : tool.kind === "fog" ? FOG_HINTS[tool.mode] : HINTS[tool.kind]}
+        {placing ? PLACING_HINT : tool.kind === "area" && tool.gmOnly ? GM_ONLY_AREA_HINT : tool.kind === "fog" ? FOG_HINTS[tool.mode] : tool.kind === "walls" ? WALL_HINTS[tool.mode] : HINTS[tool.kind]}
       </p>
     </div>
   );

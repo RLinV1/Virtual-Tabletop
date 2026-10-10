@@ -15,7 +15,7 @@
 
 ## 4. Web
 
-- [ ] 4.1 Add the Walls tool and its modes to `tools.ts` and `ToolRail.tsx` (GM only); verify typecheck.
+- [x] 4.1 Add the Walls tool and its modes to `tools.ts` and `ToolRail.tsx` (GM only); verify typecheck.
 - [ ] 4.2 Board: chain drawing with snapping and a live preview, erase by click, and sample click through `onDetectWalls`; keyboard: Enter or Escape ends a chain; verify in the running app.
 - [ ] 4.3 Add `api.walls.detect(…, sample)`, `RoomPage` wiring, and hint text in the Walls panel; verify in the running app.
 

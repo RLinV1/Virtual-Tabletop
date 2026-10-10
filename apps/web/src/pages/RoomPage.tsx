@@ -9,6 +9,7 @@ import type { SessionEndReason } from "@vtt/shared";
 import { useAccount } from "../account/accountStore";
 import { signInFor } from "../account/safeNext";
 import { forgetCredentials, loadCredentials, rememberRoomName } from "../net/identity";
+import { api } from "../net/api";
 import type { DiceSkin } from "../ui/diceSkin";
 import { useActiveDiceLook, useDiceLooks } from "../ui/diceSkinStore";
 import { readySkin, tableSkin, usePreloadTableLooks, useShowOthersDice } from "../ui/tableLooks";
@@ -514,6 +515,10 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
         readOnly={!!preview}
         gridPreview={you.role === "gm" && !preview ? gridPreview : null}
         onPickTarget={pickTarget}
+        onDetectWalls={you.role === "gm" && !preview ? async (at) => {
+          await api.walls.detect(roomId, token, at);
+          return "Detecting walls like this one… review them in Manage › Walls.";
+        } : undefined}
         landedRollId={landedId}
         notices={
           // Always mounted, so screen readers register the live region before a notice lands in it.

@@ -123,6 +123,10 @@ export function WallsPanel({ connection, state, token }: { connection: RoomConne
               </button>
             )}
           </div>
+          <p className="muted small-print">
+            Fix walls on the board with the Walls tool: draw new ones, erase wrong ones, or click a wall with
+            "Detect walls like this one" when automatic detection misses them.
+          </p>
           {error && <p className="error" role="alert">{error}</p>}
           <p className="sr-only" role="status">{announce}</p>
         </div>
