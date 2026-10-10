@@ -1,94 +1,25 @@
 // @vitest-environment jsdom
-import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_GRID, emptyRoomState, type CommandInput, type Point, type RoomState, type Wall, type WallDetectionStatus } from "@vtt/shared";
-import { api } from "../src/net/api";
-import type { RoomConnection } from "../src/net/roomConnection";
-import { GmPanel } from "../src/pages/GmPanel";
 import { toGridDraft } from "../src/pages/gridDraft";
+import { type RoomState, type Wall } from "@vtt/shared";
+import { api } from "../src/net/api";
+import { GmPanel } from "../src/pages/GmPanel";
 import { WallSetup } from "../src/pages/mapEditor/WallSetup";
+import { MAP_URL, TOKEN, click, fakeConnection, room, stubMapEditorEnvironment } from "./mapEditorHarness";
 
 // The panels below the map section have nothing to do with the editor.
-vi.mock("../src/panels/FogPanel", () => ({ FogPanel: () => null }));
 vi.mock("../src/panels/CheckpointsPanel", () => ({ CheckpointsPanel: () => null }));
 vi.mock("../src/panels/EncounterPanel", () => ({ EncounterPanel: () => null }));
 
-const MAP_URL = "/uploads/map.png";
-/** 50 px cells from the origin, so snapped corners are easy to read. */
-const GRID = { ...DEFAULT_GRID, cellSize: 50, offsetX: 0, offsetY: 0 };
-/** The canvas is 1:1 with the map: 800 × 600 on screen, at the screen origin. */
-const VIEW = { width: 800, height: 600 };
-const TOKEN = "gm-token";
-
-function room(walls: Wall[] = [], withMap = true): RoomState {
-  const state = emptyRoomState("r1");
-  state.scene = { map: withMap ? { url: MAP_URL, width: VIEW.width, height: VIEW.height } : null, grid: GRID };
-  state.walls = Object.fromEntries(walls.map((w) => [w.id, w]));
-  return state;
-}
-
-type WallListener = (mapUrl: string, status: WallDetectionStatus) => void;
-
-/** A connection that records commands and lets a test push a wallDetection notice. */
-function fakeConnection() {
-  const commands: CommandInput[] = [];
-  let listener: WallListener | null = null;
-  const connection = {
-    command: vi.fn(async (command: CommandInput) => {
-      commands.push(command);
-      return { ok: true as const };
-    }),
-    onWallDetection: (fn: WallListener) => {
-      listener = fn;
-      return () => { listener = null; };
-    },
-  } as unknown as RoomConnection;
-  return {
-    connection,
-    commands,
-    notify: (status: WallDetectionStatus) => act(() => { listener?.(MAP_URL, status); }),
-  };
-}
-
-/** jsdom has no layout or pointer capture, and `PointerEvent` drops its coordinates. */
-function pointer(type: "pointerDown" | "pointerUp", target: Element, at: Point) {
-  const event = createEvent[type](target, {});
-  Object.defineProperties(event, {
-    clientX: { value: at.x }, clientY: { value: at.y }, button: { value: 0 }, pointerId: { value: 1 }, altKey: { value: false },
-  });
-  fireEvent(target, event);
-}
-const click = (canvas: Element, at: Point) => {
-  pointer("pointerDown", canvas, at);
-  pointer("pointerUp", canvas, at);
-};
 const canvas = () => screen.getByRole("application");
 const tool = (name: string) => screen.getByRole("radio", { name });
 
 beforeEach(() => {
-  vi.stubGlobal("ResizeObserver", class {
-    constructor(private callback: ResizeObserverCallback) {}
-    observe() { this.callback([{ contentRect: { ...VIEW } } as ResizeObserverEntry], this as unknown as ResizeObserver); }
-    unobserve() {}
-    disconnect() {}
-  });
-  vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({
-    x: 0, y: 0, left: 0, top: 0, right: VIEW.width, bottom: VIEW.height, ...VIEW, toJSON: () => ({}),
-  });
-  Object.assign(Element.prototype, {
-    setPointerCapture: () => {},
-    releasePointerCapture: () => {},
-    hasPointerCapture: () => false,
-  });
-  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
-  // <dialog> is not implemented in jsdom.
-  HTMLDialogElement.prototype.showModal = function showModal(this: HTMLDialogElement) { this.setAttribute("open", ""); };
-  HTMLDialogElement.prototype.close = function close(this: HTMLDialogElement) { this.removeAttribute("open"); };
+  stubMapEditorEnvironment();
   vi.spyOn(api.walls, "availability").mockResolvedValue({ available: true });
   vi.spyOn(api.walls, "status").mockResolvedValue(null);
   vi.spyOn(api.walls, "preview").mockResolvedValue(new Blob(["png"]));
-  URL.createObjectURL = () => "blob:preview";
-  URL.revokeObjectURL = () => {};
 });
 afterEach(() => {
   cleanup();
@@ -135,7 +66,7 @@ describe("map editor walls (FR-GM-09, FR-GM-11)", () => {
 
   it("erases the wall near the click and nothing when the click is far away", async () => {
     const wall: Wall = { id: "w1", a: { x: 100, y: 100 }, b: { x: 300, y: 100 } };
-    const { commands } = mount(room([wall]));
+    const { commands } = mount(room({ walls: [wall] }));
     fireEvent.click(tool("Erase"));
     const svg = canvas();
 
@@ -167,14 +98,14 @@ describe("map editor walls (FR-GM-09, FR-GM-11)", () => {
   });
 
   it("offers Replace when walls already exist", async () => {
-    const fake = mount(room([{ id: "w1", a: { x: 0, y: 0 }, b: { x: 50, y: 0 } }]));
+    const fake = mount(room({ walls: [{ id: "w1", a: { x: 0, y: 0 }, b: { x: 50, y: 0 } }] }));
     await waitFor(() => expect((screen.getByRole("button", { name: "Detect walls" }) as HTMLButtonElement).disabled).toBe(false));
     fake.notify({ status: "done", wallCount: 3, width: 800, height: 600 });
     expect(await screen.findByRole("button", { name: "Replace with 3 walls" })).toBeTruthy();
   });
 });
 
-describe("map editor in the GM panel (FR-GM-09)", () => {
+describe("map editor in the GM panel (FR-GM-09, FR-GM-17)", () => {
   const mount = (state: RoomState) => {
     const fake = fakeConnection();
     render(
@@ -187,28 +118,47 @@ describe("map editor in the GM panel (FR-GM-09)", () => {
     );
   };
 
-  it("opens the full-screen editor from Edit map and reaches the Walls step", async () => {
+  it("opens the full-screen editor from Edit map and reaches the Walls and Fog steps", async () => {
     mount(room());
     expect(screen.getByText(/800 × 600 px · 0 walls/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Edit map" }));
     const editor = screen.getByRole("dialog", { name: "Edit map" });
-    expect(within(editor).getAllByRole("tab").map((t) => t.textContent)).toEqual(["1 · Map", "2 · Grid", "3 · Walls"]);
+    expect(within(editor).getAllByRole("tab").map((t) => t.textContent)).toEqual(["1 · Map", "2 · Grid", "3 · Walls", "4 · Fog"]);
     expect(within(editor).getByRole("tab", { name: "2 · Grid" }).getAttribute("aria-selected")).toBe("true");
 
     fireEvent.click(within(editor).getByRole("tab", { name: "3 · Walls" }));
     expect(within(editor).getByRole("complementary", { name: "Wall tools" })).toBeTruthy();
     expect(within(editor).getByRole("application")).toBeTruthy();
     await waitFor(() => expect(api.walls.availability).toHaveBeenCalled());
+
+    fireEvent.click(within(editor).getByRole("tab", { name: "4 · Fog" }));
+    expect(within(editor).getByRole("complementary", { name: "Fog tools" })).toBeTruthy();
+    expect(within(editor).getByRole("application")).toBeTruthy();
+    expect(within(editor).getByRole("button", { name: "Fog whole map" })).toBeTruthy();
+  });
+
+  it("shows the title and the steps in one header row", () => {
+    mount(room());
+    fireEvent.click(screen.getByRole("button", { name: "Edit map" }));
+    const editor = screen.getByRole("dialog", { name: "Edit map" });
+    const head = editor.querySelector(".modal-head")!;
+    expect(within(head as HTMLElement).getByRole("heading", { name: "Edit map" })).toBeTruthy();
+    expect(within(head as HTMLElement).getAllByRole("tab")).toHaveLength(4);
+    expect(within(head as HTMLElement).getByRole("button", { name: "Close" })).toBeTruthy();
   });
 
   it("tells the GM to apply a map first when the room has none", () => {
-    mount(room([], false));
+    mount(room({ withMap: false }));
     expect(screen.getByText("No map yet.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Edit map" }));
     const editor = screen.getByRole("dialog", { name: "Edit map" });
     expect(within(editor).getByRole("tab", { name: "1 · Map" }).getAttribute("aria-selected")).toBe("true");
 
     fireEvent.click(within(editor).getByRole("tab", { name: "3 · Walls" }));
+    expect(within(editor).getByText(/Apply a map in the Map step first/)).toBeTruthy();
+    expect(within(editor).queryByRole("application")).toBeNull();
+
+    fireEvent.click(within(editor).getByRole("tab", { name: "4 · Fog" }));
     expect(within(editor).getByText(/Apply a map in the Map step first/)).toBeTruthy();
     expect(within(editor).queryByRole("application")).toBeNull();
   });
