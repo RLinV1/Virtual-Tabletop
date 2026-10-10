@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ConditionId, TokenStats } from "./conditions";
 import { DiceRoll, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
-import { AreaTemplate, ChatMessage, Checkpoint, DiceLookOnTable, FogRegion, Id, Initiative, InitiativeScore, MapImage, Participant, TableState, Token, Wall } from "./state";
+import { AreaTemplate, ChatMessage, Checkpoint, DiceLookOnTable, FogRegion, Id, Initiative, InitiativeScore, MapImage, MAX_WALLS, Participant, TableState, Token, Wall } from "./state";
 
 /**
  * Events are FACTS the server has committed. They are append-only and never edited.
@@ -60,6 +60,8 @@ export const DomainEvent = z.discriminatedUnion("type", [
     gridChange: z.object({ grid: GridSpec, previous: GridSpec }).optional(),
     /** Explicit adjusted positions, including an empty array. Absent on legacy map events. */
     tokenChanges: z.array(z.object({ tokenId: Id, from: Point, to: Point })).optional(),
+    /** Explicit geometry replacement, optional so legacy replay never implicitly clears walls. */
+    wallChange: z.object({ walls: z.array(Wall).max(MAX_WALLS), previous: z.array(Wall).max(MAX_WALLS) }).optional(),
   }),
   z.object({
     type: z.literal("GridSet"),
@@ -198,6 +200,7 @@ export const DomainEvent = z.discriminatedUnion("type", [
     type: z.literal("FogRemoved"),
     region: FogRegion,
   }),
+  z.object({ type: z.literal("WallUpdated"), wall: Wall, previous: Wall }),
   /** The GM applied walls (FR-GM-11, ADR 0027). The inverse of `WallsRemoved`. */
   z.object({
     type: z.literal("WallsAdded"),

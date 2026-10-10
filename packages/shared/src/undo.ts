@@ -27,6 +27,7 @@ export const REVERSIBLE_EVENT_TYPES = [
   "RollDamageApplied",
   "FogAdded",
   "FogRemoved",
+  "WallUpdated",
   "WallsAdded",
   "WallsRemoved",
   "CheckpointRestored",
@@ -136,7 +137,7 @@ function withLabels(
     }
     return { tokenNames: names, rollLabels };
   }
-  if (event.type === "FogAdded" || event.type === "FogRemoved" || event.type === "WallsAdded" || event.type === "WallsRemoved" ||
+  if (event.type === "FogAdded" || event.type === "FogRemoved" || event.type === "WallUpdated" || event.type === "WallsAdded" || event.type === "WallsRemoved" ||
     event.type === "CheckpointRestored" || event.type === "EncounterApplied") {
     // Only the labels: `labels` may be the whole open entry, whose `events` must not come back.
     return { tokenNames, rollLabels };
@@ -178,6 +179,7 @@ export function inverseOf(event: ReversibleEvent): DomainEvent {
         previous: event.map,
         gridChange: { grid: event.gridChange.previous, previous: event.gridChange.grid },
         tokenChanges: event.tokenChanges.map((change) => ({ tokenId: change.tokenId, from: change.to, to: change.from })),
+        ...(event.wallChange ? { wallChange: { walls: event.wallChange.previous, previous: event.wallChange.walls } } : {}),
       };
     case "TokenMoved":
       return { type: "TokenMoved", tokenId: event.tokenId, from: event.to, to: event.from };
@@ -195,6 +197,8 @@ export function inverseOf(event: ReversibleEvent): DomainEvent {
       return { type: "FogRemoved", region: event.region };
     case "FogRemoved":
       return { type: "FogAdded", region: event.region };
+    case "WallUpdated":
+      return { type: "WallUpdated", wall: event.previous, previous: event.wall };
     case "WallsAdded":
       return { type: "WallsRemoved", walls: event.walls };
     case "WallsRemoved":
@@ -222,6 +226,7 @@ export function undoConflict(state: RoomState, entry: UndoEntry): string | null 
     if (event.type === "MapSet") {
       if (!sameValue(state.scene.map, event.map)) return "Can't undo: the map has changed since.";
       if (!sameValue(state.scene.grid, event.gridChange.grid)) return "Can't undo: the grid has changed since.";
+      if (event.wallChange && !sameValue(state.walls, Object.fromEntries(event.wallChange.walls.map((w) => [w.id, w])))) return "Can't undo: the walls or portals have changed since.";
       for (const change of event.tokenChanges) {
         const token = state.tokens[change.tokenId];
         const name = token?.name ?? entry.tokenNames[change.tokenId] ?? "That token";
@@ -239,9 +244,14 @@ export function undoConflict(state: RoomState, entry: UndoEntry): string | null 
       if (!sameValue(tableOf(state), withWalls(event.applied))) return `Can't undo: the board has changed since "${event.name}" was applied.`;
       continue;
     }
-    // Walls are never edited in place either: each must still be there, or still gone (ADR 0027).
+    if (event.type === "WallUpdated") {
+      if (!sameValue(state.walls[event.wall.id], event.wall)) return "Can't undo: that wall or portal has changed since.";
+      continue;
+    }
+    // Walls are editable: additions guard full values, removals guard absence.
+    // each must still be there, or still gone (ADR 0027).
     if (event.type === "WallsAdded") {
-      if (event.walls.some((w) => !state.walls[w.id])) return "Can't undo: some of those walls have already been removed.";
+      if (event.walls.some((w) => !sameValue(state.walls[w.id], w))) return "Can't undo: some of those walls have already been removed.";
       continue;
     }
     if (event.type === "WallsRemoved") {
@@ -285,7 +295,7 @@ export function undoConflict(state: RoomState, entry: UndoEntry): string | null 
 const withWalls = (table: TableState): TableState => ({ ...table, walls: table.walls ?? {} });
 
 /** Deep equality for plain data, ignoring object key order. */
-function sameValue(a: unknown, b: unknown): boolean {
+export function sameValue(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
   if (Array.isArray(a) !== Array.isArray(b)) return false;
@@ -337,6 +347,7 @@ export function describeUndo(entry: UndoEntry, tokens: RoomState["tokens"]): { v
     const what = `${wallsAdded.walls.length} ${wallsAdded.walls.length === 1 ? "wall" : "walls"}`;
     return { verb: `apply of ${what}`, noun: `applying ${what}` };
   }
+  if (first.type === "WallUpdated") return { verb: `edit ${first.wall.portal ? "portal" : "wall"}`, noun: "the geometry edit" };
   if (first.type === "WallsAdded" || first.type === "WallsRemoved") {
     const what = `${first.walls.length} ${first.walls.length === 1 ? "wall" : "walls"}`;
     return { verb: `removal of ${what}`, noun: `removing ${what}` };

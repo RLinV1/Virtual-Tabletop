@@ -48,6 +48,7 @@ describe("Human-readable activity formatter (FR-REC-01)", () => {
     // An action no longer in the undo history; undo.test.ts covers the named form (ADR 0013).
     FogAdded: [{ type: "FogAdded", region: fogRect }, "Mara added a fog rectangle"],
     FogRemoved: [{ type: "FogRemoved", region: { ...fogRect, shape: "polygon" } }, "Mara removed a fog polygon"],
+    WallUpdated: [{ type: "WallUpdated", wall: { id: "wall", a: { x: 0, y: 0 }, b: { x: 1, y: 1 } }, previous: { id: "wall", a: { x: 0, y: 0 }, b: { x: 2, y: 2 } } }, "Mara edited a wall"],
     WallsAdded: [{ type: "WallsAdded", walls: [wall, { ...wall, id: "w2" }] }, "Mara added 2 walls"],
     WallsRemoved: [{ type: "WallsRemoved", walls: [wall] }, "Mara removed 1 wall"],
     CheckpointCreated: [{ type: "CheckpointCreated", checkpoint: { id: "c1", name: "Before the ambush", seq: 4 } }, 'Mara saved checkpoint "Before the ambush"'],

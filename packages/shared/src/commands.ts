@@ -4,7 +4,7 @@ import { ConditionId, EMPTY_STATS, TokenStats } from "./conditions";
 import { AttackKind, DiceVisibility, MAX_ATTACK_LABEL, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
 import { MAP_TOKEN_POLICIES } from "./mapTokenAdjustment";
-import { AreaShape, Id, MapImage, MAX_CHAT_LENGTH, MAX_FOG_POINTS } from "./state";
+import { AreaShape, Id, MapImage, MAX_CHAT_LENGTH, MAX_FOG_POINTS, Wall } from "./state";
 
 /** Most walls one `wall.remove` names (ADR 0027), keeping the command under the socket limit. */
 export const MAX_WALLS_PER_REMOVE = 500;
@@ -81,6 +81,10 @@ export const Command = z.discriminatedUnion("type", [
     /** How existing tokens adjust on a replacement; omitted selects scale (ADR 0023). */
     tokenPolicy: z.enum(MAP_TOKEN_POLICIES).optional(),
   }),
+  z.object({
+    type: z.literal("scene.importUVTT"), importId: Id,
+    revision: z.number().int().positive(), tokenPolicy: z.enum(MAP_TOKEN_POLICIES).optional(),
+  }).strict(),
   z.object({
     type: z.literal("scene.setGrid"),
     grid: GridSpec,
@@ -282,6 +286,8 @@ export const Command = z.discriminatedUnion("type", [
     type: z.literal("wall.remove"),
     wallIds: z.array(Id).min(1).max(MAX_WALLS_PER_REMOVE),
   }).strict(),
+  /** GM changes a complete wall/portal value (ADR 0028). */
+  z.object({ type: z.literal("wall.update"), wall: Wall.strict() }).strict(),
   /** GM removes every wall (ADR 0027). */
   z.object({
     type: z.literal("wall.clear"),

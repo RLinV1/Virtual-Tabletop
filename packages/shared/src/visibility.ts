@@ -104,6 +104,7 @@ export function filterEventForViewer(
 
   switch (e.type) {
     // GM-only geometry (ADR 0027): players learn only that a seq happened.
+    case "WallUpdated":
     case "WallsAdded":
     case "WallsRemoved":
       return redacted;
@@ -185,7 +186,7 @@ export function filterEventForViewer(
     case "MapSet":
       // Nested changes contain hidden IDs and prior positions. Only the filtered result
       // reaches players, including inverse first-map removal and empty adjustments (ADR 0023).
-      return e.tokenChanges !== undefined ? { kind: "resync" } : pass;
+      return e.tokenChanges !== undefined || e.wallChange !== undefined ? { kind: "resync" } : pass;
     case "ActionUndone":
       // Players have no undo or activity log; the compensating events before it already
       // delivered whatever they may see (ADR 0013).

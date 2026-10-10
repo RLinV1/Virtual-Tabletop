@@ -45,7 +45,7 @@ describe("placing a library map (asset-library: Place a library asset in a room)
       map: libraryMap,
       previous: null,
       gridChange: { grid: libraryGrid, previous: DEFAULT_GRID },
-      tokenChanges: [],
+      tokenChanges: [], wallChange: { walls: [], previous: [] },
     });
     expect(state.scene).toEqual({ map: libraryMap, grid: libraryGrid });
   });

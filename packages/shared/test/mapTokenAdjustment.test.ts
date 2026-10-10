@@ -154,7 +154,7 @@ describe("map command, reduction and visibility (KAN-66, FR-GM-15, FR-GM-23)", (
   it("records one complete event with unchanged effective grid and an empty array", () => {
     expect(run(baseRoom(), gm, { type: "scene.setMap", map: newMap }).events).toEqual([{
       type: "MapSet", map: newMap, previous: null,
-      gridChange: { grid: DEFAULT_GRID, previous: DEFAULT_GRID }, tokenChanges: [],
+      gridChange: { grid: DEFAULT_GRID, previous: DEFAULT_GRID }, tokenChanges: [], wallChange: { walls: [], previous: [] },
     }]);
   });
 
@@ -167,6 +167,7 @@ describe("map command, reduction and visibility (KAN-66, FR-GM-15, FR-GM-23)", (
     const applied = run(state, gm, { type: "scene.setMap", map: newMap, grid: nextGrid });
     expect(applied.events).toEqual([{
       type: "MapSet", map: newMap, previous: oldMap, gridChange: { grid: nextGrid, previous: grid },
+      wallChange: { walls: [], previous: [] },
       tokenChanges: expect.arrayContaining([
         { tokenId: a.id, from: { x: 241, y: 161 }, to: { x: 120.5, y: 80.5 } },
         { tokenId: b.id, from: { x: 750, y: 550 }, to: { x: 375, y: 275 } },

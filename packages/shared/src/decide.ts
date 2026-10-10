@@ -1,3 +1,4 @@
+import { removePortalOverlaps, validateUvttDraft, type PreparedUvttScene } from "./uvtt";
 import type { Command, DepartureAction } from "./commands";
 import { presetOf, tableForPreset } from "./gamePresets";
 import { MIN_HP } from "./conditions";
@@ -8,7 +9,7 @@ import { footprintCrossesWall, isSnapped, pathCrossesWall, polygonArea, resizedT
 import { canRenderGrid } from "./gridRenderLimit";
 import { adjustMapTokens } from "./mapTokenAdjustment";
 import type { SessionEndReason } from "./protocol";
-import { inverseOf, undoableAction, undoConflict } from "./undo";
+import { inverseOf, sameValue, undoableAction, undoConflict } from "./undo";
 import { concealedFrom, fogConcealsSide, isInFog, templateConcealedFrom } from "./visibility";
 import { wallsFitMap, type DetectedWall } from "./wallDetection";
 import { MAX_AREA_TEMPLATES, MAX_LINE_WIDTH_CELLS, MAX_CHECKPOINT_NAME, MAX_FOG_REGIONS, MAX_PLAYERS_PER_ROOM, MAX_WALLS, tableOf, type AreaTemplate, type DiceLookOnTable, type Initiative, type Participant, type RoomState, type TableState, type Token, type Wall } from "./state";
@@ -51,6 +52,8 @@ export interface DecideContext {
   detectedWalls?: (mapUrl: string) => readonly DetectedWall[] | null;
   /** The room's last committed seq: where a checkpoint saved now points (ADR 0019). */
   lastSeq?: number;
+  /** Server-resolved leased preparation for this actor and revision (ADR 0028). */
+  preparedUvtt?: PreparedUvttScene;
 }
 
 /** Permission helpers. Shared so the UI can hide controls, but ONLY the server's check counts. */
@@ -91,6 +94,8 @@ function resnapToGrid(state: RoomState, grid: GridSpec): DomainEvent[] {
 }
 
 const wallsOf = (state: RoomState): Wall[] => Object.values(state.walls);
+/** Missing closed flags retain legacy solid blocking; explicitly open portals do not. */
+const blockingWalls = (state: RoomState) => wallsOf(state).filter((w) => w.portal?.closed !== false);
 
 /** Every wall, removed in one event, or nothing when there are none (ADR 0027). */
 function removeAllWalls(state: RoomState): DomainEvent[] {
@@ -107,7 +112,7 @@ const wallBlocked = (): Decision => reject("invalid", "That spot is blocked by a
  * the path, so a token caught by newly applied walls can still step out.
  */
 function moveBlockedByWalls(state: RoomState, token: Token, to: Point, actor: Participant): Decision | null {
-  const walls = wallsOf(state);
+  const walls = blockingWalls(state);
   if (walls.length === 0) return null;
   const { grid } = state.scene;
   if (footprintCrossesWall(to, token.size, grid, walls)) return wallBlocked();
@@ -158,6 +163,24 @@ export function decide(
         previous: state.scene.map,
         gridChange: { grid, previous: state.scene.grid },
         tokenChanges: adjustment.changes,
+        ...(command.map.url !== state.scene.map?.url ? { wallChange: { walls: [], previous: wallsOf(state) } } : {}),
+      });
+    }
+
+    case "scene.importUVTT": {
+      if (!can.administer(actor)) return forbidden();
+      const prep = ctx.preparedUvtt;
+      if (!prep) return reject("not_found", "This preparation has expired or the server restarted. Re-import the file.");
+      const { baseline, map, grid } = prep;
+      if (!sameValue(state.scene.map, baseline.map) || !sameValue(state.scene.grid, baseline.grid) || !sameValue(state.walls, baseline.walls)) {
+        return reject("invalid", "The applied map, grid or walls changed while editing. Re-import against the current scene; your draft has been kept.");
+      }
+      try { validateUvttDraft(grid, prep.walls, map); } catch { return reject("invalid", "The prepared grid or geometry is invalid."); }
+      const adjustment = adjustMapTokens(Object.values(state.tokens), state.scene.map, map, state.scene.grid, grid, command.tokenPolicy);
+      if (!adjustment.ok) return reject("invalid", "A token cannot fit the imported map. Use a larger image, smaller grid or smaller token.");
+      return accept({ type: "MapSet", map, previous: state.scene.map,
+        gridChange: { grid, previous: state.scene.grid }, tokenChanges: adjustment.changes,
+        wallChange: { walls: prep.walls.map((w) => ({ ...w, id: ctx.newId() })), previous: wallsOf(state) },
       });
     }
 
@@ -182,13 +205,13 @@ export function decide(
         return reject("invalid", "Current HP cannot exceed maximum HP");
       }
       if (new Set(command.conditions).size !== command.conditions.length) return reject("invalid", "A condition is listed twice.");
-      if (footprintCrossesWall(command.position, command.size, state.scene.grid, wallsOf(state))) return wallBlocked();
+      if (footprintCrossesWall(command.position, command.size, state.scene.grid, blockingWalls(state))) return wallBlocked();
       // Several copies are one action (KAN-70): spread over the nearest free squares, each
       // numbered against the room and the copies before it.
       const positions = spreadPositions(
         command.position, command.size, command.count, state.scene.grid, state.scene.map,
         Object.values(state.tokens).map((t) => ({ position: t.position, size: t.size })),
-        (p) => footprintCrossesWall(p, command.size, state.scene.grid, wallsOf(state)),
+        (p) => footprintCrossesWall(p, command.size, state.scene.grid, blockingWalls(state)),
       );
       let named = state;
       const events: DomainEvent[] = positions.map((position) => {
@@ -249,7 +272,7 @@ export function decide(
         const ownerError = checkOwners(state, changes.ownerIds);
         if (ownerError) return ownerError;
       }
-      if (changes.position && footprintCrossesWall(changes.position, changes.size ?? token.size, state.scene.grid, wallsOf(state))) {
+      if (changes.position && footprintCrossesWall(changes.position, changes.size ?? token.size, state.scene.grid, blockingWalls(state))) {
         return wallBlocked();
       }
       const imageUrl = changes.imageUrl;
@@ -611,21 +634,49 @@ export function decide(
       if (!map) return reject("invalid", "Set a map before drawing walls.");
       if (command.walls.some((w) => w.a.x === w.b.x && w.a.y === w.b.y)) return reject("invalid", "A wall needs two different ends.");
       if (!wallsFitMap(command.walls, map)) return reject("invalid", "Walls must lie on the map.");
-      if (Object.keys(state.walls).length + command.walls.length > MAX_WALLS) {
+      const walls = removePortalOverlaps([...command.walls, ...wallsOf(state).filter((w) => w.portal)]).filter((w) => !("portal" in w));
+      if (Object.keys(state.walls).length + walls.length > MAX_WALLS) {
         return reject("invalid", `A room can hold at most ${MAX_WALLS} walls. Remove some first.`);
       }
-      return accept({ type: "WallsAdded", walls: command.walls.map((w) => ({ id: ctx.newId(), a: w.a, b: w.b })) });
+      return walls.length ? accept({ type: "WallsAdded", walls: walls.map((w) => ({ id: ctx.newId(), a: w.a, b: w.b })) }) : accept();
     }
 
     case "wall.remove": {
       if (!can.administer(actor)) return forbidden();
       const walls: Wall[] = [];
       for (const id of new Set(command.wallIds)) {
-        const wall = state.walls[id];
+        const wall = Object.hasOwn(state.walls, id) ? state.walls[id] : undefined;
         if (!wall) return notFound("wall");
         walls.push(wall);
       }
       return accept({ type: "WallsRemoved", walls });
+    }
+
+    case "wall.update": {
+      if (!can.administer(actor)) return forbidden();
+      const previous = Object.hasOwn(state.walls, command.wall.id) ? state.walls[command.wall.id] : undefined;
+      if (!previous) return notFound("wall");
+      const map = state.scene.map;
+      if (!map || !wallsFitMap([command.wall], map)) return reject("invalid", "Walls must lie on the map.");
+      if (command.wall.a.x === command.wall.b.x && command.wall.a.y === command.wall.b.y) return reject("invalid", "A wall needs two different ends.");
+      const portals = wallsOf(state).filter((w) => w.id !== command.wall.id && w.portal);
+      if (command.wall.portal) portals.push(command.wall);
+      const removed: Wall[] = [], added: Wall[] = [];
+      for (const wall of wallsOf(state)) {
+        if (wall.id === command.wall.id || wall.portal) continue;
+        const parts = removePortalOverlaps([wall, ...portals]).filter((w) => !w.portal);
+        if (!sameValue(parts, [wall])) {
+          removed.push(wall); added.push(...parts.map((w) => ({ ...w, id: ctx.newId() })));
+        }
+      }
+      // A moved solid wall also cannot duplicate a portal's gap.
+      if (!command.wall.portal && !sameValue(removePortalOverlaps([command.wall, ...portals]).filter((w) => !w.portal), [command.wall])) {
+        return reject("invalid", "That wall overlaps a portal. Draw separate wall segments around the portal bounds.");
+      }
+      if (Object.keys(state.walls).length - removed.length + added.length > MAX_WALLS) return reject("invalid", `Portal normalization would exceed ${MAX_WALLS} walls.`);
+      return accept({ type: "WallUpdated", wall: command.wall, previous },
+        ...(removed.length ? [{ type: "WallsRemoved" as const, walls: removed }] : []),
+        ...(added.length ? [{ type: "WallsAdded" as const, walls: added }] : []));
     }
 
     case "wall.clear":

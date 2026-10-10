@@ -23,3 +23,5 @@ export * from "./activityLog";
 export * from "./gamePresets";
 
 export * from "./replay";
+
+export * from "./uvtt";

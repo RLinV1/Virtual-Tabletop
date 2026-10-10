@@ -106,7 +106,7 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
         const token = required(tokens[change.tokenId], event);
         tokens[token.id] = { ...token, position: change.to };
       }
-      return { ...state, scene: { ...state.scene, map: event.map, grid: event.gridChange?.grid ?? state.scene.grid }, tokens };
+      return { ...state, scene: { ...state.scene, map: event.map, grid: event.gridChange?.grid ?? state.scene.grid }, tokens, walls: event.wallChange ? Object.fromEntries(event.wallChange.walls.map((w) => [w.id, w])) : state.walls };
     }
 
     case "GridSet":
@@ -236,6 +236,9 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
       const { [event.region.id]: _removed, ...rest } = state.fog;
       return { ...state, fog: rest };
     }
+
+    case "WallUpdated":
+      return { ...state, walls: { ...state.walls, [event.wall.id]: event.wall } };
 
     case "WallsAdded": {
       const walls = { ...state.walls };

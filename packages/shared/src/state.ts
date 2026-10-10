@@ -181,6 +181,12 @@ export const Wall = z.object({
   id: Id,
   a: Point,
   b: Point,
+  source: z.enum(["line_of_sight", "objects_line_of_sight"]).optional(),
+  /** Generic UVTT metadata, with absence preserved rather than inferred identity (ADR 0028). */
+  portal: z.object({
+    position: Point.optional(), rotation: z.number().finite().optional(),
+    closed: z.boolean().optional(), freestanding: z.boolean().optional(),
+  }).strict().optional(),
 });
 export type Wall = z.infer<typeof Wall>;
 
