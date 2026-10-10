@@ -17,6 +17,8 @@ export const DomainEvent = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("RoomCreated"),
     name: z.string(),
+    /** The game preset (KAN-63, ADR 0027). Absent on rooms created before presets: Dungeons & Dragons. */
+    preset: z.string().optional(),
   }),
   z.object({
     type: z.literal("ParticipantJoined"),

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DEFAULT_PRESET_ID } from "./gamePresets";
 import { TokenAttacks } from "./attackPresets";
 import { DICE_SHEET, DieName } from "./diceLooks";
 import type { UndoEntry } from "./undo";
@@ -258,6 +259,8 @@ export type TokenGroup = z.infer<typeof TokenGroup>;
 export interface RoomState {
   roomId: Id;
   name: string;
+  /** The game preset chosen when the room was created (KAN-63, ADR 0027). Never changes. Public. */
+  preset: string;
   scene: Scene;
   tokens: Record<Id, Token>;
   participants: Record<Id, Participant>;
@@ -291,6 +294,7 @@ export function emptyRoomState(roomId: Id): RoomState {
   return {
     roomId,
     name: "",
+    preset: DEFAULT_PRESET_ID,
     scene: { map: null, grid: DEFAULT_GRID },
     tokens: {},
     participants: {},

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { presetOf, type PresetFeatures } from "@vtt/shared";
 import { Trash } from "@phosphor-icons/react";
 import {
   can,
@@ -158,6 +159,7 @@ export function TokenRoster({
             error={error}
             groups={Object.values(state.groups)}
             groupId={state.tokenGroups[editing.id] ?? null}
+            features={presetOf(state).features}
             onSave={async (changes, groupId) => {
               if (Object.keys(changes).length > 0 && !(await send({ type: "token.configure", tokenId: editing.id, changes }))) return;
               if (groupId !== undefined && !(await send({ type: "group.assign", groupId, tokenIds: [editing.id] }))) return;
@@ -262,6 +264,7 @@ export function TokenEditor({
   error,
   groups = [],
   groupId: savedGroupId = null,
+  features = ALL_FEATURES,
   onSave,
   onDelete,
   onDuplicate,
@@ -276,6 +279,8 @@ export function TokenEditor({
   /** GM: the room's groups and this token's, for the Group field (KAN-82). */
   groups?: readonly TokenGroup[];
   groupId?: string | null;
+  /** What the room's game preset turns on (KAN-63); everything when omitted. */
+  features?: PresetFeatures;
   /** `groupId` is undefined when the group did not change. */
   onSave: (changes: TokenUpdate, groupId?: string | null) => Promise<void>;
   onDelete: () => void;
@@ -380,16 +385,20 @@ export function TokenEditor({
           Max
           <input type="number" inputMode="numeric" value={maxHp} onChange={(e) => setMaxHp(e.target.value)} min="1" max="9999" step="1" />
         </label>
-        <label>
-          AC
-          <input type="number" inputMode="numeric" value={ac} onChange={(e) => setAc(e.target.value)} min="0" max="99" step="1" />
-        </label>
+        {features.armorClass && (
+          <label>
+            AC
+            <input type="number" inputMode="numeric" value={ac} onChange={(e) => setAc(e.target.value)} min="0" max="99" step="1" />
+          </label>
+        )}
       </div>
 
-      <details className="token-editor-section">
-        <summary>Conditions<span className="token-editor-summary">{conditions.length || "none"}</span></summary>
-        <ConditionPicker value={conditions} onChange={setConditions} />
-      </details>
+      {features.conditions && (
+        <details className="token-editor-section">
+          <summary>Conditions<span className="token-editor-summary">{conditions.length || "none"}</span></summary>
+          <ConditionPicker value={conditions} onChange={setConditions} />
+        </details>
+      )}
 
       {isGm && (
         <details className="token-editor-section">
@@ -557,5 +566,8 @@ export function TokenEditor({
     </>
   );
 }
+
+/** Every rules feature on: the editor outside a room, and in a Dungeons & Dragons room. */
+const ALL_FEATURES: PresetFeatures = { attacks: true, conditions: true, armorClass: true };
 
 const level = (f: number) => (f > 0.5 ? "ok" : f > 0.25 ? "warn" : "critical");

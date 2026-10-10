@@ -2274,6 +2274,14 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 .init-groups p { flex-basis: 100%; }
 .init-left-out .init-name { color: var(--muted); text-decoration: line-through; }
 
+/* Game presets (KAN-63): the create-room choice and the room's preset badge. */
+.preset-choice { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); }
+.preset-choice legend { padding: 0 var(--space-1); }
+.preset-option { display: flex; flex-direction: row; align-items: flex-start; gap: var(--space-2); margin: 0; cursor: pointer; }
+.preset-option > span { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+.preset-option input { margin-top: 0.25rem; }
+.preset-badge { flex-shrink: 0; padding: 0.05rem 0.45rem; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: var(--fs-sm); white-space: nowrap; }
+
 /* Encounter replay (FR-PL-07): bottom-centre like the preview banner, above the board. */
 .replay-bar {
   position: fixed; left: 50%; bottom: var(--space-4); transform: translateX(-50%); z-index: 60;
