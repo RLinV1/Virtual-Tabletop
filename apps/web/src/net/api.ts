@@ -1,6 +1,8 @@
 import {
   GM_TOKEN_HEADER,
   HistoryResponse,
+  ReplayPointsResponse,
+  ReplayResponse,
   type AssetKind,
   type CreateCreatureRequest,
   type DiceLookView,
@@ -133,6 +135,24 @@ export const api = {
     });
     if (!res.ok) throw await errorFrom(res);
     return HistoryResponse.parse(await res.json());
+  },
+
+  /** Where this participant can start a replay of the room (FR-PL-07, ADR 0025). */
+  async replayPoints(roomId: string, token: string, signal?: AbortSignal) {
+    const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/replay`, {
+      headers: { authorization: `Bearer ${token}` }, signal,
+    });
+    if (!res.ok) throw await errorFrom(res);
+    return ReplayPointsResponse.parse(await res.json()).points;
+  },
+
+  /** The room's history from one replay point, filtered for this participant by the server (FR-PL-07). */
+  async replay(roomId: string, token: string, pointId: string, signal?: AbortSignal) {
+    const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/replay/${encodeURIComponent(pointId)}`, {
+      headers: { authorization: `Bearer ${token}` }, signal,
+    });
+    if (!res.ok) throw await errorFrom(res);
+    return ReplayResponse.parse(await res.json());
   },
 
   /** The room's current invite code (FR-GM-20). GM only; the server answers 403 otherwise. */

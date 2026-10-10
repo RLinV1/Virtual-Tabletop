@@ -8,8 +8,13 @@ import type { CommandResult, RoomConnection } from "./roomConnection";
  * the same object serves before, during and after a preview: nothing that holds it has to be
  * rebuilt when the preview starts or ends.
  */
-export function guardedConnection(connection: RoomConnection, isReadOnly: () => boolean, name = "a player"): RoomConnection {
-  const refused = async (): Promise<CommandResult> => ({ ok: false, code: "forbidden", message: `Previewing as ${name}. Go back to the GM view to make changes.` });
+export function guardedConnection(
+  connection: RoomConnection,
+  isReadOnly: () => boolean,
+  name = "a player",
+  message = `Previewing as ${name}. Go back to the GM view to make changes.`,
+): RoomConnection {
+  const refused = async (): Promise<CommandResult> => ({ ok: false, code: "forbidden", message });
   return new Proxy(connection, {
     get(target, prop) {
       const value = Reflect.get(target, prop, target);
@@ -27,4 +32,9 @@ export function guardedConnection(connection: RoomConnection, isReadOnly: () => 
 /** A connection that is read-only for as long as it exists: the panels' view during a preview. */
 export function previewConnection(connection: RoomConnection, name: string): RoomConnection {
   return guardedConnection(connection, () => true, name);
+}
+
+/** Read-only while a replay is showing (FR-PL-07): the replayed past is never edited. */
+export function replayConnection(connection: RoomConnection): RoomConnection {
+  return guardedConnection(connection, () => true, undefined, "You are watching a replay. Go back to the live table to make changes.");
 }

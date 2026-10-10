@@ -13,6 +13,10 @@ import {
   HistoryQuery,
   ROOM_FULL,
   HistoryResponse,
+  ReplayPointsResponse,
+  ReplayResponse,
+  replayFrom,
+  replayPoints,
   activityHistory,
   emptyRoomState,
   encounterTable,
@@ -369,6 +373,38 @@ export function registerRoutes(
       if (!query.success) return res.status(400).json({ error: "Invalid history query" });
       const events = await store.loadEvents(cred.roomId);
       return res.json(HistoryResponse.parse(activityHistory(cred.roomId, events, viewer, query.data)));
+    })().catch(internalError(req, res));
+  });
+
+  /**
+   * FR-PL-07: any participant still in the room may replay its history, filtered for them exactly
+   * as live sync filters it (ADR 0025). Read-only: nothing here touches the live room.
+   */
+  app.get("/api/rooms/:roomId/replay", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void (async () => {
+      const auth = await authenticate(req);
+      if (!auth || auth.roomId !== req.params.roomId) return res.status(403).json({ error: "Not in this room" });
+      const events = await store.loadEvents(auth.roomId);
+      return res.json(ReplayPointsResponse.parse({ points: replayPoints(events, auth.participant) }));
+    })().catch(internalError(req, res));
+  });
+
+  app.get("/api/rooms/:roomId/replay/:pointId", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void (async () => {
+      const auth = await authenticate(req);
+      if (!auth || auth.roomId !== req.params.roomId) return res.status(403).json({ error: "Not in this room" });
+      const started = performance.now();
+      const events = await store.loadEvents(auth.roomId);
+      // Only a point from the viewer's own list: known starting places, never an arbitrary seq.
+      const point = replayPoints(events, auth.participant).find((p) => p.id === req.params.pointId);
+      if (!point) return res.status(404).json({ error: "No such replay point" });
+      const replay = ReplayResponse.parse(replayFrom(auth.roomId, events, auth.participant, point));
+      const ms = performance.now() - started;
+      // Same cue as a slow checkpoint restore: time for a snapshot cache (ADR 0019).
+      if (ms > 500) console.warn(`[vtt] replay of room ${auth.roomId} took ${Math.round(ms)} ms (${events.length} events)`);
+      return res.json(replay);
     })().catch(internalError(req, res));
   });
 
