@@ -8,6 +8,7 @@ import {
   wallsFitMap,
   type DetectedWall,
   type MapImage,
+  type WallDetectionRequest,
   type WallDetectionAvailability,
   type WallDetectionStatus,
 } from "@vtt/shared";
@@ -41,6 +42,10 @@ export interface WallJobData {
   sample?: { x: number; y: number };
   /** With a sample: how far a colour may differ from it, in Lab units (wall-editing). */
   tolerance?: number;
+  /** Share of a run's edge that must follow an outline. */
+  strictness?: number;
+  /** Shortest wall kept, in grid cells. */
+  minLength?: number;
 }
 
 /** A queue event about one job, as BullMQ's `QueueEvents` reports it. */
@@ -130,8 +135,7 @@ export class WallDetections {
     roomId: string,
     map: Pick<MapImage, "url" | "width" | "height">,
     cellSize: number,
-    sample?: { x: number; y: number },
-    tolerance?: number,
+    request: WallDetectionRequest = {},
   ): Promise<StartResult> {
     if (!this.queue) return "unavailable";
     if (!uploadKey(map.url) && !builtinImageName(map.url)) return "unreadable";
@@ -152,7 +156,7 @@ export class WallDetections {
         width: map.width,
         height: map.height,
         cellSize: Number.isFinite(cellSize) && cellSize > 0 ? cellSize : 0,
-        ...(sample && { sample, ...(tolerance !== undefined && { tolerance }) }),
+        ...request,
       });
     } catch {
       this.finish(entry, { status: "failed", message: "Wall detection is unavailable right now." }, null);

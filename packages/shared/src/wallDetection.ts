@@ -42,14 +42,24 @@ export const SAMPLE_TOLERANCE_MIN = 10;
 export const SAMPLE_TOLERANCE_MAX = 60;
 export const SAMPLE_TOLERANCE_DEFAULT = 30;
 
+/** Share of a run's edge that must follow a contrasting outline: higher drops more terrain, and some walls. */
+export const STRICTNESS_MIN = 0.2;
+export const STRICTNESS_MAX = 0.6;
+export const STRICTNESS_DEFAULT = 0.4;
+/** Longest "shortest wall" the GM may ask for, in grid cells. 0 keeps everything the detector finds. */
+export const MIN_LENGTH_MAX = 6;
+
 /**
  * What the GM may send when starting an analysis (wall-editing). `sample` is a point on a wall in
  * board coordinates: the worker then looks for walls of that colour instead of guessing.
  * `tolerance` widens or narrows what counts as that colour, and only makes sense with a sample.
+ * `strictness` and `minLength` (in cells) filter either mode's result.
  */
 export const WallDetectionRequest = z.object({
   sample: Point.optional(),
   tolerance: z.number().min(SAMPLE_TOLERANCE_MIN).max(SAMPLE_TOLERANCE_MAX).optional(),
+  strictness: z.number().min(STRICTNESS_MIN).max(STRICTNESS_MAX).optional(),
+  minLength: z.number().min(0).max(MIN_LENGTH_MAX).optional(),
 }).strict().refine((request) => request.tolerance === undefined || request.sample !== undefined, {
   message: "tolerance needs a sample",
 });

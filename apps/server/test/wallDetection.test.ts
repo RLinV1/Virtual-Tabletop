@@ -176,6 +176,8 @@ describe("automatic wall detection through the queue (FR-GM-11, ADR 0029)", () =
     expect((await post({ sample: { x: 10 } })).status).toBe(400);
     expect((await post({ colour: "#fff" })).status).toBe(400);
     expect((await post({ tolerance: 20 })).status).toBe(400);
+    expect((await post({ strictness: 0.9 })).status).toBe(400);
+    expect((await post({ minLength: -2 })).status).toBe(400);
     expect((await post({ sample: { x: 140, y: 350 }, tolerance: 500 })).status).toBe(400);
     expect(queue.jobs.size).toBe(1);
     expect((await post({ sample: { x: 140, y: 350 } })).status).toBe(202);
@@ -185,7 +187,7 @@ describe("automatic wall detection through the queue (FR-GM-11, ADR 0029)", () =
     expect(sampled).toMatchObject({ width: 700, height: 700 });
   });
 
-  it("carries the colour tolerance of a sampled detection to the worker (wall-editing)", async () => {
+  it("carries the colour tolerance, strictness and shortest wall to the worker (wall-editing)", async () => {
     const queue = new StandInQueue();
     const { room, gm } = await roomWithMap(queue);
     const [first] = queue.only();
@@ -193,10 +195,10 @@ describe("automatic wall detection through the queue (FR-GM-11, ADR 0029)", () =
     await gm.waitFor((m) => isNotice(m) && m.status.status === "failed");
     const res = await fetch(`${server.base}/api/rooms/${room.roomId}/wall-detection`, {
       method: "POST", headers: { authorization: `Bearer ${room.guestToken}`, "content-type": "application/json" },
-      body: JSON.stringify({ sample: { x: 140, y: 350 }, tolerance: 18 }),
+      body: JSON.stringify({ sample: { x: 140, y: 350 }, tolerance: 18, strictness: 0.5, minLength: 2 }),
     });
     expect(res.status).toBe(202);
-    expect([...queue.jobs.values()].at(-1)).toMatchObject({ sample: { x: 140, y: 350 }, tolerance: 18 });
+    expect([...queue.jobs.values()].at(-1)).toMatchObject({ sample: { x: 140, y: 350 }, tolerance: 18, strictness: 0.5, minLength: 2 });
   });
 
   it("treats a result outside the map as failed and never applies it", async () => {
