@@ -2282,5 +2282,3 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 @media (prefers-reduced-motion: no-preference) {
   .board-refusal { animation: modal-in 0.16s ease-out; }
 }
-/* Board news that isn't a refusal, e.g. "Detecting walls like this one…" (wall-editing). */
-.board-refusal.board-message { border-left-color: var(--accent); }

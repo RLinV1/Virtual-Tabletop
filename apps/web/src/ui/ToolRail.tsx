@@ -1,21 +1,19 @@
 import type { ReactNode } from "react";
 import { isBoolean, usePersistentState } from "./usePersistentState";
-import { CaretDoubleLeft, CaretDoubleRight, Circle, CloudFog, Cursor, Eraser, Eye, Eyedropper, LineSegment, LineSegments, PaintBrush, PencilSimple, Polygon, Ruler, Square, Target, Trash, Triangle, Wall } from "@phosphor-icons/react";
-import { AREA_SIZES, DRAW_COLORS, type AreaShape, type BoardTool, type DrawShape, type FogMode, type WallMode } from "../board/tools";
+import { CaretDoubleLeft, CaretDoubleRight, Circle, CloudFog, Cursor, Eraser, Eye, LineSegment, PaintBrush, PencilSimple, Polygon, Ruler, Square, Target, Trash, Triangle } from "@phosphor-icons/react";
+import { AREA_SIZES, DRAW_COLORS, type AreaShape, type BoardTool, type DrawShape, type FogMode } from "../board/tools";
 
 /** The options each tool remembers while another tool is active. */
 export interface ToolOptions {
   draw: { shape: DrawShape; color: number };
   area: { shape: AreaShape; size: number; lineCells: 1 | 2; gmOnly: boolean };
   fog: { mode: FogMode };
-  walls: { mode: WallMode };
 }
 
 export const DEFAULT_TOOL_OPTIONS: ToolOptions = {
   draw: { shape: "brush", color: DRAW_COLORS[0].value },
   area: { shape: "circle", size: 20, lineCells: 1, gmOnly: false },
   fog: { mode: "rect" },
-  walls: { mode: "draw" },
 };
 
 /** Tools the rail offers; Attack starts from a token instead (attack-targeting). */
@@ -29,14 +27,6 @@ const TOOLS: { kind: ToolKind; label: string; icon: ReactNode; gmOnly?: boolean 
   { kind: "erase", label: "Eraser", icon: <Eraser size={18} aria-hidden="true" /> },
   // Players never see a fog control, not even a disabled one (FR-GM-17, INTERFACE.md).
   { kind: "fog", label: "Fog", icon: <CloudFog size={18} aria-hidden="true" />, gmOnly: true },
-  // Walls are GM-only data, so players never get the tool either (ADR 0025).
-  { kind: "walls", label: "Walls", icon: <Wall size={18} aria-hidden="true" />, gmOnly: true },
-];
-
-const WALL_MODES: { key: WallMode; label: string; icon: ReactNode }[] = [
-  { key: "draw", label: "Draw walls", icon: <LineSegments size={16} aria-hidden="true" /> },
-  { key: "erase", label: "Erase a wall", icon: <Eraser size={16} aria-hidden="true" /> },
-  { key: "sample", label: "Detect walls like this one", icon: <Eyedropper size={16} aria-hidden="true" /> },
 ];
 
 const FOG_MODES: { key: FogMode; label: string; icon: ReactNode }[] = [
@@ -64,7 +54,6 @@ export function toolFor(kind: ToolKind, options: ToolOptions): BoardTool {
   if (kind === "draw") return { kind, ...options.draw };
   if (kind === "area") return { kind, ...options.area };
   if (kind === "fog") return { kind, ...options.fog };
-  if (kind === "walls") return { kind, ...options.walls };
   return { kind };
 }
 
@@ -202,16 +191,6 @@ export function ToolRail({
               GM only
             </label>
           )}
-        </div>
-      )}
-      {active === "walls" && isGm && (
-        <div className="tool-options" role="group" aria-label="Wall options">
-          <Segmented
-            label="Wall mode"
-            items={WALL_MODES}
-            value={options.walls.mode}
-            onChange={(mode) => onOptions({ ...options, walls: { mode } })}
-          />
         </div>
       )}
       {active === "fog" && isGm && (

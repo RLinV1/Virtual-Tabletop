@@ -12,7 +12,7 @@
 
 ## 3. Board
 
-- [ ] 3.1 Remove the board's Walls tool (`tools.ts` type, `ToolRail.tsx`, `boardView.ts` input, `Board.tsx`, `RoomPage.tsx`), keeping the wall layer; verify lint, typecheck and tests.
+- [x] 3.1 Remove the board's Walls tool (`tools.ts` type, `ToolRail.tsx`, `boardView.ts` input, `Board.tsx`, `RoomPage.tsx`), keeping the wall layer; verify lint, typecheck and tests.
 
 ## 4. Verification
 

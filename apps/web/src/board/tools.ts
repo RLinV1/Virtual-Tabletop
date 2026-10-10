@@ -28,15 +28,13 @@ export type BoardTool =
   | { kind: "erase" }
   /** GM only (FR-GM-17, ADR 0016): conceal a rectangle or polygon, or reveal (remove) a fogged region. */
   | { kind: "fog"; mode: FogMode }
-  /** GM only (FR-GM-09, wall-editing): draw walls, erase one, or detect walls like a clicked one. */
-  | { kind: "walls"; mode: WallMode }
   /** Picking whom `attackerId` attacks (attack-targeting). Started from a token's Attack button, not the rail. */
   | { kind: "attack"; attackerId: string };
 
 /** What the Fog tool does: drag a rectangle, click out a polygon, or click a region to remove it. */
 export type FogMode = "rect" | "polygon" | "reveal";
 
-/** What the Walls tool does: chain wall segments, remove a wall, or detect walls like the one clicked. */
+/** What the map editor's Walls step does (map-editor): chain walls, remove one, or detect walls like a clicked one. */
 export type WallMode = "draw" | "erase" | "sample";
 
 /** The nearest point to `p` on the segment from `a` to `b`. */

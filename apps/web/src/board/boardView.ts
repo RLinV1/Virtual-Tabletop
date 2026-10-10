@@ -46,7 +46,7 @@ import {
   type AttackEffect,
 } from "./effects";
 import { makeFogCanvas } from "./fogTexture";
-import { areaOrigin, areaShape, areaSizeFromDrag, fogRegionAt, formatDistance, hitMark, measure, sweepPoints, templateMark, wallAt, wallPoint, type BoardTool, type Mark } from "./tools";
+import { areaOrigin, areaShape, areaSizeFromDrag, fogRegionAt, formatDistance, hitMark, measure, sweepPoints, templateMark, type BoardTool, type Mark } from "./tools";
 import { aimExpiry, expiredAims } from "./aims";
 import { PING_MS, pingPulse } from "./ping";
 
@@ -79,12 +79,6 @@ export interface BoardCallbacks {
   addFog(region: FogDraft): Promise<boolean>;
   /** GM: remove a fog region. Resolves false if the server rejected it. */
   removeFog(regionId: string): Promise<boolean>;
-  /** GM: draw one wall (wall-editing). Resolves false if the server rejected it. */
-  addWall(a: Point, b: Point): Promise<boolean>;
-  /** GM: remove one wall. Resolves false if the server rejected it. */
-  removeWall(wallId: string): Promise<boolean>;
-  /** GM: detect walls like the one at `at` (a point on the map, board coordinates). */
-  detectWallsAt(at: Point): void;
   /** The viewer clicked the token `attackerId` attacks (attack-targeting). */
   pickTarget(attackerId: string, targetId: string): void;
   /** The viewer right-clicked while picking a target: stop without attacking. */
@@ -107,11 +101,6 @@ const MIN_MARK_DRAG_PX = 4;
 const GHOST_ID = "placement-ghost";
 /** How close (screen pixels) a click must be to a polygon's first corner to close it. */
 const FOG_CLOSE_PX = 12;
-/** A drawn wall's end joins an existing wall end this close (screen pixels), wall-editing. */
-const WALL_JOIN_PX = 12;
-/** Erase picks the wall within this many screen pixels of the click. */
-const WALL_PICK_PX = 10;
-const WALL_DRAFT_COLOR = 0xff6b2c;
 /** Fog colour. Players see it opaque; the GM sees it at FOG_GM_ALPHA with an outline (FR-GM-17). */
 const FOG_COLOR = 0xc4c9ce;
 /** Fog is drawn this far past its edge in grid cells, so no seam shows at a region's border or the map's. */
@@ -180,13 +169,6 @@ const TOOL_CURSORS = {
   // A crosshair over a dark fog square.
   fog: svgCursor(
     "<rect x='9' y='9' width='13' height='13' rx='2' fill='rgba(11,13,18,0.75)' stroke='#9fb3c8' stroke-width='1.5'/>" +
-      outlined("M5 1v8M1 5h8"),
-    5, 5,
-  ),
-  // A crosshair beside a short orange wall.
-  walls: svgCursor(
-    "<path d='M11 20L22 9' stroke='#111' stroke-width='5' stroke-linecap='round'/>" +
-      "<path d='M11 20L22 9' stroke='#ff6b2c' stroke-width='2.6' stroke-linecap='round'/>" +
       outlined("M5 1v8M1 5h8"),
     5, 5,
   ),
@@ -334,11 +316,6 @@ export class BoardView {
   /** Corners of the fog polygon being clicked out, and the pointer for its next edge. */
   private fogPoints: Point[] = [];
   private fogHover: Point | null = null;
-  /** Walls tool, Draw: where the next segment starts, and where the pointer would end it. */
-  private wallChain: Point | null = null;
-  private wallHover: Point | null = null;
-  /** Walls tool, Erase: the wall under the pointer, highlighted before the click. */
-  private wallErasing: string | null = null;
   /** The token under the pointer while picking an attack target; null over the map or the attacker. */
   private attackHover: string | null = null;
   /** When a target was last picked: a double-click there is part of the pick, not a ping. */
@@ -778,12 +755,7 @@ export class BoardView {
 
   /** Switch the active tool. Changing tool drops the last measurement and any drag in progress. */
   setTool(tool: BoardTool) {
-    const modeChanged = (tool.kind === "fog" && this.tool.kind === "fog" && tool.mode !== this.tool.mode) ||
-      (tool.kind === "walls" && this.tool.kind === "walls" && tool.mode !== this.tool.mode);
-    if (tool.kind !== this.tool.kind || modeChanged) {
-      this.wallChain = null;
-      this.wallHover = null;
-      this.wallErasing = null;
+    if (tool.kind !== this.tool.kind || (tool.kind === "fog" && this.tool.kind === "fog" && tool.mode !== this.tool.mode)) {
       if (this.gesture && this.tool.kind === "area") this.callbacks.aimEnd(this.tool.gmOnly);
       this.measurement = null;
       this.gesture = null;
@@ -973,69 +945,6 @@ export class BoardView {
     this.fogHover = null;
     this.redrawOverlay();
     return true;
-  }
-
-  // ---------- walls (FR-GM-09, wall-editing) ----------
-
-  /** End the wall chain being drawn. False when there is none, so Escape can leave the tool. */
-  endWallChain(): boolean {
-    if (!this.wallChain) return false;
-    this.wallChain = null;
-    this.wallHover = null;
-    this.redrawOverlay();
-    return true;
-  }
-
-  /** Where a wall end goes: an existing wall's end nearby, else a grid corner; Alt places freely. */
-  private wallPointFor(at: Point, free: boolean): Point {
-    if (!this.state) return at;
-    return wallPoint(at, this.state.walls, this.state.scene.grid, WALL_JOIN_PX / this.world.scale.x, free);
-  }
-
-  /** A Walls tool click: the next point of a chain, a wall to erase, or a wall to detect others like. */
-  private wallClick(at: Point, free: boolean) {
-    if (this.tool.kind !== "walls" || !this.state) return;
-    const map = this.state.scene.map;
-    const onMap = !!map && at.x >= 0 && at.y >= 0 && at.x <= map.width && at.y <= map.height;
-    if (this.tool.mode === "sample") {
-      if (onMap) this.callbacks.detectWallsAt(at);
-      return;
-    }
-    if (this.tool.mode === "erase") {
-      const wall = wallAt(this.state.walls, at, WALL_PICK_PX / this.world.scale.x);
-      if (!wall) return;
-      this.wallErasing = null;
-      void this.callbacks.removeWall(wall.id);
-      return;
-    }
-    if (!onMap) return;
-    const point = this.wallPointFor(at, free);
-    const from = this.wallChain;
-    // Each segment is its own command, so each undoes on its own and an abandoned chain keeps
-    // what was drawn (wall-editing D2).
-    if (from && (from.x !== point.x || from.y !== point.y)) void this.callbacks.addWall(from, point);
-    this.wallChain = point;
-    this.wallHover = point;
-    this.redrawOverlay();
-  }
-
-  /** The segment about to be drawn and the chain's last point; in Erase mode, the wall under the pointer. */
-  private drawWallDraft(g: Graphics) {
-    const px = 1 / this.world.scale.x;
-    if (this.tool.kind === "walls" && this.tool.mode === "erase" && this.wallErasing && this.state) {
-      const wall = this.state.walls[this.wallErasing];
-      if (wall) {
-        g.moveTo(wall.a.x, wall.a.y).lineTo(wall.b.x, wall.b.y)
-          .stroke({ width: 10 * px, color: 0xe74c3c, alpha: 0.6, cap: "round" });
-      }
-      return;
-    }
-    const from = this.wallChain;
-    if (!from) return;
-    const to = this.wallHover ?? from;
-    g.moveTo(from.x, from.y).lineTo(to.x, to.y).stroke({ width: 4 * px, color: WALL_DRAFT_COLOR, alpha: 0.9, cap: "round" });
-    g.circle(from.x, from.y, 5 * px).fill({ color: 0xffffff }).stroke({ width: 2 * px, color: 0x111111 });
-    g.circle(to.x, to.y, 4 * px).fill({ color: WALL_DRAFT_COLOR });
   }
 
   /** A Fog tool click: a polygon corner, or a region to reveal. */
@@ -1246,7 +1155,6 @@ export class BoardView {
       }
     }
     if (tool.kind === "fog") this.drawFogDraft(g, tool.mode);
-    if (tool.kind === "walls") this.drawWallDraft(g);
     if (tool.kind === "attack") this.drawAttackLine(g, tool.attackerId);
     this.invalidate();
   }
@@ -1853,11 +1761,6 @@ export class BoardView {
       this.pan = { start: { x: e.global.x, y: e.global.y }, origin: { x: this.world.x, y: this.world.y } };
       return;
     }
-    if (this.tool.kind === "walls") {
-      // Right-click ends a chain; with none, it pans like any other press.
-      if (e.button === 2 && this.endWallChain()) return;
-      if (e.button === 0) return this.wallClick(this.toBoard(e.global), e.altKey);
-    }
     if (this.tool.kind === "fog" && this.tool.mode !== "rect" && e.button === 0) {
       return this.fogClick(this.toBoard(e.global), { x: e.global.x, y: e.global.y });
     }
@@ -1881,17 +1784,6 @@ export class BoardView {
       const hover = this.tokenAt(this.toBoard(e.global), this.tool.attackerId);
       if (hover !== this.attackHover) {
         this.attackHover = hover;
-        this.redrawOverlay();
-      }
-    }
-    if (this.tool.kind === "walls" && this.tool.mode === "draw" && this.wallChain) {
-      this.wallHover = this.wallPointFor(this.toBoard(e.global), e.altKey);
-      this.redrawOverlay();
-    }
-    if (this.tool.kind === "walls" && this.tool.mode === "erase" && this.state && !this.pan) {
-      const under = wallAt(this.state.walls, this.toBoard(e.global), WALL_PICK_PX / this.world.scale.x)?.id ?? null;
-      if (under !== this.wallErasing) {
-        this.wallErasing = under;
         this.redrawOverlay();
       }
     }
