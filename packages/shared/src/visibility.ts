@@ -174,6 +174,10 @@ export function filterEventForViewer(
     case "CheckpointRestored":
       // Both tables hold hidden tokens and GM-only areas; a filtered snapshot carries the rest.
       return { kind: "resync" };
+    case "MapSet":
+      // Nested changes contain hidden IDs and prior positions. Only the filtered result
+      // reaches players, including inverse first-map removal and empty adjustments (ADR 0023).
+      return e.tokenChanges !== undefined ? { kind: "resync" } : pass;
     case "EncounterApplied":
       // Both boards hold hidden tokens, fog and owners; a filtered snapshot carries the rest (ADR 0024).
       return { kind: "resync" };
@@ -190,7 +194,6 @@ export function filterEventForViewer(
     case "ParticipantDiceLookSet":
     case "ParticipantLeft":
     case "ParticipantRevoked":
-    case "MapSet":
     case "GridSet":
       // The participant list is public; leaving or removal reveals nothing hidden (ADR 0006). A
       // dice look is pictures the whole table sees on that person's rolls, and names no account (ADR 0018).

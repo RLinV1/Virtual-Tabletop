@@ -40,13 +40,17 @@ describe("private map preparation (KAN-59)", () => {
     await new Promise((r) => setTimeout(r, 150));
     expect(player.rawLog.length).toBe(before);
 
-    // Apply: one command, one event, map and grid together.
+    // Apply: one committed GM event; players see only the filtered current result (KAN-66).
     const grid = { ...DEFAULT_GRID, cellSize: 50 };
     const ack = await gm.command({ type: "scene.setMap", map: { url, width: 1400, height: 700 }, grid });
     expect(ack).toMatchObject({ type: "ack", seq: seqBefore + 1 });
     await player.waitForSeq(gm.seq);
-    const events = player.rawLog.slice(before).map((raw) => JSON.parse(raw) as ServerMessage).filter((m) => m.type === "event");
+    const messages = player.rawLog.slice(before).map((raw) => JSON.parse(raw) as ServerMessage);
+    expect(messages.map((m) => m.type)).toEqual(["welcome"]);
+    const events = gm.rawLog.map((raw) => JSON.parse(raw) as ServerMessage)
+      .filter((m) => m.type === "event" && m.committed.seq > seqBefore);
     expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ type: "event", committed: { event: { type: "MapSet", tokenChanges: [] } } });
     expect(player.state.scene).toMatchObject({ map: { url }, grid: { cellSize: 50 } });
   });
 });

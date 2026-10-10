@@ -49,14 +49,17 @@ export const DomainEvent = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("MapSet"),
-    map: MapImage,
+    /** Null only in an inverse restoring the state before first-map placement (ADR 0023). */
+    map: MapImage.nullable(),
     previous: MapImage.nullable(),
     /**
-     * Present when the map came with its grid (a library placement, ADR 0004). One object,
+     * Always present on new map actions (ADR 0023); optional for historical events. One object,
      * not two optional fields, so the contract cannot express a grid change without the
      * grid it replaced (invariant 6).
      */
     gridChange: z.object({ grid: GridSpec, previous: GridSpec }).optional(),
+    /** Explicit adjusted positions, including an empty array. Absent on legacy map events. */
+    tokenChanges: z.array(z.object({ tokenId: Id, from: Point, to: Point })).optional(),
   }),
   z.object({
     type: z.literal("GridSet"),

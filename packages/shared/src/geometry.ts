@@ -131,6 +131,25 @@ export function pointInPolygon(p: Point, points: readonly Point[]): boolean {
   return inside;
 }
 
+/** Center first, then at most twenty square perimeter rings in stable row order. */
+export function* placementCandidates(
+  origin: Point,
+  step: number,
+  map: { width: number; height: number } | null,
+): Generator<Point> {
+  yield origin;
+  // Twenty rings visit at most 1,680 perimeter candidates, regardless of map dimensions.
+  const maxRing = Math.min(20, map ? Math.ceil(Math.max(map.width, map.height) / step) : 20);
+  for (let ring = 1; ring <= maxRing; ring++) {
+    for (let dy = -ring; dy <= ring; dy++) {
+      const stride = Math.abs(dy) === ring ? 1 : 2 * ring;
+      for (let dx = -ring; dx <= ring; dx += stride) {
+        yield { x: origin.x + dx * step, y: origin.y + dy * step };
+      }
+    }
+  }
+}
+
 /**
  * Where `count` tokens of `sizeInCells` go when placed together on `origin` (KAN-70): the first on
  * `origin`, the rest on the nearest free spots, ring by ring outward in a fixed order (row by row
@@ -155,21 +174,11 @@ export function spreadPositions(
     !map || (p.x - step / 2 >= 0 && p.y - step / 2 >= 0 && p.x + step / 2 <= map.width && p.y + step / 2 <= map.height);
   const out: Point[] = [origin];
   taken.push({ p: origin, half: step / 2 });
-  // Bound server work independently of caller-controlled dimensions and token size.
-  // Twenty rings visit at most 1,680 perimeter candidates.
-  const maxRing = Math.min(20, map ? Math.ceil(Math.max(map.width, map.height) / step) : 20);
-  for (let ring = 1; out.length < count && ring <= maxRing; ring++) {
-    for (let dy = -ring; dy <= ring && out.length < count; dy++) {
-      // Interior rows contain only the left and right perimeter points.
-      const stride = Math.abs(dy) === ring ? 1 : 2 * ring;
-      for (let dx = -ring; dx <= ring && out.length < count; dx += stride) {
-
-        const p = { x: origin.x + dx * step, y: origin.y + dy * step };
-        if (!onMap(p) || !free(p)) continue;
-        out.push(p);
-        taken.push({ p, half: step / 2 });
-      }
-    }
+  for (const p of placementCandidates(origin, step, map)) {
+    if (out.length >= count) break;
+    if (!onMap(p) || !free(p)) continue;
+    out.push(p);
+    taken.push({ p, half: step / 2 });
   }
   while (out.length < count) out.push(origin);
   return out;

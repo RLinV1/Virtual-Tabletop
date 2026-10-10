@@ -3,6 +3,7 @@ import { TokenAttacks } from "./attackPresets";
 import { ConditionId, EMPTY_STATS, TokenStats } from "./conditions";
 import { AttackKind, DiceVisibility, MAX_ATTACK_LABEL, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
+import { MAP_TOKEN_POLICIES } from "./mapTokenAdjustment";
 import { AreaShape, Id, MapImage, MAX_CHAT_LENGTH, MAX_FOG_POINTS } from "./state";
 
 /**
@@ -72,6 +73,8 @@ export const Command = z.discriminatedUnion("type", [
     map: MapImage,
     /** A library map's saved grid, copied into the room in the same event (ADR 0004). */
     grid: GridSpec.optional(),
+    /** How existing tokens adjust on a replacement; omitted selects scale (ADR 0023). */
+    tokenPolicy: z.enum(MAP_TOKEN_POLICIES).optional(),
   }),
   z.object({
     type: z.literal("scene.setGrid"),
