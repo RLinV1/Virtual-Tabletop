@@ -2262,7 +2262,7 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 .participant-view-as { margin-left: auto; }
 .preview-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; display: contents; }
 
-/* Automatic walls (FR-GM-11, ADR 0025): the GM reviews the rendered detection before applying. */
+/* Automatic walls (FR-GM-11, ADR 0027): the GM reviews the rendered detection before applying. */
 .walls-status { margin: 0; font-weight: 600; }
 .walls-preview { margin: 0; display: grid; gap: var(--space-1); }
 .walls-preview img, .walls-preview-placeholder {
@@ -2271,7 +2271,7 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 }
 .walls-preview figcaption { font-size: var(--fs-sm); color: var(--muted); }
 
-/* A refused move, e.g. into or through a wall (ADR 0025): bottom centre, clear of notices and hints. */
+/* A refused move, e.g. into or through a wall (ADR 0027): bottom centre, clear of notices and hints. */
 .board-refusal {
   position: absolute; left: 50%; bottom: calc(var(--space-3) * 4); transform: translateX(-50%); z-index: 7;
   margin: 0; padding: var(--space-2) var(--space-3); max-width: min(24rem, calc(100% - 2 * var(--space-3)));

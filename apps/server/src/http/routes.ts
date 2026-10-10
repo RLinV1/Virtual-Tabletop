@@ -186,7 +186,7 @@ export function registerRoutes(
       }
       if (fields.data.purpose === "map") {
         await enqueueDetection(store, detection, { scope: "room", roomId: actor.roomId, objectKey: key }, 1);
-        // Walls too, while the GM lines up the grid; best-effort, like grid analysis (ADR 0025).
+        // Walls too, while the GM lines up the grid; best-effort, like grid analysis (ADR 0027).
         if (walls.available && fields.data.width && fields.data.height) {
           await walls.start(actor.roomId, { url, width: fields.data.width, height: fields.data.height }, 0).catch((err: unknown) => {
             console.error(`[vtt] could not queue wall detection for an upload in room ${actor.roomId}`, err);
@@ -231,7 +231,7 @@ export function registerRoutes(
   });
 
   /**
-   * Wall detection for the room's map (FR-GM-11, ADR 0025). GM only. POST queues an analysis of the
+   * Wall detection for the room's map (FR-GM-11, ADR 0027). GM only. POST queues an analysis of the
    * current map, judged against the room's grid; GET reads the latest status, or the rendered
    * preview, of a map this room analyzed. Applying the walls is a room command, not a route.
    */

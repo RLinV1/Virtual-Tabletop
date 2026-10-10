@@ -193,7 +193,7 @@ export const DomainEvent = z.discriminatedUnion("type", [
     type: z.literal("FogRemoved"),
     region: FogRegion,
   }),
-  /** The GM applied walls (FR-GM-11, ADR 0025). The inverse of `WallsRemoved`. */
+  /** The GM applied walls (FR-GM-11, ADR 0027). The inverse of `WallsRemoved`. */
   z.object({
     type: z.literal("WallsAdded"),
     walls: z.array(Wall).min(1),

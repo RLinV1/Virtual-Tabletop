@@ -214,7 +214,7 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
 
     case "CheckpointRestored":
       // Only the board changes: participants, rolls, chat and history stay (ADR 0019). A table
-      // from before walls existed had none (ADR 0025).
+      // from before walls existed had none (ADR 0027).
       return { ...state, ...event.restored, walls: event.restored.walls ?? {} };
 
     case "EncounterApplied":

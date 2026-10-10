@@ -14,7 +14,7 @@ The Walls tool sits on the rail beside Fog, GM only. Its modes are Draw, Erase a
 
 Each segment is sent as `wall.add { walls: [one] }` as soon as its second point is clicked, rather than as one batch at the end of a chain. Every segment is then its own undo step, and an abandoned chain loses nothing already drawn. The command still accepts up to 50 walls, for future tools such as a rectangle room. `decide` checks the GM role, length above zero, both ends on the map, and the room's 1500-wall cap.
 
-Snapping: a point goes to an existing wall end within 12 screen pixels, else to the nearest grid corner. Alt places it freely. Grid-corner walls lie on cell edges, which the 10% footprint inset of ADR 0025 already leaves walkable on both sides.
+Snapping: a point goes to an existing wall end within 12 screen pixels, else to the nearest grid corner. Alt places it freely. Grid-corner walls lie on cell edges, which the 10% footprint inset of ADR 0027 already leaves walkable on both sides.
 
 ### D3. Erase hit-test in screen pixels
 

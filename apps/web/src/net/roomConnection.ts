@@ -152,7 +152,7 @@ export class RoomConnection {
     return () => this.committedListeners.delete(fn);
   }
 
-  /** GM only: a wall analysis of `mapUrl` changed state (ADR 0025). Not room state. */
+  /** GM only: a wall analysis of `mapUrl` changed state (ADR 0027). Not room state. */
   onWallDetection(fn: WallDetectionListener) {
     this.wallListeners.add(fn);
     return () => this.wallListeners.delete(fn);

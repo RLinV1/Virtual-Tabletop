@@ -146,7 +146,7 @@ export function spreadPositions(
   grid: GridSpec,
   map: { width: number; height: number } | null,
   occupied: readonly { position: Point; size: number }[],
-  /** Spots a copy may not take, e.g. a footprint crossing a wall (ADR 0025). Never asked of `origin`. */
+  /** Spots a copy may not take, e.g. a footprint crossing a wall (ADR 0027). Never asked of `origin`. */
   blocked: (p: Point) => boolean = () => false,
 ): Point[] {
   const step = sizeInCells * grid.cellSize;
@@ -177,7 +177,7 @@ export function spreadPositions(
   return out;
 }
 
-/** A straight segment in board coordinates: a wall, or the path of a move (ADR 0025). */
+/** A straight segment in board coordinates: a wall, or the path of a move (ADR 0027). */
 export interface Segment {
   a: Point;
   b: Point;
@@ -224,7 +224,7 @@ export function segmentCrossesRect(s: Segment, rect: { minX: number; minY: numbe
 }
 
 /**
- * Share of a token's width trimmed from each side before testing it against walls (ADR 0025), so
+ * Share of a token's width trimmed from each side before testing it against walls (ADR 0027), so
  * a token may stand in the cell beside a wall drawn along the cell's edge.
  */
 export const WALL_FOOTPRINT_INSET = 0.1;

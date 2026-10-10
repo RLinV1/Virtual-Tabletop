@@ -12,7 +12,7 @@ import {
 import type { AssetStore } from "../store/assetStore";
 
 /**
- * Automatic wall detection (FR-GM-11, ADR 0025). The app server produces a BullMQ job; the Python
+ * Automatic wall detection (FR-GM-11, ADR 0027). The app server produces a BullMQ job; the Python
  * worker in `services/vision` consumes it; queue events tell this server when it is done. Results
  * are suggestions kept in this process for the room's GM: nothing here touches room state, which
  * changes only when the GM's `wall.applyDetected` goes through `decide`.
@@ -162,7 +162,7 @@ export class WallDetections {
     return this.entries.get(entryKey(roomId, mapUrl))?.result ?? null;
   }
 
-  /** The walls `decide` may commit for this room's map (ADR 0025). */
+  /** The walls `decide` may commit for this room's map (ADR 0027). */
   detectedWalls(roomId: string, mapUrl: string): readonly DetectedWall[] | null {
     return this.result(roomId, mapUrl)?.walls ?? null;
   }

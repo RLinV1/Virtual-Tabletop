@@ -1,4 +1,4 @@
-"""The BullMQ job handler, called directly without Redis (ADR 0025)."""
+"""The BullMQ job handler, called directly without Redis (ADR 0027)."""
 
 import asyncio
 import base64

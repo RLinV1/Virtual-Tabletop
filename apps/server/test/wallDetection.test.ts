@@ -82,7 +82,7 @@ const statusOf = async (token: string, roomId: string, url: string) => {
 
 const isNotice = (m: ServerMessage): m is Extract<ServerMessage, { type: "wallDetection" }> => m.type === "wallDetection";
 
-describe("automatic wall detection through the queue (FR-GM-11, ADR 0025)", () => {
+describe("automatic wall detection through the queue (FR-GM-11, ADR 0027)", () => {
   it("queues a map upload, hears the worker finish, notifies only the GM, and serves the preview", async () => {
     const queue = new StandInQueue();
     const { room, gm, player, playerCreds, url } = await roomWithMap(queue);

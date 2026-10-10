@@ -5,7 +5,7 @@ import { AttackKind, DiceVisibility, MAX_ATTACK_LABEL, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
 import { AreaShape, Id, MapImage, MAX_CHAT_LENGTH, MAX_FOG_POINTS } from "./state";
 
-/** Most walls one `wall.remove` names (ADR 0025), keeping the command under the socket limit. */
+/** Most walls one `wall.remove` names (ADR 0027), keeping the command under the socket limit. */
 export const MAX_WALLS_PER_REMOVE = 500;
 /** Most walls one `wall.add` draws (wall-editing). The Walls tool sends one per segment. */
 export const MAX_WALLS_PER_ADD = 50;
@@ -262,24 +262,24 @@ export const Command = z.discriminatedUnion("type", [
     regionId: Id,
   }).strict(),
   /**
-   * GM applies the walls detected for the room's current map (FR-GM-11, ADR 0025), replacing any
+   * GM applies the walls detected for the room's current map (FR-GM-11, ADR 0027), replacing any
    * walls already there. The segments come from the server's validated result, never the client.
    */
   z.object({
     type: z.literal("wall.applyDetected"),
     mapUrl: z.string().min(1).max(2048),
   }).strict(),
-  /** GM draws walls by hand (wall-editing, ADR 0025). Board coordinates (invariant 8). */
+  /** GM draws walls by hand (wall-editing, ADR 0027). Board coordinates (invariant 8). */
   z.object({
     type: z.literal("wall.add"),
     walls: z.array(z.object({ a: Point, b: Point }).strict()).min(1).max(MAX_WALLS_PER_ADD),
   }).strict(),
-  /** GM removes chosen walls (ADR 0025). */
+  /** GM removes chosen walls (ADR 0027). */
   z.object({
     type: z.literal("wall.remove"),
     wallIds: z.array(Id).min(1).max(MAX_WALLS_PER_REMOVE),
   }).strict(),
-  /** GM removes every wall (ADR 0025). */
+  /** GM removes every wall (ADR 0027). */
   z.object({
     type: z.literal("wall.clear"),
   }).strict(),

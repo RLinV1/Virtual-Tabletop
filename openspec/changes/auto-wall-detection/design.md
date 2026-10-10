@@ -93,5 +93,5 @@ The output is capped at `MAX_WALLS`, keeping the longest segments.
 - **Maps whose walls are not dark strokes** (textured stone, light walls on dark floors) may be missed. Mitigations: the preview shows exactly what was found, nothing applies without the GM, and Clear walls and undo are one click. A tunable sensitivity is a follow-up.
 - **The vision worker is down.** Jobs wait in Redis. The panel stays on "Detecting walls…", and the job's age limit eventually fails it, leaving Try again.
 - **Large job payloads.** Up to about 34 MB of base64 per job sits in Redis while a job is pending. This is bounded by one job per room and map, by the age limits, and by the worker being the only consumer.
-- **Two worker styles in one service** (an HTTP grid worker and a BullMQ wall worker). Documented in ADR 0025 as the direction DESIGN.md sets; grid jobs can move to the same consumer later.
+- **Two worker styles in one service** (an HTTP grid worker and a BullMQ wall worker). Documented in ADR 0027 as the direction DESIGN.md sets; grid jobs can move to the same consumer later.
 - **Results live in one app-server process.** A restart drops unapplied results, and the GM re-runs detection. DESIGN.md runs one app server.

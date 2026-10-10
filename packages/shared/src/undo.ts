@@ -203,7 +203,7 @@ export function undoConflict(state: RoomState, entry: UndoEntry): string | null 
       if (!sameValue(tableOf(state), withWalls(event.applied))) return `Can't undo: the board has changed since "${event.name}" was applied.`;
       continue;
     }
-    // Walls are never edited in place either: each must still be there, or still gone (ADR 0025).
+    // Walls are never edited in place either: each must still be there, or still gone (ADR 0027).
     if (event.type === "WallsAdded") {
       if (event.walls.some((w) => !state.walls[w.id])) return "Can't undo: some of those walls have already been removed.";
       continue;
@@ -245,7 +245,7 @@ export function undoConflict(state: RoomState, entry: UndoEntry): string | null 
   return null;
 }
 
-/** A table as `reduce` applies it: one from before walls existed had none (ADR 0025). */
+/** A table as `reduce` applies it: one from before walls existed had none (ADR 0027). */
 const withWalls = (table: TableState): TableState => ({ ...table, walls: table.walls ?? {} });
 
 /** Deep equality for plain data, ignoring object key order. */
@@ -289,7 +289,7 @@ export function describeUndo(entry: UndoEntry, tokens: RoomState["tokens"]): { v
   if (first.type === "EncounterApplied") {
     return { verb: `apply of "${first.name}"`, noun: `applying encounter template "${first.name}"` };
   }
-  // Applying walls replaces the old ones, so the action reads as the apply (ADR 0025).
+  // Applying walls replaces the old ones, so the action reads as the apply (ADR 0027).
   const wallsAdded = entry.events.find((e) => e.type === "WallsAdded");
   if (wallsAdded) {
     const what = `${wallsAdded.walls.length} ${wallsAdded.walls.length === 1 ? "wall" : "walls"}`;

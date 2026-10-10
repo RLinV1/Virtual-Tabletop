@@ -1,4 +1,4 @@
-"""BullMQ consumer for wall detection (FR-GM-11, ADR 0025).
+"""BullMQ consumer for wall detection (FR-GM-11, ADR 0027).
 
 The app server produces jobs on the `wall-detection` queue in the app's Redis; this process
 consumes them and returns `{walls, preview}` as the job's return value. The app server learns of

@@ -43,7 +43,7 @@ export interface DecideContext {
   encounterTemplate?: (templateId: string) => ResolvedEncounter | null;
   /**
    * The walls the vision service detected for this room's map at `mapUrl`, as the server
-   * validated them (ADR 0025). Filled only for `wall.applyDetected`; null when there is no
+   * validated them (ADR 0027). Filled only for `wall.applyDetected`; null when there is no
    * finished result for that map.
    */
   detectedWalls?: (mapUrl: string) => readonly DetectedWall[] | null;
@@ -90,7 +90,7 @@ function resnapToGrid(state: RoomState, grid: GridSpec): DomainEvent[] {
 
 const wallsOf = (state: RoomState): Wall[] => Object.values(state.walls);
 
-/** Every wall, removed in one event, or nothing when there are none (ADR 0025). */
+/** Every wall, removed in one event, or nothing when there are none (ADR 0027). */
 function removeAllWalls(state: RoomState): DomainEvent[] {
   const walls = wallsOf(state);
   return walls.length > 0 ? [{ type: "WallsRemoved", walls }] : [];
@@ -100,7 +100,7 @@ function removeAllWalls(state: RoomState): DomainEvent[] {
 const wallBlocked = (): Decision => reject("invalid", "That spot is blocked by a wall.");
 
 /**
- * Why walls refuse this move, or null (ADR 0025). Nobody may put a token across a wall; a player
+ * Why walls refuse this move, or null (ADR 0027). Nobody may put a token across a wall; a player
  * also may not move straight through one. Walls the token already stands across are ignored for
  * the path, so a token caught by newly applied walls can still step out.
  */
@@ -151,7 +151,7 @@ export function decide(
               gridChange: { grid: command.grid, previous: state.scene.grid },
             }
           : { type: "MapSet", map: command.map, previous: state.scene.map },
-        // Walls describe one image: a different map leaves none behind (ADR 0025).
+        // Walls describe one image: a different map leaves none behind (ADR 0027).
         ...(command.map.url !== state.scene.map?.url ? removeAllWalls(state) : []),
         ...(command.grid ? resnapToGrid(state, command.grid) : []),
       );

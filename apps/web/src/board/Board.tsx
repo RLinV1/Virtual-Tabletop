@@ -112,7 +112,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   const guarded = useMemo(() => guardedConnection(connection, () => latest.current.readOnly), [connection]);
   /** The token the viewer clicked (not dragged); its details show beside the board. */
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  /** Why the server refused the last drag, e.g. a wall in the way (ADR 0025); shown briefly. */
+  /** Why the server refused the last drag, e.g. a wall in the way (ADR 0027); shown briefly. */
   const [moveRefusal, setMoveRefusal] = useState<{ message: string; at: number } | null>(null);
   useEffect(() => {
     if (!moveRefusal) return;
@@ -210,7 +210,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     const view = new BoardView(hostRef.current!, {
       moveToken: async (tokenId, to) => {
         const result = await guarded.command({ type: "token.move", tokenId, to });
-        // The token snaps back; say why, so a wall the player can't see isn't a mystery (ADR 0025).
+        // The token snaps back; say why, so a wall the player can't see isn't a mystery (ADR 0027).
         if (!result.ok && result.code !== "offline") setMoveRefusal({ message: result.message, at: Date.now() });
         return result.ok;
       },

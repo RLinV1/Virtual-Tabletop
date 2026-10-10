@@ -33,7 +33,7 @@ export type HistoryResponse = z.infer<typeof HistoryResponse>;
 /** "rectangle" or "polygon", for fog sentences (FR-GM-17). */
 const fogLabel = (shape: "rect" | "polygon") => (shape === "rect" ? "rectangle" : "polygon");
 
-/** "1 wall", "42 walls" (ADR 0025). */
+/** "1 wall", "42 walls" (ADR 0027). */
 const wallCount = (n: number) => `${n} ${n === 1 ? "wall" : "walls"}`;
 
 /** A board point for a sentence: at most 2 decimals, so float noise like 829.1000000000001 reads 829.1. */

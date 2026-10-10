@@ -1,4 +1,4 @@
-# ADR 0012: Private grid detection HTTP contract
+# ADR 0026: Private grid detection HTTP contract
 
 ## Status
 

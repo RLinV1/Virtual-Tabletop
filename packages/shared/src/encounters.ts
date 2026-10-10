@@ -54,7 +54,7 @@ export function encounterTable(encounter: ResolvedEncounter, newId: () => string
     const id = newId();
     fog[id] = { ...region, id };
   }
-  // Templates keep no walls yet; the applied board has none (ADR 0025).
+  // Templates keep no walls yet; the applied board has none (ADR 0027).
   return { scene: encounter.scene, tokens, templates: {}, fog, initiative: null, walls: {} };
 }
 

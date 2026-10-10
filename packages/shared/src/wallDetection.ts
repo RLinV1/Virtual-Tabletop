@@ -3,7 +3,7 @@ import { Point } from "./geometry";
 import { MAX_WALLS } from "./state";
 
 /**
- * Automatic wall detection (FR-GM-11, ADR 0025). A Python worker consumes a BullMQ job and
+ * Automatic wall detection (FR-GM-11, ADR 0027). A Python worker consumes a BullMQ job and
  * returns these shapes; the app server validates them before the GM sees anything. Nothing
  * here is room state: a result only becomes walls through `wall.applyDetected`.
  */
@@ -54,7 +54,7 @@ export const WallDetectionAvailability = z.object({
 });
 export type WallDetectionAvailability = z.infer<typeof WallDetectionAvailability>;
 
-/** The GM's view of the latest analysis of one map (ADR 0025). Never sent to players. */
+/** The GM's view of the latest analysis of one map (ADR 0027). Never sent to players. */
 export const WallDetectionStatus = z.discriminatedUnion("status", [
   z.object({ status: z.literal("queued") }),
   z.object({ status: z.literal("running") }),

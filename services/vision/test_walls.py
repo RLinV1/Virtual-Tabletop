@@ -1,4 +1,4 @@
-"""Wall extraction on labelled synthetic maps (FR-GM-11, ADR 0025)."""
+"""Wall extraction on labelled synthetic maps (FR-GM-11, ADR 0027)."""
 
 import base64
 import unittest
