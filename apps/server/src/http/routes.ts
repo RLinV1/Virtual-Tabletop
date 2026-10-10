@@ -198,20 +198,22 @@ export function registerRoutes(
     })().catch(internalError(req, res));
   });
 
-  const currentDirectMap = async (roomId: string, expectedUrl: string | undefined): Promise<DetectionTarget | null> => {
-    const room = await registry.get(roomId);
-    const map = room?.currentMap();
-    if (!map || map.url !== expectedUrl || map.assetId || !/^\/uploads\/[^/?#]+$/.test(map.url)) return null;
-    return { scope: "room", roomId, objectKey: map.url.slice("/uploads/".length) };
+  /**
+   * A direct map upload of this room, applied or not, so the GM can read its analysis while lining up
+   * the grid. The analysis row is keyed by room, so another room's upload never resolves here.
+   */
+  const roomUploadTarget = (roomId: string, expectedUrl: string | undefined): DetectionTarget | null => {
+    if (!expectedUrl || !/^\/uploads\/[^/?#]+$/.test(expectedUrl)) return null;
+    return { scope: "room", roomId, objectKey: expectedUrl.slice("/uploads/".length) };
   };
 
   app.get("/api/rooms/:roomId/grid-detection", (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     void (async () => {
       if (!(await isRoomGm(req, req.params.roomId))) return res.status(403).json({ error: "GM only" });
-      const target = await currentDirectMap(req.params.roomId, req.get("x-expected-map-url"));
+      const target = roomUploadTarget(req.params.roomId, req.get("x-expected-map-url"));
       const row = target ? await store.findDetection(target) : null;
-      if (!row) return res.status(404).json({ error: "No analysis for current map" });
+      if (!row) return res.status(404).json({ error: "No analysis for this map" });
       return res.json(detectionWire(row));
     })().catch(internalError(req, res));
   });
@@ -220,8 +222,8 @@ export function registerRoutes(
     res.setHeader("Cache-Control", "no-store");
     void (async () => {
       if (!(await isRoomGm(req, req.params.roomId))) return res.status(403).json({ error: "GM only" });
-      const target = await currentDirectMap(req.params.roomId, req.get("x-expected-map-url"));
-      if (!target || !(await store.findDetection(target))) return res.status(404).json({ error: "No analysis for current map" });
+      const target = roomUploadTarget(req.params.roomId, req.get("x-expected-map-url"));
+      if (!target || !(await store.findDetection(target))) return res.status(404).json({ error: "No analysis for this map" });
       const attempt = await store.retryDetection(target);
       if (!attempt) return res.status(409).json({ error: "Analysis is not in error" });
       await enqueueDetection(store, detection, target, attempt);
