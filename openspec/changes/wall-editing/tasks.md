@@ -11,7 +11,7 @@
 
 ## 3. App server
 
-- [ ] 3.1 Accept and validate `sample` on `POST /wall-detection` (400 outside the map), and carry it into the job data; verify with integration tests.
+- [x] 3.1 Accept and validate `sample` on `POST /wall-detection` (400 outside the map), and carry it into the job data; verify with integration tests.
 
 ## 4. Web
 

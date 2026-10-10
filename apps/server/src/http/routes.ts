@@ -8,6 +8,7 @@ import {
   CreateRoomRequest,
   DirectUploadFields,
   GridDetectionStatus,
+  WallDetectionRequest,
   JoinRoomRequest,
   HistoryQuery,
   ROOM_FULL,
@@ -237,10 +238,17 @@ export function registerRoutes(
     void (async () => {
       if (!(await isRoomGm(req, req.params.roomId))) return res.status(403).json({ error: "GM only" });
       if (!walls.available) return res.status(503).json({ error: "Wall detection isn't set up on this server." });
+      const body = WallDetectionRequest.safeParse(req.body ?? {});
+      if (!body.success) return res.status(400).json({ error: "Invalid detection request" });
       const room = await registry.get(req.params.roomId);
       const map = room?.currentMap();
       if (!room || !map) return res.status(404).json({ error: "Set a map first." });
-      const started = await walls.start(room.roomId, map, room.currentGrid().cellSize);
+      // A sampled wall must be on the map: board coordinates are the map's pixels (invariant 8).
+      const { sample } = body.data;
+      if (sample && !(sample.x >= 0 && sample.y >= 0 && sample.x <= map.width && sample.y <= map.height)) {
+        return res.status(400).json({ error: "Click on the map to pick a wall." });
+      }
+      const started = await walls.start(room.roomId, map, room.currentGrid().cellSize, sample);
       if (started === "busy") return res.status(409).json({ error: "Walls are already being detected for this map." });
       if (started === "unreadable") return res.status(422).json({ error: "This map's image can't be analyzed." });
       if (started === "unavailable") return res.status(503).json({ error: "Wall detection is unavailable right now." });

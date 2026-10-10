@@ -157,6 +157,25 @@ describe("automatic wall detection through the queue (FR-GM-11, ADR 0025)", () =
     expect((await statusOf(room.guestToken, room.roomId, url)).body).toEqual({ status: "queued" });
   });
 
+  it("carries a sampled wall to the worker and refuses one off the map (wall-editing)", async () => {
+    const queue = new StandInQueue();
+    const { room, gm } = await roomWithMap(queue);
+    const [first] = queue.only();
+    queue.emit({ jobId: first, kind: "failed", reason: "no walls" });
+    await gm.waitFor((m) => isNotice(m) && m.status.status === "failed");
+    const post = (body: unknown) => fetch(`${server.base}/api/rooms/${room.roomId}/wall-detection`, {
+      method: "POST", headers: { authorization: `Bearer ${room.guestToken}`, "content-type": "application/json" }, body: JSON.stringify(body),
+    });
+    expect((await post({ sample: { x: 900, y: 10 } })).status).toBe(400);
+    expect((await post({ sample: { x: 10 } })).status).toBe(400);
+    expect((await post({ colour: "#fff" })).status).toBe(400);
+    expect(queue.jobs.size).toBe(1);
+    expect((await post({ sample: { x: 140, y: 350 } })).status).toBe(202);
+    const sampled = [...queue.jobs.values()].at(-1)!;
+    expect(sampled.sample).toEqual({ x: 140, y: 350 });
+    expect(sampled).toMatchObject({ width: 700, height: 700 });
+  });
+
   it("treats a result outside the map as failed and never applies it", async () => {
     const queue = new StandInQueue();
     const { room, gm, url } = await roomWithMap(queue);

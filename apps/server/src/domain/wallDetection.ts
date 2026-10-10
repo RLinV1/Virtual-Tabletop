@@ -31,6 +31,8 @@ export interface WallJobData {
   height: number;
   /** The room grid's cell size in image pixels, so the worker judges walls against the squares. */
   cellSize: number;
+  /** A point on a wall the GM clicked, in image pixels: detect walls of its colour (wall-editing). */
+  sample?: { x: number; y: number };
 }
 
 /** A queue event about one job, as BullMQ's `QueueEvents` reports it. */
@@ -87,7 +89,12 @@ export class WallDetections {
   }
 
   /** Queues an analysis of this room's map. Refuses while one for the same map is still running. */
-  async start(roomId: string, map: Pick<MapImage, "url" | "width" | "height">, cellSize: number): Promise<StartResult> {
+  async start(
+    roomId: string,
+    map: Pick<MapImage, "url" | "width" | "height">,
+    cellSize: number,
+    sample?: { x: number; y: number },
+  ): Promise<StartResult> {
     if (!this.queue) return "unavailable";
     const key = uploadKey(map.url);
     if (!key) return "unreadable";
@@ -108,6 +115,7 @@ export class WallDetections {
         width: map.width,
         height: map.height,
         cellSize: Number.isFinite(cellSize) && cellSize > 0 ? cellSize : 0,
+        ...(sample && { sample }),
       });
     } catch {
       this.finish(entry, { status: "failed", message: "Wall detection is unavailable right now." }, null);
