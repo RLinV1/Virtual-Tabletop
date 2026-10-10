@@ -1,4 +1,5 @@
 import type { Command, DepartureAction } from "./commands";
+import { presetOf, tableForPreset } from "./gamePresets";
 import { MIN_HP } from "./conditions";
 import { formatExpression, parseDiceExpression, rollDice, type AttackContext } from "./dice";
 import type { DomainEvent } from "./events";
@@ -133,6 +134,8 @@ export function decide(
 
     case "token.create": {
       if (!can.administer(actor)) return forbidden();
+      const off = presetRefusal(state, { attacks: command.attacks.length > 0, conditions: command.conditions.length > 0, ac: command.stats.ac });
+      if (off) return off;
       const ownerError = checkOwners(state, command.ownerIds);
       if (ownerError) return ownerError;
       if (!command.name.trim()) return reject("invalid", "Token name can't be blank.");
@@ -193,6 +196,8 @@ export function decide(
         changes.rotation !== undefined || changes.imageUrl !== undefined || changes.assetId !== undefined ||
         changes.ownerIds !== undefined || changes.hidden !== undefined;
       if (gmFields && !can.administer(actor)) return forbidden();
+      const off = presetRefusal(state, { conditions: (changes.conditions?.length ?? 0) > 0, ac: changes.stats?.ac ?? null });
+      if (off) return off;
       if (changes.name !== undefined && !changes.name.trim()) return reject("invalid", "Token name can't be blank.");
       if (changes.stats && changes.stats.hp !== null && changes.stats.maxHp !== null && changes.stats.hp > changes.stats.maxHp) {
         return reject("invalid", "Current HP cannot exceed maximum HP");
@@ -321,6 +326,8 @@ export function decide(
       const token = state.tokens[command.tokenId];
       if (!token || concealedFrom(state.fog, token, actor)) return notFound("token");
       if (!can.editToken(actor, token)) return forbidden();
+      const off = presetRefusal(state, { ac: command.stats.ac });
+      if (off) return off;
       if (command.stats.hp !== null && command.stats.maxHp !== null && command.stats.hp > command.stats.maxHp) {
         return reject("invalid", "Current HP cannot exceed maximum HP");
       }
@@ -352,6 +359,8 @@ export function decide(
       const token = state.tokens[command.tokenId];
       if (!token || concealedFrom(state.fog, token, actor)) return notFound("token");
       if (!can.editToken(actor, token)) return forbidden();
+      const off = presetRefusal(state, { conditions: command.conditions.length > 0 });
+      if (off) return off;
       return accept({
         type: "TokenConditionsSet",
         tokenId: token.id,
@@ -417,6 +426,8 @@ export function decide(
         // An unowned token under fog is concealed on the roll for good, like a hidden one (ADR 0016).
         const side = (t: Token) => ({ tokenId: t.id, name: t.name, hidden: t.hidden || fogConcealsSide(state, t) });
         attack = { actor: side(attacker), target: side(target), label: command.attack.label || null, kind: command.attack.kind };
+        const off = presetRefusal(state, { attacks: true });
+        if (off) return off;
       }
       if (command.visibility === "gm" && !can.rollHidden(actor)) return forbidden();
       const parsed = parseDiceExpression(command.expression);
@@ -442,6 +453,8 @@ export function decide(
     case "roll.rule": {
       // The GM rules afterwards; nobody asks before rolling, and the app never decides (ADR 0011).
       if (!can.ruleRolls(actor)) return forbidden();
+      const rulingOff = presetRefusal(state, { attacks: true });
+      if (rulingOff) return rulingOff;
       const roll = state.rolls.find((r) => r.id === command.rollId);
       if (!roll) return reject("not_found", "That roll is too old to rule on");
       if (roll.attack?.kind !== "toHit") return reject("invalid", "Only to-hit attack rolls take a ruling");
@@ -454,6 +467,8 @@ export function decide(
 
     case "roll.applyDamage": {
       if (!can.ruleRolls(actor)) return forbidden();
+      const damageOff = presetRefusal(state, { attacks: true });
+      if (damageOff) return damageOff;
       const roll = state.rolls.find((r) => r.id === command.rollId);
       if (!roll) return reject("not_found", "That roll is too old to apply");
       if (roll.attack?.kind !== "damage") return reject("invalid", "Only damage rolls can be applied");
@@ -625,7 +640,8 @@ export function decide(
         type: "EncounterApplied",
         templateId: encounter.id,
         name: encounter.name,
-        applied: encounterTable(encounter, ctx.newId),
+        // A template saved in another game's room loads without the features this room has off (KAN-63).
+        applied: tableForPreset(encounterTable(encounter, ctx.newId), presetOf(state)),
         previous: tableOf(state),
       });
     }
@@ -814,6 +830,18 @@ function advance(current: Initiative): Initiative {
   return next >= current.order.length
     ? { ...current, activeIndex: 0, round: current.round + 1 }
     : { ...current, activeIndex: next };
+}
+
+/**
+ * Refuses a command that uses a rules feature the room's game preset turns off (KAN-63, ADR 0027).
+ * Called after authorization, so a player still gets "forbidden" for what they may never do.
+ */
+function presetRefusal(state: RoomState, uses: { attacks?: boolean; conditions?: boolean; ac?: number | null }): Decision | null {
+  const preset = presetOf(state);
+  if (uses.attacks && !preset.features.attacks) return reject("invalid", `Attack rolls are off in ${preset.name}.`);
+  if (uses.conditions && !preset.features.conditions) return reject("invalid", `Conditions are off in ${preset.name}.`);
+  if (uses.ac != null && !preset.features.armorClass) return reject("invalid", `AC is off in ${preset.name}.`);
+  return null;
 }
 
 const accept = (...events: DomainEvent[]): Decision => ({ ok: true, events });

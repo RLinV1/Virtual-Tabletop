@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { presetOf, type PresetFeatures } from "@vtt/shared";
 import { DEFAULT_TOKEN_COLOR, MAX_TOKENS_PER_CREATE, conditionSpec, isActive, type AttackPreset, type ConditionId, type RoomState } from "@vtt/shared";
 import type { TokenDraft } from "../board/placement";
 import { api } from "../net/api";
@@ -56,6 +57,7 @@ export function AddTokenButton({
           players={players}
           token={token}
           hasLibrary={hasLibrary}
+          features={presetOf(state).features}
           defaultColor={TOKEN_COLORS[Object.keys(state.tokens).length % TOKEN_COLORS.length]!}
           onAdd={(draft) => {
             // A creature brings its own colour; otherwise the next one from the palette.
@@ -78,6 +80,8 @@ function AddToken(props: {
   players: { id: string; displayName: string }[];
   token: string;
   hasLibrary: boolean;
+  /** What the room's game preset turns on (KAN-63). */
+  features: PresetFeatures;
   defaultColor: string;
   /** The form is complete; the token is created once the GM picks its square on the board. */
   onAdd: (draft: TokenDraft) => void;
@@ -96,6 +100,7 @@ function AddToken(props: {
   const [conditions, setConditions] = useState<ConditionId[]>([]);
   const [attacks, setAttacks] = useState<AttackPreset[]>([]);
   const [count, setCount] = useState("1");
+  const features = props.features;
   const [picking, setPicking] = useState(false);
   const [pickingCreature, setPickingCreature] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -127,9 +132,12 @@ function AddToken(props: {
           props.onAdd({
             type: "token.create", name, hidden, ownerIds: ownerId ? [ownerId] : [],
             size: Number(size), rotation: Number(rotation),
-            stats: defaults,
+            stats: features.armorClass ? defaults : { ...defaults, ac: null },
             imageUrl: image?.url ?? null, assetId: image?.assetId ?? null,
-            color, conditions, attacks, count: Number(count),
+            color,
+            conditions: features.conditions ? conditions : [],
+            attacks: features.attacks ? attacks : [],
+            count: Number(count),
           });
         }}
       >
@@ -165,7 +173,7 @@ function AddToken(props: {
         <div className="token-setup-grid token-setup-grid-3">
           <label>HP<input type="number" value={hp} onChange={(e) => setHp(e.target.value)} min="-999" max="9999" step="1" placeholder={String(defaults.hp)} /></label>
           <label>Max HP<input type="number" value={maxHp} onChange={(e) => setMaxHp(e.target.value)} min="1" max="9999" step="1" placeholder={String(defaults.maxHp)} /></label>
-          <label>AC<input type="number" value={ac} onChange={(e) => setAc(e.target.value)} min="0" max="99" step="1" placeholder={String(defaults.ac)} /></label>
+          {features.armorClass && <label>AC<input type="number" value={ac} onChange={(e) => setAc(e.target.value)} min="0" max="99" step="1" placeholder={String(defaults.ac)} /></label>}
         </div>
         <span className="muted small-print">Blank fields use the value shown: HP and Max HP match each other, or are 100 if both are blank, and AC is 0.</span>
         <label>
@@ -217,10 +225,12 @@ function AddToken(props: {
               <input type="color" value={color} onInput={(e) => setColor(e.currentTarget.value)} onChange={(e) => setColor(e.target.value)} />
             </label>
             {/* A creature fills these in; the GM can change them before placing (KAN-70). */}
-            <details className="add-token-conditions" open={conditions.length > 0}>
-              <summary>Starting conditions{conditions.length > 0 ? `: ${conditions.map((c) => conditionSpec(c).label).join(", ")}` : ""}</summary>
-              <ConditionPicker value={conditions} onChange={setConditions} />
-            </details>
+            {features.conditions && (
+              <details className="add-token-conditions" open={conditions.length > 0}>
+                <summary>Starting conditions{conditions.length > 0 ? `: ${conditions.map((c) => conditionSpec(c).label).join(", ")}` : ""}</summary>
+                <ConditionPicker value={conditions} onChange={setConditions} />
+              </details>
+            )}
             <div className="token-setup-grid">
               <label>Size (cells)<input type="number" value={size} onChange={(e) => setSize(e.target.value)} required min="0.25" max="10" step="any" /></label>
               <label>Rotation (°)<input type="number" value={rotation} onChange={(e) => setRotation(e.target.value)} required step="any" /></label>

@@ -14,8 +14,14 @@ import {
   replayFrom,
   replayPoints,
   activityHistory,
+  DEFAULT_GRID,
+  DEFAULT_PRESET_ID,
   emptyRoomState,
   encounterTable,
+  presetOf,
+  tableForPreset,
+  type GamePreset,
+  type TableState,
   tableOf,
   type CreateRoomResponse,
   type InviteResponse,
@@ -86,8 +92,14 @@ export function registerRoutes(
       });
       await store.putMember({ roomId, participantId, userId: account.user.id });
       const room = await registry.get(roomId);
+      // The game preset's defaults (KAN-63, ADR 0027): its grid units, when they aren't the default grid's.
+      const preset = presetOf({ preset: body.data.preset ?? DEFAULT_PRESET_ID });
+      const grid = { ...DEFAULT_GRID, ...preset.grid };
       await room!.appendSystem(participantId, [
-        { type: "RoomCreated", name: body.data.roomName },
+        { type: "RoomCreated", name: body.data.roomName, preset: preset.id },
+        ...(grid.unitsPerCell !== DEFAULT_GRID.unitsPerCell || grid.unitLabel !== DEFAULT_GRID.unitLabel
+          ? [{ type: "GridSet" as const, grid, previous: DEFAULT_GRID }]
+          : []),
         {
           type: "ParticipantJoined",
           participant: { id: participantId, role: "gm", displayName: body.data.displayName.trim() },
@@ -97,8 +109,8 @@ export function registerRoutes(
             type: "EncounterApplied" as const,
             templateId: encounter.id,
             name: encounter.name,
-            applied: encounterTable(encounter, randomUUID),
-            previous: tableOf(emptyRoomState(roomId)),
+            applied: tableForPreset(withPresetGrid(encounterTable(encounter, randomUUID), preset), preset),
+            previous: { ...tableOf(emptyRoomState(roomId)), scene: { map: null, grid } },
           }]
           : []),
       ]);
@@ -309,6 +321,11 @@ export function registerRoutes(
     const participant = room && !room.closed ? room.activeParticipant(cred.participantId) : undefined;
     return participant ? { roomId: cred.roomId, participant } : null;
   }
+}
+
+/** A template's table keeps its own grid alignment but takes the room's preset units (KAN-63). */
+function withPresetGrid(table: TableState, preset: GamePreset): TableState {
+  return { ...table, scene: { ...table.scene, grid: { ...table.scene.grid, ...preset.grid } } };
 }
 
 /**
