@@ -52,6 +52,7 @@ export function GmPanel({
       {error && <p role="alert" className="error">{error}</p>}
       <DepartedPlayers state={state} onReview={onReviewDeparture} />
       <MapSection
+        roomId={state.roomId}
         token={token}
         currentGrid={state.scene.grid}
         hasLibrary={hasLibrary}
@@ -149,6 +150,7 @@ const STEPS: { key: EditorStep; label: string }[] = [
  * Apply map sends them as one command, so the table never sees a half-aligned scene.
  */
 function MapSection(props: {
+  roomId: string;
   token: string;
   /** The room's grid, where a map with no saved grid starts its draft. */
   currentGrid: GridSpec;
@@ -320,8 +322,11 @@ function MapSection(props: {
             )}
             {step === "grid" && (prep ? (
               <div className="map-editor-grid">
-                <GridForm
+                <RoomGridEditor
                   key={prep.map.url}
+                  roomId={props.roomId}
+                  token={props.token}
+                  directMap={!prep.map.assetId}
                   grid={prep.initial}
                   map={prep.map}
                   draft={prep.draft}
