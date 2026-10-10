@@ -244,6 +244,18 @@ export const ChatMessage = z.object({
 });
 export type ChatMessage = z.infer<typeof ChatMessage>;
 
+/** Most token groups a room holds (KAN-82). */
+export const MAX_GROUPS = 30;
+/** Longest group name, in characters after trimming (KAN-82). */
+export const MAX_GROUP_NAME = 40;
+
+/** A GM-only named set of tokens in one room, e.g. "Gate guards" (KAN-82, ADR 0026). */
+export const TokenGroup = z.object({
+  id: Id,
+  name: z.string().min(1).max(MAX_GROUP_NAME),
+});
+export type TokenGroup = z.infer<typeof TokenGroup>;
+
 export interface RoomState {
   roomId: Id;
   name: string;
@@ -269,6 +281,13 @@ export interface RoomState {
    * committed events and their `commandId`s; GM-only (players always get an empty list).
    */
   undo: UndoEntry[];
+  /** Token groups, in creation order (KAN-82, ADR 0026). GM-only: players always get none. */
+  groups: Record<Id, TokenGroup>;
+  /**
+   * Which group each token is in, by token id (KAN-82). A token is in at most one group. Entries
+   * outlive a deleted token, so undoing the deletion puts it back in its group. GM-only.
+   */
+  tokenGroups: Record<Id, Id>;
 }
 
 export function emptyRoomState(roomId: Id): RoomState {
@@ -286,5 +305,7 @@ export function emptyRoomState(roomId: Id): RoomState {
     fog: {},
     checkpoints: [],
     undo: [],
+    groups: {},
+    tokenGroups: {},
   };
 }

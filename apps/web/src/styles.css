@@ -756,9 +756,9 @@ dialog.modal.dice-look-modal { width: min(40rem, calc(100vw - 2rem)); }
 
 /* --- Initiative --- */
 .init-setup { display: flex; flex-direction: column; gap: 0.3rem; }
-.init-setup li { display: grid; grid-template-columns: auto 1fr 4.5rem; align-items: center; gap: var(--space-2); }
+.init-setup li { display: grid; grid-template-columns: auto auto 1fr 4.5rem; align-items: center; gap: var(--space-2); }
 .init-hint { font-size: var(--fs-sm); }
-.init-setup input { width: 100%; text-align: right; font-variant-numeric: tabular-nums; }
+.init-setup input[type="number"] { width: 100%; text-align: right; font-variant-numeric: tabular-nums; }
 /* Spinner arrows crowd a 4.5rem field and nobody steps initiative by one. */
 .init-setup input::-webkit-outer-spin-button,
 .init-setup input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
@@ -2257,6 +2257,22 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 }
 .participant-view-as { margin-left: auto; }
 .preview-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; display: contents; }
+
+/* Token groups in the GM's roster and the Start encounter dialog (KAN-82). */
+.roster-group + .roster-group { margin-top: var(--space-2); }
+.group-heading { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1) var(--space-2); padding: 0.2rem 0; border-bottom: 1px solid var(--border); }
+.group-toggle { display: inline-flex; align-items: baseline; gap: var(--space-2); min-width: 0; padding: 0.15rem 0; background: none; border: 0; color: inherit; cursor: pointer; text-align: left; }
+.group-toggle .group-name { font-weight: 600; overflow-wrap: anywhere; }
+.group-caret { width: 1ch; }
+.group-actions { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); margin-left: auto; }
+.new-group { margin-top: var(--space-2); gap: var(--space-2); }
+.new-group input { flex: 1; min-width: 0; }
+.token-duplicate { align-items: flex-end; flex-wrap: wrap; gap: var(--space-2); }
+.token-duplicate input { width: 5rem; }
+.init-groups { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin: 0 0 var(--space-2); padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius); }
+.init-groups legend { padding: 0 var(--space-1); }
+.init-groups p { flex-basis: 100%; }
+.init-left-out .init-name { color: var(--muted); text-decoration: line-through; }
 
 /* Game presets (KAN-63): the create-room choice and the room's preset badge. */
 .preset-choice { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); }
