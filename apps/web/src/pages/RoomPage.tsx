@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { House, Rewind } from "@phosphor-icons/react";
-import { can, filterStateForViewer, isActive, type DiceVisibility, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
+import { can, filterStateForViewer, isActive, presetOf, type DiceVisibility, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
 import { Board, type BoardHandle, type DiceBoard } from "../board/Board";
 import { PendingDrops, type DiceDrop } from "../board/diceDrops";
 import type { TokenDraft } from "../board/placement";
@@ -472,6 +472,8 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
             </Link>
           )}
           <h1 className="room-title">{state.name}</h1>
+          {/* Which game the room is set up for (KAN-63), as text. */}
+          <span className="preset-badge" title="Game preset">{presetOf(state).name}</span>
         </div>
         <div className="topbar-center">
           <ParticipantsButton state={state} you={you} connection={shownConnection} onReviewDeparture={setReviewing} onViewAs={replaying ? undefined : setViewAs} viewingAs={viewAs} readOnly={readOnly} />

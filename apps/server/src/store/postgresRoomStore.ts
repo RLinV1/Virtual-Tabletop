@@ -11,7 +11,7 @@ import {
 import { randomUUID } from "node:crypto";
 import type { GridDetectionCandidate, RoomUploadPurpose } from "@vtt/shared";
 import { DETECTION_STALE_MS, type DetectionOutcome, type DetectionRecord, type DetectionTarget, type DetectionState } from "./gridDetectionStore";
-import { ConditionId, DEFAULT_TOKEN_COLOR, TokenAttacks, type AssetKind, type CommittedEvent, type DieName, type DomainEvent, type GmRoomSummary, type GridSpec, type LegacySummary } from "@vtt/shared";
+import { ConditionId, DEFAULT_TOKEN_COLOR, presetFromLog, TokenAttacks, type AssetKind, type CommittedEvent, type DieName, type DomainEvent, type GmRoomSummary, type GridSpec, type LegacySummary } from "@vtt/shared";
 import {
   EmailTakenError,
   type EndedSessions,
@@ -285,10 +285,16 @@ export class PostgresRoomStore implements RoomStore {
         events: { select: { createdAt: true }, orderBy: { seq: "desc" }, take: 1 },
       },
     });
+    // The preset is on each room's first event, RoomCreated (KAN-63).
+    const first = rooms.length
+      ? await this.prisma.event.findMany({ where: { roomId: { in: rooms.map((r) => r.id) }, seq: 1 }, select: { roomId: true, payload: true } })
+      : [];
+    const firstById = new Map(first.map((e) => [e.roomId, e.payload as unknown as DomainEvent]));
     return rooms
       .map((r) => ({
         id: r.id,
         name: r.name ?? "",
+        preset: presetFromLog(firstById.get(r.id)),
         lastActiveAt: (r.events[0]?.createdAt ?? r.createdAt).toISOString(),
       }))
       .sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt));

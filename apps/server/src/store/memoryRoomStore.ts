@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { RoomUploadPurpose } from "@vtt/shared";
 import { DETECTION_STALE_MS, type DetectionOutcome, type DetectionRecord, type DetectionTarget } from "./gridDetectionStore";
-import { DEFAULT_TOKEN_COLOR, type CommittedEvent, type DieName, type GmRoomSummary, type GridSpec, type LegacySummary } from "@vtt/shared";
+import { DEFAULT_TOKEN_COLOR, presetFromLog, type CommittedEvent, type DieName, type GmRoomSummary, type GridSpec, type LegacySummary } from "@vtt/shared";
 import {
   EmailTakenError,
   type EndedSessions,
@@ -200,6 +200,7 @@ export class MemoryRoomStore implements RoomStore {
       .map(([id, room]) => ({
         id,
         name: room.name,
+        preset: presetFromLog(this.events.get(id)?.[0]?.event),
         lastActiveAt: this.events.get(id)?.at(-1)?.at ?? room.createdAt,
       }))
       .sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt));

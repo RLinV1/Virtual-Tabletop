@@ -1,4 +1,5 @@
 import type { DiceRoll } from "./dice";
+import { DEFAULT_PRESET_ID } from "./gamePresets";
 import type { CommittedEvent, DomainEvent } from "./events";
 import { CHAT_LOG_LIMIT, MAX_CHECKPOINTS, ROLL_LOG_LIMIT, emptyRoomState, type RoomState } from "./state";
 import { eventMeta, recordUndo, type EventMeta } from "./undo";
@@ -64,7 +65,7 @@ export function reduceReceived(state: RoomState, committed: CommittedEvent): Roo
 function apply(state: RoomState, event: DomainEvent, at: string | null): RoomState {
   switch (event.type) {
     case "RoomCreated":
-      return { ...state, name: event.name };
+      return { ...state, name: event.name, preset: event.preset ?? DEFAULT_PRESET_ID };
 
     case "ParticipantJoined":
       return {
