@@ -13,7 +13,7 @@ import {
   GridDetectionStatus,
   WallDetectionStatus,
   WallDetectionAvailability,
-  type Point,
+  type WallDetectionRequest,
   type InviteSeatResponse,
   type LegacySummary,
   type LibraryAsset,
@@ -193,13 +193,14 @@ export const api = {
   walls: {
     /**
      * Queues an analysis of the room's current map. With `sample`, a point on a wall the GM
-     * clicked, the worker looks for walls of that colour, within `tolerance` Lab units of it (wall-editing).
+     * clicked, the worker looks for walls of that colour, within `tolerance` Lab units of it
+     * (wall-editing); `strictness` and `minLength` filter what it finds.
      */
-    async detect(roomId: string, token: string, sample?: Point, tolerance?: number): Promise<WallDetectionStatus> {
+    async detect(roomId: string, token: string, request: WallDetectionRequest = {}): Promise<WallDetectionStatus> {
       const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/wall-detection`, {
         method: "POST",
         headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-        body: JSON.stringify(sample ? { sample, ...(tolerance !== undefined && { tolerance }) } : {}),
+        body: JSON.stringify(request),
       });
       if (!res.ok) throw await errorFrom(res);
       return WallDetectionStatus.parse(await res.json());

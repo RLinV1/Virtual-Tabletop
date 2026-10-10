@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Eraser, Eyedropper, Hand, LineSegments } from "@phosphor-icons/react";
 import {
-  SAMPLE_TOLERANCE_DEFAULT, SAMPLE_TOLERANCE_MAX, SAMPLE_TOLERANCE_MIN,
-  type CommandInput, type Point, type RoomState, type WallDetectionAvailability, type WallDetectionStatus,
+  MIN_LENGTH_MAX, SAMPLE_TOLERANCE_DEFAULT, SAMPLE_TOLERANCE_MAX, SAMPLE_TOLERANCE_MIN,
+  STRICTNESS_DEFAULT, STRICTNESS_MAX, STRICTNESS_MIN,
+  type CommandInput, type Point, type RoomState, type WallDetectionAvailability, type WallDetectionRequest, type WallDetectionStatus,
 } from "@vtt/shared";
 import { api } from "../../net/api";
 import type { RoomConnection } from "../../net/roomConnection";
@@ -37,6 +38,8 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
   const [preview, setPreview] = useState<{ mapUrl: string; url: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [tolerance, setTolerance] = useState(SAMPLE_TOLERANCE_DEFAULT);
+  const [strictness, setStrictness] = useState(STRICTNESS_DEFAULT);
+  const [minLength, setMinLength] = useState(0);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
   const status = detection.mapUrl === mapUrl ? detection.status : null;
   const canDetect = availability?.available === true;
@@ -85,11 +88,18 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
 
   if (!map) return <p className="map-editor-empty">Apply a map in the Map step first, then set up its walls here.</p>;
 
+  /** The detection request: the sliders' values, and the clicked wall's point when there is one. */
+  const request = (sample?: Point): WallDetectionRequest => ({
+    ...(sample && { sample, tolerance }),
+    strictness,
+    minLength,
+  });
+
   const detect = async (sample?: Point) => {
     setBusy(true);
     setMessage(null);
     try {
-      setDetection({ mapUrl, status: await api.walls.detect(state.roomId, token, sample, sample ? tolerance : undefined) });
+      setDetection({ mapUrl, status: await api.walls.detect(state.roomId, token, request(sample)) });
       setMessage({ text: sample ? "Detecting walls like the one you clicked…" : "Detecting walls…", error: false });
     } catch (err) {
       setMessage({ text: err instanceof Error ? err.message : "Couldn't start wall detection", error: true });
@@ -178,6 +188,34 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
               )}
               <figcaption>{found === 0 ? "No walls found on this map." : `${found} ${found === 1 ? "wall" : "walls"} found. Check them before applying.`}</figcaption>
             </figure>
+          )}
+          {canDetect && (
+            <div className="stack">
+              <label className="stack">
+                <span className="small-print">Strictness: {strictness.toFixed(2)}</span>
+                <input
+                  type="range"
+                  min={STRICTNESS_MIN}
+                  max={STRICTNESS_MAX}
+                  step={0.05}
+                  value={strictness}
+                  onChange={(event) => setStrictness(Number(event.target.value))}
+                />
+                <span className="muted small-print">Higher keeps only walls with a clear drawn edge: less terrain, but it can miss faint walls.</span>
+              </label>
+              <label className="stack">
+                <span className="small-print">Shortest wall: {minLength === 0 ? "any" : `${minLength} ${minLength === 1 ? "cell" : "cells"}`}</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={MIN_LENGTH_MAX}
+                  step={0.5}
+                  value={minLength}
+                  onChange={(event) => setMinLength(Number(event.target.value))}
+                />
+                <span className="muted small-print">Drops short pieces such as rubble. Use Detect again to apply a change.</span>
+              </label>
+            </div>
           )}
           <div className="row button-row">
             <button type="button" className="secondary" disabled={!canDetect || busy || pending} onClick={() => void detect()}>

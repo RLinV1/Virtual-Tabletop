@@ -42,6 +42,8 @@ PREVIEW_EDGE = 1024
 BAND_CELLS = (0.9, 1.5)
 # How far, in Lab units (8-bit scale), a pixel's colour may be from a sampled wall's to count.
 SAMPLE_TOLERANCE = 30.0
+# Share of a run's edge that must follow a contrasting outline; higher drops more terrain, and some walls.
+OUTLINE_SHARE = 0.4
 # A sampled colour this dark (Lab L, 8-bit) is ink: its strokes need no separate outline.
 DARK_INK_L = 80
 
@@ -73,7 +75,7 @@ def _strong(values: np.ndarray, floor: float = 20.0) -> np.ndarray:
     return values > max(otsu, float(values.mean() + values.std()), floor)
 
 
-def _wall_masks(gray: np.ndarray, cell: float) -> list:
+def _wall_masks(gray: np.ndarray, cell: float, share: float = OUTLINE_SHARE) -> list:
     """Candidate wall masks: bright raised walls and dark ink walls, each with its outline check."""
     line = _kernel(cell * 0.25, shape=cv2.MORPH_ELLIPSE)
     dark_lines = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, line)
@@ -94,13 +96,13 @@ def _wall_masks(gray: np.ndarray, cell: float) -> list:
             mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, _kernel(cell * 0.12))
             mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, _kernel(cell * 0.12))
             # Straight runs first: rubble touching a wall would otherwise fail the wall's outline check.
-            family = cv2.bitwise_or(family, _outlined(_straight_runs(mask, cell), outline))
+            family = cv2.bitwise_or(family, _outlined(_straight_runs(mask, cell), outline, share))
         out.append((name, family, cell))
     return out
 
 
 def _sampled_mask(work: np.ndarray, gray: np.ndarray, cell: float, point: tuple,
-                  tolerance: float = SAMPLE_TOLERANCE) -> np.ndarray:
+                  tolerance: float = SAMPLE_TOLERANCE, share: float = OUTLINE_SHARE) -> np.ndarray:
     """Walls the colour of the one the GM clicked (wall-editing): the colour pick of prior art.
 
     The reference is the median Lab colour of a small disc around the point, so a click on a
@@ -125,10 +127,10 @@ def _sampled_mask(work: np.ndarray, gray: np.ndarray, cell: float, point: tuple,
     if reference[0] < DARK_INK_L:
         return runs
     dark_lines = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, _kernel(cell * 0.25, shape=cv2.MORPH_ELLIPSE))
-    return _outlined(runs, cv2.dilate(_strong(dark_lines).astype(np.uint8) * 255, _kernel(3)))
+    return _outlined(runs, cv2.dilate(_strong(dark_lines).astype(np.uint8) * 255, _kernel(3)), share)
 
 
-def _outlined(mask: np.ndarray, outline: np.ndarray, share: float = 0.4) -> np.ndarray:
+def _outlined(mask: np.ndarray, outline: np.ndarray, share: float = OUTLINE_SHARE) -> np.ndarray:
     """Keeps the components whose boundary mostly runs along a contrasting outline."""
     count, labels = cv2.connectedComponents(mask, connectivity=8)
     boundary = cv2.subtract(mask, cv2.erode(mask, _kernel(3))) > 0
@@ -414,11 +416,14 @@ def _working_cell(width: int, height: int, cell: float, scale: float) -> float:
     return float(min(max(value, 12.0), edge / 6))
 
 
-def detect_walls(image: np.ndarray, cell: float = 0.0, sample: dict = None, tolerance: float = SAMPLE_TOLERANCE) -> dict:
+def detect_walls(image: np.ndarray, cell: float = 0.0, sample: dict = None, tolerance: float = SAMPLE_TOLERANCE,
+                 strictness: float = OUTLINE_SHARE, min_length: float = 0.0) -> dict:
     """Wall segments in the image's own pixels. `cell` is the grid's cell size in those pixels, or 0.
 
     With `sample` ({x, y} in image pixels, on a wall the GM clicked) the mask comes from that
-    wall's colour; without it, the bright and dark styles are both tried and the better one wins.
+    wall's colour within `tolerance`; without it, the bright and dark styles are both tried and the
+    better one wins. `strictness` is the share of a run's edge that must follow an outline, and
+    `min_length` (in cells) drops shorter walls from the result.
     """
     height, width = image.shape[:2]
     scale = min(1.0, WORK_EDGE / max(width, height))
@@ -427,8 +432,8 @@ def detect_walls(image: np.ndarray, cell: float = 0.0, sample: dict = None, tole
     gray = cv2.bilateralFilter(cv2.cvtColor(work, cv2.COLOR_BGR2GRAY), 7, 25, 5)
     best = ("none", [], 0.0)
     candidates = (
-        [("sample", _sampled_mask(work, gray, working_cell, (sample["x"] * scale, sample["y"] * scale), tolerance), working_cell)]
-        if sample else _wall_masks(gray, working_cell)
+        [("sample", _sampled_mask(work, gray, working_cell, (sample["x"] * scale, sample["y"] * scale), tolerance, strictness), working_cell)]
+        if sample else _wall_masks(gray, working_cell, strictness)
     )
     for name, mask, c in candidates:
         segments = _segments_for(mask, c)
@@ -440,6 +445,7 @@ def detect_walls(image: np.ndarray, cell: float = 0.0, sample: dict = None, tole
     # keeps whatever long run it found.
     if score < (2 if sample else 4):
         segments = []
+    segments = [s for s in segments if _length(s) >= min_length * working_cell]
     segments.sort(key=_length, reverse=True)
     walls = []
     for x1, y1, x2, y2 in segments[:MAX_WALLS]:
@@ -488,16 +494,17 @@ def _detected_cell(data: bytes, width: int, height: int) -> float:
 
 
 def analyze(data: bytes, width: int, height: int, cell: float = 0.0, sample: dict = None,
-            tolerance: float = SAMPLE_TOLERANCE) -> dict:
+            tolerance: float = SAMPLE_TOLERANCE, strictness: float = OUTLINE_SHARE, min_length: float = 0.0) -> dict:
     """One job: decode, detect, render. The result shape is `WallDetectionResult` in packages/shared.
 
     `cell` is the room grid's cell size; without one, the grid detector's suggestion is used.
     `sample` is a point on a wall the GM clicked, in image pixels, or None; `tolerance` is its colour range.
+    `strictness` and `min_length` are the outline share and shortest wall, in cells (detect_walls).
     """
     image = decode(data, width, height)
     if not cell:
         cell = _detected_cell(data, width, height)
     if sample is not None and not (0 <= sample["x"] <= width and 0 <= sample["y"] <= height):
         raise ValueError("Sample outside the image")
-    detected = detect_walls(image, cell, sample, tolerance)
+    detected = detect_walls(image, cell, sample, tolerance, strictness, min_length)
     return {"walls": detected["walls"], "preview": render_preview(image, detected["walls"])}

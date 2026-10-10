@@ -154,6 +154,15 @@ class WallDetectionTest(unittest.TestCase):
         # A range wide enough to take in the floor leaves no wall to tell apart.
         self.assertEqual(detect_walls(img, CELL, point, 45)["walls"], [])
 
+    def test_strictness_and_minimum_length_only_remove_walls(self):
+        img = stone_keep()
+        default = detect_walls(img, CELL)["walls"]
+        self.assertEqual(default, detect_walls(img, CELL, None, 30, 0.4, 0)["walls"])
+        long_only = detect_walls(img, CELL, None, 30, 0.4, 6)["walls"]
+        self.assertLessEqual(len(long_only), len(default))
+        self.assertTrue(all(np.hypot(w["b"]["x"] - w["a"]["x"], w["b"]["y"] - w["a"]["y"]) >= 6 * CELL * 0.95 for w in long_only))
+        self.assertLessEqual(len(detect_walls(img, CELL, None, 30, 0.6, 0)["walls"]), len(default))
+
     def test_sample_outside_the_image_is_refused(self):
         with self.assertRaises(ValueError):
             analyze(encode(ink_dungeon()), SIZE[1], SIZE[0], CELL, {"x": SIZE[1] + 5, "y": 10})

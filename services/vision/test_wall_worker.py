@@ -36,6 +36,10 @@ class WallWorkerTest(unittest.TestCase):
         for bad in (0, 500, "wide", True):
             with self.assertRaises(ValueError):
                 asyncio.run(process(job(**common, tolerance=bad)))
+        self.assertTrue(asyncio.run(process(job(**common, strictness=0.5, minLength=1)))["walls"])
+        for field, bad in (("strictness", 0.9), ("strictness", "x"), ("minLength", -1), ("minLength", 9), ("minLength", True)):
+            with self.assertRaises(ValueError):
+                asyncio.run(process(job(**common, **{field: bad})))
 
     def test_fails_the_job_on_bad_input(self):
         for data in ({}, {"image": "%%%", "width": 10, "height": 10}, {"image": "aGVsbG8=", "width": 5, "height": 5},
