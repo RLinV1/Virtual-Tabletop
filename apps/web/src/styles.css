@@ -2273,3 +2273,20 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 .init-groups legend { padding: 0 var(--space-1); }
 .init-groups p { flex-basis: 100%; }
 .init-left-out .init-name { color: var(--muted); text-decoration: line-through; }
+
+/* Encounter replay (FR-PL-07): bottom-centre like the preview banner, above the board. */
+.replay-bar {
+  position: fixed; left: 50%; bottom: var(--space-4); transform: translateX(-50%); z-index: 60;
+  display: flex; flex-direction: column; gap: var(--space-2);
+  width: min(40rem, calc(100vw - 2 * var(--space-4)));
+  padding: var(--space-2) var(--space-3); background: var(--panel); color: var(--text);
+  border: 2px solid var(--accent); border-radius: var(--radius); box-shadow: 0 8px 28px rgb(0 0 0 / 0.55);
+}
+.replay-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; min-width: 0; }
+.replay-point { display: flex; flex-direction: row; align-items: center; margin: 0; gap: var(--space-2); flex: 1 1 12rem; min-width: 0; }
+.replay-point select { flex: 1; min-width: 0; }
+.replay-exit { margin-left: auto; }
+.replay-slider { flex: 1 1 8rem; min-width: 6rem; }
+.replay-count { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.replay-sentence { margin: 0; min-height: 1.4em; overflow-wrap: anywhere; }
+.replay-bar .small-print { margin: 0; }
