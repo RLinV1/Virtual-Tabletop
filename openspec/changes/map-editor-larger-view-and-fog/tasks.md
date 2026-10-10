@@ -1,9 +1,9 @@
 ## 1. Measure and enlarge the canvas
 
-- [ ] 1.1 Run the app (`npm run dev`) and use the Playwright MCP to open the editor at 1920 × 1080 and 1280 × 720; record the canvas size and which rule limits its height
+- [x] 1.1 Run the app (`npm run dev`) and use the Playwright MCP to open the editor at 1920 × 1080 and 1280 × 720; record the canvas size and which rule limits its height. Measured: the Walls and Fog canvas was 1613 × 1015 at 1920 × 1080 (94% of the height); the Grid step's map was capped at `clamp(12rem, 48dvh, 36rem)` inside a 1120 px column, so it is raised in the editor to `clamp(16rem, 64dvh, 70rem)` in a 1800 px column
 - [x] 1.2 Add an optional `headerContent` prop to `Modal` (default none); the editor puts its step tabs and draft notice there, so one header row holds the "Edit map" heading, step tabs, draft notice and Close
 - [x] 1.3 Tighten `.map-editor` padding and gaps, narrow `.map-editor-hud` to 17 rem, and give `.map-editor-split` a single `minmax(0, 1fr)` row so the canvas fills the height; keep the stacked layout under 760 px with the canvas at least `50dvh`
-- [ ] 1.4 Re-measure with Playwright: canvas at least 90% of the window height at 1920 × 1080; whole map visible on open; screenshots for the PR
+- [x] 1.4 Re-measure with Playwright: canvas at least 90% of the window height at 1920 × 1080; whole map visible on open; screenshots for the PR
 
 ## 2. Extract the shared canvas
 
@@ -31,5 +31,5 @@
 
 ## 6. Verify
 
-- [ ] 6.1 Playwright end to end as GM and as a player in a second context: fog a rectangle and a polygon in the editor, reveal one, and confirm the player sees fog change and never sees editor-only state
+- [x] 6.1 Playwright end to end as GM and as a player in a second context: fog a rectangle and a polygon in the editor, reveal one, and confirm the player sees fog change and never sees editor-only state
 - [ ] 6.2 Update `docs/DESIGN.md` and `guide.ts` text; run `npm run lint && npm run typecheck && npm test`

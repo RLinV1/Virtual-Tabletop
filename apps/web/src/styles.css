@@ -2297,7 +2297,7 @@ dialog.modal.map-editor {
 /* The steps sit in the dialog title bar, so the editor has one header row (map-editor D1). */
 .map-editor-steps { flex: 1; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .map-editor-step {
-  min-height: 40px; padding: 0.35rem 0.9rem; border: 1px solid var(--border); border-radius: var(--radius);
+  min-height: 44px; padding: 0.35rem 0.9rem; border: 1px solid var(--border); border-radius: var(--radius);
   background: var(--raised); color: var(--text);
 }
 .map-editor-step[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
@@ -2336,8 +2336,21 @@ dialog.modal.map-editor {
 .wall-canvas-svg.mode-erase { cursor: pointer; }
 .wall-canvas-svg.mode-pan { cursor: grab; }
 .wall-canvas-zoom { position: absolute; right: var(--space-2); top: var(--space-2); display: flex; gap: var(--space-1); }
-@media (max-width: 760px) {
+/* A full-screen editor driven by touch on phones and tablets: every control is a 44px target
+   (WCAG 2.2 2.5.8 asks 24px; 44px suits a thumb), the close button included. */
+.map-editor .modal-close { width: 44px; height: 44px; }
+.map-editor button, .map-editor select, .map-editor .upload-button,
+.map-editor input:not([type="checkbox"]):not([type="radio"]):not(.sr-only) { min-height: 44px; }
+.wall-canvas-zoom button, .map-editor .map-grid-toolbar button { min-width: 44px; }
+/* The editor body is the scroller here, with no padding below, so the grid footer sticks at its edge. */
+.map-editor .grid-editor-footer { bottom: 0; }
+/* Narrow or portrait screens stack the canvas above the HUD. The canvas keeps most of the height;
+   the HUD is capped and scrolls on its own, so it never pushes the canvas off-screen. */
+@media (max-width: 760px), (orientation: portrait) {
   .map-editor-split { grid-template-columns: 1fr; grid-template-rows: minmax(50dvh, 1fr) auto; }
+  .map-editor-hud { max-height: 36dvh; }
+}
+@media (max-width: 760px) {
   .map-editor .modal-body { padding: var(--space-2); }
 }
 

@@ -24,6 +24,7 @@ Alternatives considered: a `chromeless` modal where the child supplies its own h
 - The side panel narrows from 20 rem to 17 rem and scrolls inside itself.
 - `.map-editor-split` uses `grid-template-rows: minmax(0, 1fr)` so the canvas takes the full height. This is the likely cause of the shrunk map: `height: 100%` on a grid whose parent is a flex child with `min-height: 0` can resolve to the content height. It is confirmed first, by measuring the canvas in the running editor with Playwright, before the fix is chosen.
 - `fit` already letterboxes the map in the canvas; the canvas background is a flat dark colour so the letterbox reads as part of the board.
+- The Grid step shows `GridForm`, whose map canvas was `clamp(12rem, 48dvh, 36rem)` inside a 1120 px column. Inside the editor the step fills the editor's width and height, the canvas takes every row the controls leave (at least 20rem), and the scale and Apply share one footer row, so Apply stays on screen.
 - Under 760 px the layout stacks, with `minmax(50dvh, 1fr)` for the canvas.
 
 ### D3. Shared `MapCanvas`

@@ -59,8 +59,9 @@ export function FogCanvas({ map, grid, fog, mode, onAdd, onRemove, onNotice, bus
       grid={grid}
       mode={mode}
       pan={mode === "pan"}
-      label="Map fog. Drag a rectangle, click out a polygon, or click fog to reveal it; the wheel zooms."
+      label="Map fog. Drag a rectangle, click out a polygon, or click fog to reveal it; the wheel or a pinch zooms, and two fingers pan."
       onMove={(p) => setHover(p)}
+      onCancel={() => setAnchor(null)}
       onSecondary={() => { setCorners([]); setAnchor(null); }}
       onPress={(p) => { if (mode === "rect" && !busy) setAnchor(clamp(p, map)); }}
       onRelease={(p, _event, moved, view) => {

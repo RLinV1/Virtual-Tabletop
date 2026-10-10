@@ -2,11 +2,11 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { toGridDraft } from "../src/pages/gridDraft";
-import { type RoomState, type Wall } from "@vtt/shared";
+import { SAMPLE_TOLERANCE_DEFAULT, type RoomState, type Wall } from "@vtt/shared";
 import { api } from "../src/net/api";
 import { GmPanel } from "../src/pages/GmPanel";
 import { WallSetup } from "../src/pages/mapEditor/WallSetup";
-import { MAP_URL, TOKEN, click, fakeConnection, room, stubMapEditorEnvironment } from "./mapEditorHarness";
+import { MAP_URL, TOKEN, click, fakeConnection, pointer, room, stubMapEditorEnvironment } from "./mapEditorHarness";
 
 // The panels below the map section have nothing to do with the editor.
 vi.mock("../src/panels/CheckpointsPanel", () => ({ CheckpointsPanel: () => null }));
@@ -33,6 +33,38 @@ describe("map editor walls (FR-GM-09, FR-GM-11)", () => {
     render(<WallSetup connection={fake.connection} state={state} token={TOKEN} />);
     return fake;
   };
+
+  it("zooms about the midpoint of a two-finger pinch in any mode, and a pinch adds no wall", async () => {
+    const { commands } = mount();
+    const svg = canvas();
+    expect(svg.getAttribute("viewBox")).toBe("0 0 800 600");
+    // Two fingers 100 px apart about (400, 300) spread to 200 px: zoom doubles about that point.
+    pointer("pointerDown", svg, { x: 350, y: 300 }, { id: 1 });
+    pointer("pointerDown", svg, { x: 450, y: 300 }, { id: 2 });
+    pointer("pointerMove", svg, { x: 300, y: 300 }, { id: 1 });
+    pointer("pointerMove", svg, { x: 500, y: 300 }, { id: 2 });
+    expect(svg.getAttribute("viewBox")).toBe("200 150 400 300");
+    pointer("pointerUp", svg, { x: 300, y: 300 }, { id: 1 });
+    pointer("pointerUp", svg, { x: 500, y: 300 }, { id: 2 });
+    expect(commands).toEqual([]);
+  });
+
+  it("pans on a two-finger drag in Draw mode, then taps still draw", async () => {
+    const { commands } = mount();
+    const svg = canvas();
+    pointer("pointerDown", svg, { x: 350, y: 300 }, { id: 1 });
+    pointer("pointerDown", svg, { x: 450, y: 300 }, { id: 2 });
+    // Both fingers drag 80 px right: the map moves with them, so the view moves left.
+    pointer("pointerMove", svg, { x: 430, y: 300 }, { id: 1 });
+    pointer("pointerMove", svg, { x: 530, y: 300 }, { id: 2 });
+    expect(svg.getAttribute("viewBox")).toBe("-80 0 800 600");
+    pointer("pointerUp", svg, { x: 430, y: 300 }, { id: 1 });
+    pointer("pointerUp", svg, { x: 530, y: 300 }, { id: 2 });
+    expect(commands).toEqual([]);
+    click(svg, { x: 100, y: 100 });
+    click(svg, { x: 200, y: 100 });
+    await waitFor(() => expect(commands).toHaveLength(1));
+  });
 
   it("greys out detection with the reason when the server can't detect, but still draws and erases", async () => {
     vi.spyOn(api.walls, "availability").mockResolvedValue({ available: false, reason: "The vision service is not running." });
@@ -84,7 +116,17 @@ describe("map editor walls (FR-GM-09, FR-GM-11)", () => {
     await waitFor(() => expect((tool("Detect like this") as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(tool("Detect like this"));
     click(canvas(), { x: 321, y: 123 });
-    await waitFor(() => expect(detect).toHaveBeenCalledWith("r1", TOKEN, { x: 321, y: 123 }, expect.any(Number)));
+    await waitFor(() => expect(detect).toHaveBeenCalledWith("r1", TOKEN, { x: 321, y: 123 }, SAMPLE_TOLERANCE_DEFAULT));
+  });
+
+  it("sends the colour range chosen on the slider with the click", async () => {
+    const detect = vi.spyOn(api.walls, "detect").mockResolvedValue({ status: "queued" });
+    mount();
+    await waitFor(() => expect((tool("Detect like this") as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(tool("Detect like this"));
+    fireEvent.change(screen.getByRole("slider"), { target: { value: "18" } });
+    click(canvas(), { x: 321, y: 123 });
+    await waitFor(() => expect(detect).toHaveBeenCalledWith("r1", TOKEN, { x: 321, y: 123 }, 18));
   });
 
   it("shows how many walls a finished detection found and applies them", async () => {

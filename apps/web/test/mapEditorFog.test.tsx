@@ -30,6 +30,19 @@ describe("map editor fog (FR-GM-17)", () => {
     ]));
   });
 
+  it("a second finger cancels a rectangle press, so a pinch fogs nothing", async () => {
+    const { commands } = mount();
+    const svg = canvas();
+    pointer("pointerDown", svg, { x: 100, y: 120 }, { id: 1 });
+    pointer("pointerDown", svg, { x: 300, y: 120 }, { id: 2 });
+    pointer("pointerMove", svg, { x: 50, y: 120 }, { id: 1 });
+    pointer("pointerMove", svg, { x: 350, y: 120 }, { id: 2 });
+    pointer("pointerUp", svg, { x: 50, y: 120 }, { id: 1 });
+    pointer("pointerUp", svg, { x: 350, y: 120 }, { id: 2 });
+    await Promise.resolve();
+    expect(commands).toEqual([]);
+  });
+
   it("sends nothing for a rectangle press that does not move", async () => {
     const { commands } = mount();
     click(canvas(), { x: 100, y: 120 });

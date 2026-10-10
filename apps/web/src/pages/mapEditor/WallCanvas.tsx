@@ -44,7 +44,7 @@ export function WallCanvas({ map, grid, walls, mode, onAdd, onRemove, onSample, 
       grid={grid}
       mode={mode}
       pan={mode === "pan"}
-      label="Map walls. Draw, erase or detect walls with the pointer; the wheel zooms."
+      label="Map walls. Draw, erase or detect walls with the pointer; the wheel or a pinch zooms, and two fingers pan."
       onMove={(p, e, view) => {
         setFree(e.altKey);
         setHover(p && (mode === "draw" ? snap(p, e.altKey, view.px) : p));

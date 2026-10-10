@@ -16,7 +16,7 @@ const HINTS: Record<FogCanvasMode, string> = {
   rect: "Drag to fog a rectangle.",
   polygon: "Click each corner. Click the first corner or press Enter to close it. Esc or right-click drops it.",
   reveal: "Click a fogged region to reveal what it covers.",
-  pan: "Drag to move around. The wheel zooms; Space-drag pans in any tool.",
+  pan: "Drag to move around. The wheel or a pinch zooms; Space-drag or a two-finger drag pans in any tool.",
 };
 
 /**
