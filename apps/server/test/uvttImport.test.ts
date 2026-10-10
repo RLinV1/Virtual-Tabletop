@@ -1,0 +1,159 @@
+import { readFile, readdir } from "node:fs/promises";
+import sharp from "sharp";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_GRID, UvttPreparation, replayTo, type CommandInput } from "@vtt/shared";
+import { MemoryRoomStore } from "../src/store/memoryRoomStore";
+import { startServer, type TestClient, viewFor } from "./helpers";
+
+let store: MemoryRoomStore;
+let server: Awaited<ReturnType<typeof startServer>>;
+const clients: TestClient[] = [];
+beforeEach(async () => { store = new MemoryRoomStore(); server = await startServer(store); });
+afterEach(async () => { clients.splice(0).forEach((c) => c.close()); await server.close(); vi.restoreAllMocks(); });
+const connect = async (creds: Parameters<typeof server.connect>[0]) => { const c = await server.connect(creds); clients.push(c); return c; };
+const ok = async (client: TestClient, command: CommandInput) => { const result = await client.command(command); expect(result.type).toBe("ack"); if (result.type !== "ack") throw new Error(result.message); return result; };
+const url = (roomId: string, suffix = "imports") => `${server.base}/api/rooms/${roomId}/uvtt/${suffix}`;
+async function document(format: "png" | "webp" = "png") {
+  const bytes = await sharp({ create: { width: 400, height: 300, channels: 4, background: "#afafaf" } }).toFormat(format).toBuffer();
+  return { format: 0.3, image: bytes.toString("base64"), resolution: { pixels_per_grid: 50, map_size: { x: 8, y: 6 }, map_origin: { x: -0.25, y: 0.5 } },
+    line_of_sight: [[{ x: -0.25, y: 2.5 }, { x: 7.75, y: 2.5 }]], objects_line_of_sight: [[{ x: 1, y: 4 }, { x: 2, y: 4 }]],
+    portals: [{ bounds: [{ x: 2, y: 2.5 }, { x: 3, y: 2.5 }], position: { x: 1, y: 0 }, rotation: 0.8, closed: false, freestanding: true }],
+  };
+}
+async function upload(roomId: string, token: string, value: unknown = null, filename = "map.dd2vtt") {
+  const body = new FormData(); body.append("file", new Blob([JSON.stringify(value ?? await document())]), filename);
+  return fetch(url(roomId), { method: "POST", headers: { authorization: `Bearer ${token}` }, body });
+}
+const prepared = async (roomId: string, token: string) => { const res = await upload(roomId, token); expect(res.status).toBe(201); return UvttPreparation.parse(await res.json()); };
+
+async function setup() {
+  const creds = await server.createRoom(); const gm = await connect(creds); const gm2 = await connect(creds);
+  const ac = await server.join(creds.inviteCode, "Alice"), bc = await server.join(creds.inviteCode, "Bob");
+  const alice = await connect(ac), bob = await connect(bc);
+  await ok(gm, { type: "scene.setMap", map: { url: "/old.png", width: 800, height: 600 }, grid: { ...DEFAULT_GRID, cellSize: 50 } });
+  await ok(gm, { type: "token.create", name: "Hero", position: { x: 241, y: 161 }, ownerIds: [alice.participantId] });
+  await ok(gm, { type: "token.create", name: "Secret dragon", position: { x: 677.123, y: 533.456 }, hidden: true });
+  await ok(gm, { type: "fog.add", region: { shape: "rect", from: { x: 100, y: 60 }, to: { x: 150, y: 110 } } });
+  await Promise.all([gm2, alice, bob].map((c) => c.waitForSeq(gm.seq)));
+  return { creds, gm, gm2, alice, bob, ac, bc };
+}
+
+describe("private atomic UVTT room import/export (KAN-43/44/49, FR-GM-06/07/12/23)", () => {
+  it("keeps drafts private, uses current tokens, delivers one scene, retries once, undoes exactly and survives reload", async () => {
+    const { creds, gm, gm2, alice, bob, ac, bc } = await setup();
+    const counts = [gm.seq, gm2.rawLog.length, alice.rawLog.length, bob.rawLog.length];
+    const prep = await prepared(creds.roomId, creds.guestToken);
+    expect(gm.seq).toBe(counts[0]); expect([gm2.rawLog.length, alice.rawLog.length, bob.rawLog.length]).toEqual(counts.slice(1));
+    expect(JSON.stringify(prep)).not.toContain('"image"');
+    const hero = Object.values(gm.state.tokens).find((t) => t.name === "Hero")!;
+    await ok(alice, { type: "token.move", tokenId: hero.id, to: { x: 243, y: 163 } });
+    await gm.waitForSeq(alice.seq);
+    const before = structuredClone(gm.state); const oldSeq = gm.seq;
+    const offsets = [alice.rawLog.length, bob.rawLog.length];
+    const ack = await ok(gm2, { type: "scene.importUVTT", importId: prep.id, revision: prep.revision });
+    expect(ack.seq).toBe(oldSeq + 1); await gm.waitForSeq(gm2.seq);
+    const commandId = gm.state.undo.at(-1)!.commandId;
+    for (const [i, player] of [alice, bob].entries()) {
+      await player.waitForSeq(gm.seq);
+      const raw = player.rawLog.slice(offsets[i]).join("\n");
+      for (const secret of [prep.id, "Secret dragon", '"wallChange"', '"portal"', '"previous"', '"tokenChanges"', '"commandId"']) expect(raw).not.toContain(secret);
+      expect(player.state).toEqual(viewFor(gm.state, player)); expect(player.state.walls).toEqual({});
+    }
+    expect(gm.state.tokens[hero.id]?.position).toEqual({ x: 121.5, y: 81.5 });
+    expect(bob.state.tokens[hero.id]).toBeUndefined(); expect(alice.state.tokens[hero.id]).toBeDefined();
+    expect(Object.values(gm.state.walls).find((w) => w.portal)?.portal).toEqual({ closed: false, freestanding: true, rotation: 0.8, position: { x: 62.5, y: -25 } });
+    const retry = await ok(gm, { type: "scene.importUVTT", importId: prep.id, revision: prep.revision });
+    expect(retry.seq).toBe(ack.seq); expect((await store.loadEvents(creds.roomId)).length).toBe(oldSeq + 1);
+    const exported = await fetch(url(creds.roomId, "export"), { headers: { authorization: `Bearer ${creds.guestToken}` } });
+    expect(exported.status).toBe(200); const text = await exported.text();
+    for (const secret of [creds.roomId, hero.id, "Secret dragon", '"tokens"', '"fog"', '"history"', '"url"']) expect(text).not.toContain(secret);
+    const roundTrip = await upload(creds.roomId, creds.guestToken, JSON.parse(text), "map.uvtt");
+    expect(roundTrip.status).toBe(201); const next = UvttPreparation.parse(await roundTrip.json());
+    expect(next.grid).toEqual(prep.grid); expect(next.walls).toEqual(prep.walls);
+    expect(await sharp(await readFile(`${server.uploadDir}/${next.map.url.split("/").at(-1)}`)).raw().toBuffer()).toEqual(await sharp(await readFile(`${server.uploadDir}/${prep.map.url.split("/").at(-1)}`)).raw().toBuffer());
+    await ok(gm, { type: "history.undo", commandId });
+    expect(gm.state.scene).toEqual(before.scene); expect(gm.state.walls).toEqual(before.walls); expect(gm.state.tokens).toEqual(before.tokens);
+    for (const player of [alice, bob]) {
+      await player.waitForSeq(gm.seq); expect(player.state).toEqual(viewFor(gm.state, player));
+      const rawOffset = player.rawLog.length;
+      player.send({ type: "resync" }); await player.waitFor((message) => message.type === "welcome" && message.seq === gm.seq);
+      for (const secret of [prep.id, '"portal"', '"previous"', '"tokenChanges"', '"commandId"', "Secret dragon"]) expect(player.rawLog.slice(rawOffset).join("\n")).not.toContain(secret);
+    }
+    const log = await store.loadEvents(creds.roomId);
+    expect(log.slice(oldSeq).map((e) => e.event.type)).toEqual(["MapSet", "MapSet", "ActionUndone"]);
+    const restart = await startServer(store);
+    try {
+      const reconnected = await restart.connect(creds);
+      expect(reconnected.state).toEqual(replayTo(creds.roomId, log, log.at(-1)!.seq)); reconnected.close();
+      for (const credential of [ac, bc]) {
+        const player = await restart.connect(credential);
+        expect(player.state.walls).toEqual({}); expect(player.state.undo).toEqual([]); player.close();
+      }
+      const restarted = await restart.connect(creds);
+      const missing = await restarted.command({ type: "scene.importUVTT", importId: next.id, revision: next.revision });
+      expect(missing.type).toBe("rejected"); restarted.close();
+    } finally { await restart.close(); }
+  });
+  it("retains rejected drafts, guards baseline/revision, handles append failure and cancellation", async () => {
+    const { creds, gm } = await setup();
+    const prep = await prepared(creds.roomId, creds.guestToken);
+    const revise = (revision: number) => fetch(url(creds.roomId, `imports/${prep.id}`), { method: "PUT", headers: { authorization: `Bearer ${creds.guestToken}`, "content-type": "application/json" }, body: JSON.stringify({ revision, grid: { ...prep.grid, offsetX: 5 }, walls: prep.walls }) });
+    expect((await revise(1)).status).toBe(200); expect((await revise(1)).status).toBe(409);
+    const before = gm.seq;
+    expect((await gm.command({ type: "scene.importUVTT", importId: prep.id, revision: 1 })).type).toBe("rejected");
+    const append = vi.spyOn(store, "append").mockRejectedValueOnce(new Error("persist failed"));
+    expect((await gm.command({ type: "scene.importUVTT", importId: prep.id, revision: 2 })).type).toBe("rejected"); expect(gm.seq).toBe(before);
+    append.mockRestore();
+    await ok(gm, { type: "scene.importUVTT", importId: prep.id, revision: 2 });
+    const stale = await prepared(creds.roomId, creds.guestToken);
+    await ok(gm, { type: "scene.setGrid", grid: { ...gm.state.scene.grid, offsetX: 6 } });
+    const refusal = await gm.command({ type: "scene.importUVTT", importId: stale.id, revision: stale.revision });
+    expect(refusal.type).toBe("rejected"); if (refusal.type === "rejected") expect(refusal.message).toMatch(/changed/);
+    expect((await fetch(url(creds.roomId, `imports/${stale.id}`), { method: "PUT", headers: { authorization: `Bearer ${creds.guestToken}`, "content-type": "application/json" }, body: JSON.stringify({ revision: 1, grid: stale.grid, walls: stale.walls }) })).status).toBe(200);
+    expect((await fetch(url(creds.roomId, `imports/${stale.id}`), { method: "DELETE", headers: { authorization: `Bearer ${creds.guestToken}` } })).status).toBe(204);
+    expect((await gm.command({ type: "scene.importUVTT", importId: stale.id, revision: 2 })).type).toBe("rejected");
+    const files = await readdir(server.uploadDir); expect(files.every((name) => /\.(png|webp)$/.test(name))).toBe(true);
+  });
+  it("rejects players, cross-room credentials, unsupported suffixes and malformed files without scene changes", async () => {
+    const { creds, gm, alice, ac } = await setup();
+    const other = await server.createRoom("Other");
+    const before = gm.seq;
+    expect((await upload(creds.roomId, ac.guestToken)).status).toBe(403);
+    expect((await upload(creds.roomId, other.guestToken)).status).toBe(403);
+    expect((await fetch(url(creds.roomId, "export"), { headers: { authorization: `Bearer ${ac.guestToken}` } })).status).toBe(403);
+    expect((await upload(creds.roomId, creds.guestToken, { format: 2, image: "private" })).status).toBe(422);
+    expect((await upload(creds.roomId, creds.guestToken, null, "malware.txt")).status).toBe(415);
+    const prep = await prepared(creds.roomId, creds.guestToken);
+    expect((await alice.command({ type: "scene.importUVTT", importId: prep.id, revision: 1 })).type).toBe("rejected");
+    const otherGm = await connect(other);
+    expect((await otherGm.command({ type: "scene.importUVTT", importId: prep.id, revision: 1 })).type).toBe("rejected");
+    expect((await fetch(url(other.roomId, `imports/${prep.id}`), { method: "DELETE", headers: { authorization: `Bearer ${other.guestToken}` } })).status).toBe(404);
+    expect(gm.seq).toBe(before); expect(alice.state.walls).toEqual({});
+  });
+  it("checks expired bound sessions before consuming a multipart body", async () => {
+    const creds = await server.createRoom();
+    await store.deleteSession((await store.findCredential((await import("../src/domain/credentials")).hashToken(creds.guestToken)))!.sessionHash!);
+    const res = await fetch(url(creds.roomId), { method: "POST", headers: { authorization: `Bearer ${creds.guestToken}`, "content-type": "multipart/form-data; boundary=invalid" }, body: "not multipart" });
+    expect(res.status).toBe(403);
+  });
+  it("keeps the general JSON limit and supports large draft geometry within the dedicated limit", async () => {
+    const creds = await server.createRoom(); const prep = await prepared(creds.roomId, creds.guestToken);
+    const walls = Array.from({ length: 1500 }, (_, i) => ({ a: { x: i % 399, y: 0 }, b: { x: i % 399 + 1, y: 100 }, source: "objects_line_of_sight", portal: { position: { x: 20, y: 30 }, rotation: 1, closed: false, freestanding: true } }));
+    const body = JSON.stringify({ revision: 1, grid: prep.grid, walls }); expect(body.length).toBeGreaterThan(65536);
+    expect((await fetch(url(creds.roomId, `imports/${prep.id}`), { method: "PUT", headers: { authorization: `Bearer ${creds.guestToken}`, "content-type": "application/json" }, body })).status).toBe(200);
+    expect((await fetch(`${server.base}/api/rooms`, { method: "POST", headers: { "content-type": "application/json" }, body })).status).toBe(413);
+    const malformed = await fetch(url(creds.roomId, `imports/${prep.id}`), { method: "PUT", headers: { authorization: `Bearer ${creds.guestToken}`, "content-type": "application/json" }, body: '{"private":"do not echo"' });
+    expect(malformed.status).toBe(400); expect(await malformed.text()).not.toContain("do not echo");
+    const oversized = await fetch(url(creds.roomId, `imports/${prep.id}`), { method: "PUT", headers: { authorization: `Bearer ${creds.guestToken}`, "content-type": "application/json" }, body: JSON.stringify({ private: "x".repeat(1024 * 1024) }) });
+    expect(oversized.status).toBe(413); expect((await oversized.text()).length).toBeLessThan(200);
+  });
+  it("caps multipart uploads and rate-limits authorized preparation attempts", async () => {
+    const creds = await server.createRoom();
+    const body = new FormData(); body.append("file", new Blob([new Uint8Array(40 * 1024 * 1024 + 1)]), "large.uvtt");
+    expect((await fetch(url(creds.roomId), { method: "POST", headers: { authorization: `Bearer ${creds.guestToken}` }, body })).status).toBe(413);
+    for (let i = 0; i < 4; i++) expect((await upload(creds.roomId, creds.guestToken, { format: 2 })).status).toBe(422);
+    const limited = await upload(creds.roomId, creds.guestToken, { format: 2 });
+    expect(limited.status).toBe(429); expect(Number(limited.headers.get("retry-after"))).toBeGreaterThan(0);
+    expect(await readdir(server.uploadDir).catch(() => [])).toEqual([]);
+  });
+});

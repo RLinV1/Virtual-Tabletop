@@ -61,6 +61,24 @@ describe.skipIf(!store)("PostgresRoomStore (docs/adr/0001-event-model.md)", () =
     // The whole append is one transaction, so the losing writer leaves no partial rows.
     expect((await store!.loadEvents(roomId)).map((e) => e.seq)).toEqual([1]);
   });
+  it("preserves full double precision across JSON payload writes and reads for exact undo", async () => {
+    const roomId = await newRoom();
+    const event = { type: "MapSet" as const, map: { url: "/map.png", width: 100, height: 100 }, previous: null,
+      wallChange: { previous: [], walls: [{ id: randomUUID(), a: { x: 15.000000000000002, y: 0.6000000000000001 }, b: { x: 70, y: 100 }, portal: { position: { x: 32.50000000000001, y: 15.000000000000002 }, rotation: 1.2000000000000002, closed: false } }] },
+    };
+    const [committed] = await store!.append(roomId, 0, [{ actorId: null, event }]);
+    expect((await store!.loadEvents(roomId))[0]?.event).toEqual(committed!.event);
+  });
+  it("keeps conflicting concurrent appends atomic with parameterized JSON inserts", async () => {
+    const roomId = await newRoom();
+    const results = await Promise.allSettled([1, 2].map((n) => store!.append(roomId, 0, [
+      { actorId: null, event: { type: "RoomCreated", name: `Writer ${n}` } },
+      { actorId: null, event: { type: "RoomCreated", name: `Writer ${n}, second` } },
+    ])));
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(results.find((r) => r.status === "rejected")).toMatchObject({ status: "rejected", reason: expect.any(SeqConflictError) });
+    expect((await store!.loadEvents(roomId)).map((e) => e.seq)).toEqual([1, 2]);
+  });
 
   it("resolves a credential by hash and treats a revoked one as absent (FR-GM-20)", async () => {
     const roomId = await newRoom();
