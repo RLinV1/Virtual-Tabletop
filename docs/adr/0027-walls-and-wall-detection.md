@@ -1,6 +1,6 @@
 # ADR 0027 — Walls and automatic wall detection
 
-**Status:** Proposed — needs review by the Real-Time Architecture owner · **Extends:** `docs/adr/0001-event-model.md`, `docs/adr/0013-undo.md`, `docs/adr/0019-checkpoints.md`, `docs/adr/0026-grid-detection-http-contract.md`
+**Status:** Accepted — reviewed by the Real-Time Architecture owner (Raymond), 2026-10-10 · **Extends:** `docs/adr/0001-event-model.md`, `docs/adr/0013-undo.md`, `docs/adr/0019-checkpoints.md`, `docs/adr/0026-grid-detection-http-contract.md`
 **Change:** `openspec/changes/auto-wall-detection` · **Requirements:** FR-GM-11, the wall data model of FR-GM-09
 
 ## Context
