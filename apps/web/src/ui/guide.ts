@@ -88,8 +88,8 @@ const STEPS: StepSpec[] = [
     title: "Activity log",
     body: { gm: "Everything that has happened in the room, move by move and roll by roll." },
   },
-  { target: "gm-map", title: "Battle map", body: { gm: "Upload a map image, or place one from your library." } },
-  { target: "gm-grid", title: "Grid", body: { gm: "Line the grid up with the squares drawn on your map, so tokens snap to the right cells." } },
+  { target: "gm-map", title: "Battle map", body: { gm: "Your map, its grid and its walls." } },
+  { target: "gm-grid", title: "Edit map", body: { gm: "Opens the map editor: upload or choose a map, line its grid up with the squares, then detect or draw its walls." } },
   {
     target: "rulings",
     title: "Rulings",

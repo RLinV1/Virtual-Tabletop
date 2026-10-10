@@ -6,9 +6,9 @@
 
 ## 2. Editor
 
-- [ ] 2.1 Build `pages/mapEditor/MapEditor.tsx`: the full-screen modal, step tabs, and the Map and Grid steps, moving MapSection's draft state in unchanged; verify typecheck and in the running app.
-- [ ] 2.2 Build `WallCanvas.tsx` (SVG map, walls, camera, Draw, Erase, Detect like this, Pan) and `WallSetup.tsx` (canvas, side panel with detection status, preview, Apply, Clear and availability); verify in the running app.
-- [ ] 2.3 Replace Manage › Battle map with the summary and Edit map, and remove the Walls section; update `guide.ts`; verify the guide test.
+- [x] 2.1 Build `pages/mapEditor/MapEditor.tsx`: the full-screen modal, step tabs, and the Map and Grid steps, moving MapSection's draft state in unchanged; verify typecheck and in the running app.
+- [x] 2.2 Build `WallCanvas.tsx` (SVG map, walls, camera, Draw, Erase, Detect like this, Pan) and `WallSetup.tsx` (canvas, side panel with detection status, preview, Apply, Clear and availability); verify in the running app.
+- [x] 2.3 Replace Manage › Battle map with the summary and Edit map, and remove the Walls section; update `guide.ts`; verify the guide test.
 
 ## 3. Board
 

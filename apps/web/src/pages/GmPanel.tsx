@@ -9,12 +9,12 @@ import { Modal } from "../ui/Modal";
 import { CheckpointsPanel } from "../panels/CheckpointsPanel";
 import { EncounterPanel } from "../panels/EncounterPanel";
 import { FogPanel } from "../panels/FogPanel";
-import { WallsPanel } from "../panels/WallsPanel";
 import { PanelSection } from "../ui/PanelSection";
 import { withGridSuggestion, type GridDraft } from "./gridDraft";
 import { GridForm } from "./GridForm";
 import { LibraryPicker } from "./LibraryPicker";
 import { useGridDetection } from "./useGridDetection";
+import { WallSetup } from "./mapEditor/WallSetup";
 import { prepCommand, prepDirty, startPrep, type MapPrep } from "./mapPrep";
 
 interface Props {
@@ -59,7 +59,10 @@ export function GmPanel({
         onSetMap={(map, grid, report) => runWith(report)(connection.command({ type: "scene.setMap", map, grid }))}
         onGridClose={onGridDraftCancel}
         mapUrl={state.scene.map?.url ?? null}
+        map={state.scene.map}
+        wallCount={Object.keys(state.walls).length}
         gridApplying={gridApplying}
+        walls={() => <WallSetup connection={connection} state={state} token={token} />}
         grid={(close) => (
           <RoomGridEditor
             key={state.scene.map?.url ?? "no-map"}
@@ -83,7 +86,6 @@ export function GmPanel({
         )}
       />
       <FogPanel connection={connection} state={state} />
-      <WallsPanel connection={connection} state={state} token={token} />
       <CheckpointsPanel connection={connection} state={state} />
       <EncounterPanel connection={connection} state={state} />
     </>
@@ -133,8 +135,16 @@ function DepartedPlayers({ state, onReview }: { state: RoomState; onReview: (par
   );
 }
 
+type EditorStep = "map" | "grid" | "walls";
+const STEPS: { key: EditorStep; label: string }[] = [
+  { key: "map", label: "1 · Map" },
+  { key: "grid", label: "2 · Grid" },
+  { key: "walls", label: "3 · Walls" },
+];
+
 /**
- * Set the battle map from a fresh upload or the GM's library (asset-library). A new map is
+ * Battle map setup (map-editor). The Manage tab shows a summary and Edit map, which opens a
+ * full-screen editor with its own HUD: Map (upload or library), Grid, and Walls. A new map is
  * prepared privately first (KAN-59): the image and its grid are a draft in this browser until
  * Apply map sends them as one command, so the table never sees a half-aligned scene.
  */
@@ -147,25 +157,24 @@ function MapSection(props: {
   onError: (message: string | null) => void;
   onGridClose: () => void;
   mapUrl: string | null;
+  map: MapImage | null;
+  wallCount: number;
   gridApplying: boolean;
-  /** The live map's grid form, shown in its own modal; `close` dismisses it after a successful apply. */
+  /** The live map's grid form; `close` is called after a successful apply or a cancel. */
   grid: (close: () => void) => ReactNode;
+  /** The Walls step: the wall canvas and its HUD. */
+  walls: () => ReactNode;
 }) {
   const [busy, setBusy] = useState(false);
   const [picking, setPicking] = useState(false);
   const [pickError, setPickError] = useState<string | null>(null);
-  const [gridOpen, setGridOpen] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [step, setStep] = useState<EditorStep>("map");
   /** The map being prepared, or null. Only this browser has it until Apply. */
   const [prep, setPrep] = useState<MapPrep | null>(null);
   const [prepError, setPrepError] = useState<string | null>(null);
   const [applyingMap, setApplyingMap] = useState(false);
   const uploadRef = useRef<HTMLInputElement>(null);
-  const libraryRef = useRef<HTMLButtonElement>(null);
-  /**
-   * The control that started the draft, for focus to return to. Tracked by hand: the upload
-   * input is disabled while it uploads, which drops focus before the dialog can note an opener.
-   */
-  const prepOpener = useRef<HTMLElement | null>(null);
   /** Bumped when a library map is picked, so an upload still in flight can't replace that draft. */
   const prepGeneration = useRef(0);
   /** Asking "Discard changes?" before throwing away an edited draft. */
@@ -175,11 +184,16 @@ function MapSection(props: {
     setPrep(null);
     setPrepError(null);
   };
-  /** Every way out of the overlay comes here: an edited draft asks first. */
-  const requestClosePrep = () => {
-    if (applyingMap) return;
+  const closeEditor = () => {
+    discardPrep();
+    setEditorOpen(false);
+    props.onGridClose();
+  };
+  /** Every way out of the editor comes here: an edited draft asks first. */
+  const requestClose = () => {
+    if (applyingMap || props.gridApplying) return;
     if (prep && prepDirty(prep)) setConfirmDiscard(true);
-    else discardPrep();
+    else closeEditor();
   };
   const applyPrep = async () => {
     if (!prep || applyingMap) return;
@@ -187,34 +201,23 @@ function MapSection(props: {
     if (!command) return setPrepError("Fix the grid before applying the map.");
     setApplyingMap(true);
     try {
-      // One command: the map and its grid reach the table together (ADR 0004).
-      if (await props.onSetMap(command.map, command.grid, setPrepError)) discardPrep();
+      // One command: the map and its grid reach the table together (ADR 0004). Walls come next.
+      if (await props.onSetMap(command.map, command.grid, setPrepError)) {
+        discardPrep();
+        setStep("walls");
+      }
     } finally {
       setApplyingMap(false);
     }
   };
-  const gridOpenRef = useRef(false);
-  useEffect(() => { gridOpenRef.current = gridOpen; }, [gridOpen]);
+  // A grid being edited belongs to the map it was edited for.
   const previousMap = useRef(props.mapUrl);
   useEffect(() => {
     if (previousMap.current !== props.mapUrl) {
       previousMap.current = props.mapUrl;
-      if (gridOpenRef.current) {
-        gridOpenRef.current = false;
-        setGridOpen(false);
-        props.onGridClose();
-      }
+      props.onGridClose();
     }
   }, [props.mapUrl, props.onGridClose]);
-  // A compact-layout switch can unmount the editor without a dialog close event.
-  useEffect(() => () => {
-    if (gridOpenRef.current) props.onGridClose();
-  }, [props.onGridClose]);
-  const closeGrid = () => {
-    gridOpenRef.current = false;
-    setGridOpen(false);
-    props.onGridClose();
-  };
 
   async function onChange(file: File | undefined) {
     if (!file) return;
@@ -228,10 +231,10 @@ function MapSection(props: {
       if (generation !== prepGeneration.current) return;
       // Nothing is sent yet: the upload becomes a private draft (KAN-59).
       props.onError(null);
-      prepOpener.current = uploadRef.current;
       setPrep(startPrep({ url, width, height }, undefined, props.currentGrid));
+      setStep("grid");
     } catch (err) {
-      props.onError(err instanceof Error ? err.message : "Upload failed");
+      setPrepError(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setBusy(false);
     }
@@ -244,40 +247,106 @@ function MapSection(props: {
     setPicking(false);
     setPickError(null);
     prepGeneration.current++;
-    prepOpener.current = libraryRef.current;
     setPrep(startPrep(map, asset.grid, props.currentGrid));
+    setStep("grid");
   };
 
+  const shown = prep?.map ?? props.map;
   return (
     <PanelSection id="gm-map" title="Battle map">
-      <div className="row button-row">
-        <label className="upload-button secondary">
-          <span>{busy ? "Uploading…" : "Upload map"}</span>
-          <input
-            ref={uploadRef}
-            type="file"
-            className="sr-only"
-            accept="image/png,image/jpeg,image/webp"
-            disabled={busy}
-            aria-label="Upload battle map"
-            onChange={(e) => {
-              void onChange(e.target.files?.[0]);
-              // Cleared, so picking the same file again (after cancelling its draft) still fires.
-              e.target.value = "";
-            }}
-          />
-        </label>
-        {props.hasLibrary && (
-          <button ref={libraryRef} type="button" className="secondary" disabled={busy} onClick={() => setPicking(true)}>
-            From library
-          </button>
-        )}
-        <button type="button" className="secondary" data-tour="gm-grid" disabled={props.gridApplying} onClick={() => {
-          setGridOpen(true);
+      <div className="stack">
+        <p className="muted">
+          {props.map
+            ? `${props.map.width} × ${props.map.height} px · ${props.wallCount} ${props.wallCount === 1 ? "wall" : "walls"}`
+            : "No map yet."}
+        </p>
+        <button type="button" data-tour="gm-grid" onClick={() => {
+          setStep(props.map ? "grid" : "map");
+          setEditorOpen(true);
         }}>
-          {props.gridApplying ? "Applying grid…" : "Adjust grid"}
+          Edit map
         </button>
       </div>
+      <Modal open={editorOpen} title="Edit map" className="map-editor" onClose={requestClose}>
+        <div className="map-editor-shell">
+          <nav className="map-editor-steps" role="tablist" aria-label="Map setup steps">
+            {STEPS.map(({ key, label }) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={step === key}
+                className="map-editor-step"
+                onClick={() => setStep(key)}
+              >
+                {label}
+              </button>
+            ))}
+            {prep && <span className="map-editor-draft">Draft map: only you see it until Apply map</span>}
+          </nav>
+          <div className="map-editor-body" role="tabpanel">
+            {step === "map" && (
+              <div className="map-editor-split">
+                <div className="map-editor-stage">
+                  {shown?.url ? <img className="map-editor-thumb" src={shown.url} alt="The current battle map" /> : <p className="map-editor-empty">No map yet. Upload one, or choose one from your library.</p>}
+                </div>
+                <aside className="map-editor-hud" aria-label="Map">
+                  <h3 className="map-editor-heading">Battle map</h3>
+                  <p className="muted">Upload a map image, or place one from your library. It stays private until you apply it with its grid.</p>
+                  <label className="upload-button">
+                    <span>{busy ? "Uploading…" : "Upload map"}</span>
+                    <input
+                      ref={uploadRef}
+                      type="file"
+                      className="sr-only"
+                      accept="image/png,image/jpeg,image/webp"
+                      disabled={busy}
+                      aria-label="Upload battle map"
+                      onChange={(e) => {
+                        void onChange(e.target.files?.[0]);
+                        // Cleared, so picking the same file again (after cancelling its draft) still fires.
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                  {props.hasLibrary && (
+                    <button type="button" className="secondary" disabled={busy} onClick={() => setPicking(true)}>
+                      From library
+                    </button>
+                  )}
+                  {prepError && !prep && <p role="alert" className="error">{prepError}</p>}
+                </aside>
+              </div>
+            )}
+            {step === "grid" && (prep ? (
+              <div className="map-editor-grid">
+                <GridForm
+                  key={prep.map.url}
+                  grid={prep.initial}
+                  map={prep.map}
+                  draft={prep.draft}
+                  hasDraft={prepDirty(prep)}
+                  onChange={(draft) => setPrep((now) => (now ? { ...now, draft } : now))}
+                  onCancel={requestClose}
+                  onApply={applyPrep}
+                  applying={applyingMap}
+                  error={prepError}
+                  submitLabel="Apply map"
+                  busyLabel="Applying map…"
+                  allowUnchanged
+                />
+              </div>
+            ) : props.map ? (
+              <div className="map-editor-grid">{props.grid(() => props.onGridClose())}</div>
+            ) : (
+              <p className="map-editor-empty">Choose a map in the Map step first.</p>
+            ))}
+            {step === "walls" && (prep
+              ? <p className="map-editor-empty">Apply the draft map in the Grid step first, then set up its walls here.</p>
+              : props.walls())}
+          </div>
+        </div>
+      </Modal>
       {props.hasLibrary && (
         <Modal
           open={picking}
@@ -291,47 +360,14 @@ function MapSection(props: {
           {pickError && <p role="alert" className="error">{pickError}</p>}
         </Modal>
       )}
-      <Modal
-        open={prep !== null}
-        title="Prepare map"
-        className="prep-sheet"
-        onClose={requestClosePrep}
-        onAfterClose={() => prepOpener.current?.focus()}
-      >
-        {prep && (
-          <>
-            <p className="muted">Only you can see this map until you apply it. Line up the grid, then apply.</p>
-            <GridForm
-              key={prep.map.url}
-              grid={prep.initial}
-              map={prep.map}
-              draft={prep.draft}
-              hasDraft={prepDirty(prep)}
-              onChange={(draft) => setPrep((now) => (now ? { ...now, draft } : now))}
-              onCancel={requestClosePrep}
-              onApply={applyPrep}
-              applying={applyingMap}
-              error={prepError}
-              submitLabel="Apply map"
-              busyLabel="Applying map…"
-              allowUnchanged
-            />
-          </>
-        )}
-      </Modal>
       <Modal open={confirmDiscard} title="Discard this map?" onClose={() => setConfirmDiscard(false)}>
         <div className="stack">
           <p>You changed the grid for this map. Discard the map and your changes? The table still has its current map.</p>
           <div className="row button-row">
-            <button type="button" onClick={discardPrep}>Discard</button>
+            <button type="button" onClick={closeEditor}>Discard</button>
             <button type="button" className="secondary" onClick={() => setConfirmDiscard(false)}>Keep editing</button>
           </div>
         </div>
-      </Modal>
-      <Modal open={gridOpen} title="Edit grid" className="grid-editor-modal" onClose={() => {
-        if (!props.gridApplying) closeGrid();
-      }}>
-        {props.grid(closeGrid)}
       </Modal>
     </PanelSection>
   );

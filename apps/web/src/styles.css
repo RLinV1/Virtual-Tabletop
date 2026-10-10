@@ -2282,3 +2282,53 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 @media (prefers-reduced-motion: no-preference) {
   .board-refusal { animation: modal-in 0.16s ease-out; }
 }
+
+/* The full-screen map editor (map-editor): its own HUD over the room, steps Map · Grid · Walls. */
+dialog.modal.map-editor {
+  width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; border-radius: 0;
+  padding: 0; inset: 0;
+}
+.map-editor .modal-body {
+  height: 100dvh; max-height: none; box-sizing: border-box; display: flex; flex-direction: column;
+  gap: var(--space-2); padding: var(--space-3) var(--space-4);
+}
+.map-editor-shell { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.map-editor-steps { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.map-editor-step {
+  min-height: 40px; padding: 0.35rem 0.9rem; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--raised); color: var(--text);
+}
+.map-editor-step[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.map-editor-draft { margin-left: auto; font-size: var(--fs-sm); color: var(--warn); }
+.map-editor-body { flex: 1; min-height: 0; overflow: auto; }
+.map-editor-split { height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 20rem; gap: var(--space-3); }
+.map-editor-stage {
+  min-height: 0; display: flex; align-items: center; justify-content: center;
+  background: var(--raised); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
+}
+.map-editor-thumb { max-width: 100%; max-height: 100%; object-fit: contain; }
+.map-editor-hud {
+  min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: var(--space-3);
+  padding: var(--space-3); background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.map-editor-heading { margin: 0; font-size: var(--fs-md); }
+.map-editor-empty { margin: var(--space-4) auto; max-width: 32rem; text-align: center; color: var(--muted); }
+.map-editor-grid { max-width: 1120px; margin: 0 auto; }
+.map-editor-modes { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+.map-editor-mode { display: inline-flex; align-items: center; justify-content: flex-start; gap: var(--space-2); min-height: 44px; padding: 0.35rem 0.6rem; }
+.map-editor-mode[aria-checked="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.map-editor-mode:disabled { opacity: 0.45; cursor: not-allowed; }
+.map-editor-count { margin: 0; font-size: var(--fs-sm); }
+/* Detection the server can't run: shown, but greyed out with its reason (map-editor D4). */
+.map-editor-unavailable { opacity: 0.6; }
+.wall-canvas { position: relative; min-height: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: #0d0f12; }
+.wall-canvas-svg { display: block; width: 100%; height: 100%; touch-action: none; outline: none; }
+.wall-canvas-svg:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.wall-canvas-svg.mode-draw, .wall-canvas-svg.mode-sample { cursor: crosshair; }
+.wall-canvas-svg.mode-erase { cursor: pointer; }
+.wall-canvas-svg.mode-pan { cursor: grab; }
+.wall-canvas-zoom { position: absolute; right: var(--space-2); top: var(--space-2); display: flex; gap: var(--space-1); }
+@media (max-width: 760px) {
+  .map-editor-split { grid-template-columns: 1fr; grid-template-rows: minmax(16rem, 1fr) auto; }
+  .map-editor .modal-body { padding: var(--space-2); }
+}
