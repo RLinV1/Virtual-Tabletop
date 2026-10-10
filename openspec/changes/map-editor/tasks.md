@@ -2,7 +2,7 @@
 
 ## 1. Availability
 
-- [ ] 1.1 Add `WallDetectionAvailability` to `packages/shared/src/wallDetection.ts`, `WallDetections.availability()` (no queue, or no workers: unavailable; 10 s cache) and `GET /api/wall-detection/availability`; verify with integration tests for a queue with workers, a queue without workers, and no queue.
+- [x] 1.1 Add `WallDetectionAvailability` to `packages/shared/src/wallDetection.ts`, `WallDetections.availability()` (no queue, or no workers: unavailable; 10 s cache) and `GET /api/wall-detection/availability`; verify with integration tests for a queue with workers, a queue without workers, and no queue.
 
 ## 2. Editor
 

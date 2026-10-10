@@ -13,6 +13,10 @@ const WALL = { a: { x: 140, y: 0 }, b: { x: 140, y: 700 } };
 /** Plays the Python worker's part: records jobs, and emits queue events when told to. */
 class StandInQueue implements WallJobQueue {
   jobs = new Map<string, WallJobData>();
+  alive = true;
+  async workerAlive() {
+    return this.alive;
+  }
   removed: string[] = [];
   private handler: (event: WallJobEvent) => void = () => {};
   async add(jobId: string, data: WallJobData) {
@@ -199,5 +203,19 @@ describe("automatic wall detection through the queue (FR-GM-11, ADR 0025)", () =
     const { room } = await roomWithMap(null);
     const res = await api(room.guestToken, `/api/rooms/${room.roomId}/wall-detection`, { method: "POST" });
     expect(res.status).toBe(503);
+    const availability = await fetch(`${server.base}/api/wall-detection/availability`);
+    expect(await availability.json()).toEqual({ available: false, reason: "Wall detection isn't set up on this server." });
+  });
+
+  it("reports detection available only while a worker checks in (map-editor)", async () => {
+    const queue = new StandInQueue();
+    server = await startServer(undefined, { wallQueue: queue });
+    expect(await (await fetch(`${server.base}/api/wall-detection/availability`)).json()).toEqual({ available: true });
+    const down = new StandInQueue();
+    down.alive = false;
+    await server.close();
+    server = await startServer(undefined, { wallQueue: down });
+    expect(await (await fetch(`${server.base}/api/wall-detection/availability`)).json())
+      .toEqual({ available: false, reason: "The wall detection service isn't running." });
   });
 });

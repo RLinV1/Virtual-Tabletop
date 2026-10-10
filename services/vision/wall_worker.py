@@ -17,10 +17,16 @@ import signal
 import time
 
 from bullmq import Worker
+import redis.asyncio as aioredis
 
 from walls import MAX_BYTES, analyze
 
 QUEUE = "wall-detection"
+# The app server reads this key to know a worker is up (map-editor D4); it must match
+# WALL_WORKER_HEARTBEAT in apps/server/src/domain/wallDetection.ts.
+HEARTBEAT_KEY = "vtt:wall-worker:heartbeat"
+HEARTBEAT_EVERY_S = 10
+HEARTBEAT_TTL_S = 30
 
 
 async def process(job, _token=None) -> dict:
@@ -57,12 +63,26 @@ async def main() -> None:
         raise SystemExit("REDIS_URL is required: the wall worker consumes a BullMQ queue")
     concurrency = int(os.environ.get("WALL_WORKER_CONCURRENCY", "2"))
     worker = Worker(QUEUE, process, {"connection": url, "concurrency": concurrency, "lockDuration": 60_000})
+    heartbeat = aioredis.from_url(url)
+
+    async def beat():
+        while True:
+            try:
+                await heartbeat.set(HEARTBEAT_KEY, "1", ex=HEARTBEAT_TTL_S)
+            except Exception:  # Redis briefly away: the key expires and detection reads as unavailable.
+                pass
+            await asyncio.sleep(HEARTBEAT_EVERY_S)
+
+    beating = asyncio.create_task(beat())
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, stop.set)
     print(f"[vision] wall worker consuming '{QUEUE}'", flush=True)
     await stop.wait()
+    beating.cancel()
+    await heartbeat.delete(HEARTBEAT_KEY)
+    await heartbeat.aclose()
     await worker.close()
 
 

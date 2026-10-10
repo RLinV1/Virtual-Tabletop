@@ -233,6 +233,12 @@ export function registerRoutes(
    */
   const MapQuery = z.object({ map: z.string().min(1).max(2048) });
 
+  /** Whether wall detection can run (map-editor D4). Names no room, so it needs no credential. */
+  app.get("/api/wall-detection/availability", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void walls.availability().then((value) => res.json(value)).catch(internalError(req, res));
+  });
+
   app.post("/api/rooms/:roomId/wall-detection", (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     void (async () => {

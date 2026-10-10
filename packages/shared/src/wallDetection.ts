@@ -46,6 +46,14 @@ export const WallDetectionRequest = z.object({
 }).strict();
 export type WallDetectionRequest = z.infer<typeof WallDetectionRequest>;
 
+/** Whether this server can detect walls right now (map-editor): a queue and a running worker. */
+export const WallDetectionAvailability = z.object({
+  available: z.boolean(),
+  /** Why not, in words for the GM. */
+  reason: z.string().max(200).optional(),
+});
+export type WallDetectionAvailability = z.infer<typeof WallDetectionAvailability>;
+
 /** The GM's view of the latest analysis of one map (ADR 0025). Never sent to players. */
 export const WallDetectionStatus = z.discriminatedUnion("status", [
   z.object({ status: z.literal("queued") }),

@@ -6,6 +6,7 @@ import {
   wallsFitMap,
   type DetectedWall,
   type MapImage,
+  type WallDetectionAvailability,
   type WallDetectionStatus,
 } from "@vtt/shared";
 import type { AssetStore } from "../store/assetStore";
@@ -44,6 +45,8 @@ export type WallJobEvent =
 /** The transport: BullMQ in production, a stand-in in tests (no Redis or Python in CI). */
 export interface WallJobQueue {
   add(jobId: string, data: WallJobData): Promise<void>;
+  /** Whether a vision worker has checked in recently (its heartbeat key, map-editor D4). */
+  workerAlive(): Promise<boolean>;
   remove(jobId: string): Promise<void>;
   onEvent(handler: (event: WallJobEvent) => void): void;
   close(): Promise<void>;
@@ -63,6 +66,11 @@ interface Entry {
 }
 
 export type StartResult = "queued" | "busy" | "unavailable" | "unreadable";
+
+/** Key the Python worker refreshes while it runs; must match HEARTBEAT_KEY in wall_worker.py. */
+export const WALL_WORKER_HEARTBEAT = "vtt:wall-worker:heartbeat";
+/** How long an availability answer is reused. */
+const AVAILABILITY_TTL_MS = 10_000;
 
 /** The object key behind a map this server stored (`/uploads/<key>`), or null for any other address. */
 export function uploadKey(url: string): string | null {
@@ -86,6 +94,20 @@ export class WallDetections {
   /** False without Redis: the routes answer 503 and uploads skip detection. */
   get available() {
     return this.queue !== null;
+  }
+
+  private availabilityCache: { at: number; value: WallDetectionAvailability } | null = null;
+
+  /** Whether detection can run now: a queue, and a worker that has checked in (map-editor D4). */
+  async availability(now = Date.now()): Promise<WallDetectionAvailability> {
+    if (!this.queue) return { available: false, reason: "Wall detection isn't set up on this server." };
+    if (this.availabilityCache && now - this.availabilityCache.at < AVAILABILITY_TTL_MS) return this.availabilityCache.value;
+    const alive = await this.queue.workerAlive().catch(() => false);
+    const value: WallDetectionAvailability = alive
+      ? { available: true }
+      : { available: false, reason: "The wall detection service isn't running." };
+    this.availabilityCache = { at: now, value };
+    return value;
   }
 
   /** Queues an analysis of this room's map. Refuses while one for the same map is still running. */
@@ -259,6 +281,7 @@ export function bullmqWallQueue(redisUrl: string): WallJobQueue {
     remove: async (jobId) => {
       await queue.remove(jobId);
     },
+    workerAlive: async () => (await (await queue.client).get(WALL_WORKER_HEARTBEAT)) !== null,
     onEvent: (handler) => {
       events.on("active", ({ jobId }) => handler({ jobId, kind: "active" }));
       events.on("completed", ({ jobId, returnvalue }) => handler({ jobId, kind: "completed", returnvalue }));
