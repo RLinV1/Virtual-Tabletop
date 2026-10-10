@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowClockwise, ArrowCounterClockwise, ClockCounterClockwise } from "@phosphor-icons/react";
+import { ArrowClockwise, ArrowCounterClockwise } from "@phosphor-icons/react";
 import { describeUndo, undoableAction, type HistoryResponse, type RoomState } from "@vtt/shared";
 import { api } from "../net/api";
 import type { RoomConnection } from "../net/roomConnection";
@@ -18,17 +18,12 @@ interface Props {
  * Mounted only for the GM. The endpoint independently enforces room membership/role.
  * Undo lives here, on the entry it reverses, so the GM always sees what they are undoing.
  */
-export function ActivityLog({ roomId, token, seq, state, connection }: Props) {
-  const [open, setOpen] = useState(false);
-  return <>
-    <button type="button" className="tool-button" data-tour="activity-log" onClick={() => setOpen(true)}>
-      <ClockCounterClockwise size={16} aria-hidden="true" />
-      Activity log
-    </button>
-    <Modal open={open} title="Activity log" onClose={() => setOpen(false)}>
-      {open && <History key={roomId} roomId={roomId} token={token} seq={seq} state={state} connection={connection} />}
+export function ActivityLog({ open, onClose, ...props }: Props & { open: boolean; onClose: () => void }) {
+  return (
+    <Modal open={open} title="Activity log" onClose={onClose}>
+      {open && <History key={props.roomId} {...props} />}
     </Modal>
-  </>;
+  );
 }
 
 /** The log itself: search, paging, and an Undo button on each action that can still be undone. */

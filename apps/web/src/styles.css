@@ -269,6 +269,9 @@ a.tool-button { text-decoration: none; }
 }
 .popover-left { left: 0; }
 .popover-right { right: 0; }
+/* The room bar's More menu: one full-width item per row. */
+.room-menu { display: flex; flex-direction: column; gap: var(--space-1); }
+.room-menu .tool-button { justify-content: flex-start; white-space: nowrap; }
 .participant-list li {
   display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3);
   padding: 0.3rem 0; font-size: var(--fs-md);
