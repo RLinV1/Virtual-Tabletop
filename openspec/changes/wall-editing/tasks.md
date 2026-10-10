@@ -16,11 +16,11 @@
 ## 4. Web
 
 - [x] 4.1 Add the Walls tool and its modes to `tools.ts` and `ToolRail.tsx` (GM only); verify typecheck.
-- [ ] 4.2 Board: chain drawing with snapping and a live preview, erase by click, and sample click through `onDetectWalls`; keyboard: Enter or Escape ends a chain; verify in the running app.
-- [ ] 4.3 Add `api.walls.detect(…, sample)`, `RoomPage` wiring, and hint text in the Walls panel; verify in the running app.
+- [x] 4.2 Board: chain drawing with snapping and a live preview, erase by click, and sample click through `onDetectWalls`; keyboard: Enter or Escape ends a chain; verify in the running app.
+- [x] 4.3 Add `api.walls.detect(…, sample)`, `RoomPage` wiring, and hint text in the Walls panel; verify in the running app.
 
 ## 5. Verification
 
-- [ ] 5.1 `npm run lint && npm run typecheck && npm test` and the vision tests pass.
-- [ ] 5.2 In the running app with Redis and the worker: draw walls, erase a false wall, run Detect like this on the ice map, and capture Playwright screenshots.
-- [ ] 5.3 Update `docs/WALL-DETECTION.md`.
+- [x] 5.1 `npm run lint && npm run typecheck && npm test` and the vision tests pass.
+- [x] 5.2 In the running app with Redis and the worker: draw walls, erase a false wall, run Detect like this on the ice map, and capture Playwright screenshots.
+- [x] 5.3 Update `docs/WALL-DETECTION.md`.

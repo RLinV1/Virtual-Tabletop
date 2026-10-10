@@ -19,6 +19,20 @@ Change: `openspec/changes/auto-wall-detection`.
 Nothing reaches the table until the GM applies. A result is a suggestion held by the app
 server, so a server restart drops it, and the GM runs detection again.
 
+## Fixing walls by hand (wall-editing)
+
+The GM's **Walls** tool on the board's rail has three modes:
+
+- **Draw walls**: click to start a wall, and click again to end it and start the next one.
+  Ends snap to grid corners, or to an existing wall's end nearby; hold Alt to place freely.
+  Enter, Esc or a right-click stops. Each segment is its own undoable action.
+- **Erase a wall**: the wall under the pointer turns red, and a click removes it.
+- **Detect walls like this one**: click on a wall in the map image. Detection then uses that
+  wall's colour (within a fixed tolerance) instead of guessing between light and dark walls, and
+  the result arrives in Manage › Walls for review. Use it on maps where automatic detection
+  misses walls or picks up terrain. On Hollowfrost Keep, a click on a castle wall gives the walls
+  without the snowy-cliff noise of automatic mode.
+
 ## Running it locally
 
 ```bash
