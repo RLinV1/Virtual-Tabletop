@@ -6,7 +6,7 @@
 
 ## Decisions
 
-### D1. One tool, three modes
+### D1. One tool, three modes (moved to the map editor by `map-editor` D5)
 
 The Walls tool sits on the rail beside Fog, GM only. Its modes are Draw, Erase and Detect like this, chosen with the same segmented control as the Fog modes. Keeping all wall work in one tool means the GM finds editing where they see the walls.
 

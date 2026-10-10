@@ -4,7 +4,7 @@ Automatic wall detection (`auto-wall-detection`) gets some walls wrong on painte
 
 ## What Changes
 
-- **Walls tool on the board** (GM only), beside the Fog tool, with three modes:
+- **Wall tools** (GM only), with three modes. First built on the board's tool rail; moved into the full-screen map editor's Walls step by `map-editor`:
   - **Draw:** click points to chain wall segments. Ends snap to grid corners, or to an existing wall's end; hold Alt to place freely. Esc, right-click or Enter ends the chain.
   - **Erase:** click a wall to remove it.
   - **Detect like this:** click on a wall in the map image. Detection then looks for walls of that colour and shape across the map, and the result arrives in the Walls panel for review, as detection does today.

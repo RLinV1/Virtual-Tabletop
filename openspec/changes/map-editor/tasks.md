@@ -16,6 +16,6 @@
 
 ## 4. Verification
 
-- [ ] 4.1 `npm run lint && npm run typecheck && npm test` and the vision tests pass.
-- [ ] 4.2 In the running app: with Redis and the worker, set a map, grid and walls in the editor; without them, the detect controls are greyed out with the reason and drawing still works; capture Playwright screenshots.
-- [ ] 4.3 Update `docs/WALL-DETECTION.md` and the `wall-editing` change so its tool lives in the editor.
+- [x] 4.1 `npm run lint && npm run typecheck && npm test` and the vision tests pass.
+- [x] 4.2 In the running app: with Redis and the worker, set a map, grid and walls in the editor; without them, the detect controls are greyed out with the reason and drawing still works; capture Playwright screenshots.
+- [x] 4.3 Update `docs/WALL-DETECTION.md` and the `wall-editing` change so its tool lives in the editor.
