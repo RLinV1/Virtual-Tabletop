@@ -14,6 +14,7 @@ import { withGridSuggestion, type GridDraft } from "./gridDraft";
 import { GridForm } from "./GridForm";
 import { LibraryPicker } from "./LibraryPicker";
 import { useGridDetection } from "./useGridDetection";
+import { FogSetup } from "./mapEditor/FogSetup";
 import { WallSetup } from "./mapEditor/WallSetup";
 import { prepCommand, prepDirty, startPrep, type MapPrep } from "./mapPrep";
 
@@ -64,6 +65,7 @@ export function GmPanel({
         wallCount={Object.keys(state.walls).length}
         gridApplying={gridApplying}
         walls={() => <WallSetup connection={connection} state={state} token={token} />}
+        fog={() => <FogSetup connection={connection} state={state} />}
         grid={(close) => (
           <RoomGridEditor
             key={state.scene.map?.url ?? "no-map"}
@@ -136,11 +138,12 @@ function DepartedPlayers({ state, onReview }: { state: RoomState; onReview: (par
   );
 }
 
-type EditorStep = "map" | "grid" | "walls";
+type EditorStep = "map" | "grid" | "walls" | "fog";
 const STEPS: { key: EditorStep; label: string }[] = [
   { key: "map", label: "1 · Map" },
   { key: "grid", label: "2 · Grid" },
   { key: "walls", label: "3 · Walls" },
+  { key: "fog", label: "4 · Fog" },
 ];
 
 /**
@@ -166,6 +169,8 @@ function MapSection(props: {
   grid: (close: () => void) => ReactNode;
   /** The Walls step: the wall canvas and its HUD. */
   walls: () => ReactNode;
+  /** The Fog step: the fog canvas and its controls. */
+  fog: () => ReactNode;
 }) {
   const [busy, setBusy] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -269,8 +274,12 @@ function MapSection(props: {
           Edit map
         </button>
       </div>
-      <Modal open={editorOpen} title="Edit map" className="map-editor" onClose={requestClose}>
-        <div className="map-editor-shell">
+      <Modal
+        open={editorOpen}
+        title="Edit map"
+        className="map-editor"
+        onClose={requestClose}
+        headerContent={(
           <nav className="map-editor-steps" role="tablist" aria-label="Map setup steps">
             {STEPS.map(({ key, label }) => (
               <button
@@ -286,6 +295,9 @@ function MapSection(props: {
             ))}
             {prep && <span className="map-editor-draft">Draft map: only you see it until Apply map</span>}
           </nav>
+        )}
+      >
+        <div className="map-editor-shell">
           <div className="map-editor-body" role="tabpanel">
             {step === "map" && (
               <div className="map-editor-split">
@@ -349,6 +361,9 @@ function MapSection(props: {
             {step === "walls" && (prep
               ? <p className="map-editor-empty">Apply the draft map in the Grid step first, then set up its walls here.</p>
               : props.walls())}
+            {step === "fog" && (prep
+              ? <p className="map-editor-empty">Apply the draft map in the Grid step first, then set up its fog here.</p>
+              : props.fog())}
           </div>
         </div>
       </Modal>

@@ -10,6 +10,18 @@ import { cellsRegion, coversWholeMap, describeCells, gridSize, wholeMapRegion, t
  * cells, and reveal any region from a list. It sends the same `fog.add` / `fog.remove` commands.
  */
 export function FogPanel({ connection, state }: { connection: RoomConnection; state: RoomState }) {
+  return (
+    <PanelSection id="gm-fog" title="Fog of war">
+      <FogControls connection={connection} state={state} intro="Players can't see anything under fog. Draw it on the board with the Fog tool, or use the controls here." />
+    </PanelSection>
+  );
+}
+
+/**
+ * The fog controls themselves, shared by the Manage tab's section and the map editor's Fog step:
+ * whole map, a block of cells, and the list of regions with Reveal.
+ */
+export function FogControls({ connection, state, intro }: { connection: RoomConnection; state: RoomState; intro: string }) {
   const { map, grid } = state.scene;
   const regions = Object.values(state.fog);
   const size = map ? gridSize(map, grid) : null;
@@ -65,14 +77,12 @@ export function FogPanel({ connection, state }: { connection: RoomConnection; st
   };
 
   return (
-    <PanelSection id="gm-fog" title="Fog of war">
+    <>
       {!map || !size ? (
         <p className="muted">Set a battle map to use fog.</p>
       ) : (
         <>
-          <p className="muted">
-            Players can't see anything under fog. Draw it on the board with the Fog tool, or use the controls here.
-          </p>
+          <p className="muted">{intro}</p>
           <div className="row button-row">
             <button
               type="button"
@@ -132,7 +142,7 @@ export function FogPanel({ connection, state }: { connection: RoomConnection; st
       )}
       {error && <p role="alert" className="error">{error}</p>}
       <p className="sr-only" role="status">{status}</p>
-    </PanelSection>
+    </>
   );
 }
 
