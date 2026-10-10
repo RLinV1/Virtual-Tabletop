@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { readFile, stat } from "node:fs/promises";
+import path from "node:path";
 import { Queue, QueueEvents } from "bullmq";
 import {
   WALL_DETECTION_QUEUE,
@@ -24,7 +26,10 @@ const MAX_RESULTS = 200;
 /** A job with no answer by then is reported failed, so a missing worker never leaves the GM waiting forever. */
 const JOB_TIMEOUT_MS = 10 * 60_000;
 
-/** What the app server puts on the queue. The bytes are read from its own storage, never a caller's URL. */
+/**
+ * What the app server puts on the queue. The bytes are read from its own storage or from the maps
+ * that ship with the app, never from a caller's URL.
+ */
 export interface WallJobData {
   /** Base64 image bytes. */
   image: string;
@@ -80,6 +85,12 @@ export function uploadKey(url: string): string | null {
   return match ? match[1]! : null;
 }
 
+/** The file behind a map that ships with the web app (`/img/<name>`), or null for any other address. */
+export function builtinImageName(url: string): string | null {
+  const match = /^\/img\/([a-z0-9-]+\.(?:webp|png|jpe?g))$/.exec(url);
+  return match ? match[1]! : null;
+}
+
 export class WallDetections {
   private entries = new Map<string, Entry>();
   private byJob = new Map<string, Entry>();
@@ -89,6 +100,8 @@ export class WallDetections {
     private assets: AssetStore,
     private queue: WallJobQueue | null,
     private notify: WallNotifier,
+    /** Where the web app's built-in maps live (`apps/web/public/img`); null when this server can't see them. */
+    private builtinDir: string | null = null,
   ) {
     queue?.onEvent((event) => this.onEvent(event));
   }
@@ -121,11 +134,10 @@ export class WallDetections {
     tolerance?: number,
   ): Promise<StartResult> {
     if (!this.queue) return "unavailable";
-    const key = uploadKey(map.url);
-    if (!key) return "unreadable";
+    if (!uploadKey(map.url) && !builtinImageName(map.url)) return "unreadable";
     const existing = this.entries.get(entryKey(roomId, map.url));
     if (existing && (existing.status.status === "queued" || existing.status.status === "running")) return "busy";
-    const bytes = await this.assets.readPrivate(key, MAX_IMAGE_BYTES);
+    const bytes = await this.readMap(map.url);
     if (!bytes) return "unreadable";
     const hash = createHash("sha1").update(map.url).digest("hex").slice(0, 16);
     const jobId = `walls-${roomId}-${hash}-${++this.attempts}`;
@@ -153,6 +165,22 @@ export class WallDetections {
     entry.timer.unref?.();
     this.notify(roomId, map.url, entry.status);
     return "queued";
+  }
+
+  /** The map's bytes: an upload from storage, or a built-in map from the web app's files. */
+  private async readMap(url: string): Promise<Uint8Array | null> {
+    const key = uploadKey(url);
+    if (key) return this.assets.readPrivate(key, MAX_IMAGE_BYTES);
+    const name = builtinImageName(url);
+    if (!name || !this.builtinDir) return null;
+    const filename = path.join(this.builtinDir, name);
+    try {
+      if ((await stat(filename)).size > MAX_IMAGE_BYTES) return null;
+      return await readFile(filename);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw err;
+    }
   }
 
   /** The latest analysis of a map this room asked for, or null. */

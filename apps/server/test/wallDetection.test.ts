@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ServerMessage, WallDetectionStatus } from "@vtt/shared";
 import type { WallJobData, WallJobEvent, WallJobQueue } from "../src/domain/wallDetection";
@@ -234,5 +236,28 @@ describe("automatic wall detection through the queue (FR-GM-11, ADR 0027)", () =
     server = await startServer(undefined, { wallQueue: down });
     expect(await (await fetch(`${server.base}/api/wall-detection/availability`)).json())
       .toEqual({ available: false, reason: "The wall detection service isn't running." });
+  });
+  it("reads a built-in library map from the web app's files, and refuses any other address", async () => {
+    const queue = new StandInQueue();
+    server = await startServer(undefined, { wallQueue: queue });
+    const room = await server.createRoom();
+    const gm = await server.connect(room);
+    clients.push(gm);
+    const detect = () => api(room.guestToken, `/api/rooms/${room.roomId}/wall-detection`, { method: "POST" });
+
+    // Hollowfrost Keep ships in apps/web/public/img; it has no upload behind it.
+    expect(await gm.command({ type: "scene.setMap", map: { url: "/img/map-ice.webp", width: 3269, height: 1882 } })).toMatchObject({ type: "ack" });
+    expect((await detect()).status).toBe(202);
+    const [, data] = queue.only();
+    const shipped = await readFile(fileURLToPath(new URL("../../web/public/img/map-ice.webp", import.meta.url)));
+    expect(Buffer.from(data.image, "base64").equals(shipped)).toBe(true);
+    expect(data).toMatchObject({ width: 3269, height: 1882 });
+
+    // Not a shipped map, and not a path out of the folder: nothing is read or queued.
+    for (const url of ["/img/missing.webp", "/img/../../server/package.json", "https://example.com/map.png"]) {
+      expect(await gm.command({ type: "scene.setMap", map: { url, width: 700, height: 700 } })).toMatchObject({ type: "ack" });
+      expect((await detect()).status).toBe(422);
+    }
+    expect(queue.jobs.size).toBe(1);
   });
 });

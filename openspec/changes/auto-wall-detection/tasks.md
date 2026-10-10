@@ -37,6 +37,7 @@
 - [x] 6.1 Run `npm run lint && npm run typecheck && npm test` and `pytest` in `services/vision`; all green.
 - [x] 6.2 Run Redis, the Python wall worker and the app together; upload maps, apply walls, try to drop a token on a wall, and capture Playwright screenshots of the detected walls.
 - [x] 6.3 Update `docs/DESIGN.md` (architecture note, FR-GM-11 traceability) and add `docs/WALL-DETECTION.md` with run instructions.
+- [x] 6.4 Read built-in library maps (`/img/<name>`) from `apps/web/public/img` so Detect walls works on them, not only on uploads; cover it, and refused addresses, in `apps/server/test/wallDetection.test.ts`.
 
 ## Workflow follow-up
 
