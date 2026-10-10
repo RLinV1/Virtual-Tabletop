@@ -1,5 +1,6 @@
+import { DraftWalls } from "./mapEditor/DraftWalls";
 import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
-import { inactiveLabel, pendingDepartures, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
+import { sameValue, inactiveLabel, pendingDepartures, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
 import { api } from "../net/api";
 import { libraryAssetId } from "../net/builtinAssets";
 import { useAccount } from "../account/accountStore";
@@ -10,13 +11,13 @@ import { CheckpointsPanel } from "../panels/CheckpointsPanel";
 import { EncounterPanel } from "../panels/EncounterPanel";
 import { FogPanel } from "../panels/FogPanel";
 import { PanelSection } from "../ui/PanelSection";
-import { withGridSuggestion, type GridDraft } from "./gridDraft";
+import { parseGridDraft, withGridSuggestion, type GridDraft } from "./gridDraft";
 import { GridForm } from "./GridForm";
 import { LibraryPicker } from "./LibraryPicker";
 import { useGridDetection } from "./useGridDetection";
 import { FogSetup } from "./mapEditor/FogSetup";
 import { WallSetup } from "./mapEditor/WallSetup";
-import { prepCommand, prepDirty, startPrep, type MapPrep } from "./mapPrep";
+import { prepCommand, prepDirty, startPrep, startUvttPrep, type MapPrep } from "./mapPrep";
 
 interface Props {
   connection: RoomConnection;
@@ -58,6 +59,7 @@ export function GmPanel({
         currentGrid={state.scene.grid}
         hasLibrary={hasLibrary}
         onError={setError}
+        onImport={(importId, revision, report) => runWith(report)(connection.command({ type: "scene.importUVTT", importId, revision }))}
         onSetMap={(map, grid, report) => runWith(report)(connection.command({ type: "scene.setMap", map, grid }))}
         onGridClose={onGridDraftCancel}
         mapUrl={state.scene.map?.url ?? null}
@@ -158,6 +160,7 @@ function MapSection(props: {
   /** The room's grid, where a map with no saved grid starts its draft. */
   currentGrid: GridSpec;
   hasLibrary: boolean;
+  onImport: (importId: string, revision: number, report: (message: string | null) => void) => Promise<boolean>;
   onSetMap: (map: MapImage, grid: GridSpec | undefined, report: (message: string | null) => void) => Promise<boolean>;
   onError: (message: string | null) => void;
   onGridClose: () => void;
@@ -173,6 +176,7 @@ function MapSection(props: {
   fog: () => ReactNode;
 }) {
   const [busy, setBusy] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [picking, setPicking] = useState(false);
   const [pickError, setPickError] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -188,6 +192,8 @@ function MapSection(props: {
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const discardPrep = () => {
     setConfirmDiscard(false);
+    prepGeneration.current++;
+    if (prep?.uvtt) void api.uvtt.discard(props.roomId, props.token, prep.uvtt.id).catch(() => {});
     setPrep(null);
     setPrepError(null);
   };
@@ -204,18 +210,40 @@ function MapSection(props: {
   };
   const applyPrep = async () => {
     if (!prep || applyingMap) return;
-    const command = prepCommand(prep);
-    if (!command) return setPrepError("Fix the grid before applying the map.");
-    setApplyingMap(true);
+    const grid = parseGridDraft(prep.draft, prep.map);
+    if (!grid) return setPrepError("Fix the grid before applying the map.");
+    setApplyingMap(true); setPrepError(null);
     try {
-      // One command: the map and its grid reach the table together (ADR 0004). Walls come next.
-      if (await props.onSetMap(command.map, command.grid, setPrepError)) {
-        discardPrep();
-        setStep("walls");
+      let applied = false;
+      if (prep.uvtt) {
+        let revision = prep.uvtt.revision;
+        const walls = Object.values(prep.walls ?? {}).map(({ id: _id, ...wall }) => wall);
+        // Avoid revising an unchanged draft on retry: a successful Apply may have lost its ack.
+        if (!sameValue(grid, prep.validated?.grid) || !sameValue(walls, prep.validated?.walls)) {
+          const saved = await api.uvtt.revise(props.roomId, props.token, prep.uvtt.id, { revision, grid, walls });
+          revision = saved.revision;
+          setPrep((now) => now?.uvtt?.id === saved.id ? { ...now, uvtt: { ...now.uvtt, revision }, walls: Object.fromEntries(saved.walls.map((w, i) => [`draft:${i}`, { ...w, id: `draft:${i}` }])), validated: { grid: saved.grid, walls: saved.walls } } : now);
+        }
+        applied = await props.onImport(prep.uvtt.id, revision, setPrepError);
+      } else {
+        const command = prepCommand(prep);
+        if (command) applied = await props.onSetMap(command.map, command.grid, setPrepError);
       }
-    } finally {
-      setApplyingMap(false);
-    }
+      if (applied) { discardPrep(); setStep("walls"); }
+    } catch (err) {
+      setPrepError(err instanceof Error ? err.message : "Could not apply the map. Your draft has been kept.");
+    } finally { setApplyingMap(false); }
+  };
+  const exportMap = async () => {
+    setExporting(true); setPrepError(null);
+    try {
+      const blob = await api.uvtt.export(props.roomId, props.token);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a"); link.href = url; link.download = "map.uvtt";
+      document.body.append(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) { setPrepError(err instanceof Error ? err.message : "Export failed."); }
+    finally { setExporting(false); }
   };
   // A grid being edited belongs to the map it was edited for.
   const previousMap = useRef(props.mapUrl);
@@ -231,6 +259,12 @@ function MapSection(props: {
     setBusy(true);
     const generation = ++prepGeneration.current;
     try {
+      if (/\.(?:uvtt|dd2vtt|df2vtt)$/i.test(file.name)) {
+        const result = await api.uvtt.prepare(props.roomId, props.token, file);
+        if (generation !== prepGeneration.current) { await api.uvtt.discard(props.roomId, props.token, result.id); return; }
+        if (prep?.uvtt) void api.uvtt.discard(props.roomId, props.token, prep.uvtt.id).catch(() => {});
+        setPrep(startUvttPrep(result)); setPrepError(null); setStep("grid"); return;
+      }
       // Read the size first: a map upload carries it so the server can analyze it (grid-detection).
       const { width, height } = await imageSize(file);
       const { url } = await api.upload(file, props.token, { width, height });
@@ -238,6 +272,8 @@ function MapSection(props: {
       if (generation !== prepGeneration.current) return;
       // Nothing is sent yet: the upload becomes a private draft (KAN-59).
       props.onError(null);
+      if (prep?.uvtt) void api.uvtt.discard(props.roomId, props.token, prep.uvtt.id).catch(() => {});
+      setPrepError(null);
       setPrep(startPrep({ url, width, height }, undefined, props.currentGrid));
       setStep("grid");
     } catch (err) {
@@ -254,6 +290,8 @@ function MapSection(props: {
     setPicking(false);
     setPickError(null);
     prepGeneration.current++;
+    if (prep?.uvtt) void api.uvtt.discard(props.roomId, props.token, prep.uvtt.id).catch(() => {});
+    setPrepError(null);
     setPrep(startPrep(map, asset.grid, props.currentGrid));
     setStep("grid");
   };
@@ -267,7 +305,9 @@ function MapSection(props: {
             ? `${props.map.width} × ${props.map.height} px · ${props.wallCount} ${props.wallCount === 1 ? "wall" : "walls"}`
             : "No map yet."}
         </p>
-        <button type="button" data-tour="gm-grid" onClick={() => {
+        <button type="button" data-tour="gm-grid" onClick={(e) => {
+          // Safari does not focus buttons on pointer activation; give the dialog an opener.
+          e.currentTarget.focus();
           setStep(props.map ? "grid" : "map");
           setEditorOpen(true);
         }}>
@@ -298,6 +338,9 @@ function MapSection(props: {
         )}
       >
         <div className="map-editor-shell">
+          {prep?.uvtt && prep.uvtt.diagnostics.length > 0 && <details className="uvtt-diagnostics"><summary>{prep.uvtt.diagnostics.length} import warnings</summary>
+            <ul>{prep.uvtt.diagnostics.map((issue, i) => <li key={i}>{issue.path}: {issue.message}</li>)}</ul>
+          </details>}
           <div className="map-editor-body" role="tabpanel">
             {step === "map" && (
               <div className="map-editor-split">
@@ -306,15 +349,15 @@ function MapSection(props: {
                 </div>
                 <aside className="map-editor-hud" aria-label="Map">
                   <h3 className="map-editor-heading">Battle map</h3>
-                  <p className="muted">Upload a map image, or place one from your library. It stays private until you apply it with its grid.</p>
+                  <p className="muted">Upload a map image or UVTT file (.uvtt, .dd2vtt, .df2vtt), or choose from your library. It stays private until Apply map.</p>
                   <label className="upload-button">
                     <span>{busy ? "Uploading…" : "Upload map"}</span>
                     <input
                       ref={uploadRef}
                       type="file"
                       className="sr-only"
-                      accept="image/png,image/jpeg,image/webp"
-                      disabled={busy}
+                      accept="image/png,image/jpeg,image/webp,.uvtt,.dd2vtt,.df2vtt"
+                      disabled={busy || applyingMap}
                       aria-label="Upload battle map"
                       onChange={(e) => {
                         void onChange(e.target.files?.[0]);
@@ -323,12 +366,14 @@ function MapSection(props: {
                       }}
                     />
                   </label>
+                  <button type="button" className="secondary" disabled={!props.map || exporting} onClick={() => void exportMap()}>{exporting ? "Exporting…" : "Export applied map (UVTT)"}</button>
+                  <p className="muted small-print">UVTT files: up to 40 MiB. Preview and edit imported geometry in Walls before Apply.</p>
                   {props.hasLibrary && (
-                    <button type="button" className="secondary" disabled={busy} onClick={() => setPicking(true)}>
+                    <button type="button" className="secondary" disabled={busy || applyingMap} onClick={() => setPicking(true)}>
                       From library
                     </button>
                   )}
-                  {prepError && !prep && <p role="alert" className="error">{prepError}</p>}
+                  {prepError && <p role="alert" className="error">{prepError}</p>}
                 </aside>
               </div>
             )}
@@ -338,7 +383,7 @@ function MapSection(props: {
                   key={prep.map.url}
                   roomId={props.roomId}
                   token={props.token}
-                  directMap={!prep.map.assetId}
+                  directMap={!prep.uvtt && !prep.map.assetId}
                   grid={prep.initial}
                   map={prep.map}
                   draft={prep.draft}
@@ -358,9 +403,10 @@ function MapSection(props: {
             ) : (
               <p className="map-editor-empty">Choose a map in the Map step first.</p>
             ))}
-            {step === "walls" && (prep
-              ? <p className="map-editor-empty">Apply the draft map in the Grid step first, then set up its walls here.</p>
-              : props.walls())}
+            {step === "walls" && (prep?.uvtt && prep.walls ? (
+              <DraftWalls map={prep.map} grid={parseGridDraft(prep.draft, prep.map) ?? prep.initial} walls={prep.walls}
+                onChange={(walls) => setPrep((now) => now ? { ...now, walls } : now)} onApply={() => void applyPrep()} busy={applyingMap} error={prepError} />
+            ) : prep ? <p className="map-editor-empty">Apply the draft map in the Grid step first, then set up its walls here.</p> : props.walls())}
             {step === "fog" && (prep
               ? <p className="map-editor-empty">Apply the draft map in the Grid step first, then set up its fog here.</p>
               : props.fog())}
@@ -382,7 +428,7 @@ function MapSection(props: {
       )}
       <Modal open={confirmDiscard} title="Discard this map?" onClose={() => setConfirmDiscard(false)}>
         <div className="stack">
-          <p>You changed the grid for this map. Discard the map and your changes? The table still has its current map.</p>
+          <p>You changed this draft. Discard the map and your changes? The table still has its current map.</p>
           <div className="row button-row">
             <button type="button" onClick={closeEditor}>Discard</button>
             <button type="button" className="secondary" onClick={() => setConfirmDiscard(false)}>Keep editing</button>

@@ -2361,3 +2361,10 @@ dialog.modal.map-editor {
 .replay-count { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .replay-sentence { margin: 0; min-height: 1.4em; overflow-wrap: anywhere; }
 .replay-bar .small-print { margin: 0; }
+
+.geometry-fields { margin: 0; padding: 0; border: 0; min-width: 0; }
+.geometry-fields .row > label { flex: 1; min-width: 0; }
+.geometry-fields input[type="number"] { min-width: 0; width: 100%; }
+.uvtt-diagnostics { padding: var(--space-2); max-height: 10rem; overflow: auto; overflow-wrap: anywhere; }
+.map-editor .error { white-space: pre-line; overflow-wrap: anywhere; }
+.wall-canvas-svg.mode-select { cursor: pointer; }

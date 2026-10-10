@@ -1,4 +1,4 @@
-import { normalizeLegacyGridForBoard, type Command, type GridSpec, type MapImage } from "@vtt/shared";
+import { sameValue, normalizeLegacyGridForBoard, type UvttPreparation, type Wall, type Command, type GridSpec, type MapImage } from "@vtt/shared";
 import { gridsEqual, parseGridDraft, toGridDraft, type GridDraft } from "./gridDraft";
 
 /**
@@ -10,6 +10,10 @@ export interface MapPrep {
   /** The grid the draft started from, to tell an edited draft from an untouched one. */
   initial: GridSpec;
   draft: GridDraft;
+  uvtt?: Pick<UvttPreparation, "id" | "revision" | "diagnostics">;
+  walls?: Record<string, Wall>;
+  initialWalls?: Record<string, Wall>;
+  validated?: Pick<UvttPreparation, "grid" | "walls">;
 }
 
 /**
@@ -25,11 +29,20 @@ export function startPrep(map: MapImage, savedGrid: GridSpec | null | undefined,
 /** Whether closing would lose alignment work: the draft no longer matches where it started. */
 export function prepDirty(prep: MapPrep): boolean {
   const parsed = parseGridDraft(prep.draft, prep.map);
-  return parsed === null || !gridsEqual(parsed, prep.initial);
+  return parsed === null || !gridsEqual(parsed, prep.initial) || !sameValue(prep.walls, prep.initialWalls);
 }
 
 /** The one command Apply sends: map and grid together, a single `MapSet` (ADR 0004). Null while the grid is invalid. */
 export function prepCommand(prep: MapPrep): Extract<Command, { type: "scene.setMap" }> | null {
   const grid = parseGridDraft(prep.draft, prep.map);
   return grid ? { type: "scene.setMap", map: prep.map, grid } : null;
+}
+
+/** A validated UVTT grid is used exactly; legacy normalization must not silently change it. */
+export function startUvttPrep(preparation: UvttPreparation): MapPrep {
+  const walls = Object.fromEntries(preparation.walls.map((w, i) => [`draft:${i}`, { ...w, id: `draft:${i}` }]));
+  return { map: preparation.map, initial: preparation.grid, draft: toGridDraft(preparation.grid),
+    uvtt: { id: preparation.id, revision: preparation.revision, diagnostics: preparation.diagnostics },
+    walls, initialWalls: structuredClone(walls), validated: { grid: preparation.grid, walls: preparation.walls },
+  };
 }

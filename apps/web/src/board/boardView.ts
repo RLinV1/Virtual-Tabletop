@@ -608,8 +608,11 @@ export class BoardView {
     const width = Math.max(3, state.scene.grid.cellSize * 0.09);
     for (const wall of walls) g.moveTo(wall.a.x, wall.a.y).lineTo(wall.b.x, wall.b.y);
     g.stroke({ width: width + 4, color: 0x111111, alpha: 0.8, cap: "round", join: "round" });
-    for (const wall of walls) g.moveTo(wall.a.x, wall.a.y).lineTo(wall.b.x, wall.b.y);
-    g.stroke({ width, color: 0xff6b2c, alpha: 0.95, cap: "round", join: "round" });
+    const colorOf = (wall: typeof walls[number]) => wall.portal?.closed === false ? 0x39d3b1 : wall.portal ? 0xd38aff : 0xff6b2c;
+    for (const color of [0xff6b2c, 0xd38aff, 0x39d3b1]) {
+      for (const wall of walls) if (colorOf(wall) === color) g.moveTo(wall.a.x, wall.a.y).lineTo(wall.b.x, wall.b.y);
+      g.stroke({ width, color, alpha: 0.95, cap: "round", join: "round" });
+    }
   }
 
   /** Previewing as a player (gm-view-as-player): tokens take no pointer input, so nothing can be dragged or aimed. */

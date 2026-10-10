@@ -1,3 +1,4 @@
+import { WallProperties } from "./WallProperties";
 import { useEffect, useState } from "react";
 import { Eraser, Eyedropper, Hand, LineSegments } from "@phosphor-icons/react";
 import {
@@ -10,12 +11,14 @@ import { WallCanvas, type CanvasMode } from "./WallCanvas";
 
 const MODES: { key: CanvasMode; label: string; icon: typeof Eraser; needsDetection?: boolean }[] = [
   { key: "draw", label: "Draw", icon: LineSegments },
+  { key: "select", label: "Select / edit", icon: LineSegments },
   { key: "erase", label: "Erase", icon: Eraser },
   { key: "sample", label: "Detect like this", icon: Eyedropper, needsDetection: true },
   { key: "pan", label: "Pan", icon: Hand },
 ];
 
 const HINTS: Record<CanvasMode, string> = {
+  select: "Click a wall or portal to edit its endpoints and metadata.",
   draw: "Click to start a wall, click again to end it and start the next. Ends snap to grid corners and wall ends; hold Alt to place freely. Enter, Esc or right-click stops.",
   erase: "Click a wall to remove it. Undo it from the activity log.",
   sample: "Click on a wall in the map: walls that look like it are detected across the whole map.",
@@ -31,6 +34,8 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
   const map = state.scene.map;
   const mapUrl = map?.url ?? "";
   const wallCount = Object.keys(state.walls).length;
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedRevision, setSelectedRevision] = useState(0);
   const [mode, setMode] = useState<CanvasMode>("draw");
   const [availability, setAvailability] = useState<WallDetectionAvailability | null>(null);
   const [detection, setDetection] = useState<{ mapUrl: string; status: WallDetectionStatus | null }>({ mapUrl, status: null });
@@ -118,6 +123,8 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
         busy={busy}
         onAdd={(a, b) => void run({ type: "wall.add", walls: [{ a, b }] })}
         onRemove={(wallId) => void run({ type: "wall.remove", wallIds: [wallId] })}
+        onSelect={setSelectedId}
+        selectedId={selectedId ?? undefined}
         onSample={(at) => void detect(at)}
       />
       <aside className="map-editor-hud" aria-label="Wall tools">
@@ -159,7 +166,7 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
             </label>
           )}
           <p className="map-editor-count">
-            {wallCount} {wallCount === 1 ? "wall" : "walls"} on this map. Tokens can't be placed on them, and players can't move through them. Only you see them.
+            {wallCount} {wallCount === 1 ? "wall" : "walls"} on this map. Solid walls and closed portals block placement and player movement. Open portals allow passage. Only you see geometry.
           </p>
         </section>
 
@@ -191,6 +198,11 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
           </div>
         </section>
 
+        {selectedId && state.walls[selectedId] && <WallProperties key={`${selectedId}:${selectedRevision}:${JSON.stringify(state.walls[selectedId])}`} wall={state.walls[selectedId]!} map={map} onSave={async (wall) => {
+          const result = await connection.command({ type: "wall.update", wall });
+          if (!result.ok) throw new Error(result.message);
+          setSelectedRevision((v) => v + 1);
+        }} />}
         {wallCount > 0 && (
           <button type="button" className="secondary danger" onClick={() => void run({ type: "wall.clear" }, "Walls cleared.")}>
             Clear all walls

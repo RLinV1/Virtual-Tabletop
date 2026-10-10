@@ -8,14 +8,14 @@ const JOIN_PX = 12;
 /** Erase picks the wall within this many screen pixels of the click. */
 const PICK_PX = 10;
 
-export type CanvasMode = WallMode | "pan";
+export type CanvasMode = WallMode | "pan" | "select";
 
 /**
  * The Walls step's canvas (map-editor D3): the map with its walls in board coordinates
  * (invariant 8). Draw chains walls, Erase removes the wall under the pointer, and Detect like
  * this sends the clicked point.
  */
-export function WallCanvas({ map, grid, walls, mode, onAdd, onRemove, onSample, busy }: {
+export function WallCanvas({ map, grid, walls, mode, onAdd, onRemove, onSample, onSelect, selectedId, busy }: {
   map: MapImage;
   grid: GridSpec;
   walls: Record<string, Wall>;
@@ -23,6 +23,8 @@ export function WallCanvas({ map, grid, walls, mode, onAdd, onRemove, onSample, 
   onAdd: (a: Point, b: Point) => void;
   onRemove: (wallId: string) => void;
   onSample: (at: Point) => void;
+  onSelect?: (wallId: string) => void;
+  selectedId?: string;
   busy: boolean;
 }) {
   const [chain, setChain] = useState<Point | null>(null);
@@ -52,6 +54,11 @@ export function WallCanvas({ map, grid, walls, mode, onAdd, onRemove, onSample, 
       onSecondary={() => setChain(null)}
       onRelease={(p, e, moved, view) => {
         if (moved || busy) return;
+        if (mode === "select") {
+          const wall = wallAt(walls, p, PICK_PX * view.px);
+          if (wall) onSelect?.(wall.id);
+          return;
+        }
         if (mode === "sample") {
           if (onMap(p)) onSample(p);
           return;
@@ -85,7 +92,7 @@ export function WallCanvas({ map, grid, walls, mode, onAdd, onRemove, onSample, 
               {Object.values(walls).map((w) => (
                 <g key={w.id}>
                   <line x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y} stroke="#111" strokeOpacity={0.8} strokeWidth={7 * px} />
-                  <line x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y} stroke={erasing?.id === w.id ? "#e74c3c" : "#ff6b2c"} strokeWidth={(erasing?.id === w.id ? 6 : 3.5) * px} />
+                  <line x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y} stroke={erasing?.id === w.id ? "#e74c3c" : selectedId === w.id ? "#ffd166" : w.portal?.closed === false ? "#39d3b1" : w.portal ? "#d38aff" : "#ff6b2c"} strokeDasharray={w.portal?.closed === false ? `${6 * px} ${4 * px}` : undefined} strokeWidth={(erasing?.id === w.id ? 6 : 3.5) * px} />
                 </g>
               ))}
             </g>
