@@ -1,4 +1,4 @@
-"""Wall extraction for battle maps (FR-GM-11, ADR 0027).
+"""Wall extraction for battle maps (FR-GM-11, ADR 0029).
 
 Pipeline, after the prior art named in docs/DESIGN.md section 7 (ThreeHats/auto-wall and
 DimitroffVodka/foundry-auto-wall, both MIT) and standard floor-plan wall extraction:
@@ -18,7 +18,7 @@ DimitroffVodka/foundry-auto-wall, both MIT) and standard floor-plan wall extract
    long run are dropped.
 
 Both styles are tried and the one with more long straight wall wins. The result is a suggestion:
-the GM reviews it on the rendered preview before applying (ADR 0027). Coordinates returned are
+the GM reviews it on the rendered preview before applying (ADR 0029). Coordinates returned are
 original image pixels, the room's board coordinates (invariant 8).
 """
 

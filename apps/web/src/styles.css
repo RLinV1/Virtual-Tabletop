@@ -763,9 +763,9 @@ dialog.modal.dice-look-modal { width: min(40rem, calc(100vw - 2rem)); }
 
 /* --- Initiative --- */
 .init-setup { display: flex; flex-direction: column; gap: 0.3rem; }
-.init-setup li { display: grid; grid-template-columns: auto 1fr 4.5rem; align-items: center; gap: var(--space-2); }
+.init-setup li { display: grid; grid-template-columns: auto auto 1fr 4.5rem; align-items: center; gap: var(--space-2); }
 .init-hint { font-size: var(--fs-sm); }
-.init-setup input { width: 100%; text-align: right; font-variant-numeric: tabular-nums; }
+.init-setup input[type="number"] { width: 100%; text-align: right; font-variant-numeric: tabular-nums; }
 /* Spinner arrows crowd a 4.5rem field and nobody steps initiative by one. */
 .init-setup input::-webkit-outer-spin-button,
 .init-setup input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
@@ -2262,7 +2262,7 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 .participant-view-as { margin-left: auto; }
 .preview-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; display: contents; }
 
-/* Automatic walls (FR-GM-11, ADR 0027): the GM reviews the rendered detection before applying. */
+/* Automatic walls (FR-GM-11, ADR 0029): the GM reviews the rendered detection before applying. */
 .walls-status { margin: 0; font-weight: 600; }
 .walls-preview { margin: 0; display: grid; gap: var(--space-1); }
 .walls-preview img, .walls-preview-placeholder {
@@ -2271,7 +2271,7 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 }
 .walls-preview figcaption { font-size: var(--fs-sm); color: var(--muted); }
 
-/* A refused move, e.g. into or through a wall (ADR 0027): bottom centre, clear of notices and hints. */
+/* A refused move, e.g. into or through a wall (ADR 0029): bottom centre, clear of notices and hints. */
 .board-refusal {
   position: absolute; left: 50%; bottom: calc(var(--space-3) * 4); transform: translateX(-50%); z-index: 7;
   margin: 0; padding: var(--space-2) var(--space-3); max-width: min(24rem, calc(100% - 2 * var(--space-3)));
@@ -2353,6 +2353,22 @@ dialog.modal.map-editor {
 @media (max-width: 760px) {
   .map-editor .modal-body { padding: var(--space-2); }
 }
+
+/* Token groups in the GM's roster and the Start encounter dialog (KAN-82). */
+.roster-group + .roster-group { margin-top: var(--space-2); }
+.group-heading { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1) var(--space-2); padding: 0.2rem 0; border-bottom: 1px solid var(--border); }
+.group-toggle { display: inline-flex; align-items: baseline; gap: var(--space-2); min-width: 0; padding: 0.15rem 0; background: none; border: 0; color: inherit; cursor: pointer; text-align: left; }
+.group-toggle .group-name { font-weight: 600; overflow-wrap: anywhere; }
+.group-caret { width: 1ch; }
+.group-actions { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); margin-left: auto; }
+.new-group { margin-top: var(--space-2); gap: var(--space-2); }
+.new-group input { flex: 1; min-width: 0; }
+.token-duplicate { align-items: flex-end; flex-wrap: wrap; gap: var(--space-2); }
+.token-duplicate input { width: 5rem; }
+.init-groups { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin: 0 0 var(--space-2); padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius); }
+.init-groups legend { padding: 0 var(--space-1); }
+.init-groups p { flex-basis: 100%; }
+.init-left-out .init-name { color: var(--muted); text-decoration: line-through; }
 
 /* Game presets (KAN-63): the create-room choice and the room's preset badge. */
 .preset-choice { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); }

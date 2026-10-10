@@ -33,7 +33,7 @@ export type HistoryResponse = z.infer<typeof HistoryResponse>;
 /** "rectangle" or "polygon", for fog sentences (FR-GM-17). */
 const fogLabel = (shape: "rect" | "polygon") => (shape === "rect" ? "rectangle" : "polygon");
 
-/** "1 wall", "42 walls" (ADR 0027). */
+/** "1 wall", "42 walls" (ADR 0029). */
 const wallCount = (n: number) => `${n} ${n === 1 ? "wall" : "walls"}`;
 
 /** A board point for a sentence: at most 2 decimals, so float noise like 829.1000000000001 reads 829.1. */
@@ -84,6 +84,16 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
     case "InitiativeStarted": return `${actorName} started initiative: ${event.initiative.order.map(tokenName).join(", ") || "no tokens"}`;
     case "InitiativeAdvanced": return `${actorName} advanced to round ${event.initiative.round}, ${tokenName(event.initiative.order[event.initiative.activeIndex] ?? "")}'s turn`;
     case "InitiativeEnded": return `${actorName} ended initiative`;
+    case "InitiativeStartUndone": return `${actorName} took back the start of initiative`;
+    case "GroupCreated": return `${actorName} created group "${event.group.name}"`;
+    case "GroupRenamed": return `${actorName} renamed group "${event.previous}" to "${event.name}"`;
+    case "GroupDeleted": return `${actorName} deleted group "${event.group.name}"`;
+    case "TokensGrouped": {
+      const names = event.changes.map((c) => tokenName(c.tokenId)).join(", ");
+      return event.groupId === null
+        ? `${actorName} took ${names} out of their group`
+        : `${actorName} put ${names} in group "${before.groups[event.groupId]?.name ?? "an unknown group"}"`;
+    }
     case "DiceRolled": {
       const { attack, expression, total, visibility } = event.roll;
       const what = attack

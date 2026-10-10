@@ -13,8 +13,8 @@ This document covers architecture, stack, repository, and the running prototype.
 | [`adr/0001-event-model.md`](adr/0001-event-model.md) | Why state is an event log |
 | [`adr/0002-transport-and-identity.md`](adr/0002-transport-and-identity.md) | Socket.IO handshake, guest tokens |
 | [`adr/0003-tactical-state.md`](adr/0003-tactical-state.md) | Stats, conditions, initiative, dice |
-| [`adr/0026-grid-detection-http-contract.md`](adr/0026-grid-detection-http-contract.md) | Private HTTP contract for grid detection |
-| [`adr/0027-walls-and-wall-detection.md`](adr/0027-walls-and-wall-detection.md) | Walls as room state, BullMQ wall detection |
+| [`adr/0028-grid-detection-http-contract.md`](adr/0028-grid-detection-http-contract.md) | Private HTTP contract for grid detection |
+| [`adr/0029-walls-and-wall-detection.md`](adr/0029-walls-and-wall-detection.md) | Walls as room state, BullMQ wall detection |
 
 ---
 
@@ -178,7 +178,7 @@ and the Postgres store tests skip themselves until `DATABASE_URL` is set.
 The vision service lives in `services/vision`, in its own container so the CV dependency tree
 stays out of the Node services. Two processes run from its image: `vision`, the private grid
 detector (FR-GM-03), and `vision-walls`, which consumes the `wall-detection` BullMQ queue on the
-app's Redis (FR-GM-11, ADR 0027). The app server produces wall jobs, learns of their completion
+app's Redis (FR-GM-11, ADR 0029). The app server produces wall jobs, learns of their completion
 from BullMQ's queue events, and tells the room's GM; without `REDIS_URL` wall detection reports
 itself unavailable and everything else works. See [`WALL-DETECTION.md`](WALL-DETECTION.md).
 
@@ -327,9 +327,9 @@ with no security value.
 | FR-GM-06 | UVTT import | Server parser → scene + walls | D |
 | FR-GM-07 | UVTT validation | zod at parse time | D |
 | FR-GM-08 | Token setup | `token.create` | ~ |
-| FR-GM-09 | Editable walls and portals | `wall.*` + GM wall layer (ADR 0027) | ~ |
+| FR-GM-09 | Editable walls and portals | `wall.*` + GM wall layer (ADR 0029) | ~ |
 | FR-GM-10 | Token ownership assignment | `token.setOwners`, roster UI | B |
-| FR-GM-11 | Vision-based map parsing | `wall-detection` BullMQ queue → `vision-walls` (ADR 0027) | ~ |
+| FR-GM-11 | Vision-based map parsing | `wall-detection` BullMQ queue → `vision-walls` (ADR 0029) | ~ |
 | FR-GM-12 | UVTT export | Server serializer | D |
 | FR-GM-13 | Reusable encounter templates | Template rows | D |
 | FR-GM-14 | GM and player roles | `Participant.role` | B |

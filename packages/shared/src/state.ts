@@ -169,11 +169,11 @@ export const FogRegion = z.object({
 });
 export type FogRegion = z.infer<typeof FogRegion>;
 
-/** Most walls a room holds at once (ADR 0027), so one detection can't grow state without bound. */
+/** Most walls a room holds at once (ADR 0029), so one detection can't grow state without bound. */
 export const MAX_WALLS = 1500;
 
 /**
- * A wall: a straight segment the GM applied from detection (FR-GM-11, ADR 0027). Board
+ * A wall: a straight segment the GM applied from detection (FR-GM-11, ADR 0029). Board
  * coordinates (invariant 8). Tokens can't stand across one; players can't move through one.
  * GM-only: never sent to players.
  */
@@ -215,7 +215,7 @@ export const TableState = z.object({
   templates: z.record(Id, AreaTemplate),
   fog: z.record(Id, FogRegion),
   initiative: Initiative.nullable(),
-  /** Optional: tables in events from before walls existed have none (ADR 0027). */
+  /** Optional: tables in events from before walls existed have none (ADR 0029). */
   walls: z.record(Id, Wall).optional(),
 });
 export type TableState = z.infer<typeof TableState>;
@@ -261,6 +261,18 @@ export const ChatMessage = z.object({
 });
 export type ChatMessage = z.infer<typeof ChatMessage>;
 
+/** Most token groups a room holds (KAN-82). */
+export const MAX_GROUPS = 30;
+/** Longest group name, in characters after trimming (KAN-82). */
+export const MAX_GROUP_NAME = 40;
+
+/** A GM-only named set of tokens in one room, e.g. "Gate guards" (KAN-82, ADR 0026). */
+export const TokenGroup = z.object({
+  id: Id,
+  name: z.string().min(1).max(MAX_GROUP_NAME),
+});
+export type TokenGroup = z.infer<typeof TokenGroup>;
+
 export interface RoomState {
   roomId: Id;
   name: string;
@@ -279,7 +291,7 @@ export interface RoomState {
   chat: ChatMessage[];
   /** Fog regions, in the order they were added (FR-GM-17, ADR 0016). Sent to players: they are the mask. */
   fog: Record<Id, FogRegion>;
-  /** Applied walls (FR-GM-11, ADR 0027). GM-only: players always get none. */
+  /** Applied walls (FR-GM-11, ADR 0029). GM-only: players always get none. */
   walls: Record<Id, Wall>;
   /** Named restore points, oldest first, capped at MAX_CHECKPOINTS (ADR 0019). GM-only. */
   checkpoints: Checkpoint[];
@@ -288,6 +300,13 @@ export interface RoomState {
    * committed events and their `commandId`s; GM-only (players always get an empty list).
    */
   undo: UndoEntry[];
+  /** Token groups, in creation order (KAN-82, ADR 0026). GM-only: players always get none. */
+  groups: Record<Id, TokenGroup>;
+  /**
+   * Which group each token is in, by token id (KAN-82). A token is in at most one group. Entries
+   * outlive a deleted token, so undoing the deletion puts it back in its group. GM-only.
+   */
+  tokenGroups: Record<Id, Id>;
 }
 
 export function emptyRoomState(roomId: Id): RoomState {
@@ -306,5 +325,7 @@ export function emptyRoomState(roomId: Id): RoomState {
     walls: {},
     checkpoints: [],
     undo: [],
+    groups: {},
+    tokenGroups: {},
   };
 }

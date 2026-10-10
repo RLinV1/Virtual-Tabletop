@@ -10,7 +10,7 @@ Automatic wall detection (`auto-wall-detection`) gets some walls wrong on painte
   - **Detect like this:** click on a wall in the map image. Detection then looks for walls of that colour and shape across the map, and the result arrives in the Walls panel for review, as detection does today.
 - **New command:** `wall.add { walls }` (GM only, at most 50 per command), committed as the existing `WallsAdded` event, so it is undoable and GM-only like detected walls.
 - **Sampled detection:** `POST /api/rooms/:roomId/wall-detection` accepts an optional `sample` point in board coordinates. The job carries it to the vision worker, which builds its wall mask from the colour around that point instead of guessing between bright and dark walls.
-- **Contract change:** a new command, and an optional field on the detection request and the job. Recorded as an amendment to ADR 0027.
+- **Contract change:** a new command, and an optional field on the detection request and the job. Recorded as an amendment to ADR 0029.
 
 ## Non-goals
 
@@ -32,4 +32,4 @@ Automatic wall detection (`auto-wall-detection`) gets some walls wrong on painte
 - `apps/server`: the detection route reads `sample`; `WallDetections.start` passes it in the job data; integration tests.
 - `services/vision`: `walls.py` gains a sampled-colour mask; `wall_worker.py` reads `sample`; pytest.
 - `apps/web`: `tools.ts` (Walls tool and its modes), `ToolRail.tsx`, `boardView.ts` (chain drawing, wall hit-testing, sample click), `Board.tsx` and `RoomPage.tsx` wiring, `api.walls.detect(sample)`, and hint text in the Walls panel.
-- `docs/adr/0027-walls-and-wall-detection.md` amendment, `docs/WALL-DETECTION.md`.
+- `docs/adr/0029-walls-and-wall-detection.md` amendment, `docs/WALL-DETECTION.md`.

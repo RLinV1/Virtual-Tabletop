@@ -1,6 +1,6 @@
 # Wall detection (FR-GM-11)
 
-Decisions: [`adr/0027-walls-and-wall-detection.md`](adr/0027-walls-and-wall-detection.md).
+Decisions: [`adr/0029-walls-and-wall-detection.md`](adr/0029-walls-and-wall-detection.md).
 Change: `openspec/changes/auto-wall-detection`.
 
 ## How it flows

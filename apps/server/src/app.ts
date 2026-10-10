@@ -28,7 +28,7 @@ export interface AppOptions {
   redisUrl?: string;
   visionUrl?: string;
   /**
-   * The wall-detection queue (ADR 0027). Defaults to BullMQ on `redisUrl`, or none without Redis;
+   * The wall-detection queue (ADR 0029). Defaults to BullMQ on `redisUrl`, or none without Redis;
    * tests pass a stand-in, or null for "unavailable".
    */
   wallQueue?: WallJobQueue | null;
@@ -90,7 +90,7 @@ export async function buildApp({
   });
   const assetStore = assets ?? new LocalDiskAssetStore(uploadDir);
   // Wall analysis results are suggestions held here; a room reads them only when its GM applies
-  // walls, and the GM hears of each finished job over their own socket (ADR 0027).
+  // walls, and the GM hears of each finished job over their own socket (ADR 0029).
   const walls = new WallDetections(
     assetStore,
     wallQueue === undefined ? (redisUrl ? bullmqWallQueue(redisUrl) : null) : wallQueue,

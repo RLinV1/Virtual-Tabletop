@@ -45,7 +45,7 @@ const RESTORE_SLOW_MS = 500;
 
 /** Server services a room consults while deciding, passed in so `decide` stays pure. */
 export interface RoomHooks {
-  /** The validated detected walls for this room's map (ADR 0027), or null. */
+  /** The validated detected walls for this room's map (ADR 0029), or null. */
   detectedWalls?: (roomId: string, mapUrl: string) => readonly DetectedWall[] | null;
 }
 
@@ -146,7 +146,7 @@ export class LiveRoom {
     return this.state.scene.map;
   }
 
-  /** The room's grid, so wall detection judges walls against its squares (ADR 0027). */
+  /** The room's grid, so wall detection judges walls against its squares (ADR 0029). */
   currentGrid() {
     return this.state.scene.grid;
   }
@@ -158,7 +158,7 @@ export class LiveRoom {
   }
 
   /**
-   * Sends a message to the room's GM connections only: a wall analysis changed state (ADR 0027).
+   * Sends a message to the room's GM connections only: a wall analysis changed state (ADR 0029).
    * Not room data and no seq (invariant 4); players never receive it.
    */
   notifyGm(message: ServerMessage) {

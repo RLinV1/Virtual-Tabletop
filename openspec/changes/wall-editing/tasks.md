@@ -3,7 +3,7 @@
 ## 1. Contract
 
 - [x] 1.1 Add `wall.add { walls ≤ 50 }` to `commands.ts` and handle it in `decide` (GM only, non-zero length, on the map, under `MAX_WALLS`); verify with unit tests in `packages/shared/test/walls.test.ts`, including undo.
-- [x] 1.2 Add `WallDetectionRequest { sample?: Point }` to `wallDetection.ts`; amend ADR 0027; verify typecheck.
+- [x] 1.2 Add `WallDetectionRequest { sample?: Point }` to `wallDetection.ts`; amend ADR 0029; verify typecheck.
 
 ## 2. Vision worker
 

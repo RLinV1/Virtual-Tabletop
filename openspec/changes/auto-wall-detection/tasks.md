@@ -2,7 +2,7 @@
 
 ## 1. Contract and ADR
 
-- [x] 1.1 Write `docs/adr/0027-walls-and-wall-detection.md` covering the wall model, commands, events, GM-only visibility, queue topology and the BullMQ-consumer choice; verify it is linked from DESIGN.md.
+- [x] 1.1 Write `docs/adr/0029-walls-and-wall-detection.md` covering the wall model, commands, events, GM-only visibility, queue topology and the BullMQ-consumer choice; verify it is linked from DESIGN.md.
 - [x] 1.2 Add `Wall`, `MAX_WALLS`, `RoomState.walls`, optional `TableState.walls`, `tableOf` and `emptyRoomState` in `packages/shared/src/state.ts`; verify `npm run typecheck`.
 - [x] 1.3 Add segment/footprint geometry (`segmentsCross`, `segmentCrossesFootprint`, `blockedByWalls`, `pathCrossesWall`) and a `blocked` predicate on `spreadPositions` in `geometry.ts`; verify with unit tests, including the cell-edge case.
 - [x] 1.4 Add `wall.applyDetected`, `wall.remove`, `wall.clear` commands and `WallsAdded`/`WallsRemoved` events; add the `wallDetection.ts` schemas (`WallDetectionStatus`, `WallDetectionResult`) and the `wallDetection` server message; verify typecheck.

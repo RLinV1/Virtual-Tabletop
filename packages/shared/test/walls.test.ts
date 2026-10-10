@@ -59,7 +59,7 @@ function roomWithWalls(walls: DetectedWall[] = [EDGE_WALL]) {
   return { state, token };
 }
 
-describe("wall geometry (FR-GM-11, ADR 0027)", () => {
+describe("wall geometry (FR-GM-11, ADR 0029)", () => {
   it("tells crossing segments from parallel and disjoint ones", () => {
     const h = { a: { x: 0, y: 5 }, b: { x: 10, y: 5 } };
     expect(segmentsCross(h, { a: { x: 5, y: 0 }, b: { x: 5, y: 10 } })).toBe(true);
@@ -172,7 +172,7 @@ describe("applying and clearing walls (FR-GM-11)", () => {
   });
 });
 
-describe("walls block tokens (FR-GM-11, ADR 0027)", () => {
+describe("walls block tokens (FR-GM-11, ADR 0029)", () => {
   it("refuses dropping a token across a wall, for the GM and players alike", () => {
     const { state, token } = roomWithWalls();
     for (const actor of [gm, alice]) {
@@ -251,7 +251,7 @@ describe("drawing walls by hand (FR-GM-09, wall-editing)", () => {
   });
 });
 
-describe("walls are GM-only (FR-GM-23, ADR 0027)", () => {
+describe("walls are GM-only (FR-GM-23, ADR 0029)", () => {
   it("withholds walls from player snapshots and redacts their events", () => {
     const { state } = roomWithWalls();
     expect(filterStateForViewer(state, alice).walls).toEqual({});

@@ -12,7 +12,7 @@ A GM who uploads a battle map today gets a picture with no geometry: tokens can 
 - **New commands** (GM only): `wall.applyDetected { mapUrl }`, `wall.remove { wallIds }`, `wall.clear`.
 - **New events:** `WallsAdded { walls }` and `WallsRemoved { walls }`. The removal event carries each removed wall in full (invariant 6), and each event undoes the other.
 - **Changing the map clears its walls** in the same action, because walls describe one image.
-- **Contract change:** new commands, events, a `walls` field on `RoomState` and `TableState`, a `WallDetectionStatus` REST schema and a `wallDetection` server message. ADR 0027 records them for review by the Real-Time Architecture owner.
+- **Contract change:** new commands, events, a `walls` field on `RoomState` and `TableState`, a `WallDetectionStatus` REST schema and a `wallDetection` server message. ADR 0029 records them for review by the Real-Time Architecture owner.
 
 ## Non-goals
 
@@ -37,4 +37,4 @@ A GM who uploads a battle map today gets a picture with no geometry: tokens can 
 - `apps/server`: new `domain/wallDetection.ts` (BullMQ producer and `QueueEvents` listener), routes under `/api/rooms/:roomId/wall-detection`, a `decide` context hook for detected walls, a GM-only socket notice, integration tests with an in-process stand-in queue.
 - `services/vision`: `walls.py` (detector and preview renderer), `wall_worker.py` (BullMQ consumer), `bullmq` dependency, pytest coverage, and a `vision-walls` Compose service.
 - `apps/web`: a GM **Walls** panel (status, preview image, Detect, Apply, Clear), a GM-only wall layer in `board/boardView.ts`, and the socket notice in `net/roomConnection.ts`.
-- Docs: `docs/adr/0027-walls-and-wall-detection.md`, `docs/DESIGN.md` (architecture and traceability), `docs/WALL-DETECTION.md` (running it).
+- Docs: `docs/adr/0029-walls-and-wall-detection.md`, `docs/DESIGN.md` (architecture and traceability), `docs/WALL-DETECTION.md` (running it).

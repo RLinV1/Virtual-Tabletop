@@ -1,11 +1,11 @@
-# ADR 0027 — Walls and automatic wall detection
+# ADR 0029 — Walls and automatic wall detection
 
-**Status:** Accepted — reviewed by the Real-Time Architecture owner (Raymond), 2026-10-10 · **Extends:** `docs/adr/0001-event-model.md`, `docs/adr/0013-undo.md`, `docs/adr/0019-checkpoints.md`, `docs/adr/0026-grid-detection-http-contract.md`
+**Status:** Accepted — reviewed by the Real-Time Architecture owner (Raymond), 2026-10-10 · **Extends:** `docs/adr/0001-event-model.md`, `docs/adr/0013-undo.md`, `docs/adr/0019-checkpoints.md`, `docs/adr/0028-grid-detection-http-contract.md`
 **Change:** `openspec/changes/auto-wall-detection` · **Requirements:** FR-GM-11, the wall data model of FR-GM-09
 
 ## Context
 
-A room has no wall geometry, so a token can be dropped inside a wall and dragged through solid rock. FR-GM-11 asks for walls inferred from the map image by an isolated vision service. DESIGN.md §1 and §2 already fix the service's shape: Python and OpenCV in its own container, "driven by a BullMQ queue on Redis". Grid detection (KAN-09, ADR 0026) added `services/vision` and BullMQ to the server, but its jobs are consumed by a Node worker that calls Python over HTTP.
+A room has no wall geometry, so a token can be dropped inside a wall and dragged through solid rock. FR-GM-11 asks for walls inferred from the map image by an isolated vision service. DESIGN.md §1 and §2 already fix the service's shape: Python and OpenCV in its own container, "driven by a BullMQ queue on Redis". Grid detection (KAN-09, ADR 0028) added `services/vision` and BullMQ to the server, but its jobs are consumed by a Node worker that calls Python over HTTP.
 
 Two constraints shape the contract:
 

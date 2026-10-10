@@ -253,7 +253,7 @@ export class BoardView {
   private fogLoopRegistered = false;
   private lastFogDraw = 0;
   private fogOffset = { x: 0, y: 0 };
-  /** GM only: the applied walls (FR-GM-11, ADR 0027); players never receive any. */
+  /** GM only: the applied walls (FR-GM-11, ADR 0029); players never receive any. */
   private wallGraphics = new Graphics();
   private drawnWalls: RoomState["walls"] | null = null;
   private tokenLayer = new Container();
@@ -575,7 +575,7 @@ export class BoardView {
   }
 
   /**
-   * Draws the room's walls over the map, under tokens (ADR 0027). Only the GM's state holds any;
+   * Draws the room's walls over the map, under tokens (ADR 0029). Only the GM's state holds any;
    * the line scales with the grid so it reads at every zoom. Board coordinates (invariant 8).
    */
   private syncWalls() {

@@ -189,7 +189,7 @@ export const api = {
     return (await res.json()) as UploadResponse;
   },
 
-  /** Wall detection for the room's map, as its GM (FR-GM-11, ADR 0027). */
+  /** Wall detection for the room's map, as its GM (FR-GM-11, ADR 0029). */
   walls: {
     /**
      * Queues an analysis of the room's current map. With `sample`, a point on a wall the GM
