@@ -7,6 +7,8 @@ import { AreaShape, Id, MapImage, MAX_CHAT_LENGTH, MAX_FOG_POINTS } from "./stat
 
 /** Most walls one `wall.remove` names (ADR 0025), keeping the command under the socket limit. */
 export const MAX_WALLS_PER_REMOVE = 500;
+/** Most walls one `wall.add` draws (wall-editing). The Walls tool sends one per segment. */
+export const MAX_WALLS_PER_ADD = 50;
 
 /**
  * Commands are REQUESTS from a client. The server validates and authorizes them,
@@ -266,6 +268,11 @@ export const Command = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("wall.applyDetected"),
     mapUrl: z.string().min(1).max(2048),
+  }).strict(),
+  /** GM draws walls by hand (wall-editing, ADR 0025). Board coordinates (invariant 8). */
+  z.object({
+    type: z.literal("wall.add"),
+    walls: z.array(z.object({ a: Point, b: Point }).strict()).min(1).max(MAX_WALLS_PER_ADD),
   }).strict(),
   /** GM removes chosen walls (ADR 0025). */
   z.object({

@@ -586,6 +586,18 @@ export function decide(
       return accept(...removeAllWalls(state), { type: "WallsAdded", walls });
     }
 
+    case "wall.add": {
+      if (!can.administer(actor)) return forbidden();
+      const map = state.scene.map;
+      if (!map) return reject("invalid", "Set a map before drawing walls.");
+      if (command.walls.some((w) => w.a.x === w.b.x && w.a.y === w.b.y)) return reject("invalid", "A wall needs two different ends.");
+      if (!wallsFitMap(command.walls, map)) return reject("invalid", "Walls must lie on the map.");
+      if (Object.keys(state.walls).length + command.walls.length > MAX_WALLS) {
+        return reject("invalid", `A room can hold at most ${MAX_WALLS} walls. Remove some first.`);
+      }
+      return accept({ type: "WallsAdded", walls: command.walls.map((w) => ({ id: ctx.newId(), a: w.a, b: w.b })) });
+    }
+
     case "wall.remove": {
       if (!can.administer(actor)) return forbidden();
       const walls: Wall[] = [];

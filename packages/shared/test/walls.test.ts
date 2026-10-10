@@ -14,6 +14,7 @@ import {
   segmentsCross,
   spreadPositions,
   undoableAction,
+  WallDetectionRequest,
   WallDetectionResult,
   wallsFitMap,
   type CommandInput,
@@ -54,7 +55,7 @@ function roomWithWalls(walls: DetectedWall[] = [EDGE_WALL]) {
   const created = must(act(state, gm, { type: "token.create", name: "Aria", position: { x: 105, y: 105 }, ownerIds: [alice.id] }));
   state = created.state;
   const token = Object.values(state.tokens)[0]!;
-  state = must(act(state, gm, { type: "wall.applyDetected", mapUrl: MAP.url }, walls)).state;
+  if (walls.length > 0) state = must(act(state, gm, { type: "wall.applyDetected", mapUrl: MAP.url }, walls)).state;
   return { state, token };
 }
 
@@ -209,6 +210,40 @@ describe("walls block tokens (FR-GM-11, ADR 0025)", () => {
       if (e.type !== "TokenCreated") continue;
       expect(footprintCrossesWall(e.token.position, 1, DEFAULT_GRID, Object.values(state.walls))).toBe(false);
     }
+  });
+});
+
+describe("drawing walls by hand (FR-GM-09, wall-editing)", () => {
+  it("adds drawn walls as one undoable action", () => {
+    const { state } = roomWithWalls([]);
+    const drawn = must(act(state, gm, { type: "wall.add", walls: [{ a: { x: 70, y: 70 }, b: { x: 210, y: 70 } }] }));
+    expect(drawn.events).toEqual([{ type: "WallsAdded", walls: [expect.objectContaining({ a: { x: 70, y: 70 }, b: { x: 210, y: 70 } })] }]);
+    expect(Object.keys(drawn.state.walls)).toHaveLength(1);
+    const undone = must(act(drawn.state, gm, { type: "history.undo", commandId: drawn.commandId }));
+    expect(undone.state.walls).toEqual({});
+  });
+
+  it("refuses players, zero-length walls, walls off the map, and walls past the cap", () => {
+    const { state } = roomWithWalls([]);
+    const wall = { a: { x: 70, y: 70 }, b: { x: 210, y: 70 } };
+    expect(act(state, alice, { type: "wall.add", walls: [wall] })).toMatchObject({ ok: false, code: "forbidden" });
+    expect(act(state, gm, { type: "wall.add", walls: [{ a: wall.a, b: wall.a }] })).toMatchObject({ ok: false, code: "invalid" });
+    expect(act(state, gm, { type: "wall.add", walls: [{ a: wall.a, b: { x: 900, y: 70 } }] })).toMatchObject({ ok: false, code: "invalid" });
+    const full = { ...state, walls: Object.fromEntries(Array.from({ length: MAX_WALLS }, (_, i) => [`w${i}`, { id: `w${i}`, ...wall }])) };
+    expect(act(full, gm, { type: "wall.add", walls: [wall] })).toMatchObject({ ok: false, code: "invalid" });
+    expect(() => Command.parse({ type: "wall.add", walls: Array(51).fill(wall) })).toThrow();
+  });
+
+  it("needs a map to draw on", () => {
+    expect(act(baseRoom(), gm, { type: "wall.add", walls: [{ a: { x: 0, y: 0 }, b: { x: 70, y: 0 } }] }))
+      .toMatchObject({ ok: false, code: "invalid" });
+  });
+
+  it("accepts a sample point on a detection request, and nothing else", () => {
+    expect(WallDetectionRequest.parse({ sample: { x: 10, y: 20 } })).toEqual({ sample: { x: 10, y: 20 } });
+    expect(WallDetectionRequest.parse({})).toEqual({});
+    expect(WallDetectionRequest.safeParse({ sample: { x: 10 } }).success).toBe(false);
+    expect(WallDetectionRequest.safeParse({ colour: "#fff" }).success).toBe(false);
   });
 });
 

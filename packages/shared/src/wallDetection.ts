@@ -37,6 +37,15 @@ export function wallsFitMap(walls: readonly DetectedWall[], map: { width: number
   return walls.every((w) => inside(w.a) && inside(w.b));
 }
 
+/**
+ * What the GM may send when starting an analysis (wall-editing). `sample` is a point on a wall in
+ * board coordinates: the worker then looks for walls of that colour instead of guessing.
+ */
+export const WallDetectionRequest = z.object({
+  sample: Point.optional(),
+}).strict();
+export type WallDetectionRequest = z.infer<typeof WallDetectionRequest>;
+
 /** The GM's view of the latest analysis of one map (ADR 0025). Never sent to players. */
 export const WallDetectionStatus = z.discriminatedUnion("status", [
   z.object({ status: z.literal("queued") }),

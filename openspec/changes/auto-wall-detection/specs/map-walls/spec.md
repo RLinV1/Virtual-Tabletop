@@ -11,7 +11,7 @@ The GM SHALL be able to apply a completed detection result as the room's walls, 
 
 #### Scenario: Apply detected walls
 - **WHEN** the GM presses Apply walls on a result with 42 walls
-- **THEN** the room holds exactly those 42 walls and the activity log reads "<GM> applied 42 walls"
+- **THEN** the room holds exactly those 42 walls and the activity log reads "<GM> added 42 walls"
 
 #### Scenario: Clear walls
 - **WHEN** the GM presses Clear walls

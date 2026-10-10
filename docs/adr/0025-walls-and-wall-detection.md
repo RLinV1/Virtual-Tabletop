@@ -67,3 +67,20 @@ Walls are GM-only:
 - The vision image now runs a second process, `vision-walls`, which needs `REDIS_URL`.
 - A pending job holds up to about 34 MB of base64 in Redis. The age limits on jobs bound this.
 - An app server restart drops unapplied results, and the GM re-runs detection.
+
+## Amendment: hand-drawn walls and sampled detection (`openspec/changes/wall-editing`)
+
+Detection on painted maps is noisy, and all-or-nothing results leave the GM stuck. Two additions:
+
+- **`wall.add { walls }`** (GM only, at most 50, each `{ a, b }` on the map with two different
+  ends, within `MAX_WALLS`) commits the existing `WallsAdded` event. Hand-drawn walls are then
+  exactly like detected ones: GM-only, undoable, and blocking tokens. The board's Walls tool
+  sends one segment per command, so each segment undoes on its own, and erases with the
+  existing `wall.remove`. The activity log now reads "added N walls" for both.
+- **`POST /wall-detection` takes `{ sample?: Point }`** (`WallDetectionRequest`, strict). A
+  point outside the map is refused with 400. The sample travels in the job data, and the worker
+  then builds its mask from the colour around that point (median Lab, fixed ΔE tolerance)
+  instead of choosing between the bright and dark top-hats. Shape filtering is unchanged. This
+  is the colour pick that both prior-art tools rely on, done at board zoom.
+
+Nothing else changes: results stay suggestions until applied, and walls stay GM-only.

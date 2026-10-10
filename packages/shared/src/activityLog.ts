@@ -114,7 +114,7 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
     case "TemplateRemoved": return `${actorName} removed a ${templateLabel(event.template)}${event.template.gmOnly ? " (GM only)" : ""}`;
     case "FogAdded": return `${actorName} added a fog ${fogLabel(event.region.shape)}`;
     case "FogRemoved": return `${actorName} removed a fog ${fogLabel(event.region.shape)}`;
-    case "WallsAdded": return `${actorName} applied ${wallCount(event.walls.length)}`;
+    case "WallsAdded": return `${actorName} added ${wallCount(event.walls.length)}`;
     case "WallsRemoved": return `${actorName} removed ${wallCount(event.walls.length)}`;
     case "CheckpointCreated": return `${actorName} saved checkpoint "${event.checkpoint.name}"`;
     case "CheckpointRestored": return `${actorName} restored checkpoint "${event.name}"`;
