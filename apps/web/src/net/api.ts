@@ -10,6 +10,7 @@ import {
   type GridSpec,
   GridDetectionStatus,
   WallDetectionStatus,
+  WallDetectionAvailability,
   type Point,
   type InviteSeatResponse,
   type LegacySummary,
@@ -182,6 +183,12 @@ export const api = {
       });
       if (!res.ok) throw await errorFrom(res);
       return WallDetectionStatus.parse(await res.json());
+    },
+    /** Whether this server can detect walls now (map-editor D4); names no room. */
+    async availability(signal?: AbortSignal): Promise<WallDetectionAvailability> {
+      const res = await fetch("/api/wall-detection/availability", { signal, cache: "no-store" });
+      if (!res.ok) throw await errorFrom(res);
+      return WallDetectionAvailability.parse(await res.json());
     },
     /** The latest analysis of this map, or null when the room never analyzed it. */
     async status(roomId: string, token: string, mapUrl: string, signal?: AbortSignal): Promise<WallDetectionStatus | null> {
