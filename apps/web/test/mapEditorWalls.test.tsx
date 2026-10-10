@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { toGridDraft } from "../src/pages/gridDraft";
-import { type RoomState, type Wall } from "@vtt/shared";
+import { SAMPLE_TOLERANCE_DEFAULT, type RoomState, type Wall } from "@vtt/shared";
 import { api } from "../src/net/api";
 import { GmPanel } from "../src/pages/GmPanel";
 import { WallSetup } from "../src/pages/mapEditor/WallSetup";
@@ -116,7 +116,17 @@ describe("map editor walls (FR-GM-09, FR-GM-11)", () => {
     await waitFor(() => expect((tool("Detect like this") as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(tool("Detect like this"));
     click(canvas(), { x: 321, y: 123 });
-    await waitFor(() => expect(detect).toHaveBeenCalledWith("r1", TOKEN, { x: 321, y: 123 }, expect.any(Number)));
+    await waitFor(() => expect(detect).toHaveBeenCalledWith("r1", TOKEN, { x: 321, y: 123 }, SAMPLE_TOLERANCE_DEFAULT));
+  });
+
+  it("sends the colour range chosen on the slider with the click", async () => {
+    const detect = vi.spyOn(api.walls, "detect").mockResolvedValue({ status: "queued" });
+    mount();
+    await waitFor(() => expect((tool("Detect like this") as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(tool("Detect like this"));
+    fireEvent.change(screen.getByRole("slider"), { target: { value: "18" } });
+    click(canvas(), { x: 321, y: 123 });
+    await waitFor(() => expect(detect).toHaveBeenCalledWith("r1", TOKEN, { x: 321, y: 123 }, 18));
   });
 
   it("shows how many walls a finished detection found and applies them", async () => {
