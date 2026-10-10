@@ -21,6 +21,13 @@ class WallWorkerTest(unittest.TestCase):
         self.assertEqual(set(result), {"walls", "preview"})
         self.assertEqual(set(result["preview"]), {"contentType", "width", "height", "data"})
 
+    def test_passes_a_sample_through(self):
+        image = base64.b64encode(encode(ink_dungeon())).decode("ascii")
+        result = asyncio.run(process(job(image=image, width=SIZE[1], height=SIZE[0], cellSize=CELL, sample={"x": 140, "y": 300})))
+        self.assertTrue(result["walls"])
+        with self.assertRaises(ValueError):
+            asyncio.run(process(job(image=image, width=SIZE[1], height=SIZE[0], cellSize=CELL, sample={"x": "left"})))
+
     def test_fails_the_job_on_bad_input(self):
         for data in ({}, {"image": "%%%", "width": 10, "height": 10}, {"image": "aGVsbG8=", "width": 5, "height": 5},
                      {"image": "aGVsbG8=", "width": 5, "height": 5, "cellSize": -1}):

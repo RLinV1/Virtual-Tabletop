@@ -4,7 +4,8 @@ The app server produces jobs on the `wall-detection` queue in the app's Redis; t
 consumes them and returns `{walls, preview}` as the job's return value. The app server learns of
 completion from BullMQ's queue events, validates the result, and notifies the room's GM.
 
-Job data: `{ image: base64 bytes, width, height, cellSize }`. The bytes were read by the app server
+Job data: `{ image: base64 bytes, width, height, cellSize, sample? }`, where `sample` is a
+point on a wall the GM clicked (wall-editing). The bytes were read by the app server
 from its own storage; this worker never fetches a URL, and holds no database or storage credentials.
 """
 
@@ -36,9 +37,15 @@ async def process(job, _token=None) -> dict:
     cell = float(data.get("cellSize") or 0)
     if not 0 <= cell <= 2000:
         raise ValueError("Invalid cell size")
+    sample = data.get("sample")
+    if sample is not None:
+        try:
+            sample = {"x": float(sample["x"]), "y": float(sample["y"])}
+        except (KeyError, TypeError, ValueError) as err:
+            raise ValueError("Invalid sample") from err
     started = time.monotonic()
     # OpenCV releases the GIL, so a thread keeps the worker's lock renewals running meanwhile.
-    result = await asyncio.to_thread(analyze, image, width, height, cell)
+    result = await asyncio.to_thread(analyze, image, width, height, cell, sample)
     # Sizes and timings only: never image contents or results.
     print(f"[vision] job {job.id}: {width}x{height}, {len(result['walls'])} walls in {time.monotonic() - started:.1f}s", flush=True)
     return result

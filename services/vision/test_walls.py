@@ -52,6 +52,17 @@ def stone_keep() -> np.ndarray:
     return img
 
 
+def painted_hall() -> np.ndarray:
+    """Walls as bright as the floor, told apart only by colour: warm stone on a cool floor."""
+    img = floor(9, colour=(150, 140, 120), grid=(120, 112, 96))  # BGR: blue-grey floor
+    for room in ROOMS:
+        x1, y1, x2, y2 = room
+        for a, b in (((x1, y1), (x2, y1)), ((x2, y1), (x2, y2)), ((x2, y2), (x1, y2)), ((x1, y2), (x1, y1))):
+            cv2.line(img, a, b, (25, 30, 35), 34)
+            cv2.line(img, a, b, (95, 135, 175), 26)  # BGR: tan stone, about the floor's brightness
+    return img
+
+
 def encode(img: np.ndarray) -> bytes:
     ok, data = cv2.imencode(".png", img)
     assert ok
@@ -120,6 +131,23 @@ class WallDetectionTest(unittest.TestCase):
         decoded = cv2.imdecode(np.frombuffer(base64.b64decode(preview["data"]), np.uint8), cv2.IMREAD_COLOR)
         self.assertEqual(decoded.shape[:2], (preview["height"], preview["width"]))
         self.assertLessEqual(max(preview["width"], preview["height"]), 1024)
+
+    def test_sample_finds_walls_by_colour(self):
+        img = painted_hall()
+        # Click on the middle of the first room's top wall.
+        sampled = detect_walls(img, CELL, {"x": 385, "y": 140})["walls"]
+        on_rooms = [w for w in sampled if near_room_edge(w)]
+        self.assertGreaterEqual(total_length(on_rooms) / total_length(sampled), 0.95)
+        self.assertGreaterEqual(total_length(on_rooms) / ROOM_PERIMETER, 0.7)
+
+    def test_sample_in_dark_ink(self):
+        walls = detect_walls(ink_dungeon(), CELL, {"x": 140, "y": 300})["walls"]
+        on_rooms = [w for w in walls if near_room_edge(w)]
+        self.assertGreaterEqual(total_length(on_rooms) / ROOM_PERIMETER, 0.7)
+
+    def test_sample_outside_the_image_is_refused(self):
+        with self.assertRaises(ValueError):
+            analyze(encode(ink_dungeon()), SIZE[1], SIZE[0], CELL, {"x": SIZE[1] + 5, "y": 10})
 
     def test_rejects_bad_input(self):
         with self.assertRaises(ValueError):

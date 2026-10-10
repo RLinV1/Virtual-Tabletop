@@ -7,7 +7,7 @@
 
 ## 2. Vision worker
 
-- [ ] 2.1 Add the sampled-colour mask to `walls.py` (`detect_walls(image, cell, sample)`) and pass `sample` through `analyze` and `wall_worker.py`; verify with pytest: on a map whose walls are as bright as the floor, a sample finds them where automatic detection does not, and a dark-ink sample matches the ink rooms.
+- [x] 2.1 Add the sampled-colour mask to `walls.py` (`detect_walls(image, cell, sample)`) and pass `sample` through `analyze` and `wall_worker.py`; verify with pytest (walls told apart from the floor only by colour are found from a sample, a dark-ink sample matches the ink rooms, a sample off the image is refused) and on the ice map, where a sample keeps the castle walls without the cliff noise automatic mode adds.
 
 ## 3. App server
 

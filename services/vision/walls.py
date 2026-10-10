@@ -39,6 +39,10 @@ WORK_EDGE = 1200
 PREVIEW_EDGE = 1024
 # Widest wall each top-hat keeps, in cells: thin drawn walls, and walls up to about a square thick.
 BAND_CELLS = (0.9, 1.5)
+# How far, in Lab units (8-bit scale), a pixel's colour may be from a sampled wall's to count.
+SAMPLE_TOLERANCE = 30.0
+# A sampled colour this dark (Lab L, 8-bit) is ink: its strokes need no separate outline.
+DARK_INK_L = 80
 
 
 def decode(data: bytes, width: int, height: int) -> np.ndarray:
@@ -92,6 +96,34 @@ def _wall_masks(gray: np.ndarray, cell: float) -> list:
             family = cv2.bitwise_or(family, _outlined(_straight_runs(mask, cell), outline))
         out.append((name, family, cell))
     return out
+
+
+def _sampled_mask(work: np.ndarray, gray: np.ndarray, cell: float, point: tuple) -> np.ndarray:
+    """Walls the colour of the one the GM clicked (wall-editing): the colour pick of prior art.
+
+    The reference is the median Lab colour of a small disc around the point, so a click on a
+    block's edge or a speck still reads the wall. Regions wider than a wall (a floor that happens
+    to match) are removed, then the usual shape rules decide what is a wall.
+    """
+    lab = cv2.cvtColor(cv2.bilateralFilter(work, 9, 40, 7), cv2.COLOR_BGR2LAB).astype(np.float32)
+    height, width = gray.shape
+    x = int(min(max(round(point[0]), 0), width - 1))
+    y = int(min(max(round(point[1]), 0), height - 1))
+    r = max(2, int(round(cell * 0.15)))
+    patch = lab[max(0, y - r):y + r + 1, max(0, x - r):x + r + 1].reshape(-1, 3)
+    reference = np.median(patch, axis=0)
+    distance = np.sqrt(((lab - reference) ** 2).sum(axis=2))
+    mask = (distance < SAMPLE_TOLERANCE).astype(np.uint8) * 255
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, _kernel(cell * 0.12))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, _kernel(cell * 0.12))
+    wide = cv2.morphologyEx(mask, cv2.MORPH_OPEN, _kernel(cell * max(BAND_CELLS) * 1.1))
+    mask = cv2.subtract(mask, cv2.dilate(wide, _kernel(cell * 0.2)))
+    runs = _straight_runs(mask, cell)
+    # Dark ink is its own outline; anything lighter must follow a drawn edge, as in automatic mode.
+    if reference[0] < DARK_INK_L:
+        return runs
+    dark_lines = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, _kernel(cell * 0.25, shape=cv2.MORPH_ELLIPSE))
+    return _outlined(runs, cv2.dilate(_strong(dark_lines).astype(np.uint8) * 255, _kernel(3)))
 
 
 def _outlined(mask: np.ndarray, outline: np.ndarray, share: float = 0.3) -> np.ndarray:
@@ -363,22 +395,31 @@ def _working_cell(width: int, height: int, cell: float, scale: float) -> float:
     return float(min(max(value, 12.0), edge / 6))
 
 
-def detect_walls(image: np.ndarray, cell: float = 0.0) -> dict:
-    """Wall segments in the image's own pixels. `cell` is the grid's cell size in those pixels, or 0."""
+def detect_walls(image: np.ndarray, cell: float = 0.0, sample: dict = None) -> dict:
+    """Wall segments in the image's own pixels. `cell` is the grid's cell size in those pixels, or 0.
+
+    With `sample` ({x, y} in image pixels, on a wall the GM clicked) the mask comes from that
+    wall's colour; without it, the bright and dark styles are both tried and the better one wins.
+    """
     height, width = image.shape[:2]
     scale = min(1.0, WORK_EDGE / max(width, height))
     work = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA) if scale < 1 else image
     working_cell = _working_cell(width, height, cell, scale)
     gray = cv2.bilateralFilter(cv2.cvtColor(work, cv2.COLOR_BGR2GRAY), 7, 25, 5)
     best = ("none", [], 0.0)
-    for name, mask, c in _wall_masks(gray, working_cell):
+    candidates = (
+        [("sample", _sampled_mask(work, gray, working_cell, (sample["x"] * scale, sample["y"] * scale)), working_cell)]
+        if sample else _wall_masks(gray, working_cell)
+    )
+    for name, mask, c in candidates:
         segments = _segments_for(mask, c)
         score = _score(segments, c)
         if score > best[2]:
             best = (name, segments, score)
     name, segments, score = best
-    # A handful of short pieces is noise, not a wall layout.
-    if score < 4:
+    # A handful of short pieces is noise, not a wall layout. A sample says walls exist, so it
+    # keeps whatever long run it found.
+    if score < (2 if sample else 4):
         segments = []
     segments.sort(key=_length, reverse=True)
     walls = []
@@ -427,13 +468,16 @@ def _detected_cell(data: bytes, width: int, height: int) -> float:
     return float(result["cellSize"]) if result.get("kind") == "candidate" else 0.0
 
 
-def analyze(data: bytes, width: int, height: int, cell: float = 0.0) -> dict:
+def analyze(data: bytes, width: int, height: int, cell: float = 0.0, sample: dict = None) -> dict:
     """One job: decode, detect, render. The result shape is `WallDetectionResult` in packages/shared.
 
     `cell` is the room grid's cell size; without one, the grid detector's suggestion is used.
+    `sample` is a point on a wall the GM clicked, in image pixels, or None.
     """
     image = decode(data, width, height)
     if not cell:
         cell = _detected_cell(data, width, height)
-    detected = detect_walls(image, cell)
+    if sample is not None and not (0 <= sample["x"] <= width and 0 <= sample["y"] <= height):
+        raise ValueError("Sample outside the image")
+    detected = detect_walls(image, cell, sample)
     return {"walls": detected["walls"], "preview": render_preview(image, detected["walls"])}
