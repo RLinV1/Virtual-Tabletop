@@ -87,18 +87,22 @@ Nothing else changes: results stay suggestions until applied, and walls stay GM-
 
 ## Amendment: sampled-detection tolerance (`feat/auto-wall-detection`)
 
-Sampled detection used one fixed colour range, which suits some maps and not others. Two changes:
+Sampled detection used one fixed colour range, which suits some maps and not others, and automatic mode had no controls at all. Three changes:
 
 - **`WallDetectionRequest` gains `tolerance?: number`**, in Lab units from 10 to 60 (default 30, the
   previous fixed value). It is valid only with `sample`; a request with `tolerance` alone, or one
   outside the range, is refused with 400. Old clients that send no tolerance behave as before.
   The shared constants are `SAMPLE_TOLERANCE_MIN`, `_MAX` and `_DEFAULT`.
-- **The job data carries `tolerance?` beside `sample`.** The worker validates the same range
-  (it trusts nothing the queue holds) and fails the job otherwise. The Walls step shows a slider
-  in the "Detect like this" tool and sends its value with the click.
+- **`strictness?` (0.2-0.6, default 0.4) and `minLength?` (0-6 cells, default 0)** apply to
+  automatic and sampled detection alike. Strictness is the share of a run's edge that must follow
+  a contrasting outline, the threshold that decides terrain from wall; minimum length drops short
+  pieces from the result. At their defaults the output is unchanged. Neither needs a sample.
+- **The job data carries `tolerance?`, `strictness?` and `minLength?` beside `sample`.** The worker validates the same range
+  (it trusts nothing the queue holds) and fails the job otherwise. The Walls step shows a colour-range
+  slider in the "Detect like this" tool, and strictness and shortest-wall sliders above Detect
+  walls; each request sends their values.
 
-The worker also keeps more of what it finds only when at least 40% (was 30%) of a bright run's
-edge lies along a contrasting outline. This is an internal tuning with no contract change. On the bundled
-maps it cuts the walls found on the snowy-cliff map from 147 to 81 and on the jungle map from 78 to 51,
+The default strictness is 40% (was a fixed 30%): a run is kept only when that share of its
+edge lies along a contrasting outline. On the bundled maps it cuts the walls found on the snowy-cliff map from 147 to 81 and on the jungle map from 78 to 51,
 mostly cliff and vine runs, and leaves the hero map's score unchanged. The worker's weld and thinning
 steps were also rewritten to run in linear time, with identical output, so a map now takes under 3 s.
