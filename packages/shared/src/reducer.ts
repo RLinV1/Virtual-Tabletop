@@ -27,7 +27,7 @@ export function reduce(state: RoomState, event: DomainEvent, meta?: EventMeta): 
   // A restore replaces the whole board, so board edits from before it can no longer be undone:
   // their "still current" check could pass by coincidence and undo across the restore. Only
   // rulings, which live on rolls rather than the board, stay (ADR 0019).
-  const history = event.type === "CheckpointRestored"
+  const history = event.type === "CheckpointRestored" || event.type === "EncounterApplied"
     ? { ...state, undo: state.undo.filter((e) => e.events.length > 0 && e.events.every((ev) => ev.type === "RollRuled")) }
     : state;
   return { ...next, undo: recordUndo(history, event, { ...meta, commandId: meta.commandId }) };
@@ -221,6 +221,10 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
     case "CheckpointRestored":
       // Only the board changes: participants, rolls, chat and history stay (ADR 0019).
       return { ...state, ...event.restored };
+
+    case "EncounterApplied":
+      // Only the board changes, exactly as a checkpoint restore (ADR 0024).
+      return { ...state, ...event.applied };
 
     case "FogAdded":
       return { ...state, fog: { ...state.fog, [event.region.id]: event.region } };

@@ -2,13 +2,14 @@ import {
   Prisma,
   PrismaClient,
   type DiceLook,
+  type EncounterTemplate,
   type LibraryAsset,
   type LibraryCreature,
   type Session,
   type User,
 } from "@prisma/client";
 import { randomUUID } from "node:crypto";
-import { ConditionId, DEFAULT_TOKEN_COLOR, type AssetKind, type CommittedEvent, type DieName, type DomainEvent, type GmRoomSummary, type GridSpec, type LegacySummary } from "@vtt/shared";
+import { ConditionId, DEFAULT_TOKEN_COLOR, TokenAttacks, type AssetKind, type CommittedEvent, type DieName, type DomainEvent, type GmRoomSummary, type GridSpec, type LegacySummary } from "@vtt/shared";
 import {
   EmailTakenError,
   type EndedSessions,
@@ -18,6 +19,10 @@ import {
 } from "./identityStore";
 import {
   CreatureImageMissingError,
+  EncounterLimitError,
+  EncounterMapMissingError,
+  type EncounterRecord,
+  type NewEncounterRecord,
   type CreaturePatch,
   type DiceFaceRecord,
   type DiceLookRecord,
@@ -36,6 +41,8 @@ const PRISMA_UNIQUE_VIOLATION = "P2002";
 const PRISMA_FOREIGN_KEY_VIOLATION = "P2003";
 /** Joined so a creature carries its art's URL; null once the art is deleted (ON DELETE SET NULL). */
 const WITH_IMAGE = { image: { select: { url: true } } } as const;
+/** Joined so a template carries its map name and address; null once the map is deleted (ON DELETE SET NULL). */
+const WITH_MAP = { map: { select: { name: true, url: true } } } as const;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
@@ -372,6 +379,70 @@ export class PostgresRoomStore implements RoomStore {
     return count === 1;
   }
 
+  // ---------- Encounter templates (ADR 0024) ----------
+
+  async listEncounters(ownerGmId: string) {
+    const rows = await this.prisma.encounterTemplate.findMany({
+      where: { ownerGmId }, orderBy: { createdAt: "desc" }, include: WITH_MAP,
+    });
+    return rows.map(toEncounterRecord);
+  }
+
+  async findEncounter(id: string, ownerGmId: string) {
+    // `encounter.apply` carries any string; a non-uuid reads as no template instead of a query error.
+    if (!UUID.test(id)) return null;
+    const row = await this.prisma.encounterTemplate.findFirst({ where: { id, ownerGmId }, include: WITH_MAP });
+    return row ? toEncounterRecord(row) : null;
+  }
+
+  countEncounters(ownerGmId: string) {
+    return this.prisma.encounterTemplate.count({ where: { ownerGmId } });
+  }
+
+  async createEncounter(encounter: NewEncounterRecord, maxPerOwner: number) {
+    try {
+      const row = await this.prisma.$transaction(async (tx) => {
+        // One save at a time per owner: the lock is held until the transaction ends, so the count
+        // below cannot go stale before the insert.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`encounter_templates:${encounter.ownerGmId}`}))`;
+        if ((await tx.encounterTemplate.count({ where: { ownerGmId: encounter.ownerGmId } })) >= maxPerOwner) {
+          throw new EncounterLimitError(maxPerOwner);
+        }
+        return tx.encounterTemplate.create({
+          data: {
+            ...encounter,
+            data: encounter.data as unknown as Prisma.InputJsonValue,
+            createdAt: new Date(encounter.createdAt),
+            updatedAt: new Date(encounter.updatedAt),
+          },
+          include: WITH_MAP,
+        });
+      });
+      return toEncounterRecord(row);
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === PRISMA_FOREIGN_KEY_VIOLATION) throw new EncounterMapMissingError();
+      throw err;
+    }
+  }
+
+  async renameEncounter(id: string, ownerGmId: string, name: string, at: string) {
+    if (!UUID.test(id)) return null;
+    const { count } = await this.prisma.encounterTemplate.updateMany({ where: { id, ownerGmId }, data: { name, updatedAt: new Date(at) } });
+    return count === 1 ? this.findEncounter(id, ownerGmId) : null;
+  }
+
+  async deleteEncounter(id: string, ownerGmId: string) {
+    if (!UUID.test(id)) return false;
+    const { count } = await this.prisma.encounterTemplate.deleteMany({ where: { id, ownerGmId } });
+    return count === 1;
+  }
+
+  async encountersUsingMap(assetId: string, ownerGmId: string) {
+    return this.prisma.encounterTemplate.findMany({
+      where: { mapAssetId: assetId, ownerGmId }, select: { id: true, name: true }, orderBy: { createdAt: "desc" },
+    });
+  }
+
   async creaturesUsingImage(assetId: string, ownerGmId: string) {
     return this.prisma.libraryCreature.findMany({
       where: { imageAssetId: assetId, ownerGmId }, select: { id: true, name: true }, orderBy: { createdAt: "desc" },
@@ -630,12 +701,30 @@ async function missingImageAsError<T>(write: () => Promise<T>): Promise<T> {
   }
 }
 
+function toEncounterRecord(row: EncounterTemplate & { map: { name: string; url: string } | null }): EncounterRecord {
+  return {
+    id: row.id,
+    ownerGmId: row.ownerGmId,
+    name: row.name,
+    version: row.version,
+    // Validated again where it is applied (ADR 0024), so a row from an older format is not trusted here.
+    data: row.data as unknown as EncounterRecord["data"],
+    mapAssetId: row.mapAssetId,
+    mapName: row.map?.name ?? null,
+    mapUrl: row.map?.url ?? null,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
 function toCreatureRecord(row: LibraryCreature & { image: { url: string } | null }): LibraryCreatureRecord {
   return {
     id: row.id,
     ownerGmId: row.ownerGmId,
     name: row.name,
     size: row.size,
+    hp: row.hp,
+    attacks: TokenAttacks.parse(row.attacks),
     maxHp: row.maxHp,
     ac: row.ac,
     color: row.color ?? DEFAULT_TOKEN_COLOR,

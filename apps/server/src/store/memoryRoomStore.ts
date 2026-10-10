@@ -9,6 +9,10 @@ import {
 } from "./identityStore";
 import {
   CreatureImageMissingError,
+  EncounterLimitError,
+  EncounterMapMissingError,
+  type EncounterRecord,
+  type NewEncounterRecord,
   type CreaturePatch,
   type DiceFaceRecord,
   type DiceLookRecord,
@@ -29,6 +33,7 @@ export class MemoryRoomStore implements RoomStore {
   private gms = new Map<string, string>();
   private assets = new Map<string, LibraryAssetRecord>();
   private creatures = new Map<string, NewCreatureRecord>();
+  private encounters = new Map<string, NewEncounterRecord>();
   /** roomId -> asset ids its current state references. */
   private refs = new Map<string, Set<string>>();
   /** roomId -> object keys uploaded from inside it (ADR 0009). */
@@ -215,6 +220,7 @@ export class MemoryRoomStore implements RoomStore {
     for (const ids of this.refs.values()) ids.delete(id);
     // As `ON DELETE SET NULL` does in Postgres: the creatures stay, without their image.
     for (const creature of this.creatures.values()) if (creature.imageAssetId === id) creature.imageAssetId = null;
+    for (const encounter of this.encounters.values()) if (encounter.mapAssetId === id) encounter.mapAssetId = null;
     return asset;
   }
 
@@ -459,6 +465,60 @@ export class MemoryRoomStore implements RoomStore {
     return Object.values(look.faces).map((f) => f.objectKey);
   }
 
+  // ---------- Encounter templates (ADR 0024) ----------
+
+  async listEncounters(ownerGmId: string) {
+    return [...this.encounters.values()]
+      .filter((e) => e.ownerGmId === ownerGmId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((e) => this.withMap(e));
+  }
+
+  async findEncounter(id: string, ownerGmId: string) {
+    const encounter = this.encounters.get(id);
+    return encounter && encounter.ownerGmId === ownerGmId ? this.withMap(encounter) : null;
+  }
+
+  async countEncounters(ownerGmId: string) {
+    return [...this.encounters.values()].filter((e) => e.ownerGmId === ownerGmId).length;
+  }
+
+  async createEncounter(encounter: NewEncounterRecord, maxPerOwner: number) {
+    // No await between the count and the insert, so this is atomic on the one event loop.
+    if ([...this.encounters.values()].filter((e) => e.ownerGmId === encounter.ownerGmId).length >= maxPerOwner) {
+      throw new EncounterLimitError(maxPerOwner);
+    }
+    if (encounter.mapAssetId !== null && !this.assets.has(encounter.mapAssetId)) throw new EncounterMapMissingError();
+    this.encounters.set(encounter.id, structuredClone(encounter));
+    return this.withMap(encounter);
+  }
+
+  async renameEncounter(id: string, ownerGmId: string, name: string, at: string) {
+    const encounter = this.encounters.get(id);
+    if (!encounter || encounter.ownerGmId !== ownerGmId) return null;
+    const next = { ...encounter, name, updatedAt: at };
+    this.encounters.set(id, next);
+    return this.withMap(next);
+  }
+
+  async deleteEncounter(id: string, ownerGmId: string) {
+    const encounter = this.encounters.get(id);
+    if (!encounter || encounter.ownerGmId !== ownerGmId) return false;
+    return this.encounters.delete(id);
+  }
+
+  async encountersUsingMap(assetId: string, ownerGmId: string) {
+    return [...this.encounters.values()]
+      .filter((e) => e.mapAssetId === assetId && e.ownerGmId === ownerGmId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((e) => ({ id: e.id, name: e.name }));
+  }
+
+  private withMap(encounter: NewEncounterRecord): EncounterRecord {
+    const map = encounter.mapAssetId ? this.assets.get(encounter.mapAssetId) : undefined;
+    return { ...structuredClone(encounter), mapName: map?.name ?? null, mapUrl: map?.url ?? null };
+  }
+
   /** The foreign key Postgres enforces on `image_asset_id`. */
   private requireImage(assetId: string | null) {
     if (assetId !== null && !this.assets.has(assetId)) throw new CreatureImageMissingError();
@@ -468,6 +528,8 @@ export class MemoryRoomStore implements RoomStore {
     const image = creature.imageAssetId ? this.assets.get(creature.imageAssetId) : undefined;
     return {
       ...structuredClone(creature),
+      hp: creature.hp ?? null,
+      attacks: structuredClone(creature.attacks ?? []),
       color: creature.color ?? DEFAULT_TOKEN_COLOR,
       conditions: creature.conditions ?? [],
       imageUrl: image?.url ?? null,

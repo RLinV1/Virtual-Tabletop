@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TokenAttacks } from "./attackPresets";
 import { ConditionId, EMPTY_STATS, TokenStats } from "./conditions";
 import { AttackKind, DiceVisibility, MAX_ATTACK_LABEL, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
@@ -93,6 +94,7 @@ export const Command = z.discriminatedUnion("type", [
     hidden: z.boolean().default(false),
     /** Conditions the token starts with, e.g. from a creature (KAN-70). */
     conditions: z.array(ConditionId).max(12).default([]),
+    attacks: TokenAttacks.default([]),
     /** Place this many copies in one action, numbered and spread over free squares (KAN-70). */
     count: z.number().int().min(1).max(MAX_TOKENS_PER_CREATE).default(1),
   }),
@@ -266,6 +268,11 @@ export const Command = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("checkpoint.restore"),
     checkpointId: Id,
+  }).strict(),
+  /** GM replaces the board with one of their saved encounter templates (FR-GM-13, ADR 0024). */
+  z.object({
+    type: z.literal("encounter.apply"),
+    templateId: Id,
   }).strict(),
   /** GM reverses one recent action, picked from the activity log by its `commandId` (FR-REC-02, ADR 0013). */
   z.object({

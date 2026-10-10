@@ -55,6 +55,18 @@ describe("leaving the table (KAN-58)", () => {
     expect(Object.values(gm.state.tokens).every((t) => t.ownerIds.includes(alice.participantId))).toBe(true);
   });
 
+  it("tells every other client who left and who was removed (FR-PL-06, KAN-73)", async () => {
+    const { gm, alice, bob } = await setup();
+    alice.send({ type: "command", clientCommandId: "leave", command: { type: "participant.leave" } });
+    await bob.waitFor((m) => m.type === "event" && m.committed.event.type === "ParticipantLeft");
+    expect(bob.state.participants[alice.participantId]).toMatchObject({ left: true });
+    expect(bob.state.participants[alice.participantId]?.revoked).toBeUndefined();
+
+    await gm.command({ type: "participant.revoke", participantId: bob.participantId });
+    expect(gm.state.participants[bob.participantId]).toMatchObject({ revoked: true });
+    expect(gm.state.participants[bob.participantId]?.left).toBeUndefined();
+  });
+
   it("refuses the departed credential afterwards", async () => {
     const { alice, aliceCreds } = await setup();
     alice.send({ type: "command", clientCommandId: "leave", command: { type: "participant.leave" } });

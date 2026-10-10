@@ -1,11 +1,14 @@
 import {
   GM_TOKEN_HEADER,
   HistoryResponse,
+  ReplayPointsResponse,
+  ReplayResponse,
   type AssetKind,
   type CreateCreatureRequest,
   type DiceLookView,
   type DiceLooksResponse,
   type DieName,
+  type EncounterSummary,
   type GridSpec,
   type InviteSeatResponse,
   type LegacySummary,
@@ -14,6 +17,7 @@ import {
   type LibraryUsageResponse,
   type MeResponse,
   type MyRoomsResponse,
+  type SaveEncounterRequest,
   type SeatResponse,
   type SignInRequest,
   type SignUpRequest,
@@ -129,6 +133,24 @@ export const api = {
     return HistoryResponse.parse(await res.json());
   },
 
+  /** Where this participant can start a replay of the room (FR-PL-07, ADR 0025). */
+  async replayPoints(roomId: string, token: string, signal?: AbortSignal) {
+    const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/replay`, {
+      headers: { authorization: `Bearer ${token}` }, signal,
+    });
+    if (!res.ok) throw await errorFrom(res);
+    return ReplayPointsResponse.parse(await res.json()).points;
+  },
+
+  /** The room's history from one replay point, filtered for this participant by the server (FR-PL-07). */
+  async replay(roomId: string, token: string, pointId: string, signal?: AbortSignal) {
+    const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/replay/${encodeURIComponent(pointId)}`, {
+      headers: { authorization: `Bearer ${token}` }, signal,
+    });
+    if (!res.ok) throw await errorFrom(res);
+    return ReplayResponse.parse(await res.json());
+  },
+
   /** The room's current invite code (FR-GM-20). GM only; the server answers 403 otherwise. */
   getInvite: (roomId: string, token: string) => roomRequest<InviteResponse>(roomId, token, "GET"),
 
@@ -242,6 +264,17 @@ export const api = {
         accountRequest<LibraryCreature>(`/api/library/creatures/${encodeURIComponent(id)}`, { method: "PATCH", ...jsonBody(patch) }),
       remove: (id: string) =>
         accountRequest<void>(`/api/library/creatures/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    },
+
+    /** Encounter templates: a room's prepared board saved to the account (encounter-templates, ADR 0024). */
+    encounters: {
+      list: () => accountRequest<EncounterSummary[]>("/api/library/encounters"),
+      save: (req: SaveEncounterRequest) =>
+        accountRequest<EncounterSummary>("/api/library/encounters", { method: "POST", ...jsonBody(req) }),
+      rename: (id: string, name: string) =>
+        accountRequest<EncounterSummary>(`/api/library/encounters/${encodeURIComponent(id)}`, { method: "PATCH", ...jsonBody({ name }) }),
+      remove: (id: string) =>
+        accountRequest<void>(`/api/library/encounters/${encodeURIComponent(id)}`, { method: "DELETE" }),
     },
 
     /** Dice looks saved to the account (dice-looks, ADR 0017 O3). */

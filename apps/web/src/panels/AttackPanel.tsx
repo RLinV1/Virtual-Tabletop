@@ -37,7 +37,7 @@ import {
   MAX_ATTACK_DICE,
   MAX_ATTACK_MODIFIER,
   MAX_PRESETS,
-  migrateSaved,
+  presetsForToken,
   presetForRoll,
   presetRollLabel,
   presetSummary,
@@ -137,8 +137,8 @@ export function AttackPanel({
     setLastUsed({});
   }, [reset.count, setLastUsed]);
 
-  const presetsFor = (tokenId: string, all: Record<string, AttackPreset[]>) => all[tokenId] ?? migrateSaved(legacy[tokenId] ?? []);
-  const allPresets: Record<string, AttackPreset[]> = { ...Object.fromEntries(Object.keys(legacy).map((id) => [id, presetsFor(id, stored)])), ...stored };
+  const presetsFor = (tokenId: string, all: Record<string, AttackPreset[]>) => presetsForToken(state.tokens[tokenId]!, all, legacy);
+  const allPresets: Record<string, AttackPreset[]> = Object.fromEntries(Object.keys(state.tokens).map((id) => [id, presetsFor(id, stored)]));
 
   return (
     <PanelSection
@@ -601,7 +601,7 @@ function AttackForm({
 }
 
 /** Add or change one named attack: a name, and a to-hit roll, a damage roll, or both. */
-function PresetEditor({
+export function PresetEditor({
   initial,
   taken,
   onSave,

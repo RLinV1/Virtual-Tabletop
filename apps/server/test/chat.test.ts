@@ -125,4 +125,20 @@ describe("room chat over the wire (KAN-75)", () => {
     // Other commands are not limited by chat.
     expect(await alice.command({ type: "participant.rename", displayName: "Alicia" })).toMatchObject({ type: "ack" });
   });
+
+  it("shares the limit across a participant's connections, and not with others (security-hardening)", async () => {
+    const { gmCreds, gm, alice, bob } = await setup();
+    const aliceCreds = await server.join(gmCreds.inviteCode, "Alice Two");
+    const tab = await server.connect(aliceCreds);
+    const secondTab = await server.connect(aliceCreds);
+    clients.push(tab, secondTab);
+    for (let i = 1; i <= 10; i++) expect(await tab.command({ type: "chat.send", text: `m${i}` })).toMatchObject({ type: "ack" });
+    expect(await secondTab.command({ type: "chat.send", text: "m11" })).toMatchObject({ type: "rejected", code: "invalid" });
+    // Other participants keep their own budget.
+    const fromBob = await bob.command({ type: "chat.send", text: "bob" });
+    expect(fromBob).toMatchObject({ type: "ack" });
+    expect(await alice.command({ type: "chat.send", text: "alice" })).toMatchObject({ type: "ack" });
+    await gm.waitForSeq(seqOf(fromBob));
+    expect(texts(gm)).not.toContain("m11");
+  });
 });

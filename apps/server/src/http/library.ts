@@ -113,6 +113,7 @@ export function registerLibraryRoutes(
       const response: LibraryUsageResponse = {
         rooms: await store.assetUsage(id.data, gmId),
         creatures: await store.creaturesUsingImage(id.data, gmId),
+        encounters: await store.encountersUsingMap(id.data, gmId),
       };
       res.json(response);
     });

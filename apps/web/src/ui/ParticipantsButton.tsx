@@ -9,7 +9,8 @@ import { PopoverButton } from "./Popover";
  *
  * The list is reference information, not something anyone acts on mid-encounter, so it no
  * longer takes a permanent slot in the sidebar. `participants` comes from the server's
- * filtered snapshot; nothing here is persisted. Only active participants are listed.
+ * filtered snapshot; nothing here is persisted. Active participants are listed first, then players
+ * who left on their own, marked AFK (KAN-73). Only active ones are counted.
  *
  * The GM also gets Remove on each player (FR-GM-20), and how many of the room's player seats are
  * taken (room-player-cap): the GM is the one who can free a seat. The confirmation is a sibling of the
@@ -38,6 +39,7 @@ export function ParticipantsButton({
 }) {
   // Someone who left or was removed stays in state for history, but is no longer here (ADR 0006).
   const participants = Object.values(state.participants).filter(isActive);
+  const away = awayParticipants(state);
   const count = participants.length;
   const [removing, setRemoving] = useState<Participant | null>(null);
   const isGm = you.role === "gm";
@@ -93,6 +95,12 @@ export function ParticipantsButton({
               )}
             </li>
           ))}
+          {away.map((p) => (
+            <li key={p.id} className="participant-away">
+              <span className="participant-name">{p.displayName}</span>
+              <span className="badge">AFK</span>
+            </li>
+          ))}
         </ul>
       </PopoverButton>
       {isGm && !readOnly && (
@@ -109,6 +117,11 @@ export function ParticipantsButton({
       )}
     </>
   );
+}
+
+/** Players who left on their own, in join order. A removed (revoked) player is not away (KAN-73). */
+export function awayParticipants(state: RoomState): Participant[] {
+  return Object.values(state.participants).filter((p) => p.left === true && !p.revoked);
 }
 
 /** "Remove Sam from this room?" Names the player and says what happens to their tokens and the link. */

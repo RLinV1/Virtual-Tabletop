@@ -12,6 +12,7 @@ describe("From creature fills in Add Token (library-creatures, FR-TAC-07)", () =
     expect(creatureDraft(goblin)).toEqual({
       name: "Goblin", size: 1, stats: { hp: 7, maxHp: 7, ac: 15 },
       color: "#2e7d32", conditions: ["prone"],
+      attacks: [],
       image: { url: "/uploads/goblin.webp", assetId: "a1" },
     });
   });
@@ -24,9 +25,17 @@ describe("From creature fills in Add Token (library-creatures, FR-TAC-07)", () =
     expect(creatureDraft({ ...goblin, imageAssetId: null, imageUrl: null }).image).toBeNull();
   });
 
+  it("copies wounded, zero and negative starting HP rather than refilling it (KAN-70)", () => {
+    for (const hp of [3, 0, -4]) {
+      expect(creatureDraft({ ...goblin, hp }).stats).toEqual({ hp, maxHp: 7, ac: 15 });
+    }
+    expect(creatureDraft({ ...goblin, hp: null }).stats.hp).toBe(7);
+  });
+
   it("summarises only what the creature tracks", () => {
     expect(creatureSummary(goblin)).toBe("Size 1 · AC 15 · 7 HP");
     expect(creatureSummary({ size: 2, maxHp: null, ac: null })).toBe("Size 2");
+    expect(creatureSummary({ ...goblin, hp: 0 })).toBe("Size 1 · AC 15 · 0/7 HP");
   });
 });
 
@@ -39,7 +48,8 @@ describe("Save as creature (KAN-70)", () => {
 
   it("fills the form from the token, with its art when the art is the GM's own", () => {
     expect(creatureFromToken(ogre, [{ id: "art-1", url: "/uploads/ogre.webp", kind: "token" }])).toEqual({
-      name: "Ogre", size: 2, maxHp: 59, ac: 11, color: "#6d4c41", conditions: ["prone"],
+      name: "Ogre", size: 2, hp: 30, maxHp: 59, ac: 11, color: "#6d4c41", conditions: ["prone"],
+      attacks: [],
       imageAssetId: "art-1", imageUrl: "/uploads/ogre.webp",
     });
   });

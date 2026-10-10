@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { DEFAULT_TOKEN_COLOR, MAX_TOKENS_PER_CREATE, conditionSpec, isActive, type ConditionId, type RoomState } from "@vtt/shared";
+import { DEFAULT_TOKEN_COLOR, MAX_TOKENS_PER_CREATE, conditionSpec, isActive, type AttackPreset, type ConditionId, type RoomState } from "@vtt/shared";
 import type { TokenDraft } from "../board/placement";
 import { api } from "../net/api";
 import { useAccount } from "../account/accountStore";
@@ -94,6 +94,7 @@ function AddToken(props: {
   /** Starts with the next palette colour, editable or replaced by a creature (KAN-70). */
   const [color, setColor] = useState(props.defaultColor);
   const [conditions, setConditions] = useState<ConditionId[]>([]);
+  const [attacks, setAttacks] = useState<AttackPreset[]>([]);
   const [count, setCount] = useState("1");
   const [picking, setPicking] = useState(false);
   const [pickingCreature, setPickingCreature] = useState(false);
@@ -128,7 +129,7 @@ function AddToken(props: {
             size: Number(size), rotation: Number(rotation),
             stats: defaults,
             imageUrl: image?.url ?? null, assetId: image?.assetId ?? null,
-            color, conditions, count: Number(count),
+            color, conditions, attacks, count: Number(count),
           });
         }}
       >
@@ -251,6 +252,7 @@ function AddToken(props: {
               setImage(draft.image && { ...draft.image, label: creature.name });
               setColor(draft.color);
               setConditions(draft.conditions);
+              setAttacks(draft.attacks);
               setPickingCreature(false);
             }}
           />

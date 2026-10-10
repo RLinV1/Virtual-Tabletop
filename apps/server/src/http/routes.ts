@@ -9,30 +9,41 @@ import {
   HistoryQuery,
   ROOM_FULL,
   HistoryResponse,
+  ReplayPointsResponse,
+  ReplayResponse,
+  replayFrom,
+  replayPoints,
   activityHistory,
+  emptyRoomState,
+  encounterTable,
+  tableOf,
   type CreateRoomResponse,
   type InviteResponse,
   type JoinRoomResponse,
+  type ResolvedEncounter,
   type UploadResponse,
 } from "@vtt/shared";
 import { hashToken, newInviteCode } from "../domain/credentials";
+import { resolveEncounter } from "../domain/encounterTemplates";
 import type { AssetStore } from "../store/assetStore";
 import type { RoomRegistry } from "../domain/roomRegistry";
 import type { RoomStore } from "../store/roomStore";
 import { requireAccount, signedIn } from "../identity/middleware";
+import { refused, type AccountLimits } from "../identity/routes";
 import { registerMembershipRoutes } from "../membership/routes";
 import { registerDiceLookRoutes } from "../ownership/diceLooks";
 import { registerLegacyRoutes } from "../ownership/legacy";
 import { resolveOwner } from "../ownership/resolveOwner";
 import { imageUploader } from "./imageUpload";
+import { registerEncounterRoutes } from "./encounters";
 import { registerLibraryRoutes } from "./library";
 
 /** Registers the REST API: rooms, invite joins, uploads, the library and GM history. */
 export function registerRoutes(
   app: Express,
-  deps: { store: RoomStore; registry: RoomRegistry; uploadDir: string; assets: AssetStore },
+  deps: { store: RoomStore; registry: RoomRegistry; uploadDir: string; assets: AssetStore; limits: AccountLimits },
 ) {
-  const { store, registry, uploadDir, assets } = deps;
+  const { store, registry, uploadDir, assets, limits } = deps;
 
   const receiveImage = imageUploader(uploadDir);
 
@@ -57,6 +68,14 @@ export function registerRoutes(
       if (!body.success) return res.status(400).json({ error: body.error.issues });
       if (!body.data.displayName.trim()) return res.status(400).json({ error: "Display name can't be blank." });
 
+      // Resolved before anything is created, so a template that is gone leaves no half-made room (ADR 0024).
+      let encounter: ResolvedEncounter | null = null;
+      if (body.data.templateId) {
+        const found = await resolveEncounter(store, account.user.ownerId, body.data.templateId);
+        if (!found.ok) return res.status(found.reason === "missing" ? 404 : 409).json({ error: found.message });
+        encounter = found.encounter;
+      }
+
       const roomId = randomUUID();
       const inviteCode = newInviteCode();
       const participantId = randomUUID();
@@ -73,6 +92,15 @@ export function registerRoutes(
           type: "ParticipantJoined",
           participant: { id: participantId, role: "gm", displayName: body.data.displayName.trim() },
         },
+        ...(encounter
+          ? [{
+            type: "EncounterApplied" as const,
+            templateId: encounter.id,
+            name: encounter.name,
+            applied: encounterTable(encounter, randomUUID),
+            previous: tableOf(emptyRoomState(roomId)),
+          }]
+          : []),
       ]);
       const response: CreateRoomResponse = { roomId, inviteCode, participantId };
       return res.json(response);
@@ -92,6 +120,10 @@ export function registerRoutes(
       const roomId = await store.findRoomByInvite(req.params.inviteCode);
       const room = roomId ? await registry.get(roomId) : null;
       if (!roomId || !room || room.closed) return res.status(404).json({ error: "Invite not found" });
+      // Every attempt counts, accepted or not: each join and its leave are permanent events, and
+      // the player cap bounds seats held at once, not seats a room stores (security-hardening D2).
+      const limit = limits.joinsPerIpPerRoom.hit(`join:${roomId}:${req.ip}`);
+      if (refused(res, limit, "Too many joins from this address. Try again later.")) return;
 
       const account = signedIn(res);
       const participantId = randomUUID();
@@ -202,6 +234,7 @@ export function registerRoutes(
   });
 
   registerLibraryRoutes(app, { store, uploadDir, assets });
+  registerEncounterRoutes(app, { store, registry });
   registerLegacyRoutes(app, { store });
   registerDiceLookRoutes(app, { store, uploadDir, assets });
   registerMembershipRoutes(app, { store, registry });
@@ -221,6 +254,38 @@ export function registerRoutes(
       if (!query.success) return res.status(400).json({ error: "Invalid history query" });
       const events = await store.loadEvents(cred.roomId);
       return res.json(HistoryResponse.parse(activityHistory(cred.roomId, events, viewer, query.data)));
+    })().catch(internalError(req, res));
+  });
+
+  /**
+   * FR-PL-07: any participant still in the room may replay its history, filtered for them exactly
+   * as live sync filters it (ADR 0025). Read-only: nothing here touches the live room.
+   */
+  app.get("/api/rooms/:roomId/replay", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void (async () => {
+      const auth = await authenticate(req);
+      if (!auth || auth.roomId !== req.params.roomId) return res.status(403).json({ error: "Not in this room" });
+      const events = await store.loadEvents(auth.roomId);
+      return res.json(ReplayPointsResponse.parse({ points: replayPoints(events, auth.participant) }));
+    })().catch(internalError(req, res));
+  });
+
+  app.get("/api/rooms/:roomId/replay/:pointId", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void (async () => {
+      const auth = await authenticate(req);
+      if (!auth || auth.roomId !== req.params.roomId) return res.status(403).json({ error: "Not in this room" });
+      const started = performance.now();
+      const events = await store.loadEvents(auth.roomId);
+      // Only a point from the viewer's own list: known starting places, never an arbitrary seq.
+      const point = replayPoints(events, auth.participant).find((p) => p.id === req.params.pointId);
+      if (!point) return res.status(404).json({ error: "No such replay point" });
+      const replay = ReplayResponse.parse(replayFrom(auth.roomId, events, auth.participant, point));
+      const ms = performance.now() - started;
+      // Same cue as a slow checkpoint restore: time for a snapshot cache (ADR 0019).
+      if (ms > 500) console.warn(`[vtt] replay of room ${auth.roomId} took ${Math.round(ms)} ms (${events.length} events)`);
+      return res.json(replay);
     })().catch(internalError(req, res));
   });
 

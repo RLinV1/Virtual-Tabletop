@@ -54,6 +54,7 @@ model GmIdentity {
   assets    LibraryAsset[]
   creatures LibraryCreature[]
   diceLooks DiceLook[]
+  encounters EncounterTemplate[]
   user      User?
 
   @@map("gm_identities")
@@ -146,9 +147,31 @@ model LibraryAsset {
 
   owner     GmIdentity        @relation(fields: [ownerGmId], references: [id])
   creatures LibraryCreature[]
+  encounters EncounterTemplate[]
 
   @@index([ownerGmId, kind])
   @@map("library_assets")
+}
+
+/// A saved encounter board the GM reuses in new or existing rooms (docs/adr/0024-encounter-templates.md).
+/// `data` is the validated EncounterTemplateData at `version`. Deleting its map clears `mapAssetId`;
+/// the template stays but cannot be applied until the GM fixes it.
+model EncounterTemplate {
+  id         String   @id @db.Uuid
+  ownerGmId  String   @map("owner_gm_id") @db.Uuid
+  name       String
+  version    Int
+  data       Json
+  mapAssetId String?  @map("map_asset_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  owner GmIdentity    @relation(fields: [ownerGmId], references: [id])
+  map   LibraryAsset? @relation(fields: [mapAssetId], references: [id], onDelete: SetNull)
+
+  @@index([ownerGmId])
+  @@index([mapAssetId])
+  @@map("encounter_templates")
 }
 
 /// A reusable creature the GM places from Add Token (docs/adr/0012-library-creatures.md).
@@ -158,6 +181,10 @@ model LibraryCreature {
   ownerGmId    String   @map("owner_gm_id") @db.Uuid
   name         String
   size         Float
+  /// Starting HP; null preserves the legacy full-health default (KAN-70).
+  hp           Int?
+  /// Named to-hit/damage rolls copied into placed tokens (KAN-70).
+  attacks      Json     @default("[]")
   maxHp        Int?     @map("max_hp")
   ac           Int?
   /// Disc colour for imageless tokens (KAN-70); null on rows from before it, read as the default.

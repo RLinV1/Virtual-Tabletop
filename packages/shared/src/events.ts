@@ -213,6 +213,18 @@ export const DomainEvent = z.discriminatedUnion("type", [
     previous: TableState,
   }),
   /**
+   * The GM replaced the board with a saved encounter template (FR-GM-13, ADR 0024). `applied` is
+   * the new board, with fresh token ids; `previous` is the board it replaced (invariant 6), so
+   * the apply can be undone. GM-only: players resync.
+   */
+  z.object({
+    type: z.literal("EncounterApplied"),
+    templateId: Id,
+    name: z.string(),
+    applied: TableState,
+    previous: TableState,
+  }),
+  /**
    * The GM undid one earlier action (FR-REC-02, ADR 0013). Comes last in its batch, after the
    * compensating events that restored the old values. `commandId` names the undone action; its
    * details are in the undo history of the state just before this event.

@@ -1,4 +1,4 @@
-import type { AssetKind, ConditionId, DieName, GmRoomSummary, GridSpec, LegacySummary } from "@vtt/shared";
+import type { AssetKind, EncounterTemplateData, AttackPreset, ConditionId, DieName, GmRoomSummary, GridSpec, LegacySummary } from "@vtt/shared";
 
 /** A stored library asset (ADR 0004). `objectKey` is the AssetStore key; it never leaves the server. */
 export interface LibraryAssetRecord {
@@ -20,6 +20,8 @@ export interface LibraryCreatureRecord {
   ownerGmId: string;
   name: string;
   size: number;
+  hp: number | null;
+  attacks: AttackPreset[];
   maxHp: number | null;
   ac: number | null;
   /** Disc colour for imageless tokens (KAN-70). Rows from before it read as the default. */
@@ -31,14 +33,47 @@ export interface LibraryCreatureRecord {
   createdAt: string;
 }
 
-/** Colour and conditions may be left out: the store fills in the defaults (KAN-70). */
-export type NewCreatureRecord = Omit<LibraryCreatureRecord, "imageUrl" | "color" | "conditions"> & Partial<Pick<LibraryCreatureRecord, "color" | "conditions">>;
-export type CreaturePatch = Partial<Pick<LibraryCreatureRecord, "name" | "size" | "maxHp" | "ac" | "color" | "conditions" | "imageAssetId">>;
+/** Starting HP, colour and conditions may be left out for older creatures (KAN-70). */
+export type NewCreatureRecord = Omit<LibraryCreatureRecord, "imageUrl" | "hp" | "attacks" | "color" | "conditions"> & Partial<Pick<LibraryCreatureRecord, "hp" | "attacks" | "color" | "conditions">>;
+export type CreaturePatch = Partial<Pick<LibraryCreatureRecord, "name" | "size" | "hp" | "attacks" | "maxHp" | "ac" | "color" | "conditions" | "imageAssetId">>;
 
 /** The creature would link to token art that does not exist (or was deleted mid-request). */
 export class CreatureImageMissingError extends Error {
   constructor() {
     super("Image must be your own token art");
+  }
+}
+
+/**
+ * A saved encounter board (ADR 0024). `mapAssetId` is null once the map was deleted; `mapName`
+ * and `mapUrl` are read from the linked map, never stored.
+ */
+export interface EncounterRecord {
+  id: string;
+  ownerGmId: string;
+  name: string;
+  version: number;
+  data: EncounterTemplateData;
+  mapAssetId: string | null;
+  mapName: string | null;
+  mapUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type NewEncounterRecord = Omit<EncounterRecord, "mapName" | "mapUrl">;
+
+/** The template would link to a map that does not exist (or was deleted mid-request). */
+export class EncounterMapMissingError extends Error {
+  constructor() {
+    super("The map must be in your library");
+  }
+}
+
+/** The owner already holds the most encounter templates they may (ADR 0024). */
+export class EncounterLimitError extends Error {
+  constructor(readonly limit: number) {
+    super(`You can keep at most ${limit} encounter templates`);
   }
 }
 
@@ -99,6 +134,22 @@ export interface LibraryStore {
   deleteCreature(id: string, ownerGmId: string): Promise<boolean>;
   /** The GM's creatures whose image is this asset, for the delete warning. */
   creaturesUsingImage(assetId: string, ownerGmId: string): Promise<{ id: string; name: string }[]>;
+
+  /** The owner's encounter templates, newest first (ADR 0024). Every read and write is scoped to its owner. */
+  listEncounters(ownerGmId: string): Promise<EncounterRecord[]>;
+  findEncounter(id: string, ownerGmId: string): Promise<EncounterRecord | null>;
+  countEncounters(ownerGmId: string): Promise<number>;
+  /**
+   * Throws `EncounterMapMissingError` when `mapAssetId` names no asset, and `EncounterLimitError`
+   * when the owner already holds `maxPerOwner`. The count and the insert are one step per owner,
+   * so concurrent saves cannot pass the limit.
+   */
+  createEncounter(encounter: NewEncounterRecord, maxPerOwner: number): Promise<EncounterRecord>;
+  /** Null when the owner has no such template. */
+  renameEncounter(id: string, ownerGmId: string, name: string, at: string): Promise<EncounterRecord | null>;
+  deleteEncounter(id: string, ownerGmId: string): Promise<boolean>;
+  /** The owner's templates whose map is this asset, for the delete warning. */
+  encountersUsingMap(assetId: string, ownerGmId: string): Promise<{ id: string; name: string }[]>;
 
   /** What an owner row owns, for the legacy-move offer (ADR 0017 O2). */
   ownedCounts(ownerGmId: string): Promise<LegacySummary>;

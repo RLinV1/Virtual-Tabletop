@@ -52,7 +52,8 @@ export function filterStateForViewer(state: RoomState, viewer: Participant): Roo
   if (viewer.role === "gm") return state;
   // Hidden tokens, and tokens under fog the viewer doesn't own, are withheld (FR-GM-17).
   const tokens = Object.fromEntries(
-    Object.entries(state.tokens).filter(([, t]) => !concealedFrom(state.fog, t, viewer)),
+    Object.entries(state.tokens).filter(([, t]) => !concealedFrom(state.fog, t, viewer))
+      .map(([id, token]) => [id, tokenForViewer(token, viewer)]),
   );
   // GM-only rolls never reach a player, not even as a redacted placeholder (FR-GM-22).
   const rolls = state.rolls.filter((r) => r.visibility === "public").map((r) => hideAttackSides(r, state, tokens));
@@ -102,9 +103,10 @@ export function filterEventForViewer(
 
   switch (e.type) {
     case "TokenCreated":
-      return concealedFrom(before.fog, e.token, viewer) ? redacted : pass;
     case "TokenDeleted":
-      return concealedFrom(before.fog, e.token, viewer) ? redacted : pass;
+      return concealedFrom(before.fog, e.token, viewer) ? redacted : {
+        kind: "event", committed: { ...withoutCommandId, event: { ...e, token: tokenForViewer(e.token, viewer) } },
+      };
     case "TokenMoved": {
       // Moving into or out of fog changes what the viewer may see (ADR 0016).
       const token = before.tokens[e.tokenId];
@@ -115,6 +117,8 @@ export function filterEventForViewer(
       // Gaining or losing a token under fog reveals or withdraws it for that player (ADR 0016).
       const token = before.tokens[e.tokenId];
       if (!token) return redacted;
+      // Ownership also determines whether the copied named attacks are available.
+      if (token.attacks?.length && token.ownerIds.includes(viewer.id) !== e.ownerIds.includes(viewer.id)) return { kind: "resync" };
       return byVisibility(concealedFrom(before.fog, token, viewer), concealedFrom(before.fog, { ...token, ownerIds: e.ownerIds }, viewer));
     }
     case "TokenAppearanceSet":
@@ -174,6 +178,9 @@ export function filterEventForViewer(
       // Nested changes contain hidden IDs and prior positions. Only the filtered result
       // reaches players, including inverse first-map removal and empty adjustments (ADR 0023).
       return e.tokenChanges !== undefined ? { kind: "resync" } : pass;
+    case "EncounterApplied":
+      // Both boards hold hidden tokens, fog and owners; a filtered snapshot carries the rest (ADR 0024).
+      return { kind: "resync" };
     case "ActionUndone":
       // Players have no undo or activity log; the compensating events before it already
       // delivered whatever they may see (ADR 0013).
@@ -192,6 +199,13 @@ export function filterEventForViewer(
       // dice look is pictures the whole table sees on that person's rolls, and names no account (ADR 0018).
       return pass;
   }
+}
+
+/** Named attacks are private to the GM and the token's owners, including on deletion/undo. */
+function tokenForViewer(token: Token, viewer: Participant): Token {
+  if (viewer.role === "gm" || token.ownerIds.includes(viewer.id)) return token;
+  const { attacks: _attacks, ...visible } = token;
+  return visible;
 }
 
 /**
