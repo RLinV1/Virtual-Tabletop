@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Eye, Hand, Polygon, Rectangle, UserFocus } from "@phosphor-icons/react";
 import type { RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../../net/roomConnection";
-import { FogControls } from "../../panels/FogPanel";
+import { FogControls } from "./FogControls";
 import { FogCanvas, type FogAdd, type FogCanvasMode } from "./FogCanvas";
 
 const MODES: { key: FogCanvasMode; label: string; icon: typeof Eye }[] = [

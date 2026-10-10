@@ -8,7 +8,6 @@ import type { CommandResult, RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
 import { CheckpointsPanel } from "../panels/CheckpointsPanel";
 import { EncounterPanel } from "../panels/EncounterPanel";
-import { FogPanel } from "../panels/FogPanel";
 import { PanelSection } from "../ui/PanelSection";
 import { withGridSuggestion, type GridDraft } from "./gridDraft";
 import { GridForm } from "./GridForm";
@@ -88,7 +87,6 @@ export function GmPanel({
           </RoomGridEditor>
         )}
       />
-      <FogPanel connection={connection} state={state} />
       <CheckpointsPanel connection={connection} state={state} />
       <EncounterPanel connection={connection} state={state} />
     </>
@@ -240,6 +238,8 @@ function MapSection(props: {
       props.onError(null);
       setPrep(startPrep({ url, width, height }, undefined, props.currentGrid));
       setStep("grid");
+      // An upload from the Manage tab opens the editor to line up its grid.
+      setEditorOpen(true);
     } catch (err) {
       setPrepError(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -249,13 +249,21 @@ function MapSection(props: {
 
   // A library map starts its draft from its saved grid; Apply copies it into the room in the
   // same event (ADR 0004), and later library edits never reach back into this room.
-  const place = (asset: LibraryAsset) => {
+  const place = async (asset: LibraryAsset) => {
     const map = { url: asset.url, width: asset.width, height: asset.height, assetId: libraryAssetId(asset) };
-    setPicking(false);
-    setPickError(null);
     prepGeneration.current++;
-    setPrep(startPrep(map, asset.grid, props.currentGrid));
-    setStep("grid");
+    const next = startPrep(map, asset.grid, props.currentGrid);
+    if (editorOpen) {
+      setPicking(false);
+      setPickError(null);
+      setPrep(next);
+      setStep("grid");
+      return;
+    }
+    // From the Manage tab: the library map already has its grid, so it goes straight to the table.
+    const command = prepCommand(next);
+    if (!command) return setPickError("This map's saved grid isn't valid. Upload it, or fix it in your library.");
+    if (await props.onSetMap(command.map, command.grid, setPickError)) setPicking(false);
   };
 
   const shown = prep?.map ?? props.map;
@@ -267,12 +275,37 @@ function MapSection(props: {
             ? `${props.map.width} × ${props.map.height} px · ${props.wallCount} ${props.wallCount === 1 ? "wall" : "walls"}`
             : "No map yet."}
         </p>
-        <button type="button" data-tour="gm-grid" onClick={() => {
-          setStep(props.map ? "grid" : "map");
-          setEditorOpen(true);
-        }}>
-          Edit map
-        </button>
+        {props.map ? (
+          <button type="button" data-tour="gm-grid" onClick={() => {
+            setStep("grid");
+            setEditorOpen(true);
+          }}>
+            Edit map
+          </button>
+        ) : (
+          <div className="row button-row" data-tour="gm-grid">
+            <label className="upload-button">
+              <span>{busy ? "Uploading…" : "Upload map"}</span>
+              <input
+                type="file"
+                className="sr-only"
+                accept="image/png,image/jpeg,image/webp"
+                disabled={busy}
+                aria-label="Upload battle map"
+                onChange={(e) => {
+                  void onChange(e.target.files?.[0]);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+            {props.hasLibrary && (
+              <button type="button" className="secondary" disabled={busy} onClick={() => setPicking(true)}>
+                From library
+              </button>
+            )}
+          </div>
+        )}
+        {prepError && !editorOpen && <p role="alert" className="error">{prepError}</p>}
       </div>
       <Modal
         open={editorOpen}
@@ -376,7 +409,7 @@ function MapSection(props: {
             setPickError(null);
           }}
         >
-          <LibraryPicker kind="map" onPick={place} />
+          <LibraryPicker kind="map" onPick={(asset) => void place(asset)} />
           {pickError && <p role="alert" className="error">{pickError}</p>}
         </Modal>
       )}

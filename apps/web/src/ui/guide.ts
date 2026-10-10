@@ -84,7 +84,7 @@ const STEPS: StepSpec[] = [
   },
   { target: "tab-gm", title: "Manage tab", body: { gm: "Room setup: the battle map, the grid, and players who have left." } },
   { target: "gm-map", title: "Battle map", body: { gm: "Your map, its grid and its walls." } },
-  { target: "gm-grid", title: "Edit map", body: { gm: "Opens the map editor: upload or choose a map, line its grid up with the squares, then detect or draw its walls and fog the parts the table shouldn't see yet." } },
+  { target: "gm-grid", title: "Map setup", body: { gm: "Upload a map or choose one from your library. Once there is one, Edit map opens the map editor: line up its grid, detect or draw its walls, and fog the parts the table shouldn't see yet." } },
   {
     target: "rulings",
     title: "Rulings",

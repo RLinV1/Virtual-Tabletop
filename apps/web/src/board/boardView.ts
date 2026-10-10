@@ -49,6 +49,12 @@ import { areaOrigin, areaShape, areaSizeFromDrag, formatDistance, hitMark, measu
 import { aimExpiry, expiredAims } from "./aims";
 import { PING_MS, pingPulse } from "./ping";
 
+/**
+ * How a GM's board shows fog (FR-GM-17): see-through with outlines ("tint"), opaque as players see
+ * it ("player"), or only faint outlines ("off"). Players always see it opaque.
+ */
+export type GmFogView = "tint" | "player" | "off";
+
 /** An area being aimed, as sent to the others (KAN-35); mirrors the `templatePreview` payload. */
 export type AimPreview = { shape: AreaTemplate["shape"]; origin: Point; toward: Point; size: number; width?: number; gmOnly: boolean };
 
@@ -98,6 +104,13 @@ const FOG_DRIFT_PX_PER_S = 38;
 const FOG_DRIFT_INTERVAL_MS = 1000 / 20;
 /** The cloud texture is drawn this many times larger than its 512 px tile, so clouds span several cells. */
 const FOG_CLOUD_SCALE = 2.5;
+/**
+ * A second, finer cloud layer over the first: another scale and angle, drifting the other way, so
+ * the two tiles never line up and the fog churns instead of sliding. Its opacity over the base.
+ */
+const FOG_WISP_SCALE = 1.55;
+const FOG_WISP_ANGLE = 0.6;
+const FOG_WISP_ALPHA = 0.55;
 const FOG_GM_ALPHA = 0.5;
 const FOG_EDGE = 0x9fb3c8;
 /** How close (screen pixels) the eraser has to come to a line to erase it. */
@@ -248,11 +261,12 @@ export class BoardView {
   /** The cloudy fog texture, made on first use and repeated across every region. */
   private fogTexture: Texture | null = null;
   /** The fog drift loop is in `animations`. */
-  private gmFogShown = true;
+  private gmFogView: GmFogView = "tint";
   private readOnly = false;
   private fogLoopRegistered = false;
   private lastFogDraw = 0;
   private fogOffset = { x: 0, y: 0 };
+  private wispOffset = { x: 0, y: 0 };
   /** GM only: the applied walls (FR-GM-11, ADR 0029); players never receive any. */
   private wallGraphics = new Graphics();
   private drawnWalls: RoomState["walls"] | null = null;
@@ -601,10 +615,10 @@ export class BoardView {
     this.invalidate();
   }
 
-  /** GM only: false hides the fog tint entirely, leaving a faint outline, so the GM sees everything. */
-  setGmFogShown(shown: boolean) {
-    if (this.gmFogShown === shown) return;
-    this.gmFogShown = shown;
+  /** GM only: how the GM's own board shows fog (see `GmFogView`). */
+  setGmFogView(view: GmFogView) {
+    if (this.gmFogView === view) return;
+    this.gmFogView = view;
     if (this.initialized) this.invalidateFog();
   }
 
@@ -893,20 +907,25 @@ export class BoardView {
     const g = this.fogGraphics.clear();
     const edge = this.fogEdgeGraphics.clear();
     if (!state) return;
-    const gm = this.you?.role === "gm";
+    // A GM on "Player view" sees fog drawn exactly as players do.
+    const gm = this.you?.role === "gm" && this.gmFogView !== "player";
     const px = 1 / this.world.scale.x;
     const cell = state.scene.grid.cellSize;
     // "See everything": the GM's tint is switched off and only a faint outline marks each region.
-    const tint = !gm || this.gmFogShown;
+    const tint = !gm || this.gmFogView === "tint";
     const hasRegions = Object.keys(state.fog).length > 0;
     // The cloud texture is made on first need, so a board with no fog never pays for it.
     const cloud = tint && hasRegions ? this.fogCloud() : null;
     // The clouds drift across the board; the texture tiles seamlessly, so any offset is fine.
     const matrix = new Matrix().scale(FOG_CLOUD_SCALE, FOG_CLOUD_SCALE).translate(this.fogOffset.x, this.fogOffset.y);
+    const wisps = new Matrix().scale(FOG_WISP_SCALE, FOG_WISP_SCALE).rotate(FOG_WISP_ANGLE).translate(this.wispOffset.x, this.wispOffset.y);
     const fillAlpha = gm ? FOG_GM_ALPHA : 1;
     const draw = (points: Point[]) => {
       const flat = points.flatMap((p) => [p.x, p.y]);
-      if (tint) g.poly(flat).fill({ texture: cloud!, matrix, textureSpace: "global", alpha: fillAlpha });
+      if (tint) {
+        g.poly(flat).fill({ texture: cloud!, matrix, textureSpace: "global", alpha: fillAlpha });
+        g.poly(flat).fill({ texture: cloud!, matrix: wisps, textureSpace: "global", alpha: fillAlpha * FOG_WISP_ALPHA });
+      }
       if (!gm) g.poly(flat).stroke({ width: 2 * FOG_BLEED_CELLS * cell, join: "miter", texture: cloud!, matrix, textureSpace: "global", alpha: 1 });
       if (gm) edge.poly(flat).stroke({ width: 2 * px, color: FOG_EDGE, alpha: 0.9 * (tint ? 1 : 0.4) });
     };
@@ -929,7 +948,7 @@ export class BoardView {
    */
   private fogLoopWanted() {
     const any = Object.keys(this.state?.fog ?? {}).length > 0;
-    const tinted = this.you?.role !== "gm" || this.gmFogShown;
+    const tinted = this.you?.role !== "gm" || this.gmFogView !== "off";
     return any && tinted && document.visibilityState === "visible" && !this.reducedMotion;
   }
 
@@ -954,6 +973,7 @@ export class BoardView {
     const dt = this.lastFogDraw === 0 ? 0 : (now - this.lastFogDraw) / 1000;
     this.lastFogDraw = now;
     this.fogOffset = { x: this.fogOffset.x + FOG_DRIFT_PX_PER_S * dt, y: this.fogOffset.y + FOG_DRIFT_PX_PER_S * 0.35 * dt };
+    this.wispOffset = { x: this.wispOffset.x - FOG_DRIFT_PX_PER_S * 1.6 * dt, y: this.wispOffset.y + FOG_DRIFT_PX_PER_S * 0.6 * dt };
     this.redrawFog();
     return true;
   };

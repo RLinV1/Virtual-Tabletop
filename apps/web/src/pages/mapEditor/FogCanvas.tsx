@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { MAX_FOG_POINTS, type Command, type FogRegion, type GridSpec, type MapImage, type Point } from "@vtt/shared";
+import { FOG_TEXTURE_SIZE, makeFogCanvas } from "../../board/fogTexture";
 import { fogRegionAt } from "../../board/tools";
 import { MapCanvas } from "./MapCanvas";
 
@@ -20,8 +21,31 @@ const clamp = (p: Point, map: MapImage): Point => ({
  * coordinates (invariant 8). Rectangle drags out a region, Polygon clicks out its corners, and
  * Reveal removes the topmost region under the click.
  */
-/** Fog as players see it: opaque, in the grey of the board's cloud fog (board/fogTexture.ts). */
-const PLAYER_FOG = "#c4c9ce";
+/** The board's cloud texture as an image, made once on first use (board/fogTexture.ts). */
+let fogImage: string | null = null;
+const cloudImage = () => (fogImage ??= makeFogCanvas().toDataURL());
+
+/**
+ * Fog as players see it: the board's two drifting cloud layers, as SVG patterns. Each pattern
+ * moves by exactly one tile per loop, so the drift never jumps. Still when motion is reduced.
+ */
+function PlayerFog({ id }: { id: string }) {
+  const href = cloudImage();
+  const still = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const size = FOG_TEXTURE_SIZE;
+  const layer = (key: string, transform: string, to: string, dur: string) => (
+    <pattern id={`${id}-${key}`} patternUnits="userSpaceOnUse" width={size} height={size} patternTransform={transform}>
+      <image href={href} width={size} height={size} />
+      {!still && <animateTransform attributeName="patternTransform" type="translate" additive="sum" from="0 0" to={to} dur={dur} repeatCount="indefinite" />}
+    </pattern>
+  );
+  return (
+    <defs>
+      {layer("base", "scale(2.5)", `${size} ${size * 0.35}`, "34s")}
+      {layer("wisps", "scale(1.55) rotate(34)", `${-size} ${size}`, "22s")}
+    </defs>
+  );
+}
 
 export function FogCanvas({ map, grid, fog, mode, onAdd, onRemove, onNotice, busy, playerView = false }: {
   map: MapImage;
@@ -36,6 +60,7 @@ export function FogCanvas({ map, grid, fog, mode, onAdd, onRemove, onNotice, bus
   /** Draw fog the way players see it, with no outlines. */
   playerView?: boolean;
 }) {
+  const fogId = useId().replace(/:/g, "");
   const [corners, setCorners] = useState<Point[]>([]);
   const [anchor, setAnchor] = useState<Point | null>(null);
   const [hover, setHover] = useState<Point | null>(null);
@@ -110,17 +135,23 @@ export function FogCanvas({ map, grid, fog, mode, onAdd, onRemove, onNotice, bus
         const draft = anchor && hover ? clamp(hover, map) : null;
         return (
           <>
-            {Object.values(fog).map((region) => (
-              <polygon
-                key={region.id}
-                points={region.points.map((p) => `${p.x},${p.y}`).join(" ")}
-                fill={playerView ? PLAYER_FOG : "#0b0d12"}
-                fillOpacity={playerView ? 1 : 0.62}
-                stroke={revealing?.id === region.id ? "#e74c3c" : playerView ? "none" : "#9aa4b2"}
-                strokeWidth={(revealing?.id === region.id ? 3 : 1.5) * px}
-                strokeDasharray={`${6 * px} ${4 * px}`}
-              />
-            ))}
+            {playerView && <PlayerFog id={fogId} />}
+            {Object.values(fog).map((region) => {
+              const points = region.points.map((p) => `${p.x},${p.y}`).join(" ");
+              return (
+                <g key={region.id}>
+                  <polygon
+                    points={points}
+                    fill={playerView ? `url(#${fogId}-base)` : "#0b0d12"}
+                    fillOpacity={playerView ? 1 : 0.62}
+                    stroke={revealing?.id === region.id ? "#e74c3c" : playerView ? "none" : "#9aa4b2"}
+                    strokeWidth={(revealing?.id === region.id ? 3 : 1.5) * px}
+                    strokeDasharray={`${6 * px} ${4 * px}`}
+                  />
+                  {playerView && <polygon points={points} fill={`url(#${fogId}-wisps)`} fillOpacity={0.55} pointerEvents="none" />}
+                </g>
+              );
+            })}
             {anchor && draft && (
               <rect
                 x={Math.min(anchor.x, draft.x)} y={Math.min(anchor.y, draft.y)}

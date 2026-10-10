@@ -189,19 +189,11 @@ describe("map editor in the GM panel (FR-GM-09, FR-GM-17)", () => {
     expect(within(head as HTMLElement).getByRole("button", { name: "Close" })).toBeTruthy();
   });
 
-  it("tells the GM to apply a map first when the room has none", () => {
+  it("offers Upload map instead of Edit map when the room has no map", () => {
     mount(room({ withMap: false }));
     expect(screen.getByText("No map yet.")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Edit map" }));
-    const editor = screen.getByRole("dialog", { name: "Edit map" });
-    expect(within(editor).getByRole("tab", { name: "1 · Map" }).getAttribute("aria-selected")).toBe("true");
-
-    fireEvent.click(within(editor).getByRole("tab", { name: "3 · Walls" }));
-    expect(within(editor).getByText(/Apply a map in the Map step first/)).toBeTruthy();
-    expect(within(editor).queryByRole("application")).toBeNull();
-
-    fireEvent.click(within(editor).getByRole("tab", { name: "4 · Fog" }));
-    expect(within(editor).getByText(/Apply a map in the Map step first/)).toBeTruthy();
-    expect(within(editor).queryByRole("application")).toBeNull();
+    expect(screen.getByLabelText("Upload battle map")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Edit map" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Edit map" })).toBeNull();
   });
 });

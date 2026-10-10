@@ -1,25 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { Command, RoomState } from "@vtt/shared";
-import type { RoomConnection } from "../net/roomConnection";
-import { PanelSection } from "../ui/PanelSection";
-import { coversWholeMap, describeCells, wholeMapRegion } from "./fogCells";
+import type { RoomConnection } from "../../net/roomConnection";
+import { coversWholeMap, describeCells, wholeMapRegion } from "../../panels/fogCells";
 
 /**
- * Fog of war in the Manage tab (FR-GM-17, ADR 0016): fog the whole map, and reveal any region from
- * a list, by keyboard as well as pointer. Regions are drawn in Edit map's Fog step. It sends the
- * same `fog.add` / `fog.remove` commands.
- */
-export function FogPanel({ connection, state }: { connection: RoomConnection; state: RoomState }) {
-  return (
-    <PanelSection id="gm-fog" title="Fog of war">
-      <FogControls connection={connection} state={state} intro="Players can't see anything under fog. Draw it in Edit map › Fog, or fog the whole map here." />
-    </PanelSection>
-  );
-}
-
-/**
- * The fog controls themselves, shared by the Manage tab's section and the map editor's Fog step:
- * whole map, and the list of regions with Reveal.
+ * The map editor's fog controls (FR-GM-17, ADR 0016): fog the whole map, and reveal any region from
+ * a list, by keyboard as well as pointer. They send the same `fog.add` / `fog.remove` commands as
+ * the fog canvas.
  */
 export function FogControls({ connection, state, intro }: { connection: RoomConnection; state: RoomState; intro: string }) {
   const { map, grid } = state.scene;
