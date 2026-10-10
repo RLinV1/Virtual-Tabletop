@@ -1,7 +1,7 @@
 ## 1. Contract (packages/shared)
 
-- [x] 1.1 Add `gamePresets.ts` (registry with `dnd5e` and `free`, `GamePresetId`, `DEFAULT_PRESET_ID`, `presetOf`) and export it; verify unit tests in `test/gamePresets.test.ts` cover registry order, unknown id rejection, and that a third registered preset is accepted by `GamePresetId`
-- [x] 1.2 Add optional `preset` to `RoomCreated` and `CreateRoomRequest`, `RoomState.preset` (default `dnd5e`), reduce it; verify an old log without `preset` reduces to `dnd5e`
+- [x] 1.1 Add `gamePresets.ts` (registry with `free`, `GamePresetId`, `DEFAULT_PRESET_ID`, `presetOf`) and export it; verify unit tests in `test/gamePresets.test.ts` cover registry order, unknown id rejection, and that a third registered preset is accepted by `GamePresetId`
+- [x] 1.2 Add optional `preset` to `RoomCreated` and `CreateRoomRequest`, `RoomState.preset` (default `free`), reduce it; verify an old log without `preset` reduces to `free`
 - [x] 1.3 Enforce features in `decide` (attack rolls, rulings, damage, attacks on tokens, conditions, AC) and strip disabled data in `encounter.apply`; verify one rejection test per command in Free Mode and that D&D rooms accept them as before
 - [x] 1.4 Confirm `filterStateForViewer` passes `preset` to players (public); verify a visibility test
 

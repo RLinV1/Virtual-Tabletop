@@ -20,15 +20,15 @@ See proposal.md for motivation. Today every room is implicitly D&D 5e: `Conditio
 
 ```ts
 interface GamePreset {
-  id: string;                 // stable, persisted: "free", "dnd5e"
-  name: string;               // "Free Mode", "Dungeons & Dragons 5th Edition"
+  id: string;                 // stable, persisted: "free"
+  name: string;               // "Free Mode"
   description: string;
   features: { attacks: boolean; conditions: boolean; armorClass: boolean };
   conditions: readonly ConditionId[];   // which conditions the editor offers
   grid: { unitsPerCell: number; unitLabel: string };
 }
 export const GAME_PRESETS: readonly GamePreset[] = [DND5E, FREE];  // registry order = form order
-export const DEFAULT_PRESET_ID = "dnd5e";
+export const DEFAULT_PRESET_ID = "free";
 export const GamePresetId = z.string().refine(isPresetId, "Unknown game preset");
 export function presetOf(state: Pick<RoomState, "preset">): GamePreset;
 ```
@@ -39,7 +39,7 @@ Callers ask `presetOf(state).features.attacks`, never `state.preset === "free"`.
 
 ### 2. Persistence: `RoomCreated.preset`, `RoomState.preset`
 
-`RoomCreated` gains optional `preset`. `reduce` sets `state.preset = event.preset ?? "dnd5e"`; `RoomState.preset` defaults to `"dnd5e"` in zod and `emptyRoomState`. Old logs replay as D&D. No command changes the preset, so `CheckpointRestored` and `EncounterApplied` (table-only) cannot. Changing `RoomCreated` and `RoomState` needs ADR 0027 and Real-Time Architecture review.
+`RoomCreated` gains optional `preset`. `reduce` sets `state.preset = event.preset ?? "free"`; `RoomState.preset` defaults to `"free"` in `emptyRoomState`. Old logs replay as Free Mode. No command changes the preset, so `CheckpointRestored` and `EncounterApplied` (table-only) cannot. Changing `RoomCreated` and `RoomState` needs ADR 0027 and Real-Time Architecture review.
 
 ### 3. Grid defaults from the preset
 
@@ -53,9 +53,9 @@ With `features.attacks` off: reject `dice.roll` carrying attack context, `roll.r
 
 A `usePreset(state)` helper; the Attack section, rulings, condition pickers and markers, AC fields and "Save as creature" attack lists render only when their feature is on. The top bar shows the preset name as a small text badge after the room title; the GM dashboard's room list (which already loads room summaries) gets `preset` added to its summary and shows the name on each card. The Create room form uses a radio group generated from `GAME_PRESETS` (name + description).
 
-### 6. D&D edition
+### 6. Free Mode only, for now
 
-Dungeons & Dragons 5th Edition, SRD 5.1 conditions, as the room already implements. The ticket's open question is answered by keeping today's behaviour for that preset; anything new for D&D (exhaustion levels, 2024 rules) is a later ticket.
+The GM asked (2026-10-09) for Free Mode only to begin with. Free Mode turns every feature on with a 5 ft grid, so it is today's behaviour under a name. The feature flags, enforcement and stripping stay in place for the next preset and are tested with a test-only preset that turns features off. The create-room choice appears once there are two presets.
 
 ## Risks / Trade-offs
 

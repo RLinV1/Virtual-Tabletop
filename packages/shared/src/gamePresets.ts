@@ -32,31 +32,24 @@ export interface GamePreset {
   grid: { unitsPerCell: number; unitLabel: string };
 }
 
-/** Dungeons & Dragons 5th Edition, SRD 5.1: everything the tabletop did before presets existed. */
-const DND5E: GamePreset = {
-  id: "dnd5e",
-  name: "Dungeons & Dragons 5th Edition",
-  description: "Conditions, HP and AC, attack rolls with GM rulings, and a 5 ft grid.",
+/**
+ * Free Mode: the tabletop as it is, with every tool on and no game-specific setup. The only preset
+ * for now; game presets (Dungeons & Dragons and others) are added here later as their own entries.
+ */
+const FREE: GamePreset = {
+  id: "free",
+  name: "Free Mode",
+  description: "The full tabletop: maps, tokens, conditions, attacks, dice, fog and turn order.",
   features: { attacks: true, conditions: true, armorClass: true },
   conditions: ConditionId.options,
   grid: { unitsPerCell: 5, unitLabel: "ft" },
 };
 
-/** A plain tabletop with no game rules on top. */
-const FREE: GamePreset = {
-  id: "free",
-  name: "Free Mode",
-  description: "A plain tabletop: maps, tokens, dice, fog and turn order, with no game-specific rules.",
-  features: { attacks: false, conditions: false, armorClass: false },
-  conditions: [],
-  grid: { unitsPerCell: 1, unitLabel: "sq" },
-};
-
 /** Every preset, in the order the create-room form offers them. */
-export const GAME_PRESETS: readonly GamePreset[] = [DND5E, FREE];
+export const GAME_PRESETS: readonly GamePreset[] = [FREE];
 
 /** What a room is when it says nothing: every room created before presets existed. */
-export const DEFAULT_PRESET_ID = DND5E.id;
+export const DEFAULT_PRESET_ID = FREE.id;
 
 const byId = (id: string) => GAME_PRESETS.find((p) => p.id === id);
 
@@ -66,7 +59,7 @@ export type GamePresetId = z.infer<typeof GamePresetId>;
 
 /** The room's preset; an unknown or missing id reads as the default, so old rooms behave as before. */
 export function presetOf(state: { preset?: string | null }): GamePreset {
-  return byId(state.preset ?? DEFAULT_PRESET_ID) ?? DND5E;
+  return byId(state.preset ?? DEFAULT_PRESET_ID) ?? FREE;
 }
 
 /**

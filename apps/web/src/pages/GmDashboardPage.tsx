@@ -128,7 +128,8 @@ function CreateRoomCard() {
           placeholder="Your name"
         />
       </label>
-      <fieldset className="preset-choice">
+      {/* Only a choice once there is more than one game (KAN-63). */}
+      {GAME_PRESETS.length > 1 && <fieldset className="preset-choice">
         <legend>Game</legend>
         {GAME_PRESETS.map((p) => (
           <label key={p.id} className="preset-option">
@@ -139,7 +140,7 @@ function CreateRoomCard() {
             </span>
           </label>
         ))}
-      </fieldset>
+      </fieldset>}
       {templates.length > 0 && (
         <label>
           Start from template

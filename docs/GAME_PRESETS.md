@@ -1,10 +1,10 @@
 # Game presets: how to add one
 
-A game preset is what a room is set up for, chosen on the Create room form and kept with the room (KAN-63, [ADR 0027](adr/0027-game-presets.md)). Free Mode and Dungeons & Dragons 5th Edition ship first. Adding another game is adding one definition; the form, the server's checks, persistence and display pick it up on their own.
+A game preset is what a room is set up for, chosen on the Create room form and kept with the room (KAN-63, [ADR 0027](adr/0027-game-presets.md)). Free Mode, with every tool on, is the only preset for now. Adding another game is adding one definition; the form, the server's checks, persistence and display pick it up on their own.
 
 ## 1. Add the definition
 
-In `packages/shared/src/gamePresets.ts`, add an object to `GAME_PRESETS`. The array order is the order the form offers.
+In `packages/shared/src/gamePresets.ts`, add an object to `GAME_PRESETS`. The array order is the order the form offers, and the first is selected. With two or more presets the Create room form shows the choice on its own.
 
 ```ts
 const PATHFINDER2E: GamePreset = {
@@ -16,7 +16,7 @@ const PATHFINDER2E: GamePreset = {
   grid: { unitsPerCell: 5, unitLabel: "ft" },
 };
 
-export const GAME_PRESETS: readonly GamePreset[] = [DND5E, PATHFINDER2E, FREE];
+export const GAME_PRESETS: readonly GamePreset[] = [FREE, PATHFINDER2E];
 ```
 
 | Field | What it does |
