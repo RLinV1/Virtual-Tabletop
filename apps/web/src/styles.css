@@ -544,7 +544,11 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 
 /* --- Chat (KAN-75) --- */
 .chat-widget { position: fixed; right: var(--space-4); bottom: var(--space-4); z-index: 50; display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-2); }
+/* Moved to the left or top half of the window: the popup opens toward the middle instead. */
+.chat-widget-left { align-items: flex-start; }
+.chat-widget-top { flex-direction: column-reverse; }
 .chat-fab {
+  touch-action: none;
   position: relative; width: 3.25rem; height: 3.25rem; padding: 0; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgb(0 0 0 / 0.45);
 }
@@ -557,8 +561,8 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
   width: min(22rem, calc(100vw - 2 * var(--space-4))); display: flex; flex-direction: column; gap: var(--space-2);
   padding: var(--space-3); background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--radius);
   box-shadow: 0 8px 28px rgb(0 0 0 / 0.55);
-  /* Never taller than the room above the launcher, so the header and close button stay reachable. */
-  max-height: calc(100dvh - 3.25rem - 3 * var(--space-4)); min-height: 0;
+  /* Never taller than the room beside the launcher, so the header and close button stay reachable. */
+  max-height: var(--chat-room, calc(100dvh - 3.25rem - 3 * var(--space-4))); min-height: 0;
 }
 .chat-popup-header { display: flex; align-items: center; justify-content: space-between; }
 .chat-popup-header h2 { margin: 0; font-size: var(--fs-sm); color: var(--muted); }
