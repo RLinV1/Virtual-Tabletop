@@ -35,6 +35,7 @@ export function MapGridPreview({ map, grid, onChange, onPreviewChange, previewEn
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const helpId = useId();
+  const keysId = useId();
   const statusId = useId();
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
   const [camera, setCamera] = useState<Camera>(FIT);
@@ -467,7 +468,7 @@ export function MapGridPreview({ map, grid, onChange, onPreviewChange, previewEn
       <p id={statusId} className="map-grid-status small-print" role="status">{status}</p>
       <svg ref={svgRef} className={`map-grid-canvas${pan || space ? " is-panning" : ""}`}
         viewBox={ready ? `${vx} ${vy} ${vw} ${vh}` : `0 0 ${map.width} ${map.height}`}
-        role="group" aria-label="Place grid anchors on the map" aria-describedby={`${statusId} ${helpId}`} tabIndex={0}
+        role="group" aria-label="Place grid anchors on the map" aria-describedby={`${statusId} ${helpId} ${keysId}`} tabIndex={0}
         aria-disabled={disabled} onPointerDown={onPointerDown} onPointerMove={onPointerMove}
         onPointerUp={onPointerUp} onPointerCancel={cancelPointer} onLostPointerCapture={(e) => {
           if (gesture.current.pointers.some((p) => p.id === e.pointerId)) clearTransient();
@@ -499,13 +500,16 @@ export function MapGridPreview({ map, grid, onChange, onPreviewChange, previewEn
         )}
       </svg>
       <p id={helpId} className="muted small-print map-grid-help">
-        Placement and pointer adjustment snap cell size and X/Y offsets to 0.5 px. Hold Shift for freeform placement.
-        Focus the map and press Enter to place A at the view center, then use arrows and Enter to place B.
-        Select or focus A to move both anchors by 1 image pixel, or B to change cell size by 0.5 px.
-        Shift uses freeform 10-pixel sample steps. Enter confirms placement and deselects the anchor.
-        Use Apply or Save grid to save it.
-        Swipe, use Pan, or Space-drag to move the view. Use two fingers to pan and zoom.
+        Hold Shift to place freely. Scroll to zoom; Space-drag or Pan moves the view.
       </p>
+      <details className="map-grid-keys small-print">
+        <summary>Keyboard and fine control</summary>
+        <p id={keysId} className="muted">
+          Focus the map and press Enter to place A at the view center, then use arrows and Enter to place B.
+          Select A to move both anchors by 1 pixel, or B to change the cell size by 0.5 px; Shift moves 10 pixels.
+          Placement snaps to 0.5 px. On touch, use two fingers to pan and zoom.
+        </p>
+      </details>
       {message && <p className="error" role="status">{message}</p>}
     </div>
   );

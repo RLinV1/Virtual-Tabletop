@@ -1212,6 +1212,8 @@ dialog.modal.prep-sheet { width: min(1120px, calc(100vw - 48px)); }
   stroke: var(--focus); stroke-width: 3px; vector-effect: non-scaling-stroke;
 }
 .map-grid-help { margin: 0; }
+.map-grid-keys summary { cursor: pointer; color: var(--muted); }
+.map-grid-keys p { margin: var(--space-1) 0 0; }
 .grid-line-fields { display: flex; flex-direction: column; gap: var(--space-3); }
 .grid-editor-footer {
   position: sticky; bottom: calc(-1 * var(--space-4)); z-index: 1;
@@ -2315,7 +2317,13 @@ dialog.modal.map-editor {
 }
 .map-editor-heading { margin: 0; font-size: var(--fs-md); }
 .map-editor-empty { margin: var(--space-4) auto; max-width: 32rem; text-align: center; color: var(--muted); }
-.map-editor-grid { max-width: 1120px; margin: 0 auto; }
+/* The Grid step fills the editor, and the map takes every row the controls leave free. */
+.map-editor-grid { height: 100%; }
+.map-editor-grid, .map-editor-grid .grid-editor, .map-editor-grid .map-grid-preview { display: flex; flex-direction: column; }
+.map-editor-grid .grid-editor, .map-editor-grid .map-grid-preview { flex: 1; min-height: 0; }
+.map-editor-grid .map-grid-canvas { flex: 1; height: auto; min-height: 20rem; }
+.map-editor-grid .grid-editor-footer { flex-direction: row; flex-wrap: wrap; align-items: center; }
+.map-editor-grid .grid-editor-footer .grid-actions { margin-left: auto; }
 .map-editor-modes { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
 .map-editor-mode { display: inline-flex; align-items: center; justify-content: flex-start; gap: var(--space-2); min-height: 44px; padding: 0.35rem 0.6rem; }
 .map-editor-mode[aria-checked="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
