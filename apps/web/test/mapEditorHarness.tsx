@@ -42,10 +42,10 @@ export function fakeConnection() {
 }
 
 /** jsdom has no layout or pointer capture, and `PointerEvent` drops its coordinates. */
-export function pointer(type: "pointerDown" | "pointerUp" | "pointerMove", target: Element, at: Point, init: { button?: number } = {}) {
+export function pointer(type: "pointerDown" | "pointerUp" | "pointerMove", target: Element, at: Point, init: { button?: number; id?: number } = {}) {
   const event = createEvent[type](target, {});
   Object.defineProperties(event, {
-    clientX: { value: at.x }, clientY: { value: at.y }, button: { value: init.button ?? 0 }, pointerId: { value: 1 }, altKey: { value: false },
+    clientX: { value: at.x }, clientY: { value: at.y }, button: { value: init.button ?? 0 }, pointerId: { value: init.id ?? 1 }, altKey: { value: false },
   });
   fireEvent(target, event);
 }

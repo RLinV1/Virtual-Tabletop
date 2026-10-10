@@ -13,6 +13,11 @@ interface Camera {
   zoom: number;
 }
 
+/** A two-finger gesture: the map point under the fingers' midpoint stays under it. */
+interface Pinch { distance: number; zoom: number; point: Point }
+
+const midpoint = (a: Point, b: Point): Point => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+
 /** What a layer needs to draw in map coordinates at a steady size on screen. */
 export interface CanvasView {
   /** Screen pixels per map pixel. */
@@ -23,12 +28,12 @@ export interface CanvasView {
 
 /**
  * The map editor's SVG map canvas (map-editor D3): the map and its grid in board coordinates
- * (invariant 8) with a viewBox camera. The wheel zooms around the pointer; Pan mode, the middle
- * button or Space-drag pans. Every pointer callback gets a map point, never a screen point. Steps
+ * (invariant 8) with a viewBox camera. The wheel or a two-finger pinch zooms; Pan mode, the middle
+ * button, Space-drag or a two-finger drag pans. Every pointer callback gets a map point, never a screen point. Steps
  * draw their own layers as `children` and choose what a click or drag does.
  */
 export function MapCanvas({
-  map, grid, mode, pan, label, onMove, onPress, onRelease, onSecondary, onKeyDown, children,
+  map, grid, mode, pan, label, onMove, onPress, onRelease, onCancel, onSecondary, onKeyDown, children,
 }: {
   map: MapImage;
   grid: GridSpec;
@@ -43,6 +48,8 @@ export function MapCanvas({
   onPress?: (at: Point, event: PointerEvent<SVGSVGElement>, view: CanvasView) => void;
   /** The matching release; `moved` when the pointer travelled past a click's slop. */
   onRelease?: (at: Point, event: PointerEvent<SVGSVGElement>, moved: boolean, view: CanvasView) => void;
+  /** A second finger turned the press into a pinch: drop anything the press began. */
+  onCancel?: () => void;
   /** A right-button press. */
   onSecondary?: () => void;
   onKeyDown?: (event: KeyboardEvent<SVGSVGElement>) => void;
@@ -53,6 +60,9 @@ export function MapCanvas({
   const [camera, setCamera] = useState<Camera>({ cx: map.width / 2, cy: map.height / 2, zoom: 1 });
   const [space, setSpace] = useState(false);
   const press = useRef<{ x: number; y: number; camera: Camera; pan: boolean; moved: boolean } | null>(null);
+  /** Pointers down on the canvas, in client pixels, for pinch and two-finger pan. */
+  const pointers = useRef(new Map<number, Point>());
+  const pinch = useRef<Pinch | null>(null);
 
   useEffect(() => {
     const svg = svgRef.current;
@@ -91,13 +101,43 @@ export function MapCanvas({
       onSecondary?.();
       return;
     }
+    svgRef.current?.setPointerCapture(e.pointerId);
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const [first, second] = [...pointers.current.values()];
+    if (pointers.current.size === 2 && first && second) {
+      // A second finger turns the press into a pinch: no tap fires when the fingers lift.
+      if (press.current) onCancel?.();
+      press.current = null;
+      const mid = midpoint(first, second);
+      pinch.current = { distance: Math.max(1, Math.hypot(first.x - second.x, first.y - second.y)), zoom: camera.zoom, point: toMap(mid.x, mid.y) };
+      return;
+    }
+    if (pointers.current.size > 1) return;
     const panning = pan || e.button === 1 || space;
     press.current = { x: e.clientX, y: e.clientY, camera, pan: panning, moved: false };
-    svgRef.current?.setPointerCapture(e.pointerId);
     if (!panning) onPress?.(toMap(e.clientX, e.clientY), e, { scale, px: 1 / scale });
   };
 
+  const endPointer = (e: PointerEvent<SVGSVGElement>) => {
+    pointers.current.delete(e.pointerId);
+    if (pointers.current.size < 2) pinch.current = null;
+    if (svgRef.current?.hasPointerCapture(e.pointerId)) svgRef.current.releasePointerCapture(e.pointerId);
+  };
+
   const onPointerMove = (e: PointerEvent<SVGSVGElement>) => {
+    if (pointers.current.has(e.pointerId)) pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const [first, second] = [...pointers.current.values()];
+    const gesture = pinch.current;
+    if (gesture && first && second) {
+      // Zoom by the change in finger spread, and keep the pinched map point under the midpoint,
+      // so moving both fingers together pans.
+      const rect = svgRef.current!.getBoundingClientRect();
+      const mid = midpoint(first, second);
+      const zoom = Math.min(MAX_ZOOM, Math.max(1, gesture.zoom * Math.hypot(first.x - second.x, first.y - second.y) / gesture.distance));
+      const next = fit * zoom;
+      setCamera({ zoom, cx: gesture.point.x - (mid.x - rect.left - view.width / 2) / next, cy: gesture.point.y - (mid.y - rect.top - view.height / 2) / next });
+      return;
+    }
     onMove?.(toMap(e.clientX, e.clientY), e, { scale, px: 1 / scale });
     const start = press.current;
     if (!start) return;
@@ -110,7 +150,7 @@ export function MapCanvas({
   const onPointerUp = (e: PointerEvent<SVGSVGElement>) => {
     const start = press.current;
     press.current = null;
-    if (svgRef.current?.hasPointerCapture(e.pointerId)) svgRef.current.releasePointerCapture(e.pointerId);
+    endPointer(e);
     if (!start || start.pan) return;
     onRelease?.(toMap(e.clientX, e.clientY), e, start.moved, { scale, px: 1 / scale });
   };
@@ -145,6 +185,10 @@ export function MapCanvas({
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerCancel={(e) => {
+          press.current = null;
+          endPointer(e);
+        }}
         onPointerLeave={(e) => onMove?.(null, e, { scale, px: 1 / scale })}
         onKeyDown={handleKeyDown}
         onKeyUp={(e) => { if (e.key === " ") setSpace(false); }}
