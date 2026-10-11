@@ -137,3 +137,18 @@ commands (new fog, wall removals, wall additions in batches, then fog removals, 
 before it reveals). Apply in the Walls step, with its `exclude` list, loads the remaining detected
 walls from the endpoint above into the draft instead of sending `wall.applyDetected`; Save then
 sends them with `wall.add`. No command, event or state changes beyond the amendment above.
+
+## Amendment: an inked-outlines wall style (`openspec/changes/auto-wall-outlines`)
+
+The stone search finds little on maps drawn in inked outlines (buildings, caves, rooms in a dark
+line), and nothing diagonal. Those maps now get a second pipeline, adapted from ThreeHats/auto-wall
+(MIT; `services/vision/THIRD_PARTY_NOTICES.md`):
+
+- **`WallStyle` gains `"outlined"`**, beside `"bright"` and `"dark"`. The worker validates the same
+  three values. Strictness does not apply to it; the shortest-wall filter does.
+- **Automatic detection (no style) falls back to it** when the stone search finds under 20 cells
+  of wall and the outlines find at least four times as much; otherwise automatic detection is
+  unchanged. A given grid cell is tried beside one estimated from the image, since an unaligned
+  grid blurs outlines away.
+
+The result shape, the validation of returned walls and GM-only visibility are unchanged.
