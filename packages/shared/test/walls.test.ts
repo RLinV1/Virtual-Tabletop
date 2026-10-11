@@ -122,6 +122,19 @@ describe("applying and clearing walls (FR-GM-11)", () => {
     expect(undone.state.walls).toEqual(before);
   });
 
+  it("leaves out the detected walls the GM erased on the preview (FR-GM-11)", () => {
+    const { state } = roomWithWalls();
+    const found = [EDGE_WALL, CELL_WALL, { a: { x: 0, y: 70 }, b: { x: 140, y: 70 } }];
+    const applied = must(act(state, gm, { type: "wall.applyDetected", mapUrl: MAP.url, exclude: { of: 3, indices: [1] } }, found));
+    expect(Object.values(applied.state.walls).map(({ a, b }) => ({ a, b }))).toEqual([found[0], found[2]]);
+    const undone = must(act(applied.state, gm, { type: "history.undo", commandId: applied.commandId }));
+    expect(undone.state.walls).toEqual(state.walls);
+    // A list made against a different result, an index past the end, or every wall erased is refused.
+    for (const exclude of [{ of: 2, indices: [0] }, { of: 3, indices: [3] }, { of: 3, indices: [0, 1, 2] }]) {
+      expect(act(state, gm, { type: "wall.applyDetected", mapUrl: MAP.url, exclude }, found)).toMatchObject({ ok: false, code: "invalid" });
+    }
+  });
+
   it("refuses walls for another map, a missing result, or an empty one", () => {
     const { state } = roomWithWalls();
     expect(act(state, gm, { type: "wall.applyDetected", mapUrl: "/uploads/other.png" }, [EDGE_WALL]))

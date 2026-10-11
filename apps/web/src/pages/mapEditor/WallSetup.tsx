@@ -3,7 +3,7 @@ import { Eraser, Eyedropper, Hand, LineSegments } from "@phosphor-icons/react";
 import {
   MIN_LENGTH_MAX, SAMPLE_TOLERANCE_DEFAULT, SAMPLE_TOLERANCE_MAX, SAMPLE_TOLERANCE_MIN,
   STRICTNESS_DEFAULT, STRICTNESS_MAX, STRICTNESS_MIN,
-  type CommandInput, type Point, type RoomState, type WallDetectionAvailability, type WallDetectionRequest, type WallDetectionStatus,
+  type CommandInput, type DetectedWall, type Point, type RoomState, type Wall, type WallDetectionAvailability, type WallDetectionRequest, type WallDetectionStatus,
 } from "@vtt/shared";
 import { api } from "../../net/api";
 import type { RoomConnection } from "../../net/roomConnection";
@@ -18,7 +18,7 @@ const MODES: { key: CanvasMode; label: string; icon: typeof Eraser; needsDetecti
 
 const HINTS: Record<CanvasMode, string> = {
   draw: "Click to start a wall, click again to end it and start the next. Ends snap to grid corners and wall ends; hold Alt to place freely. Enter, Esc or right-click stops.",
-  erase: "Click a wall to remove it. Undo it from the activity log.",
+  erase: "Click a wall to remove it; undo it from the activity log. Click a blue detected wall to leave it out of Apply, and click it again to bring it back.",
   sample: "Click on a wall in the map: walls that look like it are detected across the whole map.",
   pan: "Drag to move around. The wheel or a pinch zooms; Space-drag or a two-finger drag pans in any mode.",
 };
@@ -37,6 +37,8 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
   const [detection, setDetection] = useState<{ mapUrl: string; status: WallDetectionStatus | null }>({ mapUrl, status: null });
   const [preview, setPreview] = useState<{ mapUrl: string; url: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  // The detected segments waiting to be applied, and the ones the GM has erased from them (by index).
+  const [candidates, setCandidates] = useState<{ mapUrl: string; walls: DetectedWall[]; erased: ReadonlySet<string> } | null>(null);
   const [tolerance, setTolerance] = useState(SAMPLE_TOLERANCE_DEFAULT);
   const [strictness, setStrictness] = useState(STRICTNESS_DEFAULT);
   const [minLength, setMinLength] = useState(0);
@@ -86,6 +88,19 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
     };
   }, [done, status, state.roomId, token, mapUrl]);
 
+  // The detected segments themselves, so false ones can be erased on the canvas before applying.
+  useEffect(() => {
+    if (!done || !mapUrl) {
+      setCandidates(null);
+      return;
+    }
+    const abort = new AbortController();
+    api.walls.detected(state.roomId, token, mapUrl, abort.signal)
+      .then((walls) => setCandidates({ mapUrl, walls, erased: new Set() }))
+      .catch(() => {});
+    return () => abort.abort();
+  }, [done, status, state.roomId, token, mapUrl]);
+
   if (!map) return <p className="map-editor-empty">Apply a map in the Map step first, then set up its walls here.</p>;
 
   /** The detection request: the sliders' values, and the clicked wall's point when there is one. */
@@ -112,6 +127,27 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
     const result = await connection.command(command);
     if (!result.ok) setMessage({ text: result.message, error: true });
     else if (doneText) setMessage({ text: doneText, error: false });
+    return result.ok;
+  };
+
+  const pendingWalls = candidates?.mapUrl === mapUrl ? candidates : null;
+  const candidateWalls: Record<string, Wall> = {};
+  pendingWalls?.walls.forEach((w, i) => { candidateWalls[String(i)] = { id: String(i), a: w.a, b: w.b }; });
+  const toggleCandidate = (key: string) => setCandidates((current) => {
+    if (!current) return current;
+    const erased = new Set(current.erased);
+    if (!erased.delete(key)) erased.add(key);
+    return { ...current, erased };
+  });
+  const keeping = pendingWalls ? pendingWalls.walls.length - pendingWalls.erased.size : null;
+
+  const apply = async () => {
+    const exclude = pendingWalls && pendingWalls.erased.size > 0
+      ? { of: pendingWalls.walls.length, indices: [...pendingWalls.erased].map(Number).sort((a, b) => a - b) }
+      : undefined;
+    const ok = await run({ type: "wall.applyDetected", mapUrl, ...(exclude && { exclude }) }, `Applied ${keeping ?? found} walls.`);
+    // The result is spent: drop its overlay so the new walls aren't drawn twice.
+    if (ok) setDetection({ mapUrl, status: null });
   };
 
   const pending = status?.status === "queued" || status?.status === "running";
@@ -124,10 +160,13 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
         map={map}
         grid={state.scene.grid}
         walls={state.walls}
+        candidates={candidateWalls}
+        erased={pendingWalls?.erased ?? new Set()}
         mode={mode}
         busy={busy}
         onAdd={(a, b) => void run({ type: "wall.add", walls: [{ a, b }] })}
         onRemove={(wallId) => void run({ type: "wall.remove", wallIds: [wallId] })}
+        onToggleCandidate={toggleCandidate}
         onSample={(at) => void detect(at)}
       />
       <aside className="map-editor-hud" aria-label="Wall tools">
@@ -186,7 +225,7 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
               ) : (
                 <div className="walls-preview-placeholder" aria-hidden="true" />
               )}
-              <figcaption>{found === 0 ? "No walls found on this map." : `${found} ${found === 1 ? "wall" : "walls"} found. Check them before applying.`}</figcaption>
+              <figcaption>{found === 0 ? "No walls found on this map." : `${found} ${found === 1 ? "wall" : "walls"} found. Check them before applying; the Erase tool leaves a false one out.`}</figcaption>
             </figure>
           )}
           {canDetect && (
@@ -222,8 +261,8 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
               {status ? "Detect again" : "Detect walls"}
             </button>
             {canDetect && found !== null && found > 0 && (
-              <button type="button" disabled={busy} onClick={() => void run({ type: "wall.applyDetected", mapUrl }, `Applied ${found} walls.`)}>
-                {wallCount > 0 ? `Replace with ${found} walls` : `Apply ${found} walls`}
+              <button type="button" disabled={busy || keeping === 0} onClick={() => void apply()}>
+                {wallCount > 0 ? `Replace with ${keeping ?? found} walls` : `Apply ${keeping ?? found} walls`}
               </button>
             )}
           </div>

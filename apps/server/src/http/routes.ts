@@ -9,6 +9,7 @@ import {
   DirectUploadFields,
   GridDetectionStatus,
   WallDetectionRequest,
+  type DetectedWallsResponse,
   JoinRoomRequest,
   HistoryQuery,
   ROOM_FULL,
@@ -289,6 +290,20 @@ export function registerRoutes(
       const status = walls.status(req.params.roomId, query.data.map);
       if (!status) return res.status(404).json({ error: "No wall detection for that map" });
       return res.json(status);
+    })().catch(internalError(req, res));
+  });
+
+  /** The detected segments themselves, for the GM to erase false ones on the preview before applying. */
+  app.get("/api/rooms/:roomId/wall-detection/walls", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void (async () => {
+      if (!(await isRoomGm(req, req.params.roomId))) return res.status(403).json({ error: "GM only" });
+      const query = MapQuery.safeParse(req.query);
+      if (!query.success) return res.status(400).json({ error: "Name the map" });
+      const detected = walls.detectedWalls(req.params.roomId, query.data.map);
+      if (!detected) return res.status(404).json({ error: "No wall detection for that map" });
+      const body: DetectedWallsResponse = { walls: [...detected] };
+      return res.json(body);
     })().catch(internalError(req, res));
   });
 

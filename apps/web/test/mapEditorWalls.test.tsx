@@ -13,6 +13,8 @@ vi.mock("../src/panels/CheckpointsPanel", () => ({ CheckpointsPanel: () => null 
 vi.mock("../src/panels/EncounterPanel", () => ({ EncounterPanel: () => null }));
 
 const canvas = () => screen.getByRole("application");
+/** `count` horizontal detected walls, one cell long, 100 px apart down the map. */
+const detectedRows = (count: number) => Array.from({ length: count }, (_, i) => ({ a: { x: 100, y: 50 + i * 100 }, b: { x: 170, y: 50 + i * 100 } }));
 const tool = (name: string) => screen.getByRole("radio", { name });
 
 beforeEach(() => {
@@ -20,6 +22,7 @@ beforeEach(() => {
   vi.spyOn(api.walls, "availability").mockResolvedValue({ available: true });
   vi.spyOn(api.walls, "status").mockResolvedValue(null);
   vi.spyOn(api.walls, "preview").mockResolvedValue(new Blob(["png"]));
+  vi.spyOn(api.walls, "detected").mockResolvedValue(detectedRows(7));
 });
 afterEach(() => {
   cleanup();
@@ -144,9 +147,32 @@ describe("map editor walls (FR-GM-09, FR-GM-11)", () => {
     await waitFor(() => expect((screen.getByRole("button", { name: "Detect walls" }) as HTMLButtonElement).disabled).toBe(false));
     fake.notify({ status: "done", wallCount: 7, width: 800, height: 600 });
 
-    expect(await screen.findByText("7 walls found. Check them before applying.")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Apply 7 walls" }));
+    expect(await screen.findByText(/7 walls found\. Check them before applying/)).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Apply 7 walls" }));
     await waitFor(() => expect(fake.commands).toEqual([{ type: "wall.applyDetected", mapUrl: MAP_URL }]));
+  });
+
+  it("erases a detected wall on the canvas before applying, and brings it back on a second click", async () => {
+    const fake = mount();
+    await waitFor(() => expect((screen.getByRole("button", { name: "Detect walls" }) as HTMLButtonElement).disabled).toBe(false));
+    fake.notify({ status: "done", wallCount: 7, width: 800, height: 600 });
+    await screen.findByRole("button", { name: "Apply 7 walls" });
+    await waitFor(() => expect(screen.getByTestId("wall-candidates").children).toHaveLength(7));
+
+    fireEvent.click(tool("Erase"));
+    // The third detected wall runs along y = 250.
+    click(canvas(), { x: 135, y: 252 });
+    expect(await screen.findByRole("button", { name: "Apply 6 walls" })).toBeTruthy();
+    click(canvas(), { x: 135, y: 252 });
+    expect(await screen.findByRole("button", { name: "Apply 7 walls" })).toBeTruthy();
+    click(canvas(), { x: 135, y: 252 });
+    click(canvas(), { x: 135, y: 52 });
+    fireEvent.click(await screen.findByRole("button", { name: "Apply 5 walls" }));
+    await waitFor(() => expect(fake.commands).toEqual([
+      { type: "wall.applyDetected", mapUrl: MAP_URL, exclude: { of: 7, indices: [0, 2] } },
+    ]));
+    // Nothing the GM erased reaches the room's own walls.
+    expect(fake.commands.some((c) => c.type === "wall.remove")).toBe(false);
   });
 
   it("offers Replace when walls already exist", async () => {

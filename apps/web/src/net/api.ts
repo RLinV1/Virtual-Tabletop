@@ -12,6 +12,8 @@ import {
   type GridSpec,
   GridDetectionStatus,
   WallDetectionStatus,
+  DetectedWallsResponse,
+  type DetectedWall,
   WallDetectionAvailability,
   type WallDetectionRequest,
   type InviteSeatResponse,
@@ -219,6 +221,14 @@ export const api = {
       if (res.status === 404) return null;
       if (!res.ok) throw await errorFrom(res);
       return WallDetectionStatus.parse(await res.json());
+    },
+    /** The detected segments of a finished analysis, for erasing false ones before applying. */
+    async detected(roomId: string, token: string, mapUrl: string, signal?: AbortSignal): Promise<DetectedWall[]> {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/wall-detection/walls?map=${encodeURIComponent(mapUrl)}`, {
+        signal, cache: "no-store", headers: { authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw await errorFrom(res);
+      return DetectedWallsResponse.parse(await res.json()).walls;
     },
     /** The rendered preview, fetched with the GM's credential (an <img> can't send it). */
     async preview(roomId: string, token: string, mapUrl: string, signal?: AbortSignal): Promise<Blob> {
