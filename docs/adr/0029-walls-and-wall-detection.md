@@ -93,19 +93,21 @@ Sampled detection used one fixed colour range, which suits some maps and not oth
   previous fixed value). It is valid only with `sample`; a request with `tolerance` alone, or one
   outside the range, is refused with 400. Old clients that send no tolerance behave as before.
   The shared constants are `SAMPLE_TOLERANCE_MIN`, `_MAX` and `_DEFAULT`.
-- **`strictness?` (0.2-0.6, default 0.4) and `minLength?` (0-6 cells, default 0)** apply to
+- **`strictness?` (0.2-0.6) and `minLength?` (0-6 cells, default 0)** apply to
   automatic and sampled detection alike. Strictness is the share of a run's edge that must follow
   a contrasting outline, the threshold that decides terrain from wall; minimum length drops short
-  pieces from the result. At their defaults the output is unchanged. Neither needs a sample.
+  pieces from the result. Without `strictness` the worker chooses: it tries 0.4, then 0.3, then 0.2,
+  and keeps the first that finds enough wall, so a map with few thick walls still gets a result;
+  a value the GM sets is used as given. Neither field needs a sample.
 - **The job data carries `tolerance?`, `strictness?` and `minLength?` beside `sample`.** The worker validates the same range
   (it trusts nothing the queue holds) and fails the job otherwise. The Walls step shows a colour-range
   slider in the "Detect like this" tool, and strictness and shortest-wall sliders above Detect
   walls; each request sends their values.
 
-The default strictness is 40% (was a fixed 30%): a run is kept only when that share of its
+Automatic strictness starts at 40% (it was a fixed 30%): a run is kept only when that share of its
 edge lies along a contrasting outline. On the bundled maps it cuts the walls found on the snowy-cliff map from 147 to 81 and on the jungle map from 78 to 51,
 mostly cliff and vine runs, and leaves the hero map's score unchanged. The worker's weld and thinning
-steps were also rewritten to run in linear time, with identical output, so a map now takes under 3 s.
+steps were also rewritten to run in linear time, with identical output, so a map now takes under 5 s.
 
 ## Amendment: erasing detected walls before applying (`feat/auto-wall-detection`)
 
