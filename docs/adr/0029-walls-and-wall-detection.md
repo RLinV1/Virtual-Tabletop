@@ -106,3 +106,21 @@ The default strictness is 40% (was a fixed 30%): a run is kept only when that sh
 edge lies along a contrasting outline. On the bundled maps it cuts the walls found on the snowy-cliff map from 147 to 81 and on the jungle map from 78 to 51,
 mostly cliff and vine runs, and leaves the hero map's score unchanged. The worker's weld and thinning
 steps were also rewritten to run in linear time, with identical output, so a map now takes under 3 s.
+
+## Amendment: erasing detected walls before applying (`feat/auto-wall-detection`)
+
+False detections used to be removable only after applying, one command per wall. The GM can now
+leave them out first:
+
+- **`GET /api/rooms/:roomId/wall-detection/walls?map=`** (GM only, like the preview) returns
+  `{ walls }`, the validated segments of the latest result, in the order `decide` will read them.
+  Players get 403: the segments are as GM-only as the walls they become.
+- **`wall.applyDetected` gains `exclude?: { of, indices }`.** `indices` are positions in that list
+  and `of` is its length when the GM looked. `decide` refuses the command if `of` differs from the
+  server's current result, if an index is out of range, or if nothing would be left, so an
+  exclusion list made against an older result is never applied to a newer one. The segments still
+  come from the server's result, never the client; the client only chooses which to skip. The
+  command stays one action, so one undo restores the walls it replaced.
+- **The Walls step draws the detected walls as candidates** over the map. With the Erase tool a
+  click on a candidate toggles it out of (or back into) the pending result; a click on a wall
+  already in the room still removes that wall. Apply shows the remaining count.
