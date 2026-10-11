@@ -106,3 +106,17 @@ The default strictness is 40% (was a fixed 30%): a run is kept only when that sh
 edge lies along a contrasting outline. On the bundled maps it cuts the walls found on the snowy-cliff map from 147 to 81 and on the jungle map from 78 to 51,
 mostly cliff and vine runs, and leaves the hero map's score unchanged. The worker's weld and thinning
 steps were also rewritten to run in linear time, with identical output, so a map now takes under 3 s.
+
+## Amendment: detected walls in the editor's draft (`openspec/changes/map-editor-drafts`)
+
+The map editor now edits walls and fog as a private draft and saves the difference with existing
+commands. To let the GM edit a detection before saving, the GM's browser needs the detected walls
+themselves, not only their count and preview:
+
+- **`GET /api/rooms/:roomId/wall-detection/walls?map=`** returns `DetectedWallsResponse`,
+  `{ walls: DetectedWall[] }`: the server-validated walls `wall.applyDetected` would commit for the
+  room's current map. GM only (403 otherwise), 404 when there is no finished result for that map.
+  Like the preview, these are GM-only data sent only to the GM.
+
+No command, event or state changes. `wall.applyDetected` remains; the editor saves detected walls
+with `wall.add` instead, so they can be edited first.
