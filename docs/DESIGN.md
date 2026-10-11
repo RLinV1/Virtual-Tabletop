@@ -13,6 +13,8 @@ This document covers architecture, stack, repository, and the running prototype.
 | [`adr/0001-event-model.md`](adr/0001-event-model.md) | Why state is an event log |
 | [`adr/0002-transport-and-identity.md`](adr/0002-transport-and-identity.md) | Socket.IO handshake, guest tokens |
 | [`adr/0003-tactical-state.md`](adr/0003-tactical-state.md) | Stats, conditions, initiative, dice |
+| [`adr/0028-grid-detection-http-contract.md`](adr/0028-grid-detection-http-contract.md) | Private HTTP contract for grid detection |
+| [`adr/0029-walls-and-wall-detection.md`](adr/0029-walls-and-wall-detection.md) | Walls as room state, BullMQ wall detection |
 
 ---
 
@@ -50,7 +52,7 @@ This document covers architecture, stack, repository, and the running prototype.
    ║     pgdata          redisdata     miniodata   (named volumes)║
    ║                                                              ║
    ║ ┌──────────────────────────────────────────┐                 ║
-   ║ │  Vision service — PLANNED                │                 ║
+   ║ │  Vision service (services/vision)        │                 ║
    ║ │  Python / FastAPI / OpenCV               │                 ║
    ║ │  grid detection, wall extraction         │                 ║
    ║ │  driven by a BullMQ queue on Redis       │                 ║
@@ -173,9 +175,12 @@ In-memory mode loses every room on restart, including the restart `tsx watch` pe
 each save. Any manual test of persistence or reconnection must run against the containers,
 and the Postgres store tests skip themselves until `DATABASE_URL` is set.
 
-The vision service is not in the compose file yet; `services/vision` does not exist. It
-becomes a fourth service when automatic grid detection (FR-GM-03) and wall extraction
-(FR-GM-11) start. Its own container keeps the CV dependency tree out of the Node services.
+The vision service lives in `services/vision`, in its own container so the CV dependency tree
+stays out of the Node services. Two processes run from its image: `vision`, the private grid
+detector (FR-GM-03), and `vision-walls`, which consumes the `wall-detection` BullMQ queue on the
+app's Redis (FR-GM-11, ADR 0029). The app server produces wall jobs, learns of their completion
+from BullMQ's queue events, and tells the room's GM; without `REDIS_URL` wall detection reports
+itself unavailable and everything else works. See [`WALL-DETECTION.md`](WALL-DETECTION.md).
 
 ### Choices we did not make
 
@@ -196,7 +201,7 @@ apps/server        Express + Socket.IO. domain/liveRoom.ts is the pipeline;
                    store/ holds memory, Postgres, Redis and MinIO adapters.
 apps/web           React panels + PixiJS board (board/boardView.ts).
                    net/roomConnection.ts is the sync client.
-services/vision    planned — Python/OpenCV grid and wall detection.
+services/vision    Python/OpenCV grid detection and the BullMQ wall-detection worker.
 ```
 
 ```bash
@@ -322,9 +327,9 @@ with no security value.
 | FR-GM-06 | UVTT import | Server parser → scene + walls | D |
 | FR-GM-07 | UVTT validation | zod at parse time | D |
 | FR-GM-08 | Token setup | `token.create` | ~ |
-| FR-GM-09 | Editable walls and portals | Scene geometry + Pixi editor | D |
+| FR-GM-09 | Editable walls and portals | `wall.*` + GM wall layer (ADR 0029) | ~ |
 | FR-GM-10 | Token ownership assignment | `token.setOwners`, roster UI | B |
-| FR-GM-11 | Vision-based map parsing | Vision service | D |
+| FR-GM-11 | Vision-based map parsing | `wall-detection` BullMQ queue → `vision-walls` (ADR 0029) | ~ |
 | FR-GM-12 | UVTT export | Server serializer | D |
 | FR-GM-13 | Reusable encounter templates | Template rows | D |
 | FR-GM-14 | GM and player roles | `Participant.role` | B |
@@ -362,7 +367,11 @@ with no security value.
 | FR-REC-02 | Undo for reversible actions | Compensating events | D |
 | FR-REC-03 | Append-only recovery history | Schema enforces insert-only | ~ |
 
-**Why the partials are partial.** FR-GM-08 has every field the requirement asks for, but no
+**Why the partials are partial.** FR-GM-09 has walls as room state, applied, removed and
+cleared by the GM and drawn on the GM's board, but no portals and no hand-drawing tool yet.
+FR-GM-11 detects walls, not doors or windows, and is tuned on drawn and painted battle maps;
+the GM reviews every result on its preview before applying it.
+FR-GM-08 has every field the requirement asks for, but no
 dedicated setup screen — tokens are created from the GM panel. FR-REC-03 holds structurally,
 since events are never updated or deleted and every mutating event carries its replaced
 value, but nothing reads the history back yet.

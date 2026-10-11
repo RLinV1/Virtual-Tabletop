@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { emptyRoomState, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../src/net/roomConnection";
-import { FogPanel } from "../src/panels/FogPanel";
+import { FogControls } from "../src/pages/mapEditor/FogControls";
 
 const connection = { command: async () => ({ ok: true }) } as unknown as RoomConnection;
 
@@ -11,10 +11,10 @@ function room(overrides: Partial<RoomState> = {}): RoomState {
   return { ...base, scene: { ...base.scene, map: { url: "/uploads/map.png", width: 700, height: 350 } }, ...overrides };
 }
 
-const render = (state: RoomState) => renderToStaticMarkup(<FogPanel connection={connection} state={state} />);
+const render = (state: RoomState) => renderToStaticMarkup(<FogControls connection={connection} state={state} intro="Fog the whole map without the pointer." />);
 const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
 
-describe("fog of war by keyboard: the GM's Fog section (FR-GM-17)", () => {
+describe("fog of war by keyboard: the map editor's fog controls (FR-GM-17)", () => {
   it("asks for a map before offering fog", () => {
     const base = emptyRoomState("r1");
     const html = render(base);
@@ -22,11 +22,10 @@ describe("fog of war by keyboard: the GM's Fog section (FR-GM-17)", () => {
     expect(html).not.toContain("Fog whole map");
   });
 
-  it("offers fogging the whole map and a block of cells, with the grid's size", () => {
+  it("offers fogging the whole map, and no block-of-cells form", () => {
     const html = render(room());
     expect(html).toContain("Fog whole map");
-    expect(text(html)).toContain("Count from the top-left of the map: 10 columns, 5 rows.");
-    for (const label of ["From column", "From row", "To column", "To row"]) expect(html).toContain(`<span>${label}</span><input`);
+    expect(html).not.toContain("From column");
     expect(text(html)).toContain("No fog on the map.");
   });
 

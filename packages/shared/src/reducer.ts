@@ -248,12 +248,13 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
       return { ...state, checkpoints: [...state.checkpoints, event.checkpoint].slice(-MAX_CHECKPOINTS) };
 
     case "CheckpointRestored":
-      // Only the board changes: participants, rolls, chat and history stay (ADR 0019).
-      return { ...state, ...event.restored };
+      // Only the board changes: participants, rolls, chat and history stay (ADR 0019). A table
+      // from before walls existed had none (ADR 0029).
+      return { ...state, ...event.restored, walls: event.restored.walls ?? {} };
 
     case "EncounterApplied":
       // Only the board changes, exactly as a checkpoint restore (ADR 0024).
-      return { ...state, ...event.applied };
+      return { ...state, ...event.applied, walls: event.applied.walls ?? {} };
 
     case "FogAdded":
       return { ...state, fog: { ...state.fog, [event.region.id]: event.region } };
@@ -262,6 +263,21 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
       required(state.fog[event.region.id], event);
       const { [event.region.id]: _removed, ...rest } = state.fog;
       return { ...state, fog: rest };
+    }
+
+    case "WallsAdded": {
+      const walls = { ...state.walls };
+      for (const wall of event.walls) walls[wall.id] = wall;
+      return { ...state, walls };
+    }
+
+    case "WallsRemoved": {
+      const walls = { ...state.walls };
+      for (const wall of event.walls) {
+        required(walls[wall.id], event);
+        delete walls[wall.id];
+      }
+      return { ...state, walls };
     }
 
     // Its compensating events already restored the values; `reduce` updates the history.

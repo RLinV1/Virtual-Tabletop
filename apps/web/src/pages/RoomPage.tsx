@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { House, Rewind } from "@phosphor-icons/react";
+import { House } from "@phosphor-icons/react";
 import { can, filterStateForViewer, isActive, presetOf, type DiceVisibility, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
 import { Board, type BoardHandle, type DiceBoard } from "../board/Board";
 import { PendingDrops, type DiceDrop } from "../board/diceDrops";
@@ -34,7 +34,8 @@ import { PreviewBanner } from "../ui/PreviewBanner";
 import { previewConnection, replayConnection } from "../net/previewConnection";
 import { ReplayBar } from "../ui/ReplayBar";
 import { ShareButton } from "../ui/ShareButton";
-import { GuideIcon, GuideTour } from "../ui/GuideTour";
+import { GuideTour } from "../ui/GuideTour";
+import { RoomMenu } from "../ui/RoomMenu";
 import { isBoolean, usePersistentState } from "../ui/usePersistentState";
 
 /** The set without `id`; the same set when it wasn't there, so nothing re-renders. */
@@ -289,6 +290,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
   const [sidebarCollapsed, setSidebarCollapsed] = usePersistentState("vtt.ui.sidebar", false, isBoolean);
   const [tab, setTab] = usePersistentState<TabId>("vtt.ui.tab", "play", isTabId);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [logOpen, setLogOpen] = useState(false);
   const guideButtonRef = useRef<HTMLButtonElement>(null);
   const closeGuide = useCallback(() => {
     setGuideOpen(false);
@@ -495,37 +497,23 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
               }}
             />
           )}
-          {you.role === "gm" && !readOnly && <ActivityLog roomId={state.roomId} token={token} seq={seq} state={state} connection={connection} />}
-          {/* Everyone may replay what they could see (FR-PL-07); not while previewing as a player. */}
-          {!preview && (
-            <button
-              type="button"
-              className="tool-button"
-              aria-pressed={replaying}
-              title="Replay how the session unfolded"
-              onClick={() => (replaying ? exitReplay() : setReplaying(true))}
-            >
-              <Rewind size={16} aria-hidden="true" />
-              Replay
-            </button>
-          )}
-          <button
-            ref={guideButtonRef}
-            type="button"
-            className="tool-button"
-            data-tour="guide"
-            title="A quick tour of this page"
-            onClick={() => {
+          <RoomMenu
+            buttonRef={guideButtonRef}
+            onActivityLog={you.role === "gm" && !readOnly ? () => setLogOpen(true) : undefined}
+            // Everyone may replay what they could see (FR-PL-07); not while previewing as a player.
+            onReplay={preview ? undefined : () => (replaying ? exitReplay() : setReplaying(true))}
+            replaying={replaying}
+            onGuide={() => {
               // The sidebar's steps need it open. It animates open, and its sections have
               // no width until it has, so wait out the transition before starting.
               const wait = collapsed && !matchMedia("(prefers-reduced-motion: reduce)").matches ? 220 : 0;
               setSidebarCollapsed(false);
               window.setTimeout(() => setGuideOpen(true), wait);
             }}
-          >
-            <GuideIcon />
-            Guide
-          </button>
+          />
+          {you.role === "gm" && !readOnly && (
+            <ActivityLog open={logOpen} onClose={() => setLogOpen(false)} roomId={state.roomId} token={token} seq={seq} state={state} connection={connection} />
+          )}
           {/* Last, in the top-right corner: visible with the sidebar shown or hidden. */}
           {you.role === "gm" && !readOnly && <ShareButton roomId={roomId} token={token} />}
         </div>

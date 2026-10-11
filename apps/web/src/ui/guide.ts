@@ -83,13 +83,8 @@ const STEPS: StepSpec[] = [
     },
   },
   { target: "tab-gm", title: "Manage tab", body: { gm: "Room setup: the battle map, the grid, and players who have left." } },
-  {
-    target: "activity-log",
-    title: "Activity log",
-    body: { gm: "Everything that has happened in the room, move by move and roll by roll." },
-  },
-  { target: "gm-map", title: "Battle map", body: { gm: "Upload a map image, or place one from your library." } },
-  { target: "gm-grid", title: "Grid", body: { gm: "Line the grid up with the squares drawn on your map, so tokens snap to the right cells." } },
+  { target: "gm-map", title: "Battle map", body: { gm: "Your map, its grid and its walls." } },
+  { target: "gm-grid", title: "Map setup", body: { gm: "Upload a map or choose one from your library. Once there is one, Edit map opens the map editor: line up its grid, detect or draw its walls, and fog the parts the table shouldn't see yet." } },
   {
     target: "rulings",
     title: "Rulings",
@@ -141,7 +136,14 @@ const STEPS: StepSpec[] = [
     body: "Hide the sidebar to give the map the whole screen. Click again to bring it back.",
     interactive: true,
   },
-  { target: "guide", title: "That's it", body: "Open this guide again anytime." },
+  {
+    target: "guide",
+    title: "More",
+    body: {
+      gm: "The activity log (everything that has happened, move by move, with undo), a replay of the session, and this guide again.",
+      player: "A replay of the session, and this guide again.",
+    },
+  },
 ];
 
 export function guideSteps(role: Role): GuideStep[] {

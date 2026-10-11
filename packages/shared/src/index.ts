@@ -3,6 +3,8 @@ export * from "./attackPresets";
 export * from "./dice";
 export * from "./geometry";
 export * from "./gridRenderLimit";
+export * from "./gridDetection";
+export * from "./wallDetection";
 export * from "./state";
 export * from "./encounters";
 export * from "./commands";

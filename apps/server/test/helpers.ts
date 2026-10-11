@@ -16,6 +16,8 @@ import {
   type ServerMessage,
 } from "@vtt/shared";
 import { buildApp, type App } from "../src/app";
+import type { Detector, GridDetectionDispatcher } from "../src/domain/gridDetection";
+import type { WallJobQueue } from "../src/domain/wallDetection";
 import { MemoryRoomStore } from "../src/store/memoryRoomStore";
 
 /**
@@ -40,11 +42,19 @@ export async function listenForFetch(app: App): Promise<string> {
 
 /**
  * `store` lets a test start a second server on the same data, i.e. simulate a restart. `now`
- * replaces the clock that sessions and rate limits read.
+ * replaces the clock that sessions and rate limits read. `detector` and `dispatcher` stand in for
+ * the vision service and its job queue; `wallQueue` for the wall-detection queue (none by default, so
+ * a REDIS_URL in the environment never reaches tests).
  */
-export async function startServer(store: MemoryRoomStore = new MemoryRoomStore(), opts: { now?: () => number } = {}) {
+export async function startServer(
+  store: MemoryRoomStore = new MemoryRoomStore(),
+  opts: { now?: () => number; detector?: Detector; dispatcher?: GridDetectionDispatcher; wallQueue?: WallJobQueue | null } = {},
+) {
   const uploadDir = await mkdtemp(path.join(tmpdir(), "vtt-uploads-"));
-  const app = await buildApp({ store, uploadDir, clientOrigin: "*", now: opts.now });
+  const app = await buildApp({
+    store, uploadDir, clientOrigin: "*", now: opts.now, detector: opts.detector, dispatcher: opts.dispatcher,
+    wallQueue: opts.wallQueue ?? null,
+  });
   const base = await listenForFetch(app);
 
   const post = async <T>(url: string, body: unknown): Promise<T> => {

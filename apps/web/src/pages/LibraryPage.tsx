@@ -12,7 +12,8 @@ import { CreatureCard, CreatureForm } from "./LibraryCreatures";
 import { EncounterCard } from "./LibraryEncounters";
 import { DiceLookCards, DiceLookModal, DiceSignInLine, SaveBrowserLooksOffer } from "./DiceLooks";
 import { createDiceLook } from "../ui/diceSkinStore";
-import { toGridDraft } from "./gridDraft";
+import { toGridDraft, withGridSuggestion } from "./gridDraft";
+import { useGridDetection } from "./useGridDetection";
 
 /**
  * Maps and token art are uploaded assets; creatures are reusable token setups (library-creatures);
@@ -520,6 +521,9 @@ function LibraryGridEditor({ asset, onCancel, onSaved, saving, onSavingChange }:
   const savingRef = useRef(false);
   const active = useRef(true);
   const [error, setError] = useState<string | null>(null);
+  // Library maps are read as the signed-in account, so no device token is needed (ADR 0017).
+  const detection = useGridDetection("library", "", asset.id);
+
   // A delayed upload can replace this editor while its PATCH is still pending.
   useEffect(() => {
     active.current = true;
@@ -558,6 +562,13 @@ function LibraryGridEditor({ asset, onCancel, onSaved, saving, onSavingChange }:
         }}
         applying={saving}
         error={error}
+        detection={detection.status}
+        detectionError={detection.error}
+        onRetryDetection={() => { void detection.retry(); }}
+        onUseSuggestion={(candidate) => {
+          setDraft(withGridSuggestion(draft, candidate));
+          setError(null);
+        }}
         submitLabel="Save grid"
         busyLabel="Saving…"
         cancelLabel={asset.grid ? "Cancel" : "Set up later"}

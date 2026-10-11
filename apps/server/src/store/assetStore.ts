@@ -1,5 +1,5 @@
 import { createReadStream } from "node:fs";
-import { mkdir, stat, unlink } from "node:fs/promises";
+import { mkdir, readFile, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { Readable } from "node:stream";
 import {
@@ -34,6 +34,8 @@ export interface AssetStore {
    * (local disk is served by express.static instead).
    */
   read?(key: string): Promise<{ body: Readable; contentType?: string } | null>;
+  /** Server-only bytes for analysis. Never constructs or follows a user-supplied URL. */
+  readPrivate(key: string, maxBytes: number): Promise<Uint8Array | null>;
   /**
    * Removes an object for good (library delete, ADR 0004). Missing keys are not an error.
    * Rooms whose event log still names the URL then get a 404 and draw a generic stand-in.
@@ -57,6 +59,17 @@ export class LocalDiskAssetStore implements AssetStore {
     await unlink(path.join(this.uploadDir, path.basename(key))).catch((err: NodeJS.ErrnoException) => {
       if (err.code !== "ENOENT") throw err;
     });
+  }
+
+  async readPrivate(key: string, maxBytes: number) {
+    const filename = path.join(this.uploadDir, path.basename(key));
+    try {
+      if ((await stat(filename)).size > maxBytes) throw new Error("Image exceeds analysis limit");
+      return await readFile(filename);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw err;
+    }
   }
 }
 
@@ -141,6 +154,23 @@ export class MinioAssetStore implements AssetStore {
     if (!out.Body) return null;
     return { body: out.Body as Readable, contentType: out.ContentType };
   }
+
+  async readPrivate(key: string, maxBytes: number) {
+    const object = await this.read(key);
+    if (!object) return null;
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for await (const chunk of object.body) {
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
+      size += bytes.length;
+      if (size > maxBytes) {
+        object.body.destroy();
+        throw new Error("Image exceeds analysis limit");
+      }
+      chunks.push(bytes);
+    }
+    return Buffer.concat(chunks);
+  }
 }
 
 /** Where `docker compose up` puts MinIO. 127.0.0.1, not localhost: a WSL relay can hold ::1. */
@@ -201,6 +231,14 @@ function withDiskCopy(minio: AssetStore, disk: LocalDiskAssetStore): AssetStore 
   return {
     put: (tempPath, filename, contentType) => minio.put(tempPath, filename, contentType),
     read: minio.read?.bind(minio),
+    readPrivate: async (key, maxBytes) => {
+      try {
+        return (await minio.readPrivate(key, maxBytes)) ?? disk.readPrivate(key, maxBytes);
+      } catch {
+        // Multer's local copy is the same fallback used by the public /uploads route.
+        return disk.readPrivate(key, maxBytes);
+      }
+    },
     delete: async (key) => {
       await minio.delete(key);
       await disk.delete(key);

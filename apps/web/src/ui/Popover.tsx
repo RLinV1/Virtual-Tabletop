@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from "react";
 
 /**
  * A button that opens a small anchored panel (participants list, share link).
@@ -13,6 +13,7 @@ export function PopoverButton({
   align = "left",
   className = "tool-button",
   tourId,
+  buttonRef: outerButtonRef,
   children,
 }: {
   /** Accessible name of the button, e.g. "Participants, 3". */
@@ -25,6 +26,8 @@ export function PopoverButton({
   className?: string;
   /** `data-tour` target for the guided tour. */
   tourId?: string;
+  /** Also points at the button, for a caller that moves focus to it. */
+  buttonRef?: RefObject<HTMLButtonElement | null>;
   /** The panel's content. As a function it gets `close`, for an item that hands off to a modal. */
   children: ReactNode | ((close: () => void) => ReactNode);
 }) {
@@ -56,7 +59,10 @@ export function PopoverButton({
       }}
     >
       <button
-        ref={buttonRef}
+        ref={(el) => {
+          buttonRef.current = el;
+          if (outerButtonRef) outerButtonRef.current = el;
+        }}
         type="button"
         className={className}
         aria-label={label}

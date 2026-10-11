@@ -10,6 +10,12 @@ import {
   type DieName,
   type EncounterSummary,
   type GridSpec,
+  GridDetectionStatus,
+  WallDetectionStatus,
+  DetectedWallsResponse,
+  type DetectedWall,
+  WallDetectionAvailability,
+  type WallDetectionRequest,
   type InviteSeatResponse,
   type LegacySummary,
   type LibraryAsset,
@@ -168,9 +174,14 @@ export const api = {
   joinRoom: (inviteCode: string, req: JoinRoomRequest) =>
     postJson<JoinRoomResponse>(`/api/invites/${encodeURIComponent(inviteCode)}/join`, req),
 
-  async upload(file: File, token: string): Promise<UploadResponse> {
+  async upload(file: File, token: string, mapSize?: { width: number; height: number }): Promise<UploadResponse> {
     const form = new FormData();
     form.append("file", file);
+    if (mapSize) {
+      form.append("purpose", "map");
+      form.append("width", String(mapSize.width));
+      form.append("height", String(mapSize.height));
+    }
     const res = await fetch("/api/uploads", {
       method: "POST",
       headers: { authorization: `Bearer ${token}` },
@@ -178,6 +189,84 @@ export const api = {
     });
     if (!res.ok) throw await errorFrom(res);
     return (await res.json()) as UploadResponse;
+  },
+
+  /** Wall detection for the room's map, as its GM (FR-GM-11, ADR 0029). */
+  walls: {
+    /**
+     * Queues an analysis of the room's current map. With `sample`, a point on a wall the GM
+     * clicked, the worker looks for walls of that colour, within `tolerance` Lab units of it
+     * (wall-editing); `strictness` and `minLength` filter what it finds.
+     */
+    async detect(roomId: string, token: string, request: WallDetectionRequest = {}): Promise<WallDetectionStatus> {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/wall-detection`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify(request),
+      });
+      if (!res.ok) throw await errorFrom(res);
+      return WallDetectionStatus.parse(await res.json());
+    },
+    /** Whether this server can detect walls now (map-editor D4); names no room. */
+    async availability(signal?: AbortSignal): Promise<WallDetectionAvailability> {
+      const res = await fetch("/api/wall-detection/availability", { signal, cache: "no-store" });
+      if (!res.ok) throw await errorFrom(res);
+      return WallDetectionAvailability.parse(await res.json());
+    },
+    /** The latest analysis of this map, or null when the room never analyzed it. */
+    async status(roomId: string, token: string, mapUrl: string, signal?: AbortSignal): Promise<WallDetectionStatus | null> {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/wall-detection?map=${encodeURIComponent(mapUrl)}`, {
+        headers: { authorization: `Bearer ${token}` }, signal, cache: "no-store",
+      });
+      if (res.status === 404) return null;
+      if (!res.ok) throw await errorFrom(res);
+      return WallDetectionStatus.parse(await res.json());
+    },
+    /** The detected segments of a finished analysis, for erasing false ones before applying. */
+    async detected(roomId: string, token: string, mapUrl: string, signal?: AbortSignal): Promise<DetectedWall[]> {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/wall-detection/walls?map=${encodeURIComponent(mapUrl)}`, {
+        signal, cache: "no-store", headers: { authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw await errorFrom(res);
+      return DetectedWallsResponse.parse(await res.json()).walls;
+    },
+    /** The rendered preview, fetched with the GM's credential (an <img> can't send it). */
+    async preview(roomId: string, token: string, mapUrl: string, signal?: AbortSignal): Promise<Blob> {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/wall-detection/preview?map=${encodeURIComponent(mapUrl)}`, {
+        headers: { authorization: `Bearer ${token}` }, signal, cache: "no-store",
+      });
+      if (!res.ok) throw await errorFrom(res);
+      return res.blob();
+    },
+  },
+
+  detection: {
+    async room(roomId: string, token: string, mapUrl: string, signal?: AbortSignal) {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/grid-detection`, {
+        headers: { authorization: `Bearer ${token}`, "x-expected-map-url": mapUrl }, signal,
+      });
+      if (res.status === 404) return null;
+      if (!res.ok) throw await errorFrom(res);
+      return GridDetectionStatus.parse(await res.json());
+    },
+    async retryRoom(roomId: string, token: string, mapUrl: string) {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/grid-detection/retry`, {
+        method: "POST", headers: { authorization: `Bearer ${token}`, "x-expected-map-url": mapUrl },
+      });
+      if (!res.ok) throw await errorFrom(res);
+      return GridDetectionStatus.parse(await res.json());
+    },
+    /** A library map's analysis, as the signed-in account that owns it (ADR 0017). */
+    async library(id: string, signal?: AbortSignal) {
+      const res = await fetch(`/api/library/${encodeURIComponent(id)}/grid-detection`, { signal, cache: "no-store" });
+      if (res.status === 401) onSignedOut();
+      if (res.status === 404) return null;
+      if (!res.ok) throw await errorFrom(res);
+      return GridDetectionStatus.parse(await res.json());
+    },
+    retryLibrary: (id: string) =>
+      accountRequest<unknown>(`/api/library/${encodeURIComponent(id)}/grid-detection/retry`, { method: "POST" })
+        .then((raw) => GridDetectionStatus.parse(raw)),
   },
 
   /** Accounts (FR-GM-01, ADR 0017). Errors carry the field to show them beside. */

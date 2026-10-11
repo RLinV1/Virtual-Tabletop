@@ -25,7 +25,6 @@ import {
   type RoomState,
   type Token,
   type AreaTemplate,
-  type Command,
 } from "@vtt/shared";
 import { footprint, placementPoint, type PlacementGhost } from "./placement";
 import { clientToBoard, type BoardTransform } from "./diceThrow";
@@ -46,12 +45,15 @@ import {
   type AttackEffect,
 } from "./effects";
 import { makeFogCanvas } from "./fogTexture";
-import { areaOrigin, areaShape, areaSizeFromDrag, fogRegionAt, formatDistance, hitMark, measure, sweepPoints, templateMark, type BoardTool, type Mark } from "./tools";
+import { areaOrigin, areaShape, areaSizeFromDrag, formatDistance, hitMark, measure, sweepPoints, templateMark, type BoardTool, type Mark } from "./tools";
 import { aimExpiry, expiredAims } from "./aims";
 import { PING_MS, pingPulse } from "./ping";
 
-/** A fog region as the Fog tool sends it (FR-GM-17, ADR 0016). */
-export type FogDraft = Extract<Command, { type: "fog.add" }>["region"];
+/**
+ * How a GM's board shows fog (FR-GM-17): see-through with outlines ("tint"), opaque as players see
+ * it ("player"), or only faint outlines ("off"). Players always see it opaque.
+ */
+export type GmFogView = "tint" | "player" | "off";
 
 /** An area being aimed, as sent to the others (KAN-35); mirrors the `templatePreview` payload. */
 export type AimPreview = { shape: AreaTemplate["shape"]; origin: Point; toward: Point; size: number; width?: number; gmOnly: boolean };
@@ -75,10 +77,6 @@ export interface BoardCallbacks {
   aimEnd(gmOnly: boolean): void;
   /** Resolves false if the server rejected the removal. */
   removeTemplate(templateId: string): Promise<boolean>;
-  /** GM: fog a region (FR-GM-17). Resolves false if the server rejected it. */
-  addFog(region: FogDraft): Promise<boolean>;
-  /** GM: remove a fog region. Resolves false if the server rejected it. */
-  removeFog(regionId: string): Promise<boolean>;
   /** The viewer clicked the token `attackerId` attacks (attack-targeting). */
   pickTarget(attackerId: string, targetId: string): void;
   /** The viewer right-clicked while picking a target: stop without attacking. */
@@ -99,10 +97,6 @@ const MAX_MARKS = 100;
 const MIN_MARK_DRAG_PX = 4;
 /** Stand-in id for the token being placed; never a real token's id. */
 const GHOST_ID = "placement-ghost";
-/** How close (screen pixels) a click must be to a polygon's first corner to close it. */
-const FOG_CLOSE_PX = 12;
-/** Fog colour. Players see it opaque; the GM sees it at FOG_GM_ALPHA with an outline (FR-GM-17). */
-const FOG_COLOR = 0xc4c9ce;
 /** Fog is drawn this far past its edge in grid cells, so no seam shows at a region's border or the map's. */
 const FOG_BLEED_CELLS = 0.06;
 /** How fast the clouds drift, in board pixels per second, and how often the drift is redrawn. */
@@ -110,6 +104,13 @@ const FOG_DRIFT_PX_PER_S = 38;
 const FOG_DRIFT_INTERVAL_MS = 1000 / 20;
 /** The cloud texture is drawn this many times larger than its 512 px tile, so clouds span several cells. */
 const FOG_CLOUD_SCALE = 2.5;
+/**
+ * A second, finer cloud layer over the first: another scale and angle, drifting the other way, so
+ * the two tiles never line up and the fog churns instead of sliding. Its opacity over the base.
+ */
+const FOG_WISP_SCALE = 1.55;
+const FOG_WISP_ANGLE = 0.6;
+const FOG_WISP_ALPHA = 0.55;
 const FOG_GM_ALPHA = 0.5;
 const FOG_EDGE = 0x9fb3c8;
 /** How close (screen pixels) the eraser has to come to a line to erase it. */
@@ -260,11 +261,15 @@ export class BoardView {
   /** The cloudy fog texture, made on first use and repeated across every region. */
   private fogTexture: Texture | null = null;
   /** The fog drift loop is in `animations`. */
-  private gmFogShown = true;
+  private gmFogView: GmFogView = "tint";
   private readOnly = false;
   private fogLoopRegistered = false;
   private lastFogDraw = 0;
   private fogOffset = { x: 0, y: 0 };
+  private wispOffset = { x: 0, y: 0 };
+  /** GM only: the applied walls (FR-GM-11, ADR 0029); players never receive any. */
+  private wallGraphics = new Graphics();
+  private drawnWalls: RoomState["walls"] | null = null;
   private tokenLayer = new Container();
   /** The viewer's own measure, draw and area marks (KAN-69); never sent anywhere. */
   private markLayer = new Container();
@@ -306,13 +311,6 @@ export class BoardView {
   private removing = new Set<string>();
   private drawnTemplates: RoomState["templates"] | null = null;
   private drawnFog: RoomState["fog"] | null = null;
-  /** Fog regions sent to the server but not yet back in state, drawn so a release doesn't blink. */
-  private pendingFog: FogDraft[] = [];
-  /** Fog regions Reveal has asked to remove; hidden at once, shown again if refused. */
-  private removingFog = new Set<string>();
-  /** Corners of the fog polygon being clicked out, and the pointer for its next edge. */
-  private fogPoints: Point[] = [];
-  private fogHover: Point | null = null;
   /** The token under the pointer while picking an attack target; null over the map or the attacker. */
   private attackHover: string | null = null;
   /** When a target was last picked: a double-click there is part of the pick, not a ping. */
@@ -393,7 +391,8 @@ export class BoardView {
     this.fogEdgeGraphics.eventMode = "none";
     this.fogLayer.eventMode = "none";
     this.fogLayer.addChild(this.fogGraphics, this.fogEdgeGraphics);
-    this.world.addChild(this.mapSprite, this.grid, this.fogLayer, this.tokenLayer, this.markLayer, this.fxLayer);
+    this.wallGraphics.eventMode = "none";
+    this.world.addChild(this.mapSprite, this.grid, this.fogLayer, this.wallGraphics, this.tokenLayer, this.markLayer, this.fxLayer);
     this.fxLayer.addChild(this.ghostFootprint);
     this.app.stage.addChild(this.world);
 
@@ -570,10 +569,10 @@ export class BoardView {
     this.you = you;
     this.syncMap();
     this.syncGrid();
+    this.syncWalls();
     this.syncTokens();
     if (state.templates !== this.drawnTemplates || state.fog !== this.drawnFog) {
       for (const id of this.removing) if (!state.templates[id]) this.removing.delete(id);
-      for (const id of this.removingFog) if (!state.fog[id]) this.removingFog.delete(id);
       this.removeCancelledAreas();
       this.redrawMarks();
     }
@@ -589,6 +588,24 @@ export class BoardView {
     this.invalidate();
   }
 
+  /**
+   * Draws the room's walls over the map, under tokens (ADR 0029). Only the GM's state holds any;
+   * the line scales with the grid so it reads at every zoom. Board coordinates (invariant 8).
+   */
+  private syncWalls() {
+    const state = this.state;
+    if (!state || state.walls === this.drawnWalls) return;
+    this.drawnWalls = state.walls;
+    const g = this.wallGraphics.clear();
+    const walls = Object.values(state.walls);
+    if (walls.length === 0) return;
+    const width = Math.max(3, state.scene.grid.cellSize * 0.09);
+    for (const wall of walls) g.moveTo(wall.a.x, wall.a.y).lineTo(wall.b.x, wall.b.y);
+    g.stroke({ width: width + 4, color: 0x111111, alpha: 0.8, cap: "round", join: "round" });
+    for (const wall of walls) g.moveTo(wall.a.x, wall.a.y).lineTo(wall.b.x, wall.b.y);
+    g.stroke({ width, color: 0xff6b2c, alpha: 0.95, cap: "round", join: "round" });
+  }
+
   /** Previewing as a player (gm-view-as-player): tokens take no pointer input, so nothing can be dragged or aimed. */
   setReadOnly(readOnly: boolean) {
     if (this.readOnly === readOnly) return;
@@ -598,10 +615,10 @@ export class BoardView {
     this.invalidate();
   }
 
-  /** GM only: false hides the fog tint entirely, leaving a faint outline, so the GM sees everything. */
-  setGmFogShown(shown: boolean) {
-    if (this.gmFogShown === shown) return;
-    this.gmFogShown = shown;
+  /** GM only: how the GM's own board shows fog (see `GmFogView`). */
+  setGmFogView(view: GmFogView) {
+    if (this.gmFogView === view) return;
+    this.gmFogView = view;
     if (this.initialized) this.invalidateFog();
   }
 
@@ -732,12 +749,10 @@ export class BoardView {
 
   /** Switch the active tool. Changing tool drops the last measurement and any drag in progress. */
   setTool(tool: BoardTool) {
-    if (tool.kind !== this.tool.kind || (tool.kind === "fog" && this.tool.kind === "fog" && tool.mode !== this.tool.mode)) {
+    if (tool.kind !== this.tool.kind) {
       if (this.gesture && this.tool.kind === "area") this.callbacks.aimEnd(this.tool.gmOnly);
       this.measurement = null;
       this.gesture = null;
-      this.fogPoints = [];
-      this.fogHover = null;
     }
     this.attackHover = null;
     this.tool = tool;
@@ -879,80 +894,11 @@ export class BoardView {
       this.callbacks.aimEnd(tool.gmOnly);
       const area = this.areaFromGesture(gesture, tool);
       if (area?.kind === "area" && this.state) this.placeArea(area, tool.gmOnly);
-    } else if (tool.kind === "fog" && tool.mode === "rect" && dragged) {
-      this.sendFog({ shape: "rect", from, to });
     }
     this.redrawMarks();
   }
 
   // ---------- fog of war (FR-GM-17, ADR 0016) ----------
-
-  /** Send a fog region; draw it until the server's answer arrives. */
-  private sendFog(region: FogDraft) {
-    this.pendingFog.push(region);
-    const done = () => {
-      this.pendingFog = this.pendingFog.filter((r) => r !== region);
-      this.redrawMarks();
-    };
-    this.callbacks.addFog(region).then(done, done);
-  }
-
-  /** Close the polygon being clicked out and send it. False when it has too few corners. */
-  closeFogPolygon(): boolean {
-    if (this.fogPoints.length < 3) return false;
-    this.sendFog({ shape: "polygon", points: this.fogPoints });
-    this.fogPoints = [];
-    this.fogHover = null;
-    this.redrawMarks();
-    return true;
-  }
-
-  /** Drop the polygon's last corner. False when there is none. */
-  undoFogPoint(): boolean {
-    if (this.fogPoints.length === 0) return false;
-    this.fogPoints = this.fogPoints.slice(0, -1);
-    this.redrawOverlay();
-    return true;
-  }
-
-  /** Abandon the polygon being clicked out. False when there is none, so Escape can leave the tool. */
-  cancelFogPolygon(): boolean {
-    if (this.fogPoints.length === 0) return false;
-    this.fogPoints = [];
-    this.fogHover = null;
-    this.redrawOverlay();
-    return true;
-  }
-
-  /** A Fog tool click: a polygon corner, or a region to reveal. */
-  private fogClick(at: Point, screen: Point) {
-    if (this.tool.kind !== "fog" || !this.state) return;
-    if (this.tool.mode === "reveal") {
-      const visible = Object.fromEntries(Object.entries(this.state.fog).filter(([id]) => !this.removingFog.has(id)));
-      const region = fogRegionAt(visible, at);
-      if (!region) return;
-      this.removingFog.add(region.id);
-      // Cleared on any answer: an undo can bring the same id back, and it must be drawn again.
-      const settle = () => {
-        this.removingFog.delete(region.id);
-        this.redrawMarks();
-      };
-      this.callbacks.removeFog(region.id).then(settle, settle);
-      this.redrawMarks();
-      return;
-    }
-    // Clicking the first corner again closes the polygon.
-    const first = this.fogPoints[0];
-    if (first && this.fogPoints.length >= 3) {
-      const p = this.world.toGlobal(first);
-      if (Math.hypot(p.x - screen.x, p.y - screen.y) <= FOG_CLOSE_PX) {
-        this.closeFogPolygon();
-        return;
-      }
-    }
-    this.fogPoints = [...this.fogPoints, at];
-    this.redrawOverlay();
-  }
 
   /** Draw fog: opaque for players, see-through with an outline for the GM. */
   private redrawFog() {
@@ -961,27 +907,29 @@ export class BoardView {
     const g = this.fogGraphics.clear();
     const edge = this.fogEdgeGraphics.clear();
     if (!state) return;
-    const gm = this.you?.role === "gm";
+    // A GM on "Player view" sees fog drawn exactly as players do.
+    const gm = this.you?.role === "gm" && this.gmFogView !== "player";
     const px = 1 / this.world.scale.x;
     const cell = state.scene.grid.cellSize;
     // "See everything": the GM's tint is switched off and only a faint outline marks each region.
-    const tint = !gm || this.gmFogShown;
-    const hasRegions = Object.keys(state.fog).length > 0 || this.pendingFog.length > 0;
+    const tint = !gm || this.gmFogView === "tint";
+    const hasRegions = Object.keys(state.fog).length > 0;
     // The cloud texture is made on first need, so a board with no fog never pays for it.
     const cloud = tint && hasRegions ? this.fogCloud() : null;
     // The clouds drift across the board; the texture tiles seamlessly, so any offset is fine.
     const matrix = new Matrix().scale(FOG_CLOUD_SCALE, FOG_CLOUD_SCALE).translate(this.fogOffset.x, this.fogOffset.y);
+    const wisps = new Matrix().scale(FOG_WISP_SCALE, FOG_WISP_SCALE).rotate(FOG_WISP_ANGLE).translate(this.wispOffset.x, this.wispOffset.y);
     const fillAlpha = gm ? FOG_GM_ALPHA : 1;
-    const draw = (points: Point[], pending: boolean) => {
+    const draw = (points: Point[]) => {
       const flat = points.flatMap((p) => [p.x, p.y]);
-      if (tint) g.poly(flat).fill({ texture: cloud!, matrix, textureSpace: "global", alpha: fillAlpha });
+      if (tint) {
+        g.poly(flat).fill({ texture: cloud!, matrix, textureSpace: "global", alpha: fillAlpha });
+        g.poly(flat).fill({ texture: cloud!, matrix: wisps, textureSpace: "global", alpha: fillAlpha * FOG_WISP_ALPHA });
+      }
       if (!gm) g.poly(flat).stroke({ width: 2 * FOG_BLEED_CELLS * cell, join: "miter", texture: cloud!, matrix, textureSpace: "global", alpha: 1 });
-      if (gm) edge.poly(flat).stroke({ width: 2 * px, color: FOG_EDGE, alpha: (pending ? 0.5 : 0.9) * (tint ? 1 : 0.4) });
+      if (gm) edge.poly(flat).stroke({ width: 2 * px, color: FOG_EDGE, alpha: 0.9 * (tint ? 1 : 0.4) });
     };
-    for (const region of Object.values(state.fog)) {
-      if (!this.removingFog.has(region.id)) draw(region.points, false);
-    }
-    for (const region of this.pendingFog) draw(fogDraftPoints(region), true);
+    for (const region of Object.values(state.fog)) draw(region.points);
     this.syncFogLoop();
   }
 
@@ -999,8 +947,8 @@ export class BoardView {
    * fill is drawn: a GM who switched the tint off sees no drift, so there is nothing to animate.
    */
   private fogLoopWanted() {
-    const any = Object.keys(this.state?.fog ?? {}).length > 0 || this.pendingFog.length > 0;
-    const tinted = this.you?.role !== "gm" || this.gmFogShown;
+    const any = Object.keys(this.state?.fog ?? {}).length > 0;
+    const tinted = this.you?.role !== "gm" || this.gmFogView !== "off";
     return any && tinted && document.visibilityState === "visible" && !this.reducedMotion;
   }
 
@@ -1025,6 +973,7 @@ export class BoardView {
     const dt = this.lastFogDraw === 0 ? 0 : (now - this.lastFogDraw) / 1000;
     this.lastFogDraw = now;
     this.fogOffset = { x: this.fogOffset.x + FOG_DRIFT_PX_PER_S * dt, y: this.fogOffset.y + FOG_DRIFT_PX_PER_S * 0.35 * dt };
+    this.wispOffset = { x: this.wispOffset.x - FOG_DRIFT_PX_PER_S * 1.6 * dt, y: this.wispOffset.y + FOG_DRIFT_PX_PER_S * 0.6 * dt };
     this.redrawFog();
     return true;
   };
@@ -1131,30 +1080,8 @@ export class BoardView {
         if (gesture.dragged) this.showLabel(formatDistance(area.size, this.state!.scene.grid), gesture.to);
       }
     }
-    if (tool.kind === "fog") this.drawFogDraft(g, tool.mode);
     if (tool.kind === "attack") this.drawAttackLine(g, tool.attackerId);
     this.invalidate();
-  }
-
-  /** The fog rectangle being dragged, or the polygon being clicked out with its next edge. */
-  private drawFogDraft(g: Graphics, mode: Extract<BoardTool, { kind: "fog" }>["mode"]) {
-    const px = 1 / this.world.scale.x;
-    const style = { width: 2 * px, color: FOG_EDGE, alpha: 0.95 };
-    const gesture = this.gesture;
-    if (mode === "rect" && gesture?.dragged) {
-      const points = fogDraftPoints({ shape: "rect", from: gesture.from, to: gesture.to });
-      g.poly(points.flatMap((p) => [p.x, p.y])).fill({ color: FOG_COLOR, alpha: 0.4 }).stroke(style);
-      return;
-    }
-    if (mode !== "polygon" || this.fogPoints.length === 0) return;
-    const [first, ...rest] = this.fogPoints;
-    g.moveTo(first!.x, first!.y);
-    for (const p of rest) g.lineTo(p.x, p.y);
-    if (this.fogHover) g.lineTo(this.fogHover.x, this.fogHover.y);
-    g.stroke(style);
-    for (const p of this.fogPoints) g.circle(p.x, p.y, 4 * px).fill({ color: FOG_EDGE });
-    // The first corner is the one to click to close the shape.
-    if (this.fogPoints.length >= 3) g.circle(first!.x, first!.y, FOG_CLOSE_PX * px).stroke(style);
   }
 
   /**
@@ -1738,9 +1665,6 @@ export class BoardView {
       this.pan = { start: { x: e.global.x, y: e.global.y }, origin: { x: this.world.x, y: this.world.y } };
       return;
     }
-    if (this.tool.kind === "fog" && this.tool.mode !== "rect" && e.button === 0) {
-      return this.fogClick(this.toBoard(e.global), { x: e.global.x, y: e.global.y });
-    }
     if (this.tool.kind !== "select" && e.button === 0) {
       const at = this.toBoard(e.global);
       this.gesture = { from: at, to: at, screenFrom: { x: e.global.x, y: e.global.y }, free: e.altKey, dragged: false, path: [at] };
@@ -1763,10 +1687,6 @@ export class BoardView {
         this.attackHover = hover;
         this.redrawOverlay();
       }
-    }
-    if (this.tool.kind === "fog" && this.tool.mode === "polygon" && this.fogPoints.length > 0) {
-      this.fogHover = this.toBoard(e.global);
-      this.redrawOverlay();
     }
     if (this.gesture) {
       const gesture = this.gesture;
@@ -2036,11 +1956,3 @@ function drawShape(g: Graphics, shape: ConditionShape, size: number) {
   }
 }
 
-/** The corners of a fog draft, as `decide` will store them (a rectangle becomes four corners). */
-function fogDraftPoints(region: FogDraft): Point[] {
-  if (region.shape === "polygon") return region.points;
-  const { from, to } = region;
-  const [x0, x1] = [Math.min(from.x, to.x), Math.max(from.x, to.x)];
-  const [y0, y1] = [Math.min(from.y, to.y), Math.max(from.y, to.y)];
-  return [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
-}

@@ -1,4 +1,5 @@
 import type { AssetKind, EncounterTemplateData, AttackPreset, ConditionId, DieName, GmRoomSummary, GridSpec, LegacySummary } from "@vtt/shared";
+import type { DetectionState } from "./gridDetectionStore";
 
 /** A stored library asset (ADR 0004). `objectKey` is the AssetStore key; it never leaves the server. */
 export interface LibraryAssetRecord {
@@ -11,6 +12,10 @@ export interface LibraryAssetRecord {
   width: number;
   height: number;
   grid: GridSpec | null;
+  detectionStatus?: DetectionState | null;
+  detectionAttempt?: number;
+  detectionResult?: import("@vtt/shared").GridDetectionCandidate | null;
+  detectionUpdatedAt?: string | null;
   createdAt: string;
 }
 

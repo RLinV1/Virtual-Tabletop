@@ -1,13 +1,13 @@
-import { CornersOut, Eye, EyeSlash } from "@phosphor-icons/react";
+import { CornersOut, Eye, EyeSlash, UserFocus } from "@phosphor-icons/react";
 import { Suspense, forwardRef, lazy, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
 import { DEFAULT_TOKEN_COLOR, EMPTY_STATS, conditionSpec, presetOf, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { guardedConnection } from "../net/previewConnection";
 import { DEFAULT_TOOL_OPTIONS, ToolRail, toolFor, type ToolOptions } from "../ui/ToolRail";
-import { isBoolean, usePersistentState } from "../ui/usePersistentState";
+import { usePersistentState } from "../ui/usePersistentState";
 import { canAnimateDice, type TrayRoll } from "../ui/Die3D";
 import { ThrownDice, type ActiveThrow } from "./ThrownDice";
-import { BoardView } from "./boardView";
+import { BoardView, type GmFogView } from "./boardView";
 import { MAX_ATTACK_EFFECTS, attackEffectFor, attackPlan, prefersReducedMotion, type AttackEffect } from "./effects";
 import type { OverlayEffect } from "./EffectsOverlay";
 import { boardDieSize, centreThrow, onMap, throwLanding, type BoardThrow, type BoardTransform } from "./diceThrow";
@@ -75,15 +75,15 @@ const HINTS: Record<BoardTool["kind"], string> = {
   area: "Drag to size and aim · click to place the chosen size · hold Alt to place freely · everyone at the table sees areas",
   erase: "Click or drag over your marks and areas to erase them · Esc to stop",
   attack: "Click the token to attack · Esc or right-click to cancel",
-  fog: "",
 };
 
-/** Fog hints by mode (FR-GM-17). Players never get the Fog tool. */
-const FOG_HINTS = {
-  rect: "Drag a rectangle to hide it from players · Esc to stop",
-  polygon: "Click corners · click the first corner or press Enter to close · Backspace removes a corner · Esc cancels",
-  reveal: "Click fog to remove it and show players what is under it · undo from the activity log",
-} as const;
+/** The GM's fog button cycles Fog on, Player view, Fog off (FR-GM-17). Only this browser remembers it. */
+const FOG_VIEWS: Record<GmFogView, { label: string; title: string; icon: ReactNode; next: GmFogView }> = {
+  tint: { label: "Fog on", title: "Show fog as players see it", icon: <Eye size={16} aria-hidden="true" />, next: "player" },
+  player: { label: "Player view", title: "See everything: hide the fog on your view", icon: <UserFocus size={16} aria-hidden="true" />, next: "off" },
+  off: { label: "Fog off", title: "Show the fog tint on your view again", icon: <EyeSlash size={16} aria-hidden="true" />, next: "tint" },
+};
+const isGmFogView = (v: unknown): v is GmFogView => v === "tint" || v === "player" || v === "off";
 
 /** With GM only ticked, the areas are the GM's alone; saying "everyone sees them" would mislead. */
 const GM_ONLY_AREA_HINT = "Drag to size and aim · click to place the chosen size · GM only: players won't see these areas";
@@ -101,17 +101,24 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<BoardView | null>(null);
   /** GM only: false shows everything through the fog (this browser remembers it). */
-  const [gmFog, setGmFog] = usePersistentState("vtt.ui.gmFog", true, isBoolean);
+  const [gmFog, setGmFog] = usePersistentState<GmFogView>("vtt.ui.gmFogView", "tint", isGmFogView);
   const hasFog = Object.keys(state.fog).length > 0;
   /** Strikes waiting for their thrown dice to land, by roll id, oldest first (KAN-76). */
   const waitingStrikes = useRef(new Map<string, { effect: AttackEffect; timer: number }>());
-  const latest = useRef({ state, you, gridPreview, onPickTarget, gmFog: true, readOnly: false });
+  const latest = useRef({ state, you, gridPreview, onPickTarget, gmFog: "tint" as GmFogView, readOnly: false });
   latest.current = { state, you, gridPreview, onPickTarget, gmFog, readOnly };
   // Sends nothing while previewing as a player, whatever the board is asked to do. Stable for as
   // long as the connection is, so entering and leaving a preview never rebuilds the board view.
   const guarded = useMemo(() => guardedConnection(connection, () => latest.current.readOnly), [connection]);
   /** The token the viewer clicked (not dragged); its details show beside the board. */
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  /** Why the server refused the last drag, e.g. a wall in the way (ADR 0029); shown briefly. */
+  const [moveRefusal, setMoveRefusal] = useState<{ message: string; at: number } | null>(null);
+  useEffect(() => {
+    if (!moveRefusal) return;
+    const timer = setTimeout(() => setMoveRefusal(null), 4000);
+    return () => clearTimeout(timer);
+  }, [moveRefusal]);
   const selected = selectedId ? state.tokens[selectedId] ?? null : null;
   const [tool, setTool] = useState<BoardTool>({ kind: "select" });
   const [toolOptions, setToolOptions] = useState<ToolOptions>(DEFAULT_TOOL_OPTIONS);
@@ -203,7 +210,8 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     const view = new BoardView(hostRef.current!, {
       moveToken: async (tokenId, to) => {
         const result = await guarded.command({ type: "token.move", tokenId, to });
-        if (!result.ok) console.warn("Move rejected:", result.message);
+        // The token snaps back; say why, so a wall the player can't see isn't a mystery (ADR 0029).
+        if (!result.ok && result.code !== "offline") setMoveRefusal({ message: result.message, at: Date.now() });
         return result.ok;
       },
       dragPreview: (tokenId, at) => guarded.preview(`drag:${tokenId}`, { type: "tokenDragPreview", tokenId, at }),
@@ -222,16 +230,6 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
         if (!result.ok) console.warn("Area removal rejected:", result.message);
         return result.ok;
       },
-      addFog: async (region) => {
-        const result = await guarded.command({ type: "fog.add", region });
-        if (!result.ok) console.warn("Fog rejected:", result.message);
-        return result.ok;
-      },
-      removeFog: async (regionId) => {
-        const result = await guarded.command({ type: "fog.remove", regionId });
-        if (!result.ok) console.warn("Fog removal rejected:", result.message);
-        return result.ok;
-      },
       placeToken: (at) => void placeRef.current(at),
       selectToken: (tokenId) => setSelectedId(tokenId),
       cancelPlacement: () => setPlacing(null),
@@ -246,7 +244,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     view.init().then(() => {
       if (disposed) return view.destroy();
       viewRef.current = view;
-      view.setGmFogShown(latest.current.gmFog);
+      view.setGmFogView(latest.current.gmFog);
       view.setReadOnly(latest.current.readOnly);
       view.setGridPreview(latest.current.gridPreview);
       view.update(latest.current.state, latest.current.you);
@@ -325,7 +323,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   }, [readOnly]);
 
   useEffect(() => {
-    viewRef.current?.setGmFogShown(gmFog);
+    viewRef.current?.setGmFogView(gmFog);
   }, [gmFog, state.fog, connection]);
 
   useEffect(() => {
@@ -364,11 +362,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     if (tool.kind === "select") return;
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || isTyping(e.target) || document.querySelector("dialog[open]")) return;
-      // The Fog polygon takes Enter to close and Backspace to drop a corner; Escape abandons it first.
-      if (toolRef.current.kind === "fog" && e.key === "Enter" && viewRef.current?.closeFogPolygon()) return e.preventDefault();
-      if (toolRef.current.kind === "fog" && e.key === "Backspace" && viewRef.current?.undoFogPoint()) return e.preventDefault();
       if (e.key !== "Escape") return;
-      if (viewRef.current?.cancelFogPolygon()) return;
       if (toolRef.current.kind === "attack") endAttack();
       else setTool({ kind: "select" });
     };
@@ -452,11 +446,11 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
           <button
             type="button"
             className="tool-button"
-            onClick={() => setGmFog(!gmFog)}
-            title={gmFog ? "See everything: hide the fog tint on your view" : "Show the fog tint on your view again"}
+            onClick={() => setGmFog(FOG_VIEWS[gmFog].next)}
+            title={FOG_VIEWS[gmFog].title}
           >
-            {gmFog ? <Eye size={16} aria-hidden="true" /> : <EyeSlash size={16} aria-hidden="true" />}
-            {gmFog ? "Fog on" : "Fog off"}
+            {FOG_VIEWS[gmFog].icon}
+            {FOG_VIEWS[gmFog].label}
           </button>
         )}
       </div>
@@ -480,6 +474,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       )}
       {overlay}
       {notices}
+      {moveRefusal && <p key={moveRefusal.at} className="board-refusal" role="alert">{moveRefusal.message}</p>}
       {selected && (
         <aside className="token-card" aria-label={`${selected.name} details`}>
           <div className="token-card-head">
@@ -548,7 +543,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       )}
       {/* Announced when the tool changes; while placing, the placement bar already speaks. */}
       <p className="board-hint" aria-live={placing ? "off" : "polite"}>
-        {placing ? PLACING_HINT : tool.kind === "area" && tool.gmOnly ? GM_ONLY_AREA_HINT : tool.kind === "fog" ? FOG_HINTS[tool.mode] : HINTS[tool.kind]}
+        {placing ? PLACING_HINT : tool.kind === "area" && tool.gmOnly ? GM_ONLY_AREA_HINT : HINTS[tool.kind]}
       </p>
     </div>
   );

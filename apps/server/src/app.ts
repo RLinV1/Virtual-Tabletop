@@ -1,13 +1,17 @@
 import { createServer, type Server as HttpServer } from "node:http";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import express, { type Express } from "express";
 import { Server as SocketIOServer } from "socket.io";
 import { RoomRegistry } from "./domain/roomRegistry";
+import { createGridDetectionDispatcher, type Detector, type GridDetectionDispatcher } from "./domain/gridDetection";
+import { bullmqWallQueue, WallDetections, type WallJobQueue } from "./domain/wallDetection";
 import { registerRoutes } from "./http/routes";
 import { attachAccount, requireSameOrigin } from "./identity/middleware";
 import { accountLimits, registerIdentityRoutes, type AccountLimits } from "./identity/routes";
 import { Sessions } from "./identity/sessions";
 import { LocalDiskAssetStore, type AssetStore } from "./store/assetStore";
+import { MemoryRoomStore } from "./store/memoryRoomStore";
 import type { RoomStore } from "./store/roomStore";
 import { registerSocket } from "./ws/socket";
 
@@ -19,6 +23,20 @@ export interface AppOptions {
   logger?: boolean;
   /** Browser origin allowed to open a socket; Socket.IO enforces CORS itself. */
   clientOrigin?: string;
+  detector?: Detector;
+  dispatcher?: GridDetectionDispatcher;
+  redisUrl?: string;
+  visionUrl?: string;
+  /**
+   * The wall-detection queue (ADR 0029). Defaults to BullMQ on `redisUrl`, or none without Redis;
+   * tests pass a stand-in, or null for "unavailable".
+   */
+  wallQueue?: WallJobQueue | null;
+  /**
+   * The web app's built-in maps (`apps/web/public/img`), so wall detection can read them too.
+   * Defaults to that folder in this repository; null when the server runs without it.
+   */
+  builtinImageDir?: string | null;
   /**
    * Marks the session cookie `Secure` (ADR 0017 I1). Defaults to `COOKIE_SECURE`, else on in
    * production, so LAN phone testing over plain http still works in dev.
@@ -52,6 +70,12 @@ export async function buildApp({
   assets,
   logger = false,
   clientOrigin = process.env.CLIENT_ORIGIN ?? "http://localhost:5173",
+  detector,
+  dispatcher,
+  redisUrl = process.env.REDIS_URL,
+  visionUrl = process.env.VISION_URL,
+  wallQueue,
+  builtinImageDir = fileURLToPath(new URL("../../web/public/img/", import.meta.url)),
   cookieSecure = cookieSecureFromEnv(),
   now = Date.now,
 }: AppOptions): Promise<App> {
@@ -64,7 +88,18 @@ export async function buildApp({
     cors: { origin: clientOrigin },
     maxHttpBufferSize: 64 * 1024,
   });
-  const registry = new RoomRegistry(store);
+  const assetStore = assets ?? new LocalDiskAssetStore(uploadDir);
+  // Wall analysis results are suggestions held here; a room reads them only when its GM applies
+  // walls, and the GM hears of each finished job over their own socket (ADR 0029).
+  const walls = new WallDetections(
+    assetStore,
+    wallQueue === undefined ? (redisUrl ? bullmqWallQueue(redisUrl) : null) : wallQueue,
+    (roomId, mapUrl, status) => {
+      void registry.loaded(roomId).then((room) => room?.notifyGm({ type: "wallDetection", mapUrl, status }));
+    },
+    builtinImageDir,
+  );
+  const registry = new RoomRegistry(store, { detectedWalls: (roomId, mapUrl) => walls.detectedWalls(roomId, mapUrl) });
   const sessions = new Sessions(store, { secure: cookieSecure }, now);
   const limits = accountLimits(now);
   // Ending a session ends the seats bound to it; close their open connections (ADR 0017 M4).
@@ -109,8 +144,13 @@ export async function buildApp({
     });
   }
 
+  // Redis workers may run in any process. A memory store exists only in this process, so
+  // another worker could consume and discard its job without ever finding the row.
+  const detection = dispatcher ?? await createGridDetectionDispatcher(store, assetStore, {
+    detector, redisUrl: store instanceof MemoryRoomStore ? undefined : redisUrl, visionUrl,
+  });
   registerIdentityRoutes(app, { store, sessions, limits });
-  registerRoutes(app, { store, registry, uploadDir, assets: assets ?? new LocalDiskAssetStore(uploadDir), limits });
+  registerRoutes(app, { store, registry, uploadDir, assets: assetStore, limits, detection, walls });
   registerSocket(io, { store, registry, sessions, logger });
 
   return {
@@ -130,10 +170,12 @@ export async function buildApp({
       }),
     // `io.close` also closes the HTTP server it was attached to, so closing it again
     // would raise ERR_SERVER_NOT_RUNNING.
-    close: () => {
+    close: async () => {
       stopSweeping();
       clearInterval(stopLimitSweep);
-      return new Promise((resolve, reject) => {
+      await detection.close();
+      await walls.close();
+      await new Promise<void>((resolve, reject) => {
         io.close((err) => (err ? reject(err) : resolve()));
       });
     },

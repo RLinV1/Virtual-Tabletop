@@ -269,6 +269,9 @@ a.tool-button { text-decoration: none; }
 }
 .popover-left { left: 0; }
 .popover-right { right: 0; }
+/* The room bar's More menu: one full-width item per row. */
+.room-menu { display: flex; flex-direction: column; gap: var(--space-1); }
+.room-menu .tool-button { justify-content: flex-start; white-space: nowrap; }
 .participant-list li {
   display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3);
   padding: 0.3rem 0; font-size: var(--fs-md);
@@ -469,7 +472,11 @@ button.color-swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--panel), 0
 .grid-field { min-width: 0; }
 .grid-nudges { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.2rem; margin-top: 0.25rem; }
 .grid-nudges button { min-width: 0; padding: 0.25rem 0; }
-.grid-message, .grid-actions { grid-column: 1 / -1; }
+.grid-confidence, .grid-message, .grid-actions { grid-column: 1 / -1; }
+.grid-suggestion { grid-column: 1 / -1; border: 1px solid var(--line, #72777f); padding: 0.75rem; border-radius: 0.4rem; }
+.grid-suggestion p { margin: 0 0 0.5rem; }
+.grid-suggestion p:last-child { margin-bottom: 0; }
+.grid-suggestion-warning { color: #b65c16; font-weight: 600; }
 .grid-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
 
 /* Name and Delete on the first line, owner and visibility under it. */
@@ -537,7 +544,11 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 
 /* --- Chat (KAN-75) --- */
 .chat-widget { position: fixed; right: var(--space-4); bottom: var(--space-4); z-index: 50; display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-2); }
+/* Moved to the left or top half of the window: the popup opens toward the middle instead. */
+.chat-widget-left { align-items: flex-start; }
+.chat-widget-top { flex-direction: column-reverse; }
 .chat-fab {
+  touch-action: none;
   position: relative; width: 3.25rem; height: 3.25rem; padding: 0; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgb(0 0 0 / 0.45);
 }
@@ -550,8 +561,8 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
   width: min(22rem, calc(100vw - 2 * var(--space-4))); display: flex; flex-direction: column; gap: var(--space-2);
   padding: var(--space-3); background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--radius);
   box-shadow: 0 8px 28px rgb(0 0 0 / 0.55);
-  /* Never taller than the room above the launcher, so the header and close button stay reachable. */
-  max-height: calc(100dvh - 3.25rem - 3 * var(--space-4)); min-height: 0;
+  /* Never taller than the room beside the launcher, so the header and close button stay reachable. */
+  max-height: var(--chat-room, calc(100dvh - 3.25rem - 3 * var(--space-4))); min-height: 0;
 }
 .chat-popup-header { display: flex; align-items: center; justify-content: space-between; }
 .chat-popup-header h2 { margin: 0; font-size: var(--fs-sm); color: var(--muted); }
@@ -1208,6 +1219,8 @@ dialog.modal.prep-sheet { width: min(1120px, calc(100vw - 48px)); }
   stroke: var(--focus); stroke-width: 3px; vector-effect: non-scaling-stroke;
 }
 .map-grid-help { margin: 0; }
+.map-grid-keys summary { cursor: pointer; color: var(--muted); }
+.map-grid-keys p { margin: var(--space-1) 0 0; }
 .grid-line-fields { display: flex; flex-direction: column; gap: var(--space-3); }
 .grid-editor-footer {
   position: sticky; bottom: calc(-1 * var(--space-4)); z-index: 1;
@@ -2165,11 +2178,6 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 .checkpoint-row > span { min-width: 0; overflow-wrap: anywhere; }
 
 /* Fog of war by keyboard (FR-GM-17): fog the map or a block of cells, reveal from a list. */
-.fog-cells fieldset { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-2) 0 0; padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius); }
-.fog-cells legend { padding: 0 var(--space-1); font-size: var(--fs-sm); font-weight: 500; }
-.fog-cells-hint { margin: 0; font-size: var(--fs-xs); }
-.fog-cells-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
-.fog-cells-grid input { width: 100%; font-variant-numeric: tabular-nums; }
 .fog-count { margin: var(--space-3) 0 var(--space-1); font-size: var(--fs-sm); }
 .fog-list { display: flex; flex-direction: column; gap: var(--space-2); }
 .fog-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: var(--fs-sm); }
@@ -2257,6 +2265,98 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 }
 .participant-view-as { margin-left: auto; }
 .preview-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; display: contents; }
+
+/* Automatic walls (FR-GM-11, ADR 0029): the GM reviews the rendered detection before applying. */
+.walls-status { margin: 0; font-weight: 600; }
+.walls-preview { margin: 0; display: grid; gap: var(--space-1); }
+.walls-preview img, .walls-preview-placeholder {
+  width: 100%; aspect-ratio: 16 / 9; object-fit: contain; border-radius: var(--radius);
+  border: 1px solid var(--border); background: var(--raised);
+}
+.walls-preview figcaption { font-size: var(--fs-sm); color: var(--muted); }
+
+/* A refused move, e.g. into or through a wall (ADR 0029): bottom centre, clear of notices and hints. */
+.board-refusal {
+  position: absolute; left: 50%; bottom: calc(var(--space-3) * 4); transform: translateX(-50%); z-index: 7;
+  margin: 0; padding: var(--space-2) var(--space-3); max-width: min(24rem, calc(100% - 2 * var(--space-3)));
+  background: var(--raised); border: 1px solid var(--border-strong); border-left: 3px solid var(--danger);
+  border-radius: var(--radius); box-shadow: 0 10px 28px var(--shadow); font-size: var(--fs-sm);
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .board-refusal { animation: modal-in 0.16s ease-out; }
+}
+
+/* The full-screen map editor (map-editor): its own HUD over the room, steps Map · Grid · Walls. */
+dialog.modal.map-editor {
+  width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; border-radius: 0;
+  padding: 0; inset: 0;
+}
+.map-editor .modal-body {
+  height: 100dvh; max-height: none; box-sizing: border-box; display: flex; flex-direction: column;
+  gap: var(--space-2); padding: var(--space-2) var(--space-3);
+}
+.map-editor .modal-head { flex: none; }
+.map-editor-shell { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* The steps sit in the dialog title bar, so the editor has one header row (map-editor D1). */
+.map-editor-steps { flex: 1; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.map-editor-step {
+  min-height: 44px; padding: 0.35rem 0.9rem; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--raised); color: var(--text);
+}
+.map-editor-step[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.map-editor-draft { margin-left: auto; font-size: var(--fs-sm); color: var(--warn); }
+.map-editor-body { flex: 1; min-height: 0; overflow: auto; }
+.map-editor-split { height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 17rem; grid-template-rows: minmax(0, 1fr); gap: var(--space-2); }
+.map-editor-stage {
+  min-height: 0; display: flex; align-items: center; justify-content: center;
+  background: var(--raised); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
+}
+.map-editor-thumb { max-width: 100%; max-height: 100%; object-fit: contain; }
+.map-editor-hud {
+  min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: var(--space-3);
+  padding: var(--space-3); background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.map-editor-heading { margin: 0; font-size: var(--fs-md); }
+.map-editor-empty { margin: var(--space-4) auto; max-width: 32rem; text-align: center; color: var(--muted); }
+/* The Grid step fills the editor, and the map takes every row the controls leave free. */
+.map-editor-grid { height: 100%; }
+.map-editor-grid, .map-editor-grid .grid-editor, .map-editor-grid .map-grid-preview { display: flex; flex-direction: column; }
+.map-editor-grid .grid-editor, .map-editor-grid .map-grid-preview { flex: 1; min-height: 0; }
+.map-editor-grid .map-grid-canvas { flex: 1; height: auto; min-height: 20rem; }
+.map-editor-grid .grid-editor-footer { flex-direction: row; flex-wrap: wrap; align-items: center; }
+.map-editor-grid .grid-editor-footer .grid-actions { margin-left: auto; }
+.map-editor-modes { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+.map-editor-mode { display: inline-flex; align-items: center; justify-content: flex-start; gap: var(--space-2); min-height: 44px; padding: 0.35rem 0.6rem; }
+.map-editor-mode[aria-checked="true"], .map-editor-mode[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.map-editor-mode:disabled { opacity: 0.45; cursor: not-allowed; }
+.map-editor-count { margin: 0; font-size: var(--fs-sm); }
+/* Detection the server can't run: shown, but greyed out with its reason (map-editor D4). */
+.map-editor-unavailable { opacity: 0.6; }
+.wall-canvas { position: relative; min-height: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: #0d0f12; }
+.wall-canvas-svg { display: block; width: 100%; height: 100%; touch-action: none; outline: none; }
+.wall-canvas-svg:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.wall-canvas-svg.mode-draw, .wall-canvas-svg.mode-sample { cursor: crosshair; }
+.wall-canvas-svg.mode-erase { cursor: pointer; }
+.wall-canvas-svg.mode-pan { cursor: grab; }
+.wall-canvas-zoom { position: absolute; right: var(--space-2); top: var(--space-2); display: flex; gap: var(--space-1); }
+/* A full-screen editor driven by touch on phones and tablets: every control is a 44px target
+   (WCAG 2.2 2.5.8 asks 24px; 44px suits a thumb), the close button included. */
+.map-editor .modal-close { width: 44px; height: 44px; }
+.map-editor button, .map-editor select, .map-editor .upload-button,
+.map-editor input:not([type="checkbox"]):not([type="radio"]):not(.sr-only) { min-height: 44px; }
+.wall-canvas-zoom button, .map-editor .map-grid-toolbar button { min-width: 44px; }
+/* The editor body is the scroller here, with no padding below, so the grid footer sticks at its edge. */
+.map-editor .grid-editor-footer { bottom: 0; }
+/* Narrow or portrait screens stack the canvas above the HUD. The canvas keeps most of the height;
+   the HUD is capped and scrolls on its own, so it never pushes the canvas off-screen. */
+@media (max-width: 760px), (orientation: portrait) {
+  .map-editor-split { grid-template-columns: 1fr; grid-template-rows: minmax(50dvh, 1fr) auto; }
+  .map-editor-hud { max-height: 36dvh; }
+}
+@media (max-width: 760px) {
+  .map-editor .modal-body { padding: var(--space-2); }
+}
 
 /* Token groups in the GM's roster and the Start encounter dialog (KAN-82). */
 .roster-group + .roster-group { margin-top: var(--space-2); }
