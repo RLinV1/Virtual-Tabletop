@@ -113,12 +113,12 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   /** The token the viewer clicked (not dragged); its details show beside the board. */
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** Why the server refused the last drag, e.g. a wall in the way (ADR 0025); shown briefly. */
-  const [moveRefusal, setMoveRefusal] = useState<{ message: string; at: number } | null>(null);
+  const [refusal, setRefusal] = useState<{ message: string; at: number } | null>(null);
   useEffect(() => {
-    if (!moveRefusal) return;
-    const timer = setTimeout(() => setMoveRefusal(null), 4000);
+    if (!refusal) return;
+    const timer = setTimeout(() => setRefusal(null), 4000);
     return () => clearTimeout(timer);
-  }, [moveRefusal]);
+  }, [refusal]);
   const selected = selectedId ? state.tokens[selectedId] ?? null : null;
   const [tool, setTool] = useState<BoardTool>({ kind: "select" });
   const [toolOptions, setToolOptions] = useState<ToolOptions>(DEFAULT_TOOL_OPTIONS);
@@ -211,7 +211,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       moveToken: async (tokenId, to) => {
         const result = await guarded.command({ type: "token.move", tokenId, to });
         // The token snaps back; say why, so a wall the player can't see isn't a mystery (ADR 0025).
-        if (!result.ok && result.code !== "offline") setMoveRefusal({ message: result.message, at: Date.now() });
+        if (!result.ok && result.code !== "offline") setRefusal({ message: result.message, at: Date.now() });
         return result.ok;
       },
       dragPreview: (tokenId, at) => guarded.preview(`drag:${tokenId}`, { type: "tokenDragPreview", tokenId, at }),
@@ -243,6 +243,17 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       placeToken: (at) => void placeRef.current(at),
       selectToken: (tokenId) => setSelectedId(tokenId),
       cancelPlacement: () => setPlacing(null),
+      togglePortal: (wallId, lock) => {
+        const portal = latest.current.state.walls[wallId]?.portal;
+        if (!portal) return;
+        // Click opens a closed door and closes an open one; the GM's Shift-click locks and unlocks (ADR 0026).
+        const state = lock && latest.current.you.role === "gm"
+          ? (portal.state === "locked" ? "closed" : "locked")
+          : (portal.state === "open" ? "closed" : "open");
+        void guarded.command({ type: "portal.setState", wallId, state }).then((result) => {
+          if (!result.ok && result.code !== "offline") setRefusal({ message: result.message, at: Date.now() });
+        });
+      },
       pickTarget: (attackerId, targetId) => {
         endAttack();
         latest.current.onPickTarget?.(attackerId, targetId);
@@ -488,7 +499,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       )}
       {overlay}
       {notices}
-      {moveRefusal && <p key={moveRefusal.at} className="board-refusal" role="alert">{moveRefusal.message}</p>}
+      {refusal && <p key={refusal.at} className="board-refusal" role="alert">{refusal.message}</p>}
       {selected && (
         <aside className="token-card" aria-label={`${selected.name} details`}>
           <div className="token-card-head">

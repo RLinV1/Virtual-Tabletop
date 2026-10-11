@@ -6,6 +6,9 @@ import { wallAt, wallPoint, type WallMode } from "../../board/tools";
 const JOIN_PX = 12;
 /** Erase picks the wall within this many screen pixels of the click. */
 const PICK_PX = 10;
+/** Portal colours, as on the board (ADR 0026): wood for doors, glass for windows, red lock mark. */
+const PORTAL_COLORS = { door: "#c8873a", window: "#5dade2" } as const;
+const LOCK_COLOR = "#c0392b";
 /** A press that moves further than this is a pan, not a click. */
 const CLICK_SLOP_PX = 4;
 const MAX_ZOOM = 12;
@@ -22,17 +25,18 @@ interface Camera {
 
 /**
  * The map editor's wall canvas (map-editor D3): the map with its walls in SVG, in board
- * coordinates (invariant 8). Draw chains walls, Erase removes the wall under the pointer, and
- * Detect like this sends the clicked point. The wheel zooms; Pan mode, the middle button or
+ * coordinates (invariant 8). Draw chains walls, Erase removes the wall under the pointer, Portal
+ * picks the wall to make a door or window (ADR 0026), and Detect like this sends the clicked point. The wheel zooms; Pan mode, the middle button or
  * Space-drag pans.
  */
-export function WallCanvas({ map, grid, walls, mode, onAdd, onRemove, onSample, busy }: {
+export function WallCanvas({ map, grid, walls, mode, onAdd, onRemove, onPortal, onSample, busy }: {
   map: MapImage;
   grid: GridSpec;
   walls: Record<string, Wall>;
   mode: CanvasMode;
   onAdd: (a: Point, b: Point) => void;
   onRemove: (wallId: string) => void;
+  onPortal: (wallId: string) => void;
   onSample: (at: Point) => void;
   busy: boolean;
 }) {
@@ -76,7 +80,7 @@ export function WallCanvas({ map, grid, walls, mode, onAdd, onRemove, onSample, 
   };
   const onMap = (p: Point) => p.x >= 0 && p.y >= 0 && p.x <= map.width && p.y <= map.height;
   const snap = (p: Point, alt: boolean) => wallPoint(p, walls, grid, JOIN_PX / scale, alt);
-  const erasing = mode === "erase" && hover ? wallAt(walls, hover, PICK_PX / scale) : null;
+  const picked = (mode === "erase" || mode === "portal") && hover ? wallAt(walls, hover, PICK_PX / scale) : null;
 
   const onWheel = (e: WheelEvent<SVGSVGElement>) => {
     const at = toMap(e.clientX, e.clientY);
@@ -119,9 +123,9 @@ export function WallCanvas({ map, grid, walls, mode, onAdd, onRemove, onSample, 
       if (onMap(p)) onSample(p);
       return;
     }
-    if (mode === "erase") {
+    if (mode === "erase" || mode === "portal") {
       const wall = wallAt(walls, p, PICK_PX / scale);
-      if (wall) onRemove(wall.id);
+      if (wall) (mode === "erase" ? onRemove : onPortal)(wall.id);
       return;
     }
     if (mode !== "draw" || !onMap(p)) return;
@@ -161,7 +165,7 @@ export function WallCanvas({ map, grid, walls, mode, onAdd, onRemove, onSample, 
         viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
         tabIndex={0}
         role="application"
-        aria-label="Map walls. Draw, erase or detect walls with the pointer; the wheel zooms."
+        aria-label="Map walls. Draw, erase, mark doors and windows, or detect walls with the pointer; the wheel zooms."
         onWheel={onWheel}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -176,12 +180,21 @@ export function WallCanvas({ map, grid, walls, mode, onAdd, onRemove, onSample, 
           {gridLines.map((l, i) => <line key={i} {...l} />)}
         </g>
         <g strokeLinecap="round">
-          {Object.values(walls).map((w) => (
-            <g key={w.id}>
-              <line x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y} stroke="#111" strokeOpacity={0.8} strokeWidth={7 * px} />
-              <line x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y} stroke={erasing?.id === w.id ? "#e74c3c" : "#ff6b2c"} strokeWidth={(erasing?.id === w.id ? 6 : 3.5) * px} />
-            </g>
-          ))}
+          {Object.values(walls).map((w) => {
+            const hot = picked?.id === w.id;
+            const color = hot ? (mode === "erase" ? "#e74c3c" : "#ffd166") : w.portal ? PORTAL_COLORS[w.portal.kind] : "#ff6b2c";
+            // An open portal is drawn dashed, a locked one with a lock mark (ADR 0026).
+            const dash = w.portal?.state === "open" ? `${10 * px} ${6 * px}` : undefined;
+            return (
+              <g key={w.id}>
+                <line x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y} stroke="#111" strokeOpacity={0.8} strokeWidth={(w.portal ? 9 : 7) * px} strokeDasharray={dash} />
+                <line x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y} stroke={color} strokeWidth={(hot ? 6 : w.portal ? 5 : 3.5) * px} strokeDasharray={dash} />
+                {w.portal?.state === "locked" && (
+                  <circle cx={(w.a.x + w.b.x) / 2} cy={(w.a.y + w.b.y) / 2} r={5 * px} fill={LOCK_COLOR} stroke="#111" strokeWidth={1.5 * px} />
+                )}
+              </g>
+            );
+          })}
         </g>
         {mode === "draw" && chain && (
           <g>

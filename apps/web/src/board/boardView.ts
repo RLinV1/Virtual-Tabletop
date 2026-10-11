@@ -46,7 +46,7 @@ import {
   type AttackEffect,
 } from "./effects";
 import { makeFogCanvas } from "./fogTexture";
-import { areaOrigin, areaShape, areaSizeFromDrag, fogRegionAt, formatDistance, hitMark, measure, sweepPoints, templateMark, type BoardTool, type Mark } from "./tools";
+import { areaOrigin, areaShape, areaSizeFromDrag, fogRegionAt, formatDistance, hitMark, measure, portalAt, sweepPoints, templateMark, type BoardTool, type Mark } from "./tools";
 import { aimExpiry, expiredAims } from "./aims";
 import { PING_MS, pingPulse } from "./ping";
 
@@ -89,6 +89,11 @@ export interface BoardCallbacks {
   selectToken(tokenId: string | null): void;
   /** The GM right-clicked while placing: put the token back. */
   cancelPlacement(): void;
+  /**
+   * The viewer clicked a door or window with the Select tool (FR-GM-18, ADR 0026); `lock` when
+   * Shift was held. The server decides what the viewer may do.
+   */
+  togglePortal(wallId: string, lock: boolean): void;
 }
 
 const MIN_ZOOM = 0.1;
@@ -112,6 +117,12 @@ const FOG_DRIFT_INTERVAL_MS = 1000 / 20;
 const FOG_CLOUD_SCALE = 2.5;
 const FOG_GM_ALPHA = 0.5;
 const FOG_EDGE = 0x9fb3c8;
+/** How close (screen pixels) a click has to come to a door or window to use it (ADR 0026). */
+const PORTAL_REACH_PX = 10;
+/** Portal colours by kind: wood for doors, glass for windows. Locked ones get a red lock mark. */
+const DOOR_COLOR = 0xc8873a;
+const WINDOW_COLOR = 0x5dade2;
+const LOCK_COLOR = 0xc0392b;
 /** How close (screen pixels) the eraser has to come to a line to erase it. */
 const ERASER_REACH_PX = 12;
 /** A brush stroke adds a point once the pointer has moved this far (screen pixels). */
@@ -265,7 +276,7 @@ export class BoardView {
   private fogLoopRegistered = false;
   private lastFogDraw = 0;
   private fogOffset = { x: 0, y: 0 };
-  /** GM only: the applied walls (FR-GM-11, ADR 0025); players never receive any. */
+  /** Walls and portals. Plain walls reach the GM only; players get the portals they can see (ADR 0026). */
   private wallGraphics = new Graphics();
   private drawnWalls: RoomState["walls"] | null = null;
   private tokenLayer = new Container();
@@ -595,8 +606,10 @@ export class BoardView {
   }
 
   /**
-   * Draws the room's walls over the map, under tokens (ADR 0025). Only the GM's state holds any;
-   * the line scales with the grid so it reads at every zoom. Board coordinates (invariant 8).
+   * Draws the room's walls and portals over the map, under tokens (ADR 0025, ADR 0026). Only the
+   * GM's state holds plain walls; any viewer's may hold portals. An open portal shows as its two
+   * ends with a gap between, a locked one with a lock mark in the middle. The line scales with
+   * the grid so it reads at every zoom. Board coordinates (invariant 8).
    */
   private syncWalls() {
     const state = this.state;
@@ -606,10 +619,34 @@ export class BoardView {
     const walls = Object.values(state.walls);
     if (walls.length === 0) return;
     const width = Math.max(3, state.scene.grid.cellSize * 0.09);
-    for (const wall of walls) g.moveTo(wall.a.x, wall.a.y).lineTo(wall.b.x, wall.b.y);
-    g.stroke({ width: width + 4, color: 0x111111, alpha: 0.8, cap: "round", join: "round" });
-    for (const wall of walls) g.moveTo(wall.a.x, wall.a.y).lineTo(wall.b.x, wall.b.y);
-    g.stroke({ width, color: 0xff6b2c, alpha: 0.95, cap: "round", join: "round" });
+    const plain = walls.filter((w) => !w.portal);
+    if (plain.length > 0) {
+      for (const wall of plain) g.moveTo(wall.a.x, wall.a.y).lineTo(wall.b.x, wall.b.y);
+      g.stroke({ width: width + 4, color: 0x111111, alpha: 0.8, cap: "round", join: "round" });
+      for (const wall of plain) g.moveTo(wall.a.x, wall.a.y).lineTo(wall.b.x, wall.b.y);
+      g.stroke({ width, color: 0xff6b2c, alpha: 0.95, cap: "round", join: "round" });
+    }
+    for (const wall of walls) {
+      if (!wall.portal) continue;
+      const color = wall.portal.kind === "door" ? DOOR_COLOR : WINDOW_COLOR;
+      const { a, b } = wall;
+      const along = (t: number) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+      const pieces: [Point, Point][] = wall.portal.state === "open" ? [[a, along(0.2)], [along(0.8), b]] : [[a, b]];
+      for (const [p, q] of pieces) g.moveTo(p.x, p.y).lineTo(q.x, q.y);
+      g.stroke({ width: width * 1.6 + 4, color: 0x111111, alpha: 0.85, cap: "butt" });
+      for (const [p, q] of pieces) g.moveTo(p.x, p.y).lineTo(q.x, q.y);
+      g.stroke({ width: width * 1.6, color, alpha: 1, cap: "butt" });
+      if (wall.portal.state === "locked") {
+        const mid = along(0.5);
+        g.circle(mid.x, mid.y, width * 1.3).fill({ color: LOCK_COLOR }).stroke({ width: 2, color: 0x111111 });
+      }
+    }
+  }
+
+  /** The door or window under a screen point, while the Select tool is free to use one (ADR 0026). */
+  private portalUnder(global: Point): RoomState["walls"][string] | null {
+    if (!this.state || this.readOnly || this.placement || this.tool.kind !== "select") return null;
+    return portalAt(this.state.walls, this.toBoard(global), PORTAL_REACH_PX / this.world.scale.x);
   }
 
   /** Previewing as a player (gm-view-as-player): tokens take no pointer input, so nothing can be dragged or aimed. */
@@ -1820,6 +1857,11 @@ export class BoardView {
       view.container.position.set(at.x, at.y);
       this.callbacks.dragPreview(this.drag.tokenId, at);
       this.invalidate();
+    } else if (!this.pan && this.tool.kind === "select" && !this.placement && this.you) {
+      // A hand over a door or window the viewer may open or close (ADR 0026).
+      const portal = this.portalUnder(e.global);
+      const cursor = portal && can.togglePortal(this.you, portal) ? "pointer" : this.toolCursor();
+      if (this.app.stage.cursor !== cursor) this.app.stage.cursor = cursor;
     } else if (this.pan) {
       // A press that hardly moves is a tap, not a deliberate pan (KAN-54).
       if (exceedsPanThreshold(this.pan.start, e.global)) this.autoFit = false;
@@ -1835,7 +1877,10 @@ export class BoardView {
     const pan = this.pan;
     this.pan = null;
     if (pan && pan.button === 0 && !this.placement && !this.gesture && this.tool.kind === "select" && !exceedsPanThreshold(pan.start, e.global)) {
-      this.callbacks.selectToken(null);
+      // A click on a door or window uses it (FR-GM-18); anywhere else on the map clears the selection.
+      const portal = this.portalUnder(e.global);
+      if (portal) this.callbacks.togglePortal(portal.id, e.shiftKey);
+      else this.callbacks.selectToken(null);
     }
     const down = this.placeDown;
     this.placeDown = null;

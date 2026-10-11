@@ -34,8 +34,11 @@ export type BoardTool =
 /** What the Fog tool does: drag a rectangle, click out a polygon, or click a region to remove it. */
 export type FogMode = "rect" | "polygon" | "reveal";
 
-/** What the map editor's Walls step does (map-editor): chain walls, remove one, or detect walls like a clicked one. */
-export type WallMode = "draw" | "erase" | "sample";
+/**
+ * What the map editor's Walls step does (map-editor): chain walls, remove one, detect walls like a
+ * clicked one, or make a wall a door or window (ADR 0026).
+ */
+export type WallMode = "draw" | "erase" | "sample" | "portal";
 
 /** The nearest point to `p` on the segment from `a` to `b`. */
 export function closestOnSegment(p: Point, a: Point, b: Point): Point {
@@ -59,6 +62,11 @@ export function wallAt(walls: Record<string, Wall>, p: Point, tolerance: number)
     }
   }
   return best;
+}
+
+/** The door or window nearest `p` within `tolerance` board pixels, or null (FR-GM-18, ADR 0026). */
+export function portalAt(walls: Record<string, Wall>, p: Point, tolerance: number): Wall | null {
+  return wallAt(Object.fromEntries(Object.entries(walls).filter(([, w]) => w.portal)), p, tolerance);
 }
 
 /**
