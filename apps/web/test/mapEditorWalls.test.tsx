@@ -128,14 +128,15 @@ describe("map editor walls (FR-GM-09, FR-GM-11)", () => {
     await waitFor(() => expect((screen.getByRole("button", { name: "Detect walls" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.change(screen.getByLabelText(/Strictness/), { target: { value: "0.5" } });
     fireEvent.change(screen.getByLabelText(/Shortest wall/), { target: { value: "2" } });
+    fireEvent.change(screen.getByLabelText(/Wall colour/), { target: { value: "bright" } });
     fireEvent.click(screen.getByRole("button", { name: "Detect walls" }));
-    await waitFor(() => expect(detect).toHaveBeenCalledWith("r1", TOKEN, { strictness: 0.5, minLength: 2 }));
+    await waitFor(() => expect(detect).toHaveBeenCalledWith("r1", TOKEN, { strictness: 0.5, style: "bright", minLength: 2 }));
     // Back to automatic leaves strictness out of the request again (once the first job has ended).
     fake.notify({ status: "failed", message: "no" });
     fireEvent.click(screen.getByRole("button", { name: "Back to automatic" }));
     await waitFor(() => expect((screen.getByRole("button", { name: /Detect (walls|again)/ }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByRole("button", { name: /Detect (walls|again)/ }));
-    await waitFor(() => expect(detect).toHaveBeenLastCalledWith("r1", TOKEN, { minLength: 2 }));
+    await waitFor(() => expect(detect).toHaveBeenLastCalledWith("r1", TOKEN, { style: "bright", minLength: 2 }));
   });
 
   it("sends the colour range chosen on the slider with the click", async () => {

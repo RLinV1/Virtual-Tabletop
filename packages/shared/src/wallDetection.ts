@@ -53,6 +53,10 @@ export const SAMPLE_TOLERANCE_DEFAULT = 30;
 export const STRICTNESS_MIN = 0.2;
 export const STRICTNESS_MAX = 0.6;
 export const STRICTNESS_DEFAULT = 0.4;
+/** Which kind of wall automatic detection looks for: raised light stone, or dark ink. Omitted: try both and keep the better. */
+export const WallStyle = z.enum(["bright", "dark"]);
+export type WallStyle = z.infer<typeof WallStyle>;
+
 /** Longest "shortest wall" the GM may ask for, in grid cells. 0 keeps everything the detector finds. */
 export const MIN_LENGTH_MAX = 6;
 
@@ -60,13 +64,15 @@ export const MIN_LENGTH_MAX = 6;
  * What the GM may send when starting an analysis (wall-editing). `sample` is a point on a wall in
  * board coordinates: the worker then looks for walls of that colour instead of guessing.
  * `tolerance` widens or narrows what counts as that colour, and only makes sense with a sample.
- * `strictness` and `minLength` (in cells) filter either mode's result.
+ * `strictness` and `minLength` (in cells) filter either mode's result; `style` restricts automatic
+ * detection to one kind of wall.
  */
 export const WallDetectionRequest = z.object({
   sample: Point.optional(),
   tolerance: z.number().min(SAMPLE_TOLERANCE_MIN).max(SAMPLE_TOLERANCE_MAX).optional(),
   strictness: z.number().min(STRICTNESS_MIN).max(STRICTNESS_MAX).optional(),
   minLength: z.number().min(0).max(MIN_LENGTH_MAX).optional(),
+  style: WallStyle.optional(),
 }).strict().refine((request) => request.tolerance === undefined || request.sample !== undefined, {
   message: "tolerance needs a sample",
 });

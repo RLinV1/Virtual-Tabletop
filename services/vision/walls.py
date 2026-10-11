@@ -46,6 +46,8 @@ SAMPLE_TOLERANCE = 30.0
 OUTLINE_SHARE = 0.4
 # Automatic strictness: the first share cuts terrain on rich maps; sparser ones (few, thick walls) need a lower one.
 AUTO_SHARES = (OUTLINE_SHARE, 0.3, 0.2)
+# The strictest automatic pass already demands an outline, so it is trusted with less wall than the rest.
+STRICT_PASS_NEEDED = 2
 # A sampled colour this dark (Lab L, 8-bit) is ink: its strokes need no separate outline.
 DARK_INK_L = 80
 
@@ -77,13 +79,15 @@ def _strong(values: np.ndarray, floor: float = 20.0) -> np.ndarray:
     return values > max(otsu, float(values.mean() + values.std()), floor)
 
 
-def _wall_masks(gray: np.ndarray, cell: float, share: float = OUTLINE_SHARE) -> list:
-    """Candidate wall masks: bright raised walls and dark ink walls, each with its outline check."""
+def _wall_masks(gray: np.ndarray, cell: float, share: float = OUTLINE_SHARE, style: str = None) -> list:
+    """Candidate wall masks: bright raised walls and dark ink walls, each with its outline check.
+
+    `style` ("bright" or "dark") limits it to one family; None builds both."""
     line = _kernel(cell * 0.25, shape=cv2.MORPH_ELLIPSE)
     dark_lines = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, line)
     out = []
     # One family per wall style, each the union of its thin- and thick-wall scales.
-    for name in ("bright", "dark"):
+    for name in ("bright", "dark") if style is None else (style,):
         family = np.zeros_like(gray)
         for width in BAND_CELLS:
             band = _kernel(cell * width, shape=cv2.MORPH_ELLIPSE)
@@ -419,14 +423,15 @@ def _working_cell(width: int, height: int, cell: float, scale: float) -> float:
 
 
 def detect_walls(image: np.ndarray, cell: float = 0.0, sample: dict = None, tolerance: float = SAMPLE_TOLERANCE,
-                 strictness: float = None, min_length: float = 0.0) -> dict:
+                 strictness: float = None, min_length: float = 0.0, style: str = None) -> dict:
     """Wall segments in the image's own pixels. `cell` is the grid's cell size in those pixels, or 0.
 
     With `sample` ({x, y} in image pixels, on a wall the GM clicked) the mask comes from that
     wall's colour within `tolerance`; without it, the bright and dark styles are both tried and the
     better one wins. `strictness` is the share of a run's edge that must follow an outline: fixed
     when given, otherwise the strictest of AUTO_SHARES that finds enough wall. `min_length` (in
-    cells) drops shorter walls from the result.
+    cells) drops shorter walls from the result. `style` ("bright" or "dark") restricts automatic
+    detection to light stone walls or dark ink walls; None tries both.
     """
     height, width = image.shape[:2]
     scale = min(1.0, WORK_EDGE / max(width, height))
@@ -435,10 +440,12 @@ def detect_walls(image: np.ndarray, cell: float = 0.0, sample: dict = None, tole
     gray = cv2.bilateralFilter(cv2.cvtColor(work, cv2.COLOR_BGR2GRAY), 7, 25, 5)
     needed = 2 if sample else 4
     best = ("none", [], 0.0)
-    for share in (AUTO_SHARES if strictness is None else (strictness,)):
+    shares = AUTO_SHARES if strictness is None else (strictness,)
+    for index, share in enumerate(shares):
+        bar = STRICT_PASS_NEEDED if (strictness is not None or index == 0) else needed
         candidates = (
             [("sample", _sampled_mask(work, gray, working_cell, (sample["x"] * scale, sample["y"] * scale), tolerance, share), working_cell)]
-            if sample else _wall_masks(gray, working_cell, share)
+            if sample else _wall_masks(gray, working_cell, share, style)
         )
         best = ("none", [], 0.0)
         for name, mask, c in candidates:
@@ -446,12 +453,12 @@ def detect_walls(image: np.ndarray, cell: float = 0.0, sample: dict = None, tole
             score = _score(segments, c)
             if score > best[2]:
                 best = (name, segments, score)
-        if best[2] >= needed:
+        if best[2] >= bar:
             break
     name, segments, score = best
     # A handful of short pieces is noise, not a wall layout. A sample says walls exist, so it
     # keeps whatever long run it found.
-    if score < needed:
+    if score < bar:
         segments = []
     segments = [s for s in segments if _length(s) >= min_length * working_cell]
     segments.sort(key=_length, reverse=True)
@@ -502,17 +509,19 @@ def _detected_cell(data: bytes, width: int, height: int) -> float:
 
 
 def analyze(data: bytes, width: int, height: int, cell: float = 0.0, sample: dict = None,
-            tolerance: float = SAMPLE_TOLERANCE, strictness: float = None, min_length: float = 0.0) -> dict:
+            tolerance: float = SAMPLE_TOLERANCE, strictness: float = None, min_length: float = 0.0,
+            style: str = None) -> dict:
     """One job: decode, detect, render. The result shape is `WallDetectionResult` in packages/shared.
 
     `cell` is the room grid's cell size; without one, the grid detector's suggestion is used.
     `sample` is a point on a wall the GM clicked, in image pixels, or None; `tolerance` is its colour range.
-    `strictness` and `min_length` are the outline share and shortest wall, in cells (detect_walls).
+    `strictness`, `min_length` and `style` are the outline share, shortest wall (cells) and wall colour
+    family (detect_walls).
     """
     image = decode(data, width, height)
     if not cell:
         cell = _detected_cell(data, width, height)
     if sample is not None and not (0 <= sample["x"] <= width and 0 <= sample["y"] <= height):
         raise ValueError("Sample outside the image")
-    detected = detect_walls(image, cell, sample, tolerance, strictness, min_length)
+    detected = detect_walls(image, cell, sample, tolerance, strictness, min_length, style)
     return {"walls": detected["walls"], "preview": render_preview(image, detected["walls"])}

@@ -46,6 +46,8 @@ export interface WallJobData {
   strictness?: number;
   /** Shortest wall kept, in grid cells. */
   minLength?: number;
+  /** Only look for light stone ("bright") or dark ink ("dark") walls. */
+  style?: "bright" | "dark";
 }
 
 /** A queue event about one job, as BullMQ's `QueueEvents` reports it. */

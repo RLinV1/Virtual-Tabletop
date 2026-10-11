@@ -4,10 +4,11 @@ The app server produces jobs on the `wall-detection` queue in the app's Redis; t
 consumes them and returns `{walls, preview}` as the job's return value. The app server learns of
 completion from BullMQ's queue events, validates the result, and notifies the room's GM.
 
-Job data: `{ image: base64 bytes, width, height, cellSize, sample?, tolerance?, strictness?, minLength? }`, where
-`sample` is a point on a wall the GM clicked, `tolerance` its colour range in Lab units, `strictness` the
-share of a run's edge that must follow an outline, and `minLength` the shortest wall kept, in cells. The bytes were read by the app server
-from its own storage; this worker never fetches a URL, and holds no database or storage credentials.
+Job data: `{ image: base64 bytes, width, height, cellSize, sample?, tolerance?, strictness?, minLength?, style? }`.
+`sample` is a point on a wall the GM clicked and `tolerance` its colour range in Lab units. `strictness` is
+the share of a run's edge that must follow an outline, `minLength` the shortest wall kept, in cells, and
+`style` is "bright" or "dark" to look for only light stone or dark ink walls. The bytes were read by the app
+server from its own storage; this worker never fetches a URL, and holds no database or storage credentials.
 """
 
 import asyncio
@@ -65,9 +66,12 @@ async def process(job, _token=None) -> dict:
     min_length = data.get("minLength", 0)
     if isinstance(min_length, bool) or not isinstance(min_length, (int, float)) or not 0 <= min_length <= MAX_MIN_LENGTH:
         raise ValueError("Invalid minimum length")
+    style = data.get("style")
+    if style not in (None, "bright", "dark"):
+        raise ValueError("Invalid wall style")
     started = time.monotonic()
     # OpenCV releases the GIL, so a thread keeps the worker's lock renewals running meanwhile.
-    result = await asyncio.to_thread(analyze, image, width, height, cell, sample, float(tolerance), None if strictness is None else float(strictness), float(min_length))
+    result = await asyncio.to_thread(analyze, image, width, height, cell, sample, float(tolerance), None if strictness is None else float(strictness), float(min_length), style)
     # Sizes and timings only: never image contents or results.
     print(f"[vision] job {job.id}: {width}x{height}, {len(result['walls'])} walls in {time.monotonic() - started:.1f}s", flush=True)
     return result

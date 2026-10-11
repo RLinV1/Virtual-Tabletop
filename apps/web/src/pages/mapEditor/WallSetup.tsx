@@ -3,7 +3,7 @@ import { Eraser, Eyedropper, Hand, LineSegments } from "@phosphor-icons/react";
 import {
   MIN_LENGTH_MAX, SAMPLE_TOLERANCE_DEFAULT, SAMPLE_TOLERANCE_MAX, SAMPLE_TOLERANCE_MIN,
   STRICTNESS_DEFAULT, STRICTNESS_MAX, STRICTNESS_MIN,
-  type CommandInput, type DetectedWall, type Point, type RoomState, type Wall, type WallDetectionAvailability, type WallDetectionRequest, type WallDetectionStatus,
+  type CommandInput, type DetectedWall, type Point, type RoomState, type Wall, type WallStyle, type WallDetectionAvailability, type WallDetectionRequest, type WallDetectionStatus,
 } from "@vtt/shared";
 import { api } from "../../net/api";
 import type { RoomConnection } from "../../net/roomConnection";
@@ -43,6 +43,8 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
   // null: automatic, the detector's own choice per map; a number is the GM's fixed setting.
   const [strictness, setStrictness] = useState<number | null>(null);
   const [minLength, setMinLength] = useState(0);
+  // null: try both light stone and dark ink walls and keep the better.
+  const [style, setStyle] = useState<WallStyle | null>(null);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
   const status = detection.mapUrl === mapUrl ? detection.status : null;
   const canDetect = availability?.available === true;
@@ -108,6 +110,7 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
   const request = (sample?: Point): WallDetectionRequest => ({
     ...(sample && { sample, tolerance }),
     ...(strictness !== null && { strictness }),
+    ...(style !== null && { style }),
     minLength,
   });
 
@@ -231,6 +234,15 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
           )}
           {canDetect && (
             <div className="stack">
+              <label className="stack">
+                <span className="small-print">Wall colour</span>
+                <select value={style ?? "auto"} onChange={(event) => setStyle(event.target.value === "auto" ? null : (event.target.value as WallStyle))}>
+                  <option value="auto">Automatic</option>
+                  <option value="bright">Light stone walls</option>
+                  <option value="dark">Dark ink walls</option>
+                </select>
+                <span className="muted small-print">Pick one if automatic detection follows the wrong thing, such as shadows instead of stone.</span>
+              </label>
               <label className="stack">
                 <span className="small-print">Strictness: {strictness === null ? "automatic" : strictness.toFixed(2)}</span>
                 <input

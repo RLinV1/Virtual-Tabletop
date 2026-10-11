@@ -164,14 +164,26 @@ class WallDetectionTest(unittest.TestCase):
         self.assertTrue(all(np.hypot(w["b"]["x"] - w["a"]["x"], w["b"]["y"] - w["a"]["y"]) >= 6 * CELL * 0.95 for w in long_only))
         self.assertLessEqual(len(detect_walls(img, CELL, None, 30, 0.6, 0)["walls"]), len(default))
 
-    def test_automatic_strictness_relaxes_for_a_sparse_map_but_a_fixed_one_does_not(self):
-        # The Broken Span crop has few, thick walls: the strictest outline share finds none of them.
+    def test_a_sparse_stone_map_gets_its_light_walls_not_dark_shadows(self):
+        # The Broken Span crop has few, thick stone walls. Automatic detection must keep to the light
+        # stone (the dark family there traces shadows and scraps), and the style can be forced.
         path = os.path.join(os.path.dirname(__file__), "..", "..", "apps", "web", "public", "img", "home", "broken-span.webp")
         if not os.path.exists(path):
             self.skipTest("bundled map not present")
         img = cv2.imread(path)
-        self.assertTrue(detect_walls(img, 70)["walls"])
-        self.assertEqual(detect_walls(img, 70, None, 30, 0.4)["walls"], [])
+        automatic = detect_walls(img, 70)
+        self.assertEqual(automatic["mask"], "bright")
+        self.assertTrue(automatic["walls"])
+        self.assertEqual(detect_walls(img, 70, style="bright")["walls"], automatic["walls"])
+        self.assertEqual(detect_walls(img, 70, style="dark")["mask"], "dark")
+
+    def test_style_limits_automatic_detection_to_one_kind_of_wall(self):
+        dark = detect_walls(ink_dungeon(), CELL, style="dark")["walls"]
+        wrong = detect_walls(ink_dungeon(), CELL, style="bright")["walls"]
+        self.assertTrue(dark)
+        # Looking for the wrong kind of wall finds little of what is drawn.
+        self.assertLess(total_length(wrong), 0.25 * total_length(dark))
+        self.assertTrue(detect_walls(stone_keep(), CELL, style="bright")["walls"])
 
     def test_sample_outside_the_image_is_refused(self):
         with self.assertRaises(ValueError):
