@@ -99,10 +99,13 @@ Sampled detection used one fixed colour range, which suits some maps and not oth
   pieces from the result. Without `strictness` the worker chooses: it tries 0.4, then 0.3, then 0.2,
   and keeps the first that finds enough wall, so a map with few thick walls still gets a result;
   a value the GM sets is used as given. Neither field needs a sample.
-- **The job data carries `tolerance?`, `strictness?` and `minLength?` beside `sample`.** The worker validates the same range
+- **`style?` (`"bright"` or `"dark"`)** limits automatic detection to light stone walls or to dark
+  ink walls; without it the worker tries both and keeps the better. On the Broken Span crop the dark
+  family follows shadows and scraps, and its raw length can outscore the stone walls.
+- **The job data carries `tolerance?`, `strictness?`, `minLength?` and `style?` beside `sample`.** The worker validates the same range
   (it trusts nothing the queue holds) and fails the job otherwise. The Walls step shows a colour-range
-  slider in the "Detect like this" tool, and strictness and shortest-wall sliders above Detect
-  walls; each request sends their values.
+  slider in the "Detect like this" tool, and a wall-colour choice with strictness and shortest-wall
+  sliders above Detect walls; each request sends their values.
 
 Automatic strictness starts at 40% (it was a fixed 30%): a run is kept only when that share of its
 edge lies along a contrasting outline. On the bundled maps it cuts the walls found on the snowy-cliff map from 147 to 81 and on the jungle map from 78 to 51,
