@@ -37,6 +37,11 @@ describe("map editor drafts (map-editor-drafts)", () => {
     expect(planDraftSave(room, withDetectedWalls(fresh(), detected, newId))).toEqual([]);
   });
 
+  it("counts a wall the detection found twice once", () => {
+    const twice = [{ a: { x: 1, y: 1 }, b: { x: 1, y: 9 } }, { a: { x: 1, y: 9 }, b: { x: 1, y: 1 } }];
+    expect(Object.keys(withDetectedWalls(fresh(), twice, newId).walls)).toHaveLength(1);
+  });
+
   it("clears with one command when every wall goes", () => {
     expect(planDraftSave(room, applyToDraft(fresh(), { type: "wall.clear" }, newId)!)).toEqual([{ type: "wall.clear" }]);
   });

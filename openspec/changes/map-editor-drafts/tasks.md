@@ -17,4 +17,4 @@
 ## 4. Verification
 
 - [x] 4.1 `npm run lint && npm run typecheck && npm test`.
-- [ ] 4.2 In the running app: draw fog and walls, check a player sees nothing; save, check they do; the Discard path.
+- [x] 4.2 In the running app: draw fog and walls, check a player sees nothing; save, check they do; the Discard path.

@@ -130,10 +130,14 @@ export function applyToDraft(draft: MapDraft, command: CommandInput, newId: () =
   }
 }
 
-/** Walls from a finished detection, as the draft's whole set of walls. */
+/** Walls from a finished detection, as the draft's whole set of walls; a wall found twice counts once. */
 export function withDetectedWalls(draft: MapDraft, detected: readonly { a: Point; b: Point }[], newId: () => string): MapDraft {
   const walls: Record<string, Wall> = {};
+  const seen = new Set<string>();
   for (const { a, b } of detected) {
+    const key = wallKey({ a, b });
+    if (seen.has(key)) continue;
+    seen.add(key);
     const id = newId();
     walls[id] = { id, a, b };
   }
