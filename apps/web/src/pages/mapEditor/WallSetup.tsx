@@ -18,7 +18,7 @@ const MODES: { key: CanvasMode; label: string; icon: typeof Eraser; needsDetecti
 
 const HINTS: Record<CanvasMode, string> = {
   draw: "Click to start a wall, click again to end it and start the next. Ends snap to grid corners and wall ends; hold Alt to place freely. Enter, Esc or right-click stops.",
-  erase: "Click a wall to remove it. Undo it from the activity log.",
+  erase: "Click a wall to remove it.",
   sample: "Click on a wall in the map: walls that look like it are detected across the whole map.",
   pan: "Drag to move around. The wheel or a pinch zooms; Space-drag or a two-finger drag pans in any mode.",
 };

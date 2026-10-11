@@ -2306,6 +2306,10 @@ dialog.modal.map-editor {
 }
 .map-editor-step[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .map-editor-draft { margin-left: auto; font-size: var(--fs-sm); color: var(--warn); }
+/* Unsaved walls or fog (map-editor-drafts): the note and its Save and Discard, at the header's end. */
+.map-editor-unsaved { margin-left: auto; display: inline-flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.map-editor-unsaved .map-editor-draft { margin-left: 0; }
+.map-editor-save-error { font-size: var(--fs-sm); }
 .map-editor-body { flex: 1; min-height: 0; overflow: auto; }
 .map-editor-split { height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 17rem; grid-template-rows: minmax(0, 1fr); gap: var(--space-2); }
 .map-editor-stage {

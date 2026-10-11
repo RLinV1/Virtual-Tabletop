@@ -168,7 +168,39 @@ describe("map editor in the GM panel (FR-GM-09, FR-GM-17)", () => {
         gridApplying={false} gridError={null} onReviewDeparture={() => {}}
       />,
     );
+    return fake;
   };
+
+  /** Opens Edit map on the Fog step and fogs the whole map, in the draft. */
+  const fogInDraft = () => {
+    fireEvent.click(screen.getByRole("button", { name: "Edit map" }));
+    const editor = screen.getByRole("dialog", { name: "Edit map" });
+    fireEvent.click(within(editor).getByRole("tab", { name: "4 · Fog" }));
+    fireEvent.click(within(editor).getByRole("button", { name: "Fog whole map" }));
+    return editor;
+  };
+
+  it("keeps walls and fog in a draft until Save changes (map-editor-drafts)", async () => {
+    const fake = mount(room());
+    const editor = fogInDraft();
+    await waitFor(() => expect(within(editor).getByText(/Unsaved changes/)).toBeTruthy());
+    expect(fake.commands).toEqual([]);
+    fireEvent.click(within(editor).getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(fake.commands).toEqual([
+      { type: "fog.add", region: { shape: "rect", from: { x: 0, y: 0 }, to: { x: 800, y: 600 } } },
+    ]));
+  });
+
+  it("asks before closing with unsaved changes, and Discard sends nothing (map-editor-drafts)", async () => {
+    const fake = mount(room());
+    const editor = fogInDraft();
+    await waitFor(() => expect(within(editor).getByText(/Unsaved changes/)).toBeTruthy());
+    fireEvent.click(within(editor).getByRole("button", { name: "Close" }));
+    const ask = await screen.findByRole("dialog", { name: "Save changes?" });
+    fireEvent.click(within(ask).getByRole("button", { name: "Discard" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit map" })).toBeNull());
+    expect(fake.commands).toEqual([]);
+  });
 
   it("opens the full-screen editor from Edit map and reaches the Walls and Fog steps", async () => {
     mount(room());

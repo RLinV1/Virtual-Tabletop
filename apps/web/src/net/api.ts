@@ -11,6 +11,7 @@ import {
   type EncounterSummary,
   type GridSpec,
   GridDetectionStatus,
+  DetectedWallsResponse,
   WallDetectionStatus,
   WallDetectionAvailability,
   type WallDetectionRequest,
@@ -227,6 +228,14 @@ export const api = {
       });
       if (!res.ok) throw await errorFrom(res);
       return res.blob();
+    },
+    /** The detected walls themselves, for the map editor's draft (map-editor-drafts). */
+    async detected(roomId: string, token: string, mapUrl: string): Promise<DetectedWallsResponse["walls"]> {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/wall-detection/walls?map=${encodeURIComponent(mapUrl)}`, {
+        headers: { authorization: `Bearer ${token}` }, cache: "no-store",
+      });
+      if (!res.ok) throw await errorFrom(res);
+      return DetectedWallsResponse.parse(await res.json()).walls;
     },
   },
 

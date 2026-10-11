@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { inactiveLabel, pendingDepartures, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
 import { api } from "../net/api";
 import { libraryAssetId } from "../net/builtinAssets";
@@ -15,6 +15,8 @@ import { LibraryPicker } from "./LibraryPicker";
 import { useGridDetection } from "./useGridDetection";
 import { FogSetup } from "./mapEditor/FogSetup";
 import { WallSetup } from "./mapEditor/WallSetup";
+import { draftConnection } from "./mapEditor/draftConnection";
+import { draftDirty, draftFrom, planDraftSave, type MapDraft } from "./mapEditor/mapDraft";
 import { prepCommand, prepDirty, startPrep, type MapPrep } from "./mapPrep";
 
 interface Props {
@@ -63,8 +65,10 @@ export function GmPanel({
         map={state.scene.map}
         wallCount={Object.keys(state.walls).length}
         gridApplying={gridApplying}
-        walls={() => <WallSetup connection={connection} state={state} token={token} />}
-        fog={() => <FogSetup connection={connection} state={state} />}
+        room={state}
+        connection={connection}
+        walls={(draftConnection, draftState) => <WallSetup connection={draftConnection} state={draftState} token={token} />}
+        fog={(draftConnection, draftState) => <FogSetup connection={draftConnection} state={draftState} />}
         grid={(close) => (
           <RoomGridEditor
             key={state.scene.map?.url ?? "no-map"}
@@ -165,10 +169,13 @@ function MapSection(props: {
   gridApplying: boolean;
   /** The live map's grid form; `close` is called after a successful apply or a cancel. */
   grid: (close: () => void) => ReactNode;
-  /** The Walls step: the wall canvas and its HUD. */
-  walls: () => ReactNode;
-  /** The Fog step: the fog canvas and its controls. */
-  fog: () => ReactNode;
+  /** The live room and its connection: the walls and fog draft starts from them and saves through them. */
+  room: RoomState;
+  connection: RoomConnection;
+  /** The Walls step, editing the draft through a connection that keeps wall commands in it. */
+  walls: (connection: RoomConnection, state: RoomState) => ReactNode;
+  /** The Fog step, the same for fog. */
+  fog: (connection: RoomConnection, state: RoomState) => ReactNode;
 }) {
   const [busy, setBusy] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -184,6 +191,53 @@ function MapSection(props: {
   const prepGeneration = useRef(0);
   /** Asking "Discard changes?" before throwing away an edited draft. */
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  /**
+   * Walls and fog as the editor shows them: a private draft of the room's, saved with Save changes
+   * (map-editor-drafts). Started from the room when the editor opens on a map, or the map changes.
+   */
+  const [draft, setDraft] = useState<MapDraft | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  /** Asking "Save changes?" before closing with unsaved walls or fog. */
+  const [confirmSave, setConfirmSave] = useState(false);
+  const liveMapUrl = props.map?.url ?? null;
+  useEffect(() => {
+    if (!editorOpen || !liveMapUrl) return setDraft(null);
+    setDraft((current) => (current?.mapUrl === liveMapUrl ? current : draftFrom(props.room)));
+    // Only opening the editor or a new map restarts the draft; room updates must not overwrite it.
+  }, [editorOpen, liveMapUrl]);
+  const draftEdits = useMemo(
+    () => draftConnection(
+      props.connection,
+      (change) => setDraft((current) => (current ? change(current) : current)),
+      (mapUrl) => api.walls.detected(props.roomId, props.token, mapUrl),
+    ),
+    [props.connection, props.roomId, props.token],
+  );
+  const draftState: RoomState = draft ? { ...props.room, walls: draft.walls, fog: draft.fog } : props.room;
+  const unsaved = draft !== null && draftDirty(props.room, draft);
+  /** Sends the draft's difference, one command at a time; stops at the first refusal. */
+  const saveDraft = async (): Promise<boolean> => {
+    if (!draft || saving) return false;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      for (const command of planDraftSave(props.room, draft)) {
+        const result = await props.connection.command(command);
+        if (!result.ok) {
+          setSaveError(result.message);
+          return false;
+        }
+      }
+      return true;
+    } finally {
+      setSaving(false);
+    }
+  };
+  const discardDraft = () => {
+    setDraft(draftFrom(props.room));
+    setSaveError(null);
+  };
   const discardPrep = () => {
     setConfirmDiscard(false);
     setPrep(null);
@@ -191,13 +245,16 @@ function MapSection(props: {
   };
   const closeEditor = () => {
     discardPrep();
+    setConfirmSave(false);
+    setSaveError(null);
     setEditorOpen(false);
     props.onGridClose();
   };
   /** Every way out of the editor comes here: an edited draft asks first. */
   const requestClose = () => {
-    if (applyingMap || props.gridApplying) return;
+    if (applyingMap || props.gridApplying || saving) return;
     if (prep && prepDirty(prep)) setConfirmDiscard(true);
+    else if (unsaved) setConfirmSave(true);
     else closeEditor();
   };
   const applyPrep = async () => {
@@ -327,6 +384,16 @@ function MapSection(props: {
               </button>
             ))}
             {prep && <span className="map-editor-draft">Draft map: only you see it until Apply map</span>}
+            {!prep && unsaved && (
+              <span className="map-editor-unsaved">
+                <span className="map-editor-draft">Unsaved changes: only you see them</span>
+                <button type="button" className="secondary small" disabled={saving} onClick={discardDraft}>Discard</button>
+                <button type="button" className="small" disabled={saving} onClick={() => void saveDraft()}>
+                  {saving ? "Saving…" : "Save changes"}
+                </button>
+              </span>
+            )}
+            {saveError && <span role="alert" className="error map-editor-save-error">{saveError}</span>}
           </nav>
         )}
       >
@@ -393,10 +460,10 @@ function MapSection(props: {
             ))}
             {step === "walls" && (prep
               ? <p className="map-editor-empty">Apply the draft map in the Grid step first, then set up its walls here.</p>
-              : props.walls())}
+              : props.walls(draftEdits, draftState))}
             {step === "fog" && (prep
               ? <p className="map-editor-empty">Apply the draft map in the Grid step first, then set up its fog here.</p>
-              : props.fog())}
+              : props.fog(draftEdits, draftState))}
           </div>
         </div>
       </Modal>
@@ -413,6 +480,19 @@ function MapSection(props: {
           {pickError && <p role="alert" className="error">{pickError}</p>}
         </Modal>
       )}
+      <Modal open={confirmSave} title="Save changes?" onClose={() => setConfirmSave(false)}>
+        <div className="stack">
+          <p>You changed this map's walls or fog. Save them for the table, or discard them?</p>
+          {saveError && <p role="alert" className="error">{saveError}</p>}
+          <div className="row button-row">
+            <button type="button" disabled={saving} onClick={async () => { if (await saveDraft()) closeEditor(); }}>
+              {saving ? "Saving…" : "Save"}
+            </button>
+            <button type="button" className="secondary" disabled={saving} onClick={closeEditor}>Discard</button>
+            <button type="button" className="secondary" disabled={saving} onClick={() => setConfirmSave(false)}>Keep editing</button>
+          </div>
+        </div>
+      </Modal>
       <Modal open={confirmDiscard} title="Discard this map?" onClose={() => setConfirmDiscard(false)}>
         <div className="stack">
           <p>You changed the grid for this map. Discard the map and your changes? The table still has its current map.</p>
