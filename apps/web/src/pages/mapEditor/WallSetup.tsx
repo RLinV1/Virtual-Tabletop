@@ -40,7 +40,8 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
   // The detected segments waiting to be applied, and the ones the GM has erased from them (by index).
   const [candidates, setCandidates] = useState<{ mapUrl: string; walls: DetectedWall[]; erased: ReadonlySet<string> } | null>(null);
   const [tolerance, setTolerance] = useState(SAMPLE_TOLERANCE_DEFAULT);
-  const [strictness, setStrictness] = useState(STRICTNESS_DEFAULT);
+  // null: automatic, the detector's own choice per map; a number is the GM's fixed setting.
+  const [strictness, setStrictness] = useState<number | null>(null);
   const [minLength, setMinLength] = useState(0);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
   const status = detection.mapUrl === mapUrl ? detection.status : null;
@@ -106,7 +107,7 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
   /** The detection request: the sliders' values, and the clicked wall's point when there is one. */
   const request = (sample?: Point): WallDetectionRequest => ({
     ...(sample && { sample, tolerance }),
-    strictness,
+    ...(strictness !== null && { strictness }),
     minLength,
   });
 
@@ -231,16 +232,17 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
           {canDetect && (
             <div className="stack">
               <label className="stack">
-                <span className="small-print">Strictness: {strictness.toFixed(2)}</span>
+                <span className="small-print">Strictness: {strictness === null ? "automatic" : strictness.toFixed(2)}</span>
                 <input
                   type="range"
                   min={STRICTNESS_MIN}
                   max={STRICTNESS_MAX}
                   step={0.05}
-                  value={strictness}
+                  value={strictness ?? STRICTNESS_DEFAULT}
                   onChange={(event) => setStrictness(Number(event.target.value))}
                 />
                 <span className="muted small-print">Higher keeps only walls with a clear drawn edge: less terrain, but it can miss faint walls.</span>
+                {strictness !== null && <button type="button" className="secondary" onClick={() => setStrictness(null)}>Back to automatic</button>}
               </label>
               <label className="stack">
                 <span className="small-print">Shortest wall: {minLength === 0 ? "any" : `${minLength} ${minLength === 1 ? "cell" : "cells"}`}</span>

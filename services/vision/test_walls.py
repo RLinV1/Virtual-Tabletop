@@ -1,6 +1,7 @@
 """Wall extraction on labelled synthetic maps (FR-GM-11, ADR 0029)."""
 
 import base64
+import os
 import unittest
 
 import cv2
@@ -162,6 +163,15 @@ class WallDetectionTest(unittest.TestCase):
         self.assertLessEqual(len(long_only), len(default))
         self.assertTrue(all(np.hypot(w["b"]["x"] - w["a"]["x"], w["b"]["y"] - w["a"]["y"]) >= 6 * CELL * 0.95 for w in long_only))
         self.assertLessEqual(len(detect_walls(img, CELL, None, 30, 0.6, 0)["walls"]), len(default))
+
+    def test_automatic_strictness_relaxes_for_a_sparse_map_but_a_fixed_one_does_not(self):
+        # The Broken Span crop has few, thick walls: the strictest outline share finds none of them.
+        path = os.path.join(os.path.dirname(__file__), "..", "..", "apps", "web", "public", "img", "home", "broken-span.webp")
+        if not os.path.exists(path):
+            self.skipTest("bundled map not present")
+        img = cv2.imread(path)
+        self.assertTrue(detect_walls(img, 70)["walls"])
+        self.assertEqual(detect_walls(img, 70, None, 30, 0.4)["walls"], [])
 
     def test_sample_outside_the_image_is_refused(self):
         with self.assertRaises(ValueError):

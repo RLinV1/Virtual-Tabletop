@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { toGridDraft } from "../src/pages/gridDraft";
-import { SAMPLE_TOLERANCE_DEFAULT, STRICTNESS_DEFAULT, type RoomState, type Wall } from "@vtt/shared";
+import { SAMPLE_TOLERANCE_DEFAULT, type RoomState, type Wall } from "@vtt/shared";
 import { api } from "../src/net/api";
 import { GmPanel } from "../src/pages/GmPanel";
 import { WallSetup } from "../src/pages/mapEditor/WallSetup";
@@ -119,17 +119,23 @@ describe("map editor walls (FR-GM-09, FR-GM-11)", () => {
     await waitFor(() => expect((tool("Detect like this") as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(tool("Detect like this"));
     click(canvas(), { x: 321, y: 123 });
-    await waitFor(() => expect(detect).toHaveBeenCalledWith("r1", TOKEN, { sample: { x: 321, y: 123 }, tolerance: SAMPLE_TOLERANCE_DEFAULT, strictness: STRICTNESS_DEFAULT, minLength: 0 }));
+    await waitFor(() => expect(detect).toHaveBeenCalledWith("r1", TOKEN, { sample: { x: 321, y: 123 }, tolerance: SAMPLE_TOLERANCE_DEFAULT, minLength: 0 }));
   });
 
   it("sends the strictness and shortest wall chosen on the sliders with Detect walls", async () => {
     const detect = vi.spyOn(api.walls, "detect").mockResolvedValue({ status: "queued" });
-    mount();
+    const fake = mount();
     await waitFor(() => expect((screen.getByRole("button", { name: "Detect walls" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.change(screen.getByLabelText(/Strictness/), { target: { value: "0.5" } });
     fireEvent.change(screen.getByLabelText(/Shortest wall/), { target: { value: "2" } });
     fireEvent.click(screen.getByRole("button", { name: "Detect walls" }));
     await waitFor(() => expect(detect).toHaveBeenCalledWith("r1", TOKEN, { strictness: 0.5, minLength: 2 }));
+    // Back to automatic leaves strictness out of the request again (once the first job has ended).
+    fake.notify({ status: "failed", message: "no" });
+    fireEvent.click(screen.getByRole("button", { name: "Back to automatic" }));
+    await waitFor(() => expect((screen.getByRole("button", { name: /Detect (walls|again)/ }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: /Detect (walls|again)/ }));
+    await waitFor(() => expect(detect).toHaveBeenLastCalledWith("r1", TOKEN, { minLength: 2 }));
   });
 
   it("sends the colour range chosen on the slider with the click", async () => {

@@ -20,7 +20,7 @@ import time
 from bullmq import Worker
 import redis.asyncio as aioredis
 
-from walls import MAX_BYTES, OUTLINE_SHARE, SAMPLE_TOLERANCE, analyze
+from walls import MAX_BYTES, SAMPLE_TOLERANCE, analyze
 
 QUEUE = "wall-detection"
 # The app server reads this key to know a worker is up (map-editor D4); it must match
@@ -59,15 +59,15 @@ async def process(job, _token=None) -> dict:
     tolerance = data.get("tolerance", SAMPLE_TOLERANCE)
     if isinstance(tolerance, bool) or not isinstance(tolerance, (int, float)) or not MIN_TOLERANCE <= tolerance <= MAX_TOLERANCE:
         raise ValueError("Invalid tolerance")
-    strictness = data.get("strictness", OUTLINE_SHARE)
-    if isinstance(strictness, bool) or not isinstance(strictness, (int, float)) or not MIN_STRICTNESS <= strictness <= MAX_STRICTNESS:
+    strictness = data.get("strictness")
+    if strictness is not None and (isinstance(strictness, bool) or not isinstance(strictness, (int, float)) or not MIN_STRICTNESS <= strictness <= MAX_STRICTNESS):
         raise ValueError("Invalid strictness")
     min_length = data.get("minLength", 0)
     if isinstance(min_length, bool) or not isinstance(min_length, (int, float)) or not 0 <= min_length <= MAX_MIN_LENGTH:
         raise ValueError("Invalid minimum length")
     started = time.monotonic()
     # OpenCV releases the GIL, so a thread keeps the worker's lock renewals running meanwhile.
-    result = await asyncio.to_thread(analyze, image, width, height, cell, sample, float(tolerance), float(strictness), float(min_length))
+    result = await asyncio.to_thread(analyze, image, width, height, cell, sample, float(tolerance), None if strictness is None else float(strictness), float(min_length))
     # Sizes and timings only: never image contents or results.
     print(f"[vision] job {job.id}: {width}x{height}, {len(result['walls'])} walls in {time.monotonic() - started:.1f}s", flush=True)
     return result
