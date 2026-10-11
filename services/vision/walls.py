@@ -44,6 +44,8 @@ BAND_CELLS = (0.9, 1.5)
 SAMPLE_TOLERANCE = 30.0
 # Share of a run's edge that must follow a contrasting outline; higher drops more terrain, and some walls.
 OUTLINE_SHARE = 0.4
+# Automatic strictness: the first share cuts terrain on rich maps; sparser ones (few, thick walls) need a lower one.
+AUTO_SHARES = (OUTLINE_SHARE, 0.3, 0.2)
 # A sampled colour this dark (Lab L, 8-bit) is ink: its strokes need no separate outline.
 DARK_INK_L = 80
 
@@ -417,33 +419,39 @@ def _working_cell(width: int, height: int, cell: float, scale: float) -> float:
 
 
 def detect_walls(image: np.ndarray, cell: float = 0.0, sample: dict = None, tolerance: float = SAMPLE_TOLERANCE,
-                 strictness: float = OUTLINE_SHARE, min_length: float = 0.0) -> dict:
+                 strictness: float = None, min_length: float = 0.0) -> dict:
     """Wall segments in the image's own pixels. `cell` is the grid's cell size in those pixels, or 0.
 
     With `sample` ({x, y} in image pixels, on a wall the GM clicked) the mask comes from that
     wall's colour within `tolerance`; without it, the bright and dark styles are both tried and the
-    better one wins. `strictness` is the share of a run's edge that must follow an outline, and
-    `min_length` (in cells) drops shorter walls from the result.
+    better one wins. `strictness` is the share of a run's edge that must follow an outline: fixed
+    when given, otherwise the strictest of AUTO_SHARES that finds enough wall. `min_length` (in
+    cells) drops shorter walls from the result.
     """
     height, width = image.shape[:2]
     scale = min(1.0, WORK_EDGE / max(width, height))
     work = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA) if scale < 1 else image
     working_cell = _working_cell(width, height, cell, scale)
     gray = cv2.bilateralFilter(cv2.cvtColor(work, cv2.COLOR_BGR2GRAY), 7, 25, 5)
+    needed = 2 if sample else 4
     best = ("none", [], 0.0)
-    candidates = (
-        [("sample", _sampled_mask(work, gray, working_cell, (sample["x"] * scale, sample["y"] * scale), tolerance, strictness), working_cell)]
-        if sample else _wall_masks(gray, working_cell, strictness)
-    )
-    for name, mask, c in candidates:
-        segments = _segments_for(mask, c)
-        score = _score(segments, c)
-        if score > best[2]:
-            best = (name, segments, score)
+    for share in (AUTO_SHARES if strictness is None else (strictness,)):
+        candidates = (
+            [("sample", _sampled_mask(work, gray, working_cell, (sample["x"] * scale, sample["y"] * scale), tolerance, share), working_cell)]
+            if sample else _wall_masks(gray, working_cell, share)
+        )
+        best = ("none", [], 0.0)
+        for name, mask, c in candidates:
+            segments = _segments_for(mask, c)
+            score = _score(segments, c)
+            if score > best[2]:
+                best = (name, segments, score)
+        if best[2] >= needed:
+            break
     name, segments, score = best
     # A handful of short pieces is noise, not a wall layout. A sample says walls exist, so it
     # keeps whatever long run it found.
-    if score < (2 if sample else 4):
+    if score < needed:
         segments = []
     segments = [s for s in segments if _length(s) >= min_length * working_cell]
     segments.sort(key=_length, reverse=True)
@@ -494,7 +502,7 @@ def _detected_cell(data: bytes, width: int, height: int) -> float:
 
 
 def analyze(data: bytes, width: int, height: int, cell: float = 0.0, sample: dict = None,
-            tolerance: float = SAMPLE_TOLERANCE, strictness: float = OUTLINE_SHARE, min_length: float = 0.0) -> dict:
+            tolerance: float = SAMPLE_TOLERANCE, strictness: float = None, min_length: float = 0.0) -> dict:
     """One job: decode, detect, render. The result shape is `WallDetectionResult` in packages/shared.
 
     `cell` is the room grid's cell size; without one, the grid detector's suggestion is used.

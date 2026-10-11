@@ -3,7 +3,7 @@ import { TokenAttacks } from "./attackPresets";
 import { ConditionId, EMPTY_STATS, TokenStats } from "./conditions";
 import { AttackKind, DiceVisibility, MAX_ATTACK_LABEL, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
-import { AreaShape, Id, MapImage, MAX_CHAT_LENGTH, MAX_FOG_POINTS } from "./state";
+import { AreaShape, Id, MapImage, MAX_CHAT_LENGTH, MAX_FOG_POINTS, MAX_WALLS } from "./state";
 
 /** Most walls one `wall.remove` names (ADR 0029), keeping the command under the socket limit. */
 export const MAX_WALLS_PER_REMOVE = 500;
@@ -290,10 +290,16 @@ export const Command = z.discriminatedUnion("type", [
   /**
    * GM applies the walls detected for the room's current map (FR-GM-11, ADR 0029), replacing any
    * walls already there. The segments come from the server's validated result, never the client.
+   * `exclude` names segments of that result the GM erased on the preview: `indices` into it, and
+   * `of`, how many it had, so a list made against an older result is refused rather than misapplied.
    */
   z.object({
     type: z.literal("wall.applyDetected"),
     mapUrl: z.string().min(1).max(2048),
+    exclude: z.object({
+      of: z.number().int().min(1).max(MAX_WALLS),
+      indices: z.array(z.number().int().min(0).max(MAX_WALLS - 1)).max(MAX_WALLS),
+    }).strict().optional(),
   }).strict(),
   /** GM draws walls by hand (wall-editing, ADR 0029). Board coordinates (invariant 8). */
   z.object({

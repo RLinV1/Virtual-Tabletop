@@ -639,7 +639,13 @@ export function decide(
       if (!detected) return reject("invalid", "No detected walls are ready for this map.");
       if (detected.length === 0) return reject("invalid", "No walls were detected on this map.");
       if (detected.length > MAX_WALLS || !wallsFitMap(detected, map)) return reject("invalid", "The detected walls don't fit this map.");
-      const walls: Wall[] = detected.map((w) => ({ id: ctx.newId(), a: w.a, b: w.b }));
+      const { exclude } = command;
+      if (exclude && exclude.of !== detected.length) return reject("invalid", "The detected walls changed. Check the preview again.");
+      const erased = new Set(exclude?.indices);
+      if (exclude && [...erased].some((i) => i >= detected.length)) return reject("invalid", "The detected walls changed. Check the preview again.");
+      const kept = detected.filter((_, i) => !erased.has(i));
+      if (kept.length === 0) return reject("invalid", "Every detected wall was erased.");
+      const walls: Wall[] = kept.map((w) => ({ id: ctx.newId(), a: w.a, b: w.b }));
       // Applying replaces: one action, so one undo puts the old walls back.
       return accept(...removeAllWalls(state), { type: "WallsAdded", walls });
     }

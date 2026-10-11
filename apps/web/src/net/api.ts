@@ -13,6 +13,7 @@ import {
   GridDetectionStatus,
   DetectedWallsResponse,
   WallDetectionStatus,
+  type DetectedWall,
   WallDetectionAvailability,
   type WallDetectionRequest,
   type InviteSeatResponse,
@@ -221,6 +222,14 @@ export const api = {
       if (!res.ok) throw await errorFrom(res);
       return WallDetectionStatus.parse(await res.json());
     },
+    /** The detected segments of a finished analysis, for erasing false ones before applying. */
+    async detected(roomId: string, token: string, mapUrl: string, signal?: AbortSignal): Promise<DetectedWall[]> {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/wall-detection/walls?map=${encodeURIComponent(mapUrl)}`, {
+        signal, cache: "no-store", headers: { authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw await errorFrom(res);
+      return DetectedWallsResponse.parse(await res.json()).walls;
+    },
     /** The rendered preview, fetched with the GM's credential (an <img> can't send it). */
     async preview(roomId: string, token: string, mapUrl: string, signal?: AbortSignal): Promise<Blob> {
       const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/wall-detection/preview?map=${encodeURIComponent(mapUrl)}`, {
@@ -228,14 +237,6 @@ export const api = {
       });
       if (!res.ok) throw await errorFrom(res);
       return res.blob();
-    },
-    /** The detected walls themselves, for the map editor's draft (map-editor-drafts). */
-    async detected(roomId: string, token: string, mapUrl: string): Promise<DetectedWallsResponse["walls"]> {
-      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/wall-detection/walls?map=${encodeURIComponent(mapUrl)}`, {
-        headers: { authorization: `Bearer ${token}` }, cache: "no-store",
-      });
-      if (!res.ok) throw await errorFrom(res);
-      return DetectedWallsResponse.parse(await res.json()).walls;
     },
   },
 

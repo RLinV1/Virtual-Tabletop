@@ -106,7 +106,12 @@ describe("automatic wall detection through the queue (FR-GM-11, ADR 0029)", () =
     expect(preview.headers.get("content-type")).toContain("image/jpeg");
     expect(Buffer.from(await preview.arrayBuffer()).toString()).toBe("preview-bytes");
 
-    // Players get neither the notice, the status nor the preview.
+    const listed = await api(room.guestToken, `/api/rooms/${room.roomId}/wall-detection/walls?map=${encodeURIComponent(url)}`);
+    expect(listed.status).toBe(200);
+    expect(await listed.json()).toEqual({ walls: [WALL] });
+
+    // Players get neither the notice, the status, the preview nor the segments.
+    expect((await api(playerCreds.guestToken, `/api/rooms/${room.roomId}/wall-detection/walls?map=${encodeURIComponent(url)}`)).status).toBe(403);
     expect(player.rawLog.join(" ")).not.toContain("wallDetection");
     expect((await statusOf(playerCreds.guestToken, room.roomId, url)).code).toBe(403);
     expect((await api(playerCreds.guestToken, `/api/rooms/${room.roomId}/wall-detection/preview?map=${encodeURIComponent(url)}`)).status).toBe(403);

@@ -93,30 +93,44 @@ Sampled detection used one fixed colour range, which suits some maps and not oth
   previous fixed value). It is valid only with `sample`; a request with `tolerance` alone, or one
   outside the range, is refused with 400. Old clients that send no tolerance behave as before.
   The shared constants are `SAMPLE_TOLERANCE_MIN`, `_MAX` and `_DEFAULT`.
-- **`strictness?` (0.2-0.6, default 0.4) and `minLength?` (0-6 cells, default 0)** apply to
+- **`strictness?` (0.2-0.6) and `minLength?` (0-6 cells, default 0)** apply to
   automatic and sampled detection alike. Strictness is the share of a run's edge that must follow
   a contrasting outline, the threshold that decides terrain from wall; minimum length drops short
-  pieces from the result. At their defaults the output is unchanged. Neither needs a sample.
+  pieces from the result. Without `strictness` the worker chooses: it tries 0.4, then 0.3, then 0.2,
+  and keeps the first that finds enough wall, so a map with few thick walls still gets a result;
+  a value the GM sets is used as given. Neither field needs a sample.
 - **The job data carries `tolerance?`, `strictness?` and `minLength?` beside `sample`.** The worker validates the same range
   (it trusts nothing the queue holds) and fails the job otherwise. The Walls step shows a colour-range
   slider in the "Detect like this" tool, and strictness and shortest-wall sliders above Detect
   walls; each request sends their values.
 
-The default strictness is 40% (was a fixed 30%): a run is kept only when that share of its
+Automatic strictness starts at 40% (it was a fixed 30%): a run is kept only when that share of its
 edge lies along a contrasting outline. On the bundled maps it cuts the walls found on the snowy-cliff map from 147 to 81 and on the jungle map from 78 to 51,
 mostly cliff and vine runs, and leaves the hero map's score unchanged. The worker's weld and thinning
-steps were also rewritten to run in linear time, with identical output, so a map now takes under 3 s.
+steps were also rewritten to run in linear time, with identical output, so a map now takes under 5 s.
 
-## Amendment: detected walls in the editor's draft (`openspec/changes/map-editor-drafts`)
+## Amendment: erasing detected walls before applying (`feat/auto-wall-detection`)
+
+False detections used to be removable only after applying, one command per wall. The GM can now
+leave them out first:
+
+- **`GET /api/rooms/:roomId/wall-detection/walls?map=`** (GM only, like the preview) returns
+  `{ walls }`, the validated segments of the latest result, in the order `decide` will read them.
+  Players get 403: the segments are as GM-only as the walls they become.
+- **`wall.applyDetected` gains `exclude?: { of, indices }`.** `indices` are positions in that list
+  and `of` is its length when the GM looked. `decide` refuses the command if `of` differs from the
+  server's current result, if an index is out of range, or if nothing would be left, so an
+  exclusion list made against an older result is never applied to a newer one. The segments still
+  come from the server's result, never the client; the client only chooses which to skip. The
+  command stays one action, so one undo restores the walls it replaced.
+- **The Walls step draws the detected walls as candidates** over the map. With the Erase tool a
+  click on a candidate toggles it out of (or back into) the pending result; a click on a wall
+  already in the room still removes that wall. Apply shows the remaining count.
+
+## Amendment: walls and fog as an editor draft (`openspec/changes/map-editor-drafts`)
 
 The map editor now edits walls and fog as a private draft and saves the difference with existing
-commands. To let the GM edit a detection before saving, the GM's browser needs the detected walls
-themselves, not only their count and preview:
-
-- **`GET /api/rooms/:roomId/wall-detection/walls?map=`** returns `DetectedWallsResponse`,
-  `{ walls: DetectedWall[] }`: the server-validated walls `wall.applyDetected` would commit for the
-  room's current map. GM only (403 otherwise), 404 when there is no finished result for that map.
-  Like the preview, these are GM-only data sent only to the GM.
-
-No command, event or state changes. `wall.applyDetected` remains; the editor saves detected walls
-with `wall.add` instead, so they can be edited first.
+commands (new fog, wall removals, wall additions in batches, then fog removals, so fog hides
+before it reveals). Apply in the Walls step, with its `exclude` list, loads the remaining detected
+walls from the endpoint above into the draft instead of sending `wall.applyDetected`; Save then
+sends them with `wall.add`. No command, event or state changes beyond the amendment above.

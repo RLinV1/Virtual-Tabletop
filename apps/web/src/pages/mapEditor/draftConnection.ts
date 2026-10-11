@@ -24,7 +24,13 @@ export function draftConnection(
     if (input.type === "wall.applyDetected") {
       try {
         const walls = await detectedWalls(input.mapUrl);
-        update((draft) => withDetectedWalls(draft, walls, newId));
+        // The walls the GM erased on the preview stay out, as the room's `wall.applyDetected` would leave them.
+        const { exclude } = input;
+        if (exclude && exclude.of !== walls.length) {
+          return { ok: false, code: "invalid", message: "The detected walls changed. Check the preview again." };
+        }
+        const erased = new Set(exclude?.indices);
+        update((draft) => withDetectedWalls(draft, walls.filter((_, i) => !erased.has(i)), newId));
         return ok;
       } catch (err) {
         return { ok: false, code: "invalid", message: err instanceof Error ? err.message : "Couldn't load the detected walls." };

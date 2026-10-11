@@ -9,6 +9,7 @@ import {
   DirectUploadFields,
   GridDetectionStatus,
   WallDetectionRequest,
+  type DetectedWallsResponse,
   JoinRoomRequest,
   HistoryQuery,
   ROOM_FULL,
@@ -28,7 +29,6 @@ import {
   type TableState,
   tableOf,
   type CreateRoomResponse,
-  type DetectedWallsResponse,
   type InviteResponse,
   type JoinRoomResponse,
   type ResolvedEncounter,
@@ -293,6 +293,20 @@ export function registerRoutes(
     })().catch(internalError(req, res));
   });
 
+  /** The detected segments themselves, for the GM to erase false ones on the preview before applying. */
+  app.get("/api/rooms/:roomId/wall-detection/walls", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void (async () => {
+      if (!(await isRoomGm(req, req.params.roomId))) return res.status(403).json({ error: "GM only" });
+      const query = MapQuery.safeParse(req.query);
+      if (!query.success) return res.status(400).json({ error: "Name the map" });
+      const detected = walls.detectedWalls(req.params.roomId, query.data.map);
+      if (!detected) return res.status(404).json({ error: "No wall detection for that map" });
+      const body: DetectedWallsResponse = { walls: [...detected] };
+      return res.json(body);
+    })().catch(internalError(req, res));
+  });
+
   app.get("/api/rooms/:roomId/wall-detection/preview", (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     void (async () => {
@@ -303,20 +317,6 @@ export function registerRoutes(
       if (!result) return res.status(404).json({ error: "No wall detection for that map" });
       res.type(result.preview.contentType);
       return res.send(Buffer.from(result.preview.data, "base64"));
-    })().catch(internalError(req, res));
-  });
-
-  /** The detected walls themselves, for the GM's editor draft (map-editor-drafts, ADR 0029). GM only. */
-  app.get("/api/rooms/:roomId/wall-detection/walls", (req, res) => {
-    res.setHeader("Cache-Control", "no-store");
-    void (async () => {
-      if (!(await isRoomGm(req, req.params.roomId))) return res.status(403).json({ error: "GM only" });
-      const query = MapQuery.safeParse(req.query);
-      if (!query.success) return res.status(400).json({ error: "Name the map" });
-      const detected = walls.detectedWalls(req.params.roomId, query.data.map);
-      if (!detected) return res.status(404).json({ error: "No wall detection for that map" });
-      const response: DetectedWallsResponse = { walls: [...detected] };
-      return res.json(response);
     })().catch(internalError(req, res));
   });
 

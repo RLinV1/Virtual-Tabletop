@@ -32,8 +32,8 @@ export const WallDetectionResult = z.object({
 export type WallDetectionResult = z.infer<typeof WallDetectionResult>;
 
 /**
- * The detected walls themselves, for the GM's map editor draft (map-editor-drafts, ADR 0029):
- * what `wall.applyDetected` would commit, so the GM can edit them before saving. GM only.
+ * The segments of a finished detection, GM only (ADR 0029): the preview's erasable walls, which
+ * `wall.applyDetected` excludes by index into, and the walls the map editor loads into its draft.
  */
 export const DetectedWallsResponse = z.object({ walls: z.array(DetectedWall).max(MAX_WALLS) }).strict();
 export type DetectedWallsResponse = z.infer<typeof DetectedWallsResponse>;
