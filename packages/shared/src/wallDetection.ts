@@ -53,8 +53,12 @@ export const SAMPLE_TOLERANCE_DEFAULT = 30;
 export const STRICTNESS_MIN = 0.2;
 export const STRICTNESS_MAX = 0.6;
 export const STRICTNESS_DEFAULT = 0.4;
-/** Which kind of wall automatic detection looks for: raised light stone, or dark ink. Omitted: try both and keep the better. */
-export const WallStyle = z.enum(["bright", "dark"]);
+/**
+ * Which kind of wall automatic detection looks for: raised light stone, dark ink, or the inked
+ * outlines of buildings, caves and rooms (auto-wall's contour pipeline, ADR 0029). Omitted: try
+ * light and dark and keep the better, then the outlines if they find almost nothing.
+ */
+export const WallStyle = z.enum(["bright", "dark", "outlined"]);
 export type WallStyle = z.infer<typeof WallStyle>;
 
 /** Longest "shortest wall" the GM may ask for, in grid cells. 0 keeps everything the detector finds. */

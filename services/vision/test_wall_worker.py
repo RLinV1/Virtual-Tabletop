@@ -38,6 +38,7 @@ class WallWorkerTest(unittest.TestCase):
                 asyncio.run(process(job(**common, tolerance=bad)))
         self.assertTrue(asyncio.run(process(job(**common, strictness=0.5, minLength=1)))["walls"])
         self.assertTrue(asyncio.run(process(job(**common, style="dark")))["walls"])
+        self.assertIsInstance(asyncio.run(process(job(**common, style="outlined")))["walls"], list)
         with self.assertRaises(ValueError):
             asyncio.run(process(job(**common, style="glass")))
         for field, bad in (("strictness", 0.9), ("strictness", "x"), ("minLength", -1), ("minLength", 9), ("minLength", True)):

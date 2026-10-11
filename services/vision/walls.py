@@ -17,7 +17,10 @@ DimitroffVodka/foundry-auto-wall, both MIT) and standard floor-plan wall extract
    hatching (short, closely spaced parallel pieces), slivers, and short scraps not joined to a
    long run are dropped.
 
-Both styles are tried and the one with more long straight wall wins. The result is a suggestion:
+Both styles are tried and the one with more long straight wall wins. Maps drawn in inked
+outlines (buildings, caves, rooms in a dark line) are better served by auto-wall's contour
+pipeline in outlines.py: the "outlined" style uses it, and automatic detection falls back to it
+when the stone search finds little and the outlines find far more. The result is a suggestion:
 the GM reviews it on the rendered preview before applying (ADR 0029). Coordinates returned are
 original image pixels, the room's board coordinates (invariant 8).
 """
@@ -50,6 +53,10 @@ AUTO_SHARES = (OUTLINE_SHARE, 0.3, 0.2)
 STRICT_PASS_NEEDED = 2
 # A sampled colour this dark (Lab L, 8-bit) is ink: its strokes need no separate outline.
 DARK_INK_L = 80
+# Automatic detection that finds less wall than this, in cells, tries the inked-outline pipeline too,
+# and takes its result only when it finds this many times as much wall: a sparse stone map keeps its few walls.
+OUTLINE_FALLBACK_CELLS = 20
+OUTLINE_FALLBACK_GAIN = 4
 
 
 def decode(data: bytes, width: int, height: int) -> np.ndarray:
@@ -431,8 +438,12 @@ def detect_walls(image: np.ndarray, cell: float = 0.0, sample: dict = None, tole
     better one wins. `strictness` is the share of a run's edge that must follow an outline: fixed
     when given, otherwise the strictest of AUTO_SHARES that finds enough wall. `min_length` (in
     cells) drops shorter walls from the result. `style` ("bright" or "dark") restricts automatic
-    detection to light stone walls or dark ink walls; None tries both.
+    detection to light stone walls or dark ink walls; "outlined" uses auto-wall's contour pipeline
+    (outlines.py); None tries bright and dark, then the outlines when they find almost nothing.
     """
+    if style == "outlined" and not sample:
+        from outlines import detect_outlines
+        return detect_outlines(image, cell, min_length)
     height, width = image.shape[:2]
     scale = min(1.0, WORK_EDGE / max(width, height))
     work = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA) if scale < 1 else image
@@ -461,6 +472,13 @@ def detect_walls(image: np.ndarray, cell: float = 0.0, sample: dict = None, tole
     if score < bar:
         segments = []
     segments = [s for s in segments if _length(s) >= min_length * working_cell]
+    found = sum(map(_length, segments)) / scale
+    if style is None and not sample and found < OUTLINE_FALLBACK_CELLS * working_cell / scale:
+        from outlines import detect_outlines
+        outlined = detect_outlines(image, cell, min_length)
+        outline_length = sum(math.hypot(w["b"]["x"] - w["a"]["x"], w["b"]["y"] - w["a"]["y"]) for w in outlined["walls"])
+        if outline_length >= OUTLINE_FALLBACK_GAIN * found and outlined["walls"]:
+            return outlined
     segments.sort(key=_length, reverse=True)
     walls = []
     for x1, y1, x2, y2 in segments[:MAX_WALLS]:
