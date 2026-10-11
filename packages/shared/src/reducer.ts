@@ -245,6 +245,12 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
       return { ...state, walls };
     }
 
+    case "PortalChanged": {
+      const wall = required(state.walls[event.wallId], event);
+      const { portal: _previous, ...plain } = wall;
+      return { ...state, walls: { ...state.walls, [wall.id]: event.to ? { ...plain, portal: event.to } : plain } };
+    }
+
     // Its compensating events already restored the values; `reduce` updates the history.
     case "ActionUndone":
       return state;

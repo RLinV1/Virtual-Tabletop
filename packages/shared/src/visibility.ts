@@ -1,7 +1,8 @@
 import type { AttackSide, DiceRoll } from "./dice";
 import type { CommittedEvent } from "./events";
 import { pointInPolygon, type Point } from "./geometry";
-import type { AreaTemplate, Initiative, Participant, RoomState, Token } from "./state";
+import { wallMidpoint } from "./portals";
+import type { AreaTemplate, Initiative, Participant, RoomState, Token, Wall } from "./state";
 
 /** Whether a board point lies under any fog region (FR-GM-17, ADR 0016). */
 export function isInFog(fog: RoomState["fog"], point: Point): boolean {
@@ -41,6 +42,15 @@ export function templateConcealedFrom(fog: RoomState["fog"], template: AreaTempl
 }
 
 /**
+ * Whether `viewer` may not see `wall` (ADR 0026). Plain walls are GM-only (ADR 0025); a portal
+ * is concealed when its midpoint is under fog, as a token is by its centre.
+ */
+export function portalConcealedFrom(fog: RoomState["fog"], wall: Pick<Wall, "a" | "b" | "portal">, viewer: Participant): boolean {
+  if (viewer.role === "gm") return false;
+  return !wall.portal || isInFog(fog, wallMidpoint(wall));
+}
+
+/**
  * Player-safe state filtering (FR-GM-23).
  *
  * EVERY payload that carries room data to a client must go through one of these
@@ -67,8 +77,10 @@ export function filterStateForViewer(state: RoomState, viewer: Participant): Roo
   // Fog regions stay: they are the mask the player's board draws, and name nothing (ADR 0016).
   // Chat is public, so `chat` stays as it is in the spread below (ADR 0015).
   // Undo is GM-only, and its entries name hidden tokens and their old values (ADR 0013).
-  // Walls are GM-only: inside fog they would draw rooms the players haven't seen (ADR 0025).
-  return { ...state, tokens, rolls, initiative, templates, walls: {}, undo: [], checkpoints: [] };
+  // Plain walls are GM-only: inside fog they would draw rooms the players haven't seen (ADR 0025).
+  // Portals outside fog stay, so players can see and use them (ADR 0026).
+  const walls = Object.fromEntries(Object.entries(state.walls).filter(([, w]) => !portalConcealedFrom(state.fog, w, viewer)));
+  return { ...state, tokens, rolls, initiative, templates, walls, undo: [], checkpoints: [] };
 }
 
 export type FilteredEvent =
@@ -103,10 +115,21 @@ export function filterEventForViewer(
     wasConcealed !== isConcealed ? { kind: "resync" } : isConcealed ? redacted : pass;
 
   switch (e.type) {
-    // GM-only geometry (ADR 0025): players learn only that a seq happened.
+    // Plain walls are GM-only geometry (ADR 0025): players learn only that a seq happened. A
+    // portal they can see appears or vanishes, which a snapshot does without the plain walls (ADR 0026).
     case "WallsAdded":
     case "WallsRemoved":
-      return redacted;
+      return e.walls.some((w) => !portalConcealedFrom(before.fog, w, viewer)) ? { kind: "resync" } : redacted;
+    case "PortalChanged": {
+      // Seen before and after: a state change the player's copy can apply. Otherwise the wall's
+      // geometry must arrive or leave with it, so resync (ADR 0026).
+      const wall = before.walls[e.wallId];
+      if (!wall) return redacted;
+      return byVisibility(
+        portalConcealedFrom(before.fog, { ...wall, portal: e.from ?? undefined }, viewer),
+        portalConcealedFrom(before.fog, { ...wall, portal: e.to ?? undefined }, viewer),
+      );
+    }
     case "TokenCreated":
     case "TokenDeleted":
       return concealedFrom(before.fog, e.token, viewer) ? redacted : {

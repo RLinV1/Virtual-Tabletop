@@ -171,15 +171,26 @@ export type FogRegion = z.infer<typeof FogRegion>;
 /** Most walls a room holds at once (ADR 0025), so one detection can't grow state without bound. */
 export const MAX_WALLS = 1500;
 
+/** What a portal is (FR-GM-18, ADR 0026). Windows block movement like doors; `kind` is for drawing and line of sight. */
+export const PortalKind = z.enum(["door", "window"]);
+export type PortalKind = z.infer<typeof PortalKind>;
+/** Closed and locked portals block movement like walls; open ones don't (ADR 0026). */
+export const PortalState = z.enum(["open", "closed", "locked"]);
+export type PortalState = z.infer<typeof PortalState>;
+export const Portal = z.object({ kind: PortalKind, state: PortalState }).strict();
+export type Portal = z.infer<typeof Portal>;
+
 /**
  * A wall: a straight segment the GM applied from detection (FR-GM-11, ADR 0025). Board
  * coordinates (invariant 8). Tokens can't stand across one; players can't move through one.
- * GM-only: never sent to players.
+ * Plain walls are GM-only; players receive the portals they can see (ADR 0026).
  */
 export const Wall = z.object({
   id: Id,
   a: Point,
   b: Point,
+  /** Set when the wall is a door or window (FR-GM-18, ADR 0026). Absent: a plain wall. */
+  portal: Portal.optional(),
 });
 export type Wall = z.infer<typeof Wall>;
 
@@ -276,7 +287,7 @@ export interface RoomState {
   chat: ChatMessage[];
   /** Fog regions, in the order they were added (FR-GM-17, ADR 0016). Sent to players: they are the mask. */
   fog: Record<Id, FogRegion>;
-  /** Applied walls (FR-GM-11, ADR 0025). GM-only: players always get none. */
+  /** Walls and portals (FR-GM-11, FR-GM-18). Players get only the portals they can see (ADR 0026). */
   walls: Record<Id, Wall>;
   /** Named restore points, oldest first, capped at MAX_CHECKPOINTS (ADR 0019). GM-only. */
   checkpoints: Checkpoint[];

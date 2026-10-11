@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ConditionId, TokenStats } from "./conditions";
 import { DiceRoll, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
-import { AreaTemplate, ChatMessage, Checkpoint, DiceLookOnTable, FogRegion, Id, Initiative, InitiativeScore, MapImage, Participant, TableState, Token, Wall } from "./state";
+import { AreaTemplate, ChatMessage, Checkpoint, DiceLookOnTable, FogRegion, Id, Initiative, InitiativeScore, MapImage, Participant, Portal, TableState, Token, Wall } from "./state";
 
 /**
  * Events are FACTS the server has committed. They are append-only and never edited.
@@ -202,6 +202,13 @@ export const DomainEvent = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("WallsRemoved"),
     walls: z.array(Wall).min(1),
+  }),
+  /** A wall's portal changed (FR-GM-18, ADR 0026). `from` is the replaced value; null is a plain wall. */
+  z.object({
+    type: z.literal("PortalChanged"),
+    wallId: Id,
+    from: Portal.nullable(),
+    to: Portal.nullable(),
   }),
   /** The GM saved a named restore point (FR-REC-02, ADR 0019). */
   z.object({

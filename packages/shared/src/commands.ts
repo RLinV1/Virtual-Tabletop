@@ -3,7 +3,7 @@ import { TokenAttacks } from "./attackPresets";
 import { ConditionId, EMPTY_STATS, TokenStats } from "./conditions";
 import { AttackKind, DiceVisibility, MAX_ATTACK_LABEL, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
-import { AreaShape, Id, MapImage, MAX_CHAT_LENGTH, MAX_FOG_POINTS } from "./state";
+import { AreaShape, Id, MapImage, MAX_CHAT_LENGTH, MAX_FOG_POINTS, Portal, PortalState } from "./state";
 
 /** Most walls one `wall.remove` names (ADR 0025), keeping the command under the socket limit. */
 export const MAX_WALLS_PER_REMOVE = 500;
@@ -282,6 +282,18 @@ export const Command = z.discriminatedUnion("type", [
   /** GM removes every wall (ADR 0025). */
   z.object({
     type: z.literal("wall.clear"),
+  }).strict(),
+  /** GM makes a wall a door or window, edits it, or (`null`) turns it back into a plain wall (FR-GM-09, ADR 0026). */
+  z.object({
+    type: z.literal("portal.set"),
+    wallId: Id,
+    portal: Portal.nullable(),
+  }).strict(),
+  /** Opens, closes or locks a portal (FR-GM-18, ADR 0026). Players may only open or close one they can see. */
+  z.object({
+    type: z.literal("portal.setState"),
+    wallId: Id,
+    state: PortalState,
   }).strict(),
   /** GM saves the board as a named restore point (FR-REC-02, ADR 0019). */
   z.object({
