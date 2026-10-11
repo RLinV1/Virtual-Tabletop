@@ -145,6 +145,21 @@ describe("automatic wall detection through the queue (FR-GM-11, ADR 0029)", () =
     expect((await statusOf(other.guestToken, room.roomId, url)).code).toBe(403);
   });
 
+  it("gives the GM the detected walls for the editor's draft, and nobody else (map-editor-drafts)", async () => {
+    const queue = new StandInQueue();
+    const { room, playerCreds, url } = await roomWithMap(queue);
+    const wallsOf = (token: string, map: string) =>
+      api(token, `/api/rooms/${room.roomId}/wall-detection/walls?map=${encodeURIComponent(map)}`);
+    // No finished result yet.
+    expect((await wallsOf(room.guestToken, url)).status).toBe(404);
+    const [jobId] = queue.only();
+    queue.emit({ jobId, kind: "completed", returnvalue: { walls: [WALL], preview: PREVIEW } });
+    await expect.poll(async () => (await wallsOf(room.guestToken, url)).status).toBe(200);
+    expect(await (await wallsOf(room.guestToken, url)).json()).toEqual({ walls: [WALL] });
+    expect((await wallsOf(playerCreds.guestToken, url)).status).toBe(403);
+    expect((await wallsOf(room.guestToken, "/uploads/other.png")).status).toBe(404);
+  });
+
   it("starts detection on demand, refuses a second run while one is pending, and allows a re-run after", async () => {
     const queue = new StandInQueue();
     const { room, gm, url } = await roomWithMap(queue);

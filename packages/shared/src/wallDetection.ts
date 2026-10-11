@@ -31,6 +31,13 @@ export const WallDetectionResult = z.object({
 }).strict();
 export type WallDetectionResult = z.infer<typeof WallDetectionResult>;
 
+/**
+ * The detected walls themselves, for the GM's map editor draft (map-editor-drafts, ADR 0029):
+ * what `wall.applyDetected` would commit, so the GM can edit them before saving. GM only.
+ */
+export const DetectedWallsResponse = z.object({ walls: z.array(DetectedWall).max(MAX_WALLS) }).strict();
+export type DetectedWallsResponse = z.infer<typeof DetectedWallsResponse>;
+
 /** Whether every segment lies on a map of this size (the worker works in the same pixels). */
 export function wallsFitMap(walls: readonly DetectedWall[], map: { width: number; height: number }): boolean {
   const inside = (p: { x: number; y: number }) => p.x >= 0 && p.y >= 0 && p.x <= map.width && p.y <= map.height;
