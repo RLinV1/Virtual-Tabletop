@@ -36,7 +36,7 @@ function setup() {
 describe("wall analysis publication ownership (FR-GM-11)", () => {
   it("reserves one map before its read resolves and counts all admitted reads", async () => {
     const { assets, queue, detection, map } = setup();
-    const read = deferred<Uint8Array>();
+    const read = deferred<Uint8Array<ArrayBuffer>>();
     assets.readPrivate.mockReturnValue(read.promise);
     const first = detection.start("r1", map, 70);
     expect(await detection.start("r1", map, 70)).toBe("busy");
@@ -52,7 +52,7 @@ describe("wall analysis publication ownership (FR-GM-11)", () => {
 
   it("does not publish a cancelled read", async () => {
     const { assets, queue, detection, map, notify } = setup();
-    const read = deferred<Uint8Array>();
+    const read = deferred<Uint8Array<ArrayBuffer>>();
     assets.readPrivate.mockReturnValue(read.promise);
     const pending = detection.start("r1", map, 70);
     detection.forgetRoom("r1");

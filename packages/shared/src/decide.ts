@@ -944,7 +944,7 @@ function createTokens(
     // Duplicates are numbered, not rejected: placing five goblins is routine (KAN-62).
     const token: Token = { ...base, id: ctx.newId(), name: uniqueTokenName(named, base.name), position };
     named = { ...named, tokens: { ...named.tokens, [token.id]: token } };
-    return { type: "TokenCreated", token };
+    return { type: "TokenCreated" as const, token };
   }));
 }
 
