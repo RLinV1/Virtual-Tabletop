@@ -238,7 +238,7 @@ describe("map editor in the GM panel (FR-GM-09, FR-GM-17)", () => {
     expect(fake.commands).toEqual([]);
     fireEvent.click(within(editor).getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(fake.commands).toEqual([
-      { type: "fog.add", expectedMapUrl: MAP_URL, region: { shape: "rect", from: { x: 0, y: 0 }, to: { x: 800, y: 600 } } },
+      { type: "fog.replace", expectedMapUrl: MAP_URL, removeIds: [], add: [{ shape: "rect", from: { x: 0, y: 0 }, to: { x: 800, y: 600 } }] },
     ]));
   });
 

@@ -19,7 +19,7 @@ describe("map editor drafts (map-editor-drafts)", () => {
     const reversed = { ...room.walls.w1, a: room.walls.w1.b, b: room.walls.w1.a };
     let draft = applyToDraft(fresh(), { type: "wall.add", walls: [reversed] }, newId)!;
     draft = applyToDraft(draft, { type: "fog.add", region: { shape: "rect", from: { x: 0, y: 0 }, to: { x: 70, y: 70 } } }, newId)!;
-    expect(planDraftSave(room, draft).map((c) => c.type)).toEqual(["fog.add", "wall.add"]);
+    expect(planDraftSave(room, draft).map((c) => c.type)).toEqual(["wall.add", "fog.replace"]);
     const saved = { ...room, walls: { ...room.walls, w3: { ...reversed, id: "w3" } }, fog: { ...room.fog, f2: { ...room.fog.f1, id: "f2" } } };
     expect(planDraftSave(saved, draft)).toEqual([]);
     const savedDraft = { mapUrl: expectedMapUrl, walls: saved.walls, fog: saved.fog };
@@ -28,7 +28,7 @@ describe("map editor drafts (map-editor-drafts)", () => {
     expect(draftDirty(saved, erased)).toBe(true);
     expect(planDraftSave(saved, erased)).toEqual([
       { type: "wall.remove", expectedMapUrl, wallIds: ["w1"] },
-      { type: "fog.remove", expectedMapUrl, regionId: "f1" },
+      { type: "fog.replace", expectedMapUrl, removeIds: ["f1"], add: [] },
     ]);
   });
 
@@ -56,17 +56,16 @@ describe("map editor drafts (map-editor-drafts)", () => {
     expect(draftDirty(room, fresh())).toBe(false);
   });
 
-  it("hides new fog first, then changes walls, and reveals fog last", () => {
+  it("changes walls first, then swaps fog in one command", () => {
     let draft = fresh();
     draft = applyToDraft(draft, { type: "fog.remove", expectedMapUrl, regionId: "f1" }, newId)!;
     draft = applyToDraft(draft, { type: "fog.add", expectedMapUrl, region: { shape: "rect", from: { x: 140, y: 140 }, to: { x: 70, y: 70 } } }, newId)!;
     draft = applyToDraft(draft, { type: "wall.remove", expectedMapUrl, wallIds: ["w1"] }, newId)!;
     draft = applyToDraft(draft, { type: "wall.add", expectedMapUrl, walls: [{ a: { x: 5, y: 5 }, b: { x: 5, y: 50 } }, { a: { x: 9, y: 9 }, b: { x: 9, y: 90 } }] }, newId)!;
     expect(planDraftSave(room, draft)).toEqual([
-      { type: "fog.add", expectedMapUrl, region: { shape: "rect", from: { x: 70, y: 70 }, to: { x: 140, y: 140 } } },
       { type: "wall.remove", expectedMapUrl, wallIds: ["w1"] },
       { type: "wall.add", expectedMapUrl, walls: [{ a: { x: 5, y: 5 }, b: { x: 5, y: 50 } }, { a: { x: 9, y: 9 }, b: { x: 9, y: 90 } }] },
-      { type: "fog.remove", expectedMapUrl, regionId: "f1" },
+      { type: "fog.replace", expectedMapUrl, removeIds: ["f1"], add: [{ shape: "rect", from: { x: 70, y: 70 }, to: { x: 140, y: 140 } }] },
     ]);
   });
 
