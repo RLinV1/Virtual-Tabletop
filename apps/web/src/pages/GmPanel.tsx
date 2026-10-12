@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { inactiveLabel, pendingDepartures, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
+import { inactiveLabel, pendingDepartures, undoableAction, type Command, type GridSpec, type LibraryAsset, type MapTokenPolicy, type RoomState } from "@vtt/shared";
 import { api } from "../net/api";
 import { libraryAssetId } from "../net/builtinAssets";
 import { useAccount } from "../account/accountStore";
@@ -13,7 +13,7 @@ import { PanelSection } from "../ui/PanelSection";
 import type { GridDraft } from "./gridDraft";
 import { GridForm } from "./GridForm";
 import { LibraryPicker } from "./LibraryPicker";
-import { prepCommand, prepDirty, startPrep, type MapPrep } from "./mapPrep";
+import { adjustedMessage, offersTokenPolicy, prepCommand, prepDirty, startPrep, TOKEN_POLICY_CHOICES, type MapPrep } from "./mapPrep";
 
 interface Props {
   connection: RoomConnection;
@@ -51,10 +51,12 @@ export function GmPanel({
       <DepartedPlayers state={state} onReview={onReviewDeparture} />
       <MapSection
         token={token}
+        state={state}
+        connection={connection}
         currentGrid={state.scene.grid}
         hasLibrary={hasLibrary}
         onError={setError}
-        onSetMap={(map, grid, report) => runWith(report)(connection.command({ type: "scene.setMap", map, grid }))}
+        onSetMap={(command, report) => runWith(report)(connection.command(command))}
         onGridClose={onGridDraftCancel}
         gridApplying={gridApplying}
         grid={(close) => (
@@ -116,10 +118,13 @@ function DepartedPlayers({ state, onReview }: { state: RoomState; onReview: (par
  */
 function MapSection(props: {
   token: string;
+  /** The live room: whether tokens exist, and the Undo entry for the map change just made. */
+  state: RoomState;
+  connection: RoomConnection;
   /** The room's grid, where a map with no saved grid starts its draft. */
   currentGrid: GridSpec;
   hasLibrary: boolean;
-  onSetMap: (map: MapImage, grid: GridSpec | undefined, report: (message: string | null) => void) => Promise<boolean>;
+  onSetMap: (command: Extract<Command, { type: "scene.setMap" }>, report: (message: string | null) => void) => Promise<boolean>;
   onError: (message: string | null) => void;
   onGridClose: () => void;
   gridApplying: boolean;
@@ -134,6 +139,12 @@ function MapSection(props: {
   const [prep, setPrep] = useState<MapPrep | null>(null);
   const [prepError, setPrepError] = useState<string | null>(null);
   const [applyingMap, setApplyingMap] = useState(false);
+  /** What to do with existing tokens (KAN-67); only asked when a map and tokens are there to move. */
+  const [policy, setPolicy] = useState<MapTokenPolicy>("scale");
+  /** The map just applied with tokens present, to find its Undo entry and the count it moved. */
+  const [changedMapUrl, setChangedMapUrl] = useState<string | null>(null);
+  const [undoError, setUndoError] = useState<string | null>(null);
+  const askPolicy = offersTokenPolicy(props.state);
   const uploadRef = useRef<HTMLInputElement>(null);
   const libraryRef = useRef<HTMLButtonElement>(null);
   /**
@@ -158,12 +169,16 @@ function MapSection(props: {
   };
   const applyPrep = async () => {
     if (!prep || applyingMap) return;
-    const command = prepCommand(prep);
+    const command = prepCommand(prep, askPolicy ? policy : undefined);
     if (!command) return setPrepError("Fix the grid before applying the map.");
     setApplyingMap(true);
     try {
-      // One command: the map and its grid reach the table together (ADR 0004).
-      if (await props.onSetMap(command.map, command.grid, setPrepError)) discardPrep();
+      // One command: the map, its grid and the token moves reach the table together (ADR 0004, 0023).
+      if (await props.onSetMap(command, setPrepError)) {
+        discardPrep();
+        setUndoError(null);
+        setChangedMapUrl(askPolicy ? command.map.url : null);
+      }
     } finally {
       setApplyingMap(false);
     }
@@ -254,6 +269,29 @@ function MapSection(props: {
           {pickError && <p role="alert" className="error">{pickError}</p>}
         </Modal>
       )}
+      {changedMapUrl && (() => {
+        // The newest action, if it is this map change and can still be undone.
+        const latest = props.state.undo.at(-1);
+        const first = latest?.events[0];
+        const entry = latest && first?.type === "MapSet" && first.map?.url === changedMapUrl
+          ? undoableAction(props.state.undo, latest.commandId)
+          : undefined;
+        const message = first?.type === "MapSet" ? adjustedMessage(first.tokenChanges?.length ?? 0) : null;
+        if (!message || !entry) return null;
+        return (
+          <div className="row" role="status">
+            <span>{message}</span>
+            <button type="button" className="small secondary" onClick={async () => {
+              const result = await props.connection.command({ type: "history.undo", commandId: entry.commandId });
+              if (result.ok) setChangedMapUrl(null);
+              else setUndoError(result.message);
+            }}>
+              Undo
+            </button>
+            {undoError && <span role="alert" className="error">{undoError}</span>}
+          </div>
+        );
+      })()}
       <Modal
         open={prep !== null}
         title="Prepare map"
@@ -264,6 +302,23 @@ function MapSection(props: {
         {prep && (
           <>
             <p className="muted">Only you can see this map until you apply it. Line up the grid, then apply.</p>
+            {askPolicy && (
+              <fieldset className="stack token-policy">
+                <legend>Tokens already on the table</legend>
+                {TOKEN_POLICY_CHOICES.map((choice) => (
+                  <label key={choice.value} className="checkbox">
+                    <input
+                      type="radio"
+                      name="token-policy"
+                      value={choice.value}
+                      checked={policy === choice.value}
+                      onChange={() => setPolicy(choice.value)}
+                    />
+                    <span>{choice.label} <span className="muted">{choice.hint}</span></span>
+                  </label>
+                ))}
+              </fieldset>
+            )}
             <GridForm
               key={prep.map.url}
               grid={prep.initial}
