@@ -35,6 +35,11 @@ describe("Human-readable activity formatter (FR-REC-01)", () => {
     InitiativeStarted: [{ type: "InitiativeStarted", initiative, previous: null }, "Mara started initiative: Goblin"],
     InitiativeAdvanced: [{ type: "InitiativeAdvanced", initiative: { ...initiative, round: 2 }, previous: initiative }, "Mara advanced to round 2, Goblin's turn"],
     InitiativeEnded: [{ type: "InitiativeEnded", previous: initiative }, "Mara ended initiative"],
+    InitiativeStartUndone: [{ type: "InitiativeStartUndone", initiative: null, previous: initiative, scores: [] }, "Mara took back the start of initiative"],
+    GroupCreated: [{ type: "GroupCreated", group: { id: "g1", name: "Gate guards" } }, 'Mara created group "Gate guards"'],
+    GroupRenamed: [{ type: "GroupRenamed", groupId: "g1", name: "Patrol", previous: "Gate guards" }, 'Mara renamed group "Gate guards" to "Patrol"'],
+    GroupDeleted: [{ type: "GroupDeleted", group: { id: "g1", name: "Gate guards" }, members: [] }, 'Mara deleted group "Gate guards"'],
+    TokensGrouped: [{ type: "TokensGrouped", groupId: null, changes: [{ tokenId: token.id, previous: "g1" }] }, "Mara took Goblin out of their group"],
     DiceRolled: [{ type: "DiceRolled", roll }, "Mara rolled 1d20: 15"],
     // A roll no longer in state; attackRulings.test.ts covers the named forms (ADR 0011).
     RollRuled: [{ type: "RollRuled", rollId: "gone", verdict: "hit", previous: null }, "Mara ruled an earlier roll a hit"],

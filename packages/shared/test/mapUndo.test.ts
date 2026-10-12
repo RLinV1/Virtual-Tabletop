@@ -39,7 +39,7 @@ describe("composite map undo (KAN-66, FR-REC-02, FR-REC-03)", () => {
     const entry = undoableAction(applied.state.undo, applied.commandId)!;
     expect(entry.events).toHaveLength(1);
     const event = entry.events[0]!;
-    const inverse = inverseOf(event);
+    const inverse = inverseOf(event)[0]!;
     expect(DomainEvent.safeParse(inverse).success).toBe(true);
     const undone = act(applied.state, { type: "history.undo", commandId: applied.commandId });
     expect(undone.events).toEqual([inverse, { type: "ActionUndone", commandId: applied.commandId }]);
@@ -171,7 +171,7 @@ describe("composite map undo (KAN-66, FR-REC-02, FR-REC-03)", () => {
     expect(formatActivity(placed.events[0]!, "GM", placed.state)).toBe("GM set the map and grid, adjusting 3 tokens");
     const replacement = act(setup().state, { type: "scene.setMap", map, grid });
     expect(describeUndo(undoableAction(replacement.state.undo, replacement.commandId)!, replacement.state.tokens).verb).toContain("map replacement");
-    const removal = inverseOf(entry.events[0]!);
+    const removal = inverseOf(entry.events[0]!)[0]!;
     expect(formatActivity(removal, "GM", placed.state)).toBe("GM removed the map, restoring the grid and 3 token positions");
     expect(describeUndo({ ...entry, events: [DomainEvent.parse(removal) as typeof entry.events[0]] }, placed.state.tokens).verb).toContain("map removal");
   });

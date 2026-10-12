@@ -1,6 +1,6 @@
 import { CornersOut, Eye, EyeSlash } from "@phosphor-icons/react";
 import { Suspense, forwardRef, lazy, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
-import { DEFAULT_TOKEN_COLOR, EMPTY_STATS, conditionSpec, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
+import { DEFAULT_TOKEN_COLOR, EMPTY_STATS, conditionSpec, presetOf, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { guardedConnection } from "../net/previewConnection";
 import { DEFAULT_TOOL_OPTIONS, ToolRail, toolFor, type ToolOptions } from "../ui/ToolRail";
@@ -496,8 +496,12 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
                 <dd>{selected.stats.ac}</dd>
               </>
             )}
-            <dt>Status</dt>
-            <dd>{selected.conditions.length ? selected.conditions.map((c) => conditionSpec(c).label).join(", ") : "None"}</dd>
+            {presetOf(state).features.conditions && (
+              <>
+                <dt>Status</dt>
+                <dd>{selected.conditions.length ? selected.conditions.map((c) => conditionSpec(c).label).join(", ") : "None"}</dd>
+              </>
+            )}
             {you.role === "gm" && (
               <>
                 <dt>Owners</dt>
