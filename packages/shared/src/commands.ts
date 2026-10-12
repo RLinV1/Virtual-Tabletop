@@ -73,7 +73,7 @@ export const Command = z.discriminatedUnion("type", [
     map: MapImage,
     /** A library map's saved grid, copied into the room in the same event (ADR 0004). */
     grid: GridSpec.optional(),
-    /** How existing tokens adjust on a replacement; omitted selects scale (ADR 0023). */
+    /** How existing tokens adjust on a replacement; omitted selects scale (ADR 0031). */
     tokenPolicy: z.enum(MAP_TOKEN_POLICIES).optional(),
   }),
   z.object({

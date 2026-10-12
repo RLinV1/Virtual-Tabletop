@@ -49,11 +49,11 @@ export const DomainEvent = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("MapSet"),
-    /** Null only in an inverse restoring the state before first-map placement (ADR 0023). */
+    /** Null only in an inverse restoring the state before first-map placement (ADR 0031). */
     map: MapImage.nullable(),
     previous: MapImage.nullable(),
     /**
-     * Always present on new map actions (ADR 0023); optional for historical events. One object,
+     * Always present on new map actions (ADR 0031); optional for historical events. One object,
      * not two optional fields, so the contract cannot express a grid change without the
      * grid it replaced (invariant 6).
      */

@@ -118,7 +118,7 @@ export function decide(
         const token = state.tokens[adjustment.tokenId]!;
         return reject("invalid", `${token.name}'s ${adjustment.footprint} px footprint cannot fit this ${command.map.width} × ${command.map.height} px map. Use a larger map, reduce the grid cell size, or reduce the token's size.`);
       }
-      // Map, effective grid and adjusted positions are one reversible fact (ADR 0023).
+      // Map, effective grid and adjusted positions are one reversible fact (ADR 0031).
       return accept({
         type: "MapSet",
         map: command.map,

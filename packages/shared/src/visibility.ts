@@ -184,7 +184,7 @@ export function filterEventForViewer(
       return { kind: "resync" };
     case "MapSet":
       // Nested changes contain hidden IDs and prior positions. Only the filtered result
-      // reaches players, including inverse first-map removal and empty adjustments (ADR 0023).
+      // reaches players, including inverse first-map removal and empty adjustments (ADR 0031).
       return e.tokenChanges !== undefined ? { kind: "resync" } : pass;
     case "EncounterApplied":
       // Both boards hold hidden tokens, fog and owners; a filtered snapshot carries the rest (ADR 0024).

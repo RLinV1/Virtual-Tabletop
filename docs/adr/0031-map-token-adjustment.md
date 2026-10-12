@@ -1,4 +1,4 @@
-# ADR 0023: Atomic token adjustment when applying a map
+# ADR 0031: Atomic token adjustment when applying a map
 
 **Status:** Proposed — Raymond Lin's Real-Time Architecture review has not been requested or received.
 **Owner:** Real-Time Architecture (Raymond Lin) · **Ticket:** KAN-66 · **Change:** `openspec/changes/kan-66-map-token-adjustment`
