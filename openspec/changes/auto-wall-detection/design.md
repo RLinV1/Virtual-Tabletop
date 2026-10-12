@@ -47,7 +47,7 @@ This keeps fogged geometry from leaking. It also means a player's client cannot 
 ### D5. Queue topology
 
 - **Queue** `wall-detection` on the app's `REDIS_URL`. **Producer:** the app server (`domain/wallDetection.ts`). **Consumer:** `services/vision/wall_worker.py`, using the official `bullmq` Python package, which runs the same Lua scripts as the Node package. **Completion:** the app server's `QueueEvents` listener receives `completed` and `failed`.
-- **Job id:** `walls:<roomId>:<sha1(objectKey)[0:16]>`. Re-running for the same map removes the finished job first. **Job data:** `{ image: base64 bytes, width, height }`. The bytes come from `AssetStore.readPrivate(objectKey, 25 MB)` for an object key taken from the room's own upload or current map URL (`/uploads/<key>`). The worker never fetches a URL.
+- **Job id:** `walls-<roomId>-<sha1(map url)[0:16]>-<process suffix>-<attempt>`. Re-running for the same map removes the finished job first. **Job data:** `{ image: base64 bytes, width, height }`. The bytes come from `AssetStore.readPrivate(objectKey, 25 MB)` for an object key taken from the room's own upload or current map URL (`/uploads/<key>`). The worker never fetches a URL.
 - **Return value:** `{ walls: [{a,b}], preview: { contentType: "image/jpeg", width, height, data: base64 } }`.
 - On `completed`, the server loads the job, validates the return value with zod, stores it in a bounded in-process result store (one entry per room and map, newest 200 rooms), removes the job from Redis, and emits `{ type: "wallDetection", status }` to the room's GM sockets.
 - Jobs carry `removeOnComplete`/`removeOnFail` age limits, so a missed event cannot leave image bytes in Redis.

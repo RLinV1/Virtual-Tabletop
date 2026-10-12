@@ -92,7 +92,7 @@ describe("wall analysis publication ownership (FR-GM-11)", () => {
     const starts = Array.from({ length: MAX_PENDING_JOBS }, () => deferred<void>());
     let index = 0;
     queue.add.mockImplementation(async (id, data) => {
-      starts[index++]!.resolve();
+      starts[index++]?.resolve();
       await adding.promise;
       jobs.set(id, data);
     });

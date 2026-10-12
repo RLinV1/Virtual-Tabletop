@@ -1,5 +1,6 @@
 import { act, createEvent, fireEvent } from "@testing-library/react";
 import { vi } from "vitest";
+import { createStore } from "zustand/vanilla";
 import { DEFAULT_GRID, emptyRoomState, type CommandInput, type FogRegion, type Point, type RoomState, type Wall, type WallDetectionStatus } from "@vtt/shared";
 import type { RoomConnection } from "../src/net/roomConnection";
 
@@ -25,6 +26,7 @@ export function fakeConnection() {
   const commands: CommandInput[] = [];
   let listener: WallListener | null = null;
   const connection = {
+    store: createStore(() => ({ snapshots: 1 })),
     command: vi.fn(async (command: CommandInput) => {
       commands.push(command);
       return { ok: true as const };

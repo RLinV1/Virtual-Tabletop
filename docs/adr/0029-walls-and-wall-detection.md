@@ -96,7 +96,7 @@ Sampled detection used one fixed colour range, which suits some maps and not oth
 - **`strictness?` (0.2-0.6) and `minLength?` (0-6 cells, default 0)** apply to
   automatic and sampled detection alike. Strictness is the share of a run's edge that must follow
   a contrasting outline, the threshold that decides terrain from wall; minimum length drops short
-  pieces from the result. Without `strictness` the worker chooses: it tries 0.4, then 0.3, then 0.2,
+  pieces from the result, measured in the room's own cells. Without `strictness` the worker chooses: it tries 0.4, then 0.3, then 0.2,
   and keeps the first that finds enough wall, so a map with few thick walls still gets a result;
   a value the GM sets is used as given. Neither field needs a sample.
 - **`style?` (`"bright"` or `"dark"`)** limits automatic detection to light stone walls or to dark
@@ -159,7 +159,8 @@ The first version put the image in the job as base64, about 34 MB for the larges
 
 - The image sits in one raw Redis key, `vtt:wall-image:<sha256 hex of the bytes>`, written with an expiry of the job timeout plus one minute. The job carries only the key. Raw bytes are a quarter smaller than base64, and a key whose server died still expires.
 - Maps with identical bytes share one key. The app server counts live jobs per key (it is single-process) and deletes the key when the last one finishes, fails, times out or is dropped.
-- At most four analyses may be queued or running across the whole server. A fifth is refused with 503 before any image is stored.
+- At most four analyses may be queued or running across the whole server. A fifth is refused with 503 before any image is stored. A job dropped by a room delete or a timeout keeps its slot and image until the queue confirms its removal; BullMQ cannot remove a running job, so that job holds them until it ends.
+- Job IDs carry a per-process random suffix, so a job still queued from before a restart cannot share an ID with a new request (BullMQ ignores an add whose ID exists).
 - The worker reads the key itself with its existing Redis connection, accepts only a key of exactly that shape (so a job cannot make it read another Redis key), and fails the job if the image is missing or over 25 MB. It still never fetches a URL and holds no storage credentials.
 
 Rejected: the worker fetching the image from the app server (new credentials and an HTTP surface on the worker), compressing the base64 (the images are already compressed), and downscaling (it costs detection accuracy and needs an image library in the server). The app server and the worker must be deployed together.
