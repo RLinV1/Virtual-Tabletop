@@ -542,4 +542,8 @@ def analyze(data: bytes, width: int, height: int, cell: float = 0.0, sample: dic
     if sample is not None and not (0 <= sample["x"] <= width and 0 <= sample["y"] <= height):
         raise ValueError("Sample outside the image")
     detected = detect_walls(image, cell, sample, tolerance, strictness, min_length, style)
-    return {"walls": detected["walls"], "preview": render_preview(image, detected["walls"])}
+    walls = detected["walls"]
+    if cell > 0 and min_length > 0:
+        # The detectors judge length in their own working cell; the GM's setting is in the room's cells.
+        walls = [w for w in walls if math.hypot(w["b"]["x"] - w["a"]["x"], w["b"]["y"] - w["a"]["y"]) >= min_length * cell]
+    return {"walls": walls, "preview": render_preview(image, walls)}

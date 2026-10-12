@@ -1,6 +1,6 @@
 import type { CommandInput, DetectedWallsResponse } from "@vtt/shared";
 import type { CommandResult, RoomConnection } from "../../net/roomConnection";
-import { applyToDraft, DRAFT_ID, withDetectedWalls, type MapDraft } from "./mapDraft";
+import { applyToDraft, draftCommandProblem, DRAFT_ID, withDetectedWalls, type MapDraft } from "./mapDraft";
 
 /** The commands the draft holds; `applyToDraft` handles each. */
 const DRAFT_COMMANDS = new Set<CommandInput["type"]>(["wall.add", "wall.remove", "wall.clear", "portal.set", "fog.add", "fog.remove"]);
@@ -16,6 +16,7 @@ export function draftConnection(
   /** The finished detection's walls for a map, fetched with the GM's credential. */
   detectedWalls: (mapUrl: string) => Promise<DetectedWallsResponse>,
   mapUrl: string,
+  map: { width: number; height: number },
   isCurrent: () => boolean,
 ): RoomConnection {
   let next = 0;
@@ -44,6 +45,8 @@ export function draftConnection(
       }
     }
     if (!DRAFT_COMMANDS.has(input.type)) return connection.command(input);
+    const problem = draftCommandProblem(input, map);
+    if (problem) return { ok: false, code: "invalid", message: problem };
     update((draft) => draft.mapUrl === mapUrl ? applyToDraft(draft, input, newId) ?? draft : draft);
     return ok;
   };

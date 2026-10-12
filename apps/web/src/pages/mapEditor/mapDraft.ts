@@ -1,5 +1,6 @@
 import {
   MAX_WALLS_PER_ADD, MAX_WALLS_PER_REMOVE,
+  polygonArea, wallsFitMap,
   type CommandInput, type FogRegion, type Point, type Portal, type RoomState, type Wall,
 } from "@vtt/shared";
 
@@ -110,6 +111,28 @@ const samePortal = (a: Portal | undefined, b: Portal | undefined) => a?.kind ===
 /** Whether Save would send anything. */
 export const draftDirty = (room: Pick<RoomState, "scene" | "walls" | "fog">, draft: MapDraft) => room.scene.map?.url === draft.mapUrl && planDraftSave(room, draft).length > 0;
 
+type FogAdd = Extract<CommandInput, { type: "fog.add" }>["region"];
+
+/** A fog region's corners, as the room stores them: a rectangle becomes its four corners. */
+const fogPoints = (region: FogAdd): Point[] => region.shape === "rect"
+  ? [
+      { x: Math.min(region.from.x, region.to.x), y: Math.min(region.from.y, region.to.y) },
+      { x: Math.max(region.from.x, region.to.x), y: Math.min(region.from.y, region.to.y) },
+      { x: Math.max(region.from.x, region.to.x), y: Math.max(region.from.y, region.to.y) },
+      { x: Math.min(region.from.x, region.to.x), y: Math.max(region.from.y, region.to.y) },
+    ]
+  : region.points;
+
+/** Why the server would refuse this wall or fog addition on a map of this size, or null: the draft only holds what Save can send. */
+export function draftCommandProblem(command: CommandInput, map: { width: number; height: number }): string | null {
+  if (command.type === "wall.add") {
+    if (command.walls.some((w) => w.a.x === w.b.x && w.a.y === w.b.y)) return "A wall needs two different ends.";
+    if (!wallsFitMap(command.walls, map)) return "Walls must lie on the map.";
+  }
+  if (command.type === "fog.add" && Math.abs(polygonArea(fogPoints(command.region))) < 1) return "A fog region needs some area.";
+  return null;
+}
+
 /**
  * A wall or fog command applied to the draft instead of the room. `newId` names anything new.
  * Returns null for a command the draft doesn't hold.
@@ -139,14 +162,7 @@ export function applyToDraft(draft: MapDraft, command: CommandInput, newId: () =
       return { ...draft, walls: {} };
     case "fog.add": {
       const { region } = command;
-      const points: Point[] = region.shape === "rect"
-        ? [
-            { x: Math.min(region.from.x, region.to.x), y: Math.min(region.from.y, region.to.y) },
-            { x: Math.max(region.from.x, region.to.x), y: Math.min(region.from.y, region.to.y) },
-            { x: Math.max(region.from.x, region.to.x), y: Math.max(region.from.y, region.to.y) },
-            { x: Math.min(region.from.x, region.to.x), y: Math.max(region.from.y, region.to.y) },
-          ]
-        : region.points;
+      const points = fogPoints(region);
       const id = newId();
       return { ...draft, fog: { ...draft.fog, [id]: { id, shape: region.shape, points } } };
     }

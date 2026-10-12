@@ -146,4 +146,29 @@ describe("wall analysis publication ownership (FR-GM-11)", () => {
     expect(images.size).toBe(0);
     await detection.close();
   });
+  it("keeps a slot for a running job whose room was deleted until the job ends", async () => {
+    const { queue, detection, map, emit } = setup();
+    queue.remove.mockRejectedValue(new Error("Job is locked"));
+    const rooms = Array.from({ length: MAX_PENDING_JOBS }, (_, i) => `r${i}`);
+    for (const room of rooms) expect(await detection.start(room, map, 70)).toBe("queued");
+    const [jobId] = [...queue.add.mock.calls[0]!];
+    emit({ jobId, kind: "active" });
+    detection.forgetRoom("r0");
+    await Promise.resolve();
+    expect(await detection.start("extra", map, 70)).toBe("overloaded");
+    emit({ jobId, kind: "completed", returnvalue: "{}" });
+    expect(await detection.start("extra", map, 70)).toBe("queued");
+    await detection.close();
+  });
+
+  it("gives job IDs a suffix that differs between server runs", async () => {
+    const ids: string[] = [];
+    for (let run = 0; run < 2; run++) {
+      const { queue, detection, map } = setup();
+      await detection.start("r1", map, 70);
+      ids.push(queue.add.mock.calls[0]![0]);
+      await detection.close();
+    }
+    expect(ids[0]).not.toBe(ids[1]);
+  });
 });

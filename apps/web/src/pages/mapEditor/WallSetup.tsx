@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Door, Eraser, Eyedropper, Hand, LineSegments } from "@phosphor-icons/react";
 import {
   MIN_LENGTH_MAX, SAMPLE_TOLERANCE_DEFAULT, SAMPLE_TOLERANCE_MAX, SAMPLE_TOLERANCE_MIN,
@@ -6,7 +6,7 @@ import {
   type CommandInput, type DetectedWall, type Point, type Portal, type PortalKind, type PortalState, type RoomState, type Wall, type WallStyle, type WallDetectionAvailability, type WallDetectionRequest, type WallDetectionStatus,
 } from "@vtt/shared";
 import { api } from "../../net/api";
-import type { RoomConnection } from "../../net/roomConnection";
+import { useRoomSnapshot, type RoomConnection } from "../../net/roomConnection";
 import { WallCanvas, type CanvasMode } from "./WallCanvas";
 
 const MODES: { key: CanvasMode; label: string; icon: typeof Eraser; needsDetection?: boolean }[] = [
@@ -62,6 +62,9 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
   // null: try both light stone and dark ink walls and keep the better.
   const [style, setStyle] = useState<WallStyle | null>(null);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
+  const { snapshots } = useRoomSnapshot(connection);
+  // Counts the changes to `detection` made by a notice or a Detect click, so a slower status fetch never overwrites them.
+  const detectionChanges = useRef(0);
   const status = detection.mapUrl === mapUrl ? detection.status : null;
   const canDetect = availability?.available === true;
 
@@ -77,17 +80,19 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
   useEffect(() => {
     if (!mapUrl) return;
     const abort = new AbortController();
+    const started = detectionChanges.current;
     api.walls.status(state.roomId, token, mapUrl, abort.signal)
-      .then((next) => setDetection((current) => (current.mapUrl === mapUrl && current.status ? current : { mapUrl, status: next })))
+      .then((next) => setDetection((current) => (detectionChanges.current !== started && current.mapUrl === mapUrl ? current : { mapUrl, status: next })))
       .catch(() => {});
     const stop = connection.onWallDetection((url, next) => {
       if (url !== mapUrl) return;
+      detectionChanges.current += 1;
       setDetection({ mapUrl, status: next });
       if (next.status === "done") setMessage({ text: `Detection found ${next.wallCount} ${next.wallCount === 1 ? "wall" : "walls"}. Check the preview, then apply.`, error: false });
       if (next.status === "failed") setMessage({ text: next.message, error: true });
     });
     return () => { abort.abort(); stop(); };
-  }, [connection, state.roomId, token, mapUrl]);
+  }, [connection, state.roomId, token, mapUrl, snapshots]);
 
   // The rendered preview, once a result is in. Fetched as a blob: it needs the GM's credential.
   const done = status?.status === "done";
@@ -135,7 +140,9 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
     setBusy(true);
     setMessage(null);
     try {
-      setDetection({ mapUrl, status: await api.walls.detect(state.roomId, token, request(sample)) });
+      const started = await api.walls.detect(state.roomId, token, request(sample));
+      detectionChanges.current += 1;
+      setDetection({ mapUrl, status: started });
       setMessage({ text: sample ? "Detecting walls like the one you clicked…" : "Detecting walls…", error: false });
     } catch (err) {
       setMessage({ text: err instanceof Error ? err.message : "Couldn't start wall detection", error: true });

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { Queue, QueueEvents } from "bullmq";
@@ -98,6 +98,8 @@ interface Entry {
   result: WallDetectionResult | null;
   timer: ReturnType<typeof setTimeout> | null;
   publishing: boolean;
+  /** Removal from the queue has begun; the job keeps its place in the pending count until it is confirmed. */
+  retiring: boolean;
 }
 
 export type StartResult = "queued" | "busy" | "overloaded" | "unavailable" | "unreadable";
@@ -125,6 +127,8 @@ export class WallDetections {
   /** How many live jobs use each stored image; the image is deleted when the last one is done. */
   private imageRefs = new Map<string, { count: number; ready: Promise<void> }>();
   private attempts = 0;
+  /** Makes job IDs unique across restarts: BullMQ ignores an add whose ID a queued job still holds. */
+  private run = randomUUID().slice(0, 8);
 
   constructor(
     private assets: AssetStore,
@@ -168,10 +172,10 @@ export class WallDetections {
     if (existing && (existing.status.status === "queued" || existing.status.status === "running")) return "busy";
     if (this.pending() >= MAX_PENDING_JOBS) return "overloaded";
     const hash = createHash("sha1").update(map.url).digest("hex").slice(0, 16);
-    const jobId = `walls-${roomId}-${hash}-${++this.attempts}`;
+    const jobId = `walls-${roomId}-${hash}-${this.run}-${++this.attempts}`;
     const entry: Entry = {
       roomId, mapUrl: map.url, map: { width: map.width, height: map.height }, jobId, imageKey: null,
-      status: { status: "queued" }, result: null, timer: null, publishing: true,
+      status: { status: "queued" }, result: null, timer: null, publishing: true, retiring: false,
     };
     this.replace(entry);
     try {
@@ -289,8 +293,13 @@ export class WallDetections {
 
   private onEvent(event: WallJobEvent) {
     const entry = this.byJob.get(event.jobId);
-    // Another process's job, or one this server already gave up on or replaced.
-    if (!entry || (entry.status.status !== "queued" && entry.status.status !== "running")) return;
+    if (!entry) return;
+    if (entry.retiring) {
+      // A job this server gave up on whose removal was refused (it was running): its end frees the slot.
+      if (event.kind !== "active") this.free(entry);
+      return;
+    }
+    if (entry.status.status !== "queued" && entry.status.status !== "running") return;
     if (event.kind === "active") {
       entry.status = { status: "running" };
       this.notify(entry.roomId, entry.mapUrl, entry.status);
@@ -339,9 +348,16 @@ export class WallDetections {
   }
 
   private retire(entry: Entry) {
+    if (this.byJob.get(entry.jobId) !== entry || entry.retiring) return;
+    entry.retiring = true;
+    if (!this.queue) return this.free(entry);
+    // A running job can't be removed; it keeps its slot and image until a queue event says it ended.
+    void this.queue.remove(entry.jobId).then(() => this.free(entry), () => {});
+  }
+
+  private free(entry: Entry) {
     if (this.byJob.get(entry.jobId) !== entry) return;
     this.byJob.delete(entry.jobId);
-    void this.queue?.remove(entry.jobId).catch(() => {});
     this.releaseImage(entry);
   }
 }

@@ -1,6 +1,7 @@
 """Wall extraction on labelled synthetic maps (FR-GM-11, ADR 0029)."""
 
 import base64
+import math
 import os
 import unittest
 
@@ -148,6 +149,14 @@ class WallDetectionTest(unittest.TestCase):
     def test_unknown_grid_still_works(self):
         walls = detect_walls(ink_dungeon(), 0)["walls"]
         self.assertTrue(walls)
+
+    def test_analyze_applies_min_length_in_the_rooms_cells(self):
+        data = encode(ink_dungeon())
+        minimum = 6
+        walls = analyze(data, SIZE[1], SIZE[0], CELL, min_length=minimum)["walls"]
+        self.assertTrue(walls)
+        for w in walls:
+            self.assertGreaterEqual(math.hypot(w["b"]["x"] - w["a"]["x"], w["b"]["y"] - w["a"]["y"]), minimum * CELL - 0.5)
 
     def test_analyze_returns_walls_and_a_preview(self):
         img = ink_dungeon()

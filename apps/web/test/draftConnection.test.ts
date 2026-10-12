@@ -12,7 +12,7 @@ function setup() {
   let current = true;
   const liveCommand = vi.fn();
   const fetch = vi.fn(async (): Promise<DetectedWallsResponse> => ({ resultId: "result-b", walls: found }));
-  const connection = draftConnection({ command: liveCommand } as unknown as RoomConnection, (change) => { draft = change(draft); }, fetch, mapUrl, () => current);
+  const connection = draftConnection({ command: liveCommand } as unknown as RoomConnection, (change) => { draft = change(draft); }, fetch, mapUrl, { width: 680, height: 680 }, () => current);
   return { connection, fetch, liveCommand, draft: () => draft, replace: (next: MapDraft) => { draft = next; }, invalidate: () => { current = false; } };
 }
 
@@ -55,5 +55,14 @@ describe("draft connection ownership (FR-GM-11)", () => {
     expect(await test.connection.command({ type: "portal.set", wallId, portal: { kind: "door", state: "locked" } })).toMatchObject({ ok: true });
     expect(test.draft().walls[wallId]!.portal).toEqual({ kind: "door", state: "locked" });
     expect(test.liveCommand).not.toHaveBeenCalled();
+  });
+  it("refuses geometry the server would refuse, leaving the draft alone", async () => {
+    const test = setup();
+    const outside = { type: "wall.add" as const, walls: [{ a: { x: 0, y: 0 }, b: { x: 700, y: 0 } }] };
+    const flat = { type: "fog.add" as const, region: { shape: "rect" as const, from: { x: 10, y: 10 }, to: { x: 200, y: 10 } } };
+    const collinear = { type: "fog.add" as const, region: { shape: "polygon" as const, points: [{ x: 0, y: 0 }, { x: 10, y: 10 }, { x: 20, y: 20 }] } };
+    for (const command of [outside, flat, collinear]) expect(await test.connection.command(command)).toMatchObject({ ok: false, code: "invalid" });
+    expect(test.draft()).toEqual({ mapUrl, walls: {}, fog: {} });
+    expect(await test.connection.command({ type: "wall.add", walls: [{ a: { x: 0, y: 0 }, b: { x: 680, y: 0 } }] })).toMatchObject({ ok: true });
   });
 });

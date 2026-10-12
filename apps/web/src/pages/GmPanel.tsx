@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { inactiveLabel, pendingDepartures, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
 import { api } from "../net/api";
 import { libraryAssetId } from "../net/builtinAssets";
@@ -216,6 +216,7 @@ function MapSection(props: {
       (change) => setDraft((current) => (current && currentSession.current === editorSession && current.mapUrl === editorSession.mapUrl ? change(current) : current)),
       (mapUrl) => api.walls.detected(props.roomId, props.token, mapUrl),
       editorSession.mapUrl ?? "",
+      { width: props.room.scene.map?.width ?? 0, height: props.room.scene.map?.height ?? 0 },
       () => currentSession.current === editorSession && editorSession.open,
     ),
     [props.connection, props.roomId, props.token, editorSession],
@@ -478,10 +479,12 @@ function MapSection(props: {
             ))}
             {step === "walls" && (prep
               ? <p className="map-editor-empty">Apply the draft map in the Grid step first, then set up its walls here.</p>
-              : props.walls(draftEdits, draftState))}
+              : <Fragment key={`${editorGeneration}
+${liveMapUrl}`}>{props.walls(draftEdits, draftState)}</Fragment>)}
             {step === "fog" && (prep
               ? <p className="map-editor-empty">Apply the draft map in the Grid step first, then set up its fog here.</p>
-              : props.fog(draftEdits, draftState))}
+              : <Fragment key={`${editorGeneration}
+${liveMapUrl}`}>{props.fog(draftEdits, draftState)}</Fragment>)}
           </div>
         </div>
       </Modal>
