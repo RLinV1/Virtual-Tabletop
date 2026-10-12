@@ -271,8 +271,9 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
                   <option value="auto">Automatic</option>
                   <option value="bright">Light stone walls</option>
                   <option value="dark">Dark ink walls</option>
+                  <option value="outlined">Inked outlines (buildings, caves)</option>
                 </select>
-                <span className="muted small-print">Pick one if automatic detection follows the wrong thing, such as shadows instead of stone.</span>
+                <span className="muted small-print">Pick one if automatic detection follows the wrong thing, such as shadows instead of stone. Inked outlines suits hand-drawn maps where rooms and caves are outlined in a dark line.</span>
               </label>
               <label className="stack">
                 <span className="small-print">Strictness: {strictness === null ? "automatic" : strictness.toFixed(2)}</span>

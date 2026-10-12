@@ -7,7 +7,7 @@ completion from BullMQ's queue events, validates the result, and notifies the ro
 Job data: `{ image: base64 bytes, width, height, cellSize, sample?, tolerance?, strictness?, minLength?, style? }`.
 `sample` is a point on a wall the GM clicked and `tolerance` its colour range in Lab units. `strictness` is
 the share of a run's edge that must follow an outline, `minLength` the shortest wall kept, in cells, and
-`style` is "bright" or "dark" to look for only light stone or dark ink walls. The bytes were read by the app
+`style` is "bright" or "dark" to look for only light stone or dark ink walls, or "outlined" for inked outlines. The bytes were read by the app
 server from its own storage; this worker never fetches a URL, and holds no database or storage credentials.
 """
 
@@ -67,7 +67,7 @@ async def process(job, _token=None) -> dict:
     if isinstance(min_length, bool) or not isinstance(min_length, (int, float)) or not 0 <= min_length <= MAX_MIN_LENGTH:
         raise ValueError("Invalid minimum length")
     style = data.get("style")
-    if style not in (None, "bright", "dark"):
+    if style not in (None, "bright", "dark", "outlined"):
         raise ValueError("Invalid wall style")
     started = time.monotonic()
     # OpenCV releases the GIL, so a thread keeps the worker's lock renewals running meanwhile.

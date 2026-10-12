@@ -64,6 +64,35 @@ def painted_hall() -> np.ndarray:
     return img
 
 
+# Two buildings and a cave drawn as thin ink outlines, with diagonal sides the stone search can't follow.
+OUTLINES = [
+    np.array([(200, 160), (560, 160), (640, 360), (480, 520), (200, 420)], np.int32),
+    np.array([(760, 200), (1180, 260), (1120, 560), (820, 520)], np.int32),
+    np.array([(360, 640), (760, 600), (1060, 760), (700, 900), (380, 860)], np.int32),
+]
+
+
+def inked_outlines() -> np.ndarray:
+    """A hand-drawn map: rooms and a cave outlined in a 5 px dark line on a paper-coloured floor."""
+    img = floor(13, colour=(196, 214, 226), grid=(170, 184, 194))
+    for outline in OUTLINES:
+        cv2.polylines(img, [outline], True, (40, 40, 45), 5, cv2.LINE_AA)
+    return img
+
+
+def near_outline(wall: dict, tolerance: float = 12) -> bool:
+    """Whether both ends of a wall lie on one of OUTLINES."""
+    def on(p):
+        point = (float(p["x"]), float(p["y"]))
+        return any(abs(cv2.pointPolygonTest(o.reshape(-1, 1, 2).astype(np.float32), point, True)) <= tolerance for o in OUTLINES)
+    return on(wall["a"]) and on(wall["b"])
+
+
+def diagonal(wall: dict) -> bool:
+    dx, dy = abs(wall["b"]["x"] - wall["a"]["x"]), abs(wall["b"]["y"] - wall["a"]["y"])
+    return min(dx, dy) > 0.25 * max(dx, dy)
+
+
 def encode(img: np.ndarray) -> bytes:
     ok, data = cv2.imencode(".png", img)
     assert ok
@@ -184,6 +213,22 @@ class WallDetectionTest(unittest.TestCase):
         # Looking for the wrong kind of wall finds little of what is drawn.
         self.assertLess(total_length(wrong), 0.25 * total_length(dark))
         self.assertTrue(detect_walls(stone_keep(), CELL, style="bright")["walls"])
+
+    def test_outlined_style_follows_inked_outlines_with_diagonal_walls(self):
+        walls = detect_walls(inked_outlines(), CELL, style="outlined")["walls"]
+        self.assertTrue(walls)
+        on_outlines = [w for w in walls if near_outline(w)]
+        self.assertGreaterEqual(total_length(on_outlines) / total_length(walls), 0.9)
+        perimeter = sum(cv2.arcLength(o.reshape(-1, 1, 2).astype(np.float32), True) for o in OUTLINES)
+        self.assertGreaterEqual(total_length(on_outlines) / perimeter, 0.6)
+        self.assertTrue(any(diagonal(w) for w in on_outlines))
+
+    def test_automatic_detection_falls_back_to_the_outlines_only_when_stone_finds_little(self):
+        outlined = detect_walls(inked_outlines(), CELL)
+        self.assertTrue(outlined["mask"].startswith("outlines:"))
+        self.assertTrue(any(diagonal(w) for w in outlined["walls"]))
+        # A stone map keeps the stone search's walls.
+        self.assertFalse(detect_walls(stone_keep(), CELL)["mask"].startswith("outlines:"))
 
     def test_sample_outside_the_image_is_refused(self):
         with self.assertRaises(ValueError):
