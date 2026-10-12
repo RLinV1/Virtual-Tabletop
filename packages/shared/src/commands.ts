@@ -3,7 +3,7 @@ import { TokenAttacks } from "./attackPresets";
 import { ConditionId, EMPTY_STATS, TokenStats } from "./conditions";
 import { AttackKind, DiceVisibility, MAX_ATTACK_LABEL, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
-import { AreaShape, Id, MapImage, MAX_CHAT_LENGTH, MAX_FOG_POINTS, MAX_WALLS } from "./state";
+import { AreaShape, Id, MapImage, MAX_CHAT_LENGTH, MAX_FOG_POINTS, MAX_WALLS, Portal, PortalState } from "./state";
 
 /** Most walls one `wall.remove` names (ADR 0029), keeping the command under the socket limit. */
 export const MAX_WALLS_PER_REMOVE = 500;
@@ -304,7 +304,8 @@ export const Command = z.discriminatedUnion("type", [
   /** GM draws walls by hand (wall-editing, ADR 0029). Board coordinates (invariant 8). */
   z.object({
     type: z.literal("wall.add"),
-    walls: z.array(z.object({ a: Point, b: Point }).strict()).min(1).max(MAX_WALLS_PER_ADD),
+    /** `portal` lets the map editor's Save keep a door drawn in its draft (ADR 0030). */
+    walls: z.array(z.object({ a: Point, b: Point, portal: Portal.optional() }).strict()).min(1).max(MAX_WALLS_PER_ADD),
   }).strict(),
   /** GM removes chosen walls (ADR 0029). */
   z.object({
@@ -314,6 +315,18 @@ export const Command = z.discriminatedUnion("type", [
   /** GM removes every wall (ADR 0029). */
   z.object({
     type: z.literal("wall.clear"),
+  }).strict(),
+  /** GM makes a wall a door or window, edits it, or (`null`) turns it back into a plain wall (FR-GM-09, ADR 0030). */
+  z.object({
+    type: z.literal("portal.set"),
+    wallId: Id,
+    portal: Portal.nullable(),
+  }).strict(),
+  /** Opens, closes or locks a portal (FR-GM-18, ADR 0030). Players may only open or close one they can see. */
+  z.object({
+    type: z.literal("portal.setState"),
+    wallId: Id,
+    state: PortalState,
   }).strict(),
   /** GM saves the board as a named restore point (FR-REC-02, ADR 0019). */
   z.object({

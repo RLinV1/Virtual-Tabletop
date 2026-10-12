@@ -58,3 +58,30 @@ describe("map editor drafts (map-editor-drafts)", () => {
     expect(planDraftSave(saved, draft)).toEqual([]);
   });
 });
+
+describe("doors and windows in the draft (FR-GM-09, ADR 0030)", () => {
+  const door = { kind: "door", state: "closed" } as const;
+
+  it("marks a kept wall in the draft and saves it with portal.set", () => {
+    const draft = applyToDraft(fresh(), { type: "portal.set", wallId: "w1", portal: door }, newId)!;
+    expect(draft.walls.w1!.portal).toEqual(door);
+    expect(planDraftSave(room, draft)).toEqual([{ type: "portal.set", wallId: "w1", portal: door }]);
+    const plain = applyToDraft(draft, { type: "portal.set", wallId: "w1", portal: null }, newId)!;
+    expect(plain.walls.w1).toEqual(room.walls.w1);
+    expect(draftDirty(room, plain)).toBe(false);
+  });
+
+  it("adds a new wall with its door in one wall.add", () => {
+    let draft = applyToDraft(fresh(), { type: "wall.add", walls: [{ a: { x: 5, y: 5 }, b: { x: 5, y: 50 } }] }, newId)!;
+    const id = Object.keys(draft.walls).find((k) => k.startsWith("draft:"))!;
+    draft = applyToDraft(draft, { type: "portal.set", wallId: id, portal: door }, newId)!;
+    expect(planDraftSave(room, draft)).toEqual([{ type: "wall.add", walls: [{ a: { x: 5, y: 5 }, b: { x: 5, y: 50 }, portal: door }] }]);
+  });
+
+  it("keeps a door when detection finds the same wall again", () => {
+    const marked = { walls: { ...room.walls, w1: { ...room.walls.w1, portal: door } }, fog: room.fog };
+    const detected = [{ a: { x: 100, y: 0 }, b: { x: 0, y: 0 } }, { a: { x: 0, y: 0 }, b: { x: 0, y: 100 } }];
+    const draft = withDetectedWalls({ mapUrl: "/uploads/map.png", ...marked }, detected, newId);
+    expect(planDraftSave(marked, draft)).toEqual([]);
+  });
+});

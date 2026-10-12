@@ -7,10 +7,11 @@ import { encounterTable, type ResolvedEncounter } from "./encounters";
 import { footprintCrossesWall, isSnapped, pathCrossesWall, polygonArea, resizedTokenCenter, snapTokenCenter, spreadPositions, type GridSpec, type Point } from "./geometry";
 import { canRenderGrid } from "./gridRenderLimit";
 import type { SessionEndReason } from "./protocol";
+import { blocksMovement } from "./portals";
 import { inverseOf, undoableAction, undoConflict } from "./undo";
-import { concealedFrom, fogConcealsSide, isInFog, templateConcealedFrom } from "./visibility";
+import { concealedFrom, fogConcealsSide, isInFog, portalConcealedFrom, templateConcealedFrom } from "./visibility";
 import { wallsFitMap, type DetectedWall } from "./wallDetection";
-import { MAX_GROUP_NAME, MAX_GROUPS, MAX_AREA_TEMPLATES, MAX_LINE_WIDTH_CELLS, MAX_CHECKPOINT_NAME, MAX_FOG_REGIONS, MAX_PLAYERS_PER_ROOM, MAX_WALLS, tableOf, type AreaTemplate, type DiceLookOnTable, type Initiative, type Participant, type RoomState, type TableState, type Token, type Wall } from "./state";
+import { MAX_GROUP_NAME, MAX_GROUPS, MAX_AREA_TEMPLATES, MAX_LINE_WIDTH_CELLS, MAX_CHECKPOINT_NAME, MAX_FOG_REGIONS, MAX_PLAYERS_PER_ROOM, MAX_WALLS, tableOf, type AreaTemplate, type DiceLookOnTable, type Initiative, type Participant, type Portal, type RoomState, type TableState, type Token, type Wall } from "./state";
 
 export type RejectionCode = "forbidden" | "not_found" | "invalid";
 
@@ -55,6 +56,12 @@ export interface DecideContext {
 /** Permission helpers. Shared so the UI can hide controls, but ONLY the server's check counts. */
 export const can = {
   administer: (actor: Participant) => actor.role === "gm",
+  /**
+   * Who may open or close a portal from the board (ADR 0030): the GM any; a player one in their
+   * filtered state (so one they can see) that isn't locked. A UI hint; `decide` checks the rest.
+   */
+  togglePortal: (actor: Participant, wall: Wall) =>
+    wall.portal !== undefined && (actor.role === "gm" || wall.portal.state !== "locked"),
   moveToken: (actor: Participant, token: Token) =>
     actor.role === "gm" || token.ownerIds.includes(actor.id),
   /** Owners track their own resources; the GM tracks everyone's (FR-TAC-07). */
@@ -90,12 +97,17 @@ function resnapToGrid(state: RoomState, grid: GridSpec): DomainEvent[] {
 }
 
 const wallsOf = (state: RoomState): Wall[] => Object.values(state.walls);
+/** The walls that stop tokens: plain walls and closed or locked portals (ADR 0030). */
+const blockingWalls = (state: RoomState): Wall[] => wallsOf(state).filter(blocksMovement);
 
 /** Every wall, removed in one event, or nothing when there are none (ADR 0029). */
 function removeAllWalls(state: RoomState): DomainEvent[] {
   const walls = wallsOf(state);
   return walls.length > 0 ? [{ type: "WallsRemoved", walls }] : [];
 }
+
+/** Whether two portal values (null: a plain wall) are the same. */
+const samePortal = (a: Portal | null, b: Portal | null) => a?.kind === b?.kind && a?.state === b?.state;
 
 /** The same words for every viewer, so a refusal tells a player nothing about walls they can't see. */
 const wallBlocked = (): Decision => reject("invalid", "That spot is blocked by a wall.");
@@ -106,7 +118,7 @@ const wallBlocked = (): Decision => reject("invalid", "That spot is blocked by a
  * the path, so a token caught by newly applied walls can still step out.
  */
 function moveBlockedByWalls(state: RoomState, token: Token, to: Point, actor: Participant): Decision | null {
-  const walls = wallsOf(state);
+  const walls = blockingWalls(state);
   if (walls.length === 0) return null;
   const { grid } = state.scene;
   if (footprintCrossesWall(to, token.size, grid, walls)) return wallBlocked();
@@ -178,7 +190,7 @@ export function decide(
         return reject("invalid", "Current HP cannot exceed maximum HP");
       }
       if (new Set(command.conditions).size !== command.conditions.length) return reject("invalid", "A condition is listed twice.");
-      if (footprintCrossesWall(command.position, command.size, state.scene.grid, wallsOf(state))) return wallBlocked();
+      if (footprintCrossesWall(command.position, command.size, state.scene.grid, blockingWalls(state))) return wallBlocked();
       return accept(...createTokens(state, {
         name: command.name,
         position: command.position,
@@ -288,7 +300,7 @@ export function decide(
         const ownerError = checkOwners(state, changes.ownerIds);
         if (ownerError) return ownerError;
       }
-      if (changes.position && footprintCrossesWall(changes.position, changes.size ?? token.size, state.scene.grid, wallsOf(state))) {
+      if (changes.position && footprintCrossesWall(changes.position, changes.size ?? token.size, state.scene.grid, blockingWalls(state))) {
         return wallBlocked();
       }
       const imageUrl = changes.imageUrl;
@@ -659,7 +671,7 @@ export function decide(
       if (Object.keys(state.walls).length + command.walls.length > MAX_WALLS) {
         return reject("invalid", `A room can hold at most ${MAX_WALLS} walls. Remove some first.`);
       }
-      return accept({ type: "WallsAdded", walls: command.walls.map((w) => ({ id: ctx.newId(), a: w.a, b: w.b })) });
+      return accept({ type: "WallsAdded", walls: command.walls.map((w) => ({ id: ctx.newId(), a: w.a, b: w.b, ...(w.portal && { portal: w.portal }) })) });
     }
 
     case "wall.remove": {
@@ -676,6 +688,27 @@ export function decide(
     case "wall.clear":
       if (!can.administer(actor)) return forbidden();
       return accept(...removeAllWalls(state));
+
+    case "portal.set": {
+      if (!can.administer(actor)) return forbidden();
+      const wall = state.walls[command.wallId];
+      if (!wall) return notFound("wall");
+      const from = wall.portal ?? null;
+      if (samePortal(from, command.portal)) return reject("invalid", "That wall is already like that.");
+      return accept({ type: "PortalChanged", wallId: wall.id, from, to: command.portal });
+    }
+
+    case "portal.setState": {
+      // Players may only open and close; refused before any lookup, so it says nothing (ADR 0030).
+      if (command.state === "locked" && !can.administer(actor)) return forbidden();
+      const wall = state.walls[command.wallId];
+      // A plain wall, a missing one and a portal under fog read the same to a player.
+      if (!wall?.portal || portalConcealedFrom(state.fog, wall, actor)) return notFound("portal");
+      const from = wall.portal;
+      if (from.state === "locked" && !can.administer(actor)) return reject("invalid", `That ${from.kind} is locked.`);
+      if (from.state === command.state) return reject("invalid", `That ${from.kind} is already ${command.state}.`);
+      return accept({ type: "PortalChanged", wallId: wall.id, from, to: { ...from, state: command.state } });
+    }
 
     case "participant.rename": {
       const displayName = command.displayName.trim();
@@ -896,7 +929,7 @@ function createTokens(
     base.position, base.size, besideOrigin ? count + 1 : count, state.scene.grid, state.scene.map,
     Object.values(state.tokens).map((t) => ({ position: t.position, size: t.size })),
     // No copy lands across a wall (ADR 0029).
-    (p) => footprintCrossesWall(p, base.size, state.scene.grid, wallsOf(state)),
+    (p) => footprintCrossesWall(p, base.size, state.scene.grid, blockingWalls(state)),
   );
   const positions = besideOrigin ? spread.slice(1) : spread;
   let named = state;

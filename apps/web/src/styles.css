@@ -2332,7 +2332,11 @@ dialog.modal.map-editor {
 .map-editor-grid .grid-editor-footer .grid-actions { margin-left: auto; }
 .map-editor-modes { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
 .map-editor-mode { display: inline-flex; align-items: center; justify-content: flex-start; gap: var(--space-2); min-height: 44px; padding: 0.35rem 0.6rem; }
-.map-editor-mode[aria-checked="true"], .map-editor-mode[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.map-editor-portal { gap: var(--space-2); }
+.map-editor-option-row { display: grid; gap: var(--space-1); }
+.map-editor-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-1); }
+.map-editor-option { justify-content: center; min-height: 36px; padding: 0.25rem 0.4rem; }
+.map-editor-mode[aria-checked="true"], .map-editor-mode[aria-pressed="true"], .map-editor-option[aria-checked="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .map-editor-mode:disabled { opacity: 0.45; cursor: not-allowed; }
 .map-editor-count { margin: 0; font-size: var(--fs-sm); }
 /* Detection the server can't run: shown, but greyed out with its reason (map-editor D4). */

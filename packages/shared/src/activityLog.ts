@@ -2,6 +2,7 @@ import { z } from "zod";
 import { formatAttackParties, type DiceRoll } from "./dice";
 import { CommittedEvent, type DomainEvent } from "./events";
 import { reduceCommitted } from "./reducer";
+import { describePortalChange } from "./portals";
 import { describeUndo } from "./undo";
 import { emptyRoomState, type Participant, type RoomState } from "./state";
 import { filterEventForViewer, filterStateForViewer } from "./visibility";
@@ -126,6 +127,7 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
     case "FogRemoved": return `${actorName} removed a fog ${fogLabel(event.region.shape)}`;
     case "WallsAdded": return `${actorName} added ${wallCount(event.walls.length)}`;
     case "WallsRemoved": return `${actorName} removed ${wallCount(event.walls.length)}`;
+    case "PortalChanged": return `${actorName} ${describePortalChange(event.from, event.to).past}`;
     case "CheckpointCreated": return `${actorName} saved checkpoint "${event.checkpoint.name}"`;
     case "CheckpointRestored": return `${actorName} restored checkpoint "${event.name}"`;
     case "EncounterApplied": return `${actorName} applied encounter template "${event.name}"`;

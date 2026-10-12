@@ -7,16 +7,19 @@ import { MapCanvas } from "./MapCanvas";
 const JOIN_PX = 12;
 /** Erase picks the wall within this many screen pixels of the click. */
 const PICK_PX = 10;
+/** Portal colours, as on the board (ADR 0030): wood for doors, glass for windows, red lock mark. */
+const PORTAL_COLORS = { door: "#c8873a", window: "#5dade2" } as const;
+const LOCK_COLOR = "#c0392b";
 
 export type CanvasMode = WallMode | "pan";
 
 /**
  * The Walls step's canvas (map-editor D3): the map with its walls in board coordinates
- * (invariant 8). Draw chains walls, Erase removes the wall under the pointer, and Detect like
- * this sends the clicked point. Detected walls waiting to be applied are drawn as candidates, and
+ * (invariant 8). Draw chains walls, Erase removes the wall under the pointer, Door / window picks
+ * the wall to make a door or window (ADR 0030), and Detect like this sends the clicked point. Detected walls waiting to be applied are drawn as candidates, and
  * Erase toggles one off (or back on) instead of touching the room's walls.
  */
-export function WallCanvas({ map, grid, walls, candidates, erased, mode, onAdd, onRemove, onToggleCandidate, onSample, busy }: {
+export function WallCanvas({ map, grid, walls, candidates, erased, mode, onAdd, onRemove, onPortal, onToggleCandidate, onSample, busy }: {
   map: MapImage;
   grid: GridSpec;
   walls: Record<string, Wall>;
@@ -27,6 +30,7 @@ export function WallCanvas({ map, grid, walls, candidates, erased, mode, onAdd, 
   mode: CanvasMode;
   onAdd: (a: Point, b: Point) => void;
   onRemove: (wallId: string) => void;
+  onPortal: (wallId: string) => void;
   onToggleCandidate: (key: string) => void;
   onSample: (at: Point) => void;
   busy: boolean;
@@ -50,7 +54,7 @@ export function WallCanvas({ map, grid, walls, candidates, erased, mode, onAdd, 
       grid={grid}
       mode={mode}
       pan={mode === "pan"}
-      label="Map walls. Draw, erase or detect walls with the pointer; the wheel or a pinch zooms, and two fingers pan."
+      label="Map walls. Draw, erase, mark doors and windows, or detect walls with the pointer; the wheel or a pinch zooms, and two fingers pan."
       onMove={(p, e, view) => {
         setFree(e.altKey);
         setHover(p && (mode === "draw" ? snap(p, e.altKey, view.px) : p));
@@ -67,6 +71,11 @@ export function WallCanvas({ map, grid, walls, candidates, erased, mode, onAdd, 
           if (candidate) return onToggleCandidate(candidate.id);
           const wall = wallAt(walls, p, PICK_PX * view.px);
           if (wall) onRemove(wall.id);
+          return;
+        }
+        if (mode === "portal") {
+          const wall = wallAt(walls, p, PICK_PX * view.px);
+          if (wall) onPortal(wall.id);
           return;
         }
         if (mode !== "draw" || !onMap(p)) return;
@@ -88,6 +97,7 @@ export function WallCanvas({ map, grid, walls, candidates, erased, mode, onAdd, 
         const px = view.px;
         const target = mode === "erase" && hover ? wallAt(candidates, hover, PICK_PX * px) : null;
         const erasing = mode === "erase" && hover && !target ? wallAt(walls, hover, PICK_PX * px) : null;
+        const marking = mode === "portal" && hover ? wallAt(walls, hover, PICK_PX * px) : null;
         return (
           <>
             <g strokeLinecap="round" data-testid="wall-candidates">
@@ -107,12 +117,21 @@ export function WallCanvas({ map, grid, walls, candidates, erased, mode, onAdd, 
               })}
             </g>
             <g strokeLinecap="round">
-              {Object.values(walls).map((w) => (
-                <g key={w.id}>
-                  <line x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y} stroke="#111" strokeOpacity={0.8} strokeWidth={7 * px} />
-                  <line x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y} stroke={erasing?.id === w.id ? "#e74c3c" : "#ff6b2c"} strokeWidth={(erasing?.id === w.id ? 6 : 3.5) * px} />
-                </g>
-              ))}
+              {Object.values(walls).map((w) => {
+                const hot = erasing?.id === w.id || marking?.id === w.id;
+                const color = erasing?.id === w.id ? "#e74c3c" : marking?.id === w.id ? "#ffd166" : w.portal ? PORTAL_COLORS[w.portal.kind] : "#ff6b2c";
+                // An open portal is drawn dashed, a locked one with a lock mark (ADR 0030).
+                const dash = w.portal?.state === "open" ? `${10 * px} ${6 * px}` : undefined;
+                return (
+                  <g key={w.id} data-portal={w.portal ? `${w.portal.state} ${w.portal.kind}` : undefined}>
+                    <line x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y} stroke="#111" strokeOpacity={0.8} strokeWidth={(w.portal ? 9 : 7) * px} strokeDasharray={dash} />
+                    <line x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y} stroke={color} strokeWidth={(hot ? 6 : w.portal ? 5 : 3.5) * px} strokeDasharray={dash} />
+                    {w.portal?.state === "locked" && (
+                      <circle cx={(w.a.x + w.b.x) / 2} cy={(w.a.y + w.b.y) / 2} r={5 * px} fill={LOCK_COLOR} stroke="#111" strokeWidth={1.5 * px} />
+                    )}
+                  </g>
+                );
+              })}
             </g>
             {mode === "draw" && chain && (
               <g>

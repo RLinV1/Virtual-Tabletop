@@ -1,5 +1,6 @@
 import { formatAttackParties } from "./dice";
 import type { CommittedEvent, DomainEvent } from "./events";
+import { describePortalChange } from "./portals";
 import { normalizeName } from "./decide";
 import { MAX_FOG_REGIONS, MAX_GROUPS, MAX_WALLS, tableOf, type RoomState, type TableState } from "./state";
 
@@ -29,6 +30,7 @@ export const REVERSIBLE_EVENT_TYPES = [
   "FogRemoved",
   "WallsAdded",
   "WallsRemoved",
+  "PortalChanged",
   "CheckpointRestored",
   "EncounterApplied",
   // KAN-82, ADR 0026.
@@ -227,6 +229,8 @@ function inverseOfOne(event: SingleInverse): DomainEvent {
       return { type: "WallsRemoved", walls: event.walls };
     case "WallsRemoved":
       return { type: "WallsAdded", walls: event.walls };
+    case "PortalChanged":
+      return { type: "PortalChanged", wallId: event.wallId, from: event.to, to: event.from };
     case "CheckpointRestored":
       // Puts back the board the restore replaced (ADR 0019).
       return { ...event, restored: event.previous, previous: event.restored };
@@ -283,6 +287,15 @@ export function undoConflict(state: RoomState, entry: UndoEntry): string | null 
     }
     if (event.type === "WallsRemoved") {
       if (event.walls.some((w) => state.walls[w.id])) return "Can't undo: those walls are already back.";
+      continue;
+    }
+    if (event.type === "PortalChanged") {
+      const wall = state.walls[event.wallId];
+      if (!wall) return "Can't undo: that wall no longer exists.";
+      const now = wall.portal;
+      if (now?.kind !== event.to?.kind || now?.state !== event.to?.state) {
+        return `Can't undo: that ${event.to?.kind ?? "wall"} has changed since.`;
+      }
       continue;
     }
     // Fog regions are never edited in place, so "still current" is just "still there" (or still gone).
@@ -415,6 +428,10 @@ export function describeUndo(entry: UndoEntry, tokens: RoomState["tokens"]): { v
   if (first.type === "WallsAdded" || first.type === "WallsRemoved") {
     const what = `${first.walls.length} ${first.walls.length === 1 ? "wall" : "walls"}`;
     return { verb: `removal of ${what}`, noun: `removing ${what}` };
+  }
+  if (first.type === "PortalChanged") {
+    const words = describePortalChange(first.from, first.to);
+    return { verb: words.verb, noun: words.gerund };
   }
   if (first.type === "FogAdded" || first.type === "FogRemoved") {
     const what = first.region.shape === "rect" ? "fog rectangle" : "fog polygon";

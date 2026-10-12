@@ -1,6 +1,6 @@
 import {
   MAX_WALLS_PER_ADD, MAX_WALLS_PER_REMOVE,
-  type CommandInput, type FogRegion, type Point, type RoomState, type Wall,
+  type CommandInput, type FogRegion, type Point, type Portal, type RoomState, type Wall,
 } from "@vtt/shared";
 
 /**
@@ -48,7 +48,7 @@ function chunks<T>(items: readonly T[], size: number): T[][] {
 
 /**
  * The commands Save sends, in order (map-editor-drafts D2): new fog first, then wall removals and
- * additions, then fog removals, so fog always hides before it reveals. Walls and fog are matched
+ * additions, then door and window changes on kept walls (ADR 0030), then fog removals, so fog always hides before it reveals. Walls and fog are matched
  * by geometry, not id: a detection that keeps an existing wall leaves it alone, and once a save
  * reaches the room the draft and the room agree again.
  */
@@ -70,18 +70,32 @@ export function planDraftSave(room: Pick<RoomState, "walls" | "fog">, draft: Map
     const removed = roomWalls.filter((w) => !draftKeys.has(wallKey(w))).map((w) => w.id);
     for (const wallIds of chunks(removed, MAX_WALLS_PER_REMOVE)) commands.push({ type: "wall.remove", wallIds });
   }
-  const added = new Map<string, { a: Point; b: Point }>();
+  const added = new Map<string, { a: Point; b: Point; portal?: Portal }>();
   for (const w of draftWalls) {
     const key = wallKey(w);
-    if (!roomKeys.has(key) && !added.has(key)) added.set(key, { a: w.a, b: w.b });
+    // A new wall carries its door or window with it (ADR 0030).
+    if (!roomKeys.has(key) && !added.has(key)) added.set(key, { a: w.a, b: w.b, ...(w.portal && { portal: w.portal }) });
   }
   for (const walls of chunks([...added.values()], MAX_WALLS_PER_ADD)) commands.push({ type: "wall.add", walls });
+  // A wall kept from the room whose door or window changed in the draft.
+  const roomByKey = new Map(roomWalls.map((w) => [wallKey(w), w]));
+  const marked = new Set<string>();
+  for (const w of draftWalls) {
+    const key = wallKey(w);
+    const roomWall = roomByKey.get(key);
+    if (!roomWall || marked.has(key) || samePortal(roomWall.portal, w.portal)) continue;
+    marked.add(key);
+    commands.push({ type: "portal.set", wallId: roomWall.id, portal: w.portal ?? null });
+  }
 
   for (const region of Object.values(room.fog)) {
     if (!draftFogKeys.has(fogKey(region))) commands.push({ type: "fog.remove", regionId: region.id });
   }
   return commands;
 }
+
+/** Whether two walls are the same kind of portal, or both plain. */
+const samePortal = (a: Portal | undefined, b: Portal | undefined) => a?.kind === b?.kind && a?.state === b?.state;
 
 /** Whether Save would send anything. */
 export const draftDirty = (room: Pick<RoomState, "walls" | "fog">, draft: MapDraft) => planDraftSave(room, draft).length > 0;
@@ -94,11 +108,17 @@ export function applyToDraft(draft: MapDraft, command: CommandInput, newId: () =
   switch (command.type) {
     case "wall.add": {
       const walls = { ...draft.walls };
-      for (const { a, b } of command.walls) {
+      for (const { a, b, portal } of command.walls) {
         const id = newId();
-        walls[id] = { id, a, b };
+        walls[id] = { id, a, b, ...(portal && { portal }) };
       }
       return { ...draft, walls };
+    }
+    case "portal.set": {
+      const wall = draft.walls[command.wallId];
+      if (!wall) return draft;
+      const { portal: _previous, ...plain } = wall;
+      return { ...draft, walls: { ...draft.walls, [wall.id]: command.portal ? { ...plain, portal: command.portal } : plain } };
     }
     case "wall.remove": {
       const walls = { ...draft.walls };
@@ -130,16 +150,21 @@ export function applyToDraft(draft: MapDraft, command: CommandInput, newId: () =
   }
 }
 
-/** Walls from a finished detection, as the draft's whole set of walls; a wall found twice counts once. */
+/**
+ * Walls from a finished detection, as the draft's whole set of walls; a wall found twice counts
+ * once. A wall the draft already had keeps its door or window (ADR 0030).
+ */
 export function withDetectedWalls(draft: MapDraft, detected: readonly { a: Point; b: Point }[], newId: () => string): MapDraft {
   const walls: Record<string, Wall> = {};
   const seen = new Set<string>();
+  const portals = new Map(Object.values(draft.walls).flatMap((w) => (w.portal ? [[wallKey(w), w.portal] as const] : [])));
   for (const { a, b } of detected) {
     const key = wallKey({ a, b });
     if (seen.has(key)) continue;
     seen.add(key);
     const id = newId();
-    walls[id] = { id, a, b };
+    const portal = portals.get(key);
+    walls[id] = { id, a, b, ...(portal && { portal }) };
   }
   return { ...draft, walls };
 }

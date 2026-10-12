@@ -113,6 +113,23 @@ describe("map editor walls (FR-GM-09, FR-GM-11)", () => {
     await waitFor(() => expect(commands).toEqual([{ type: "wall.remove", wallIds: ["w1"] }]));
   });
 
+  it("makes the clicked wall the chosen door or window, and sends nothing when it already is (FR-GM-18)", async () => {
+    const wall: Wall = { id: "w1", a: { x: 100, y: 100 }, b: { x: 300, y: 100 }, portal: { kind: "door", state: "closed" } };
+    const { commands } = mount(room({ walls: [wall] }));
+    fireEvent.click(tool("Door / window"));
+    const svg = canvas();
+
+    // Door, Closed is the default and the wall is one already.
+    click(svg, { x: 200, y: 104 });
+    await Promise.resolve();
+    expect(commands).toEqual([]);
+
+    fireEvent.click(within(screen.getByRole("radiogroup", { name: "Make walls" })).getByRole("radio", { name: "Window" }));
+    fireEvent.click(within(screen.getByRole("radiogroup", { name: "Starting state" })).getByRole("radio", { name: "Locked" }));
+    click(svg, { x: 200, y: 104 });
+    await waitFor(() => expect(commands).toEqual([{ type: "portal.set", wallId: "w1", portal: { kind: "window", state: "locked" } }]));
+  });
+
   it("sends the clicked map point to Detect like this", async () => {
     const detect = vi.spyOn(api.walls, "detect").mockResolvedValue({ status: "queued" });
     mount();

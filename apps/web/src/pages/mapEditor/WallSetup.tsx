@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { Eraser, Eyedropper, Hand, LineSegments } from "@phosphor-icons/react";
+import { Door, Eraser, Eyedropper, Hand, LineSegments } from "@phosphor-icons/react";
 import {
   MIN_LENGTH_MAX, SAMPLE_TOLERANCE_DEFAULT, SAMPLE_TOLERANCE_MAX, SAMPLE_TOLERANCE_MIN,
   STRICTNESS_DEFAULT, STRICTNESS_MAX, STRICTNESS_MIN,
-  type CommandInput, type DetectedWall, type Point, type RoomState, type Wall, type WallStyle, type WallDetectionAvailability, type WallDetectionRequest, type WallDetectionStatus,
+  type CommandInput, type DetectedWall, type Point, type Portal, type PortalKind, type PortalState, type RoomState, type Wall, type WallStyle, type WallDetectionAvailability, type WallDetectionRequest, type WallDetectionStatus,
 } from "@vtt/shared";
 import { api } from "../../net/api";
 import type { RoomConnection } from "../../net/roomConnection";
@@ -12,13 +12,27 @@ import { WallCanvas, type CanvasMode } from "./WallCanvas";
 const MODES: { key: CanvasMode; label: string; icon: typeof Eraser; needsDetection?: boolean }[] = [
   { key: "draw", label: "Draw", icon: LineSegments },
   { key: "erase", label: "Erase", icon: Eraser },
+  { key: "portal", label: "Door / window", icon: Door },
   { key: "sample", label: "Detect like this", icon: Eyedropper, needsDetection: true },
   { key: "pan", label: "Pan", icon: Hand },
+];
+
+/** What the Door / window tool turns a clicked wall into (ADR 0030). "wall" makes it plain again. */
+const PORTAL_KINDS: { key: PortalKind | "wall"; label: string }[] = [
+  { key: "door", label: "Door" },
+  { key: "window", label: "Window" },
+  { key: "wall", label: "Wall" },
+];
+const PORTAL_STATES: { key: PortalState; label: string }[] = [
+  { key: "closed", label: "Closed" },
+  { key: "open", label: "Open" },
+  { key: "locked", label: "Locked" },
 ];
 
 const HINTS: Record<CanvasMode, string> = {
   draw: "Click to start a wall, click again to end it and start the next. Ends snap to grid corners and wall ends; hold Alt to place freely. Enter, Esc or right-click stops.",
   erase: "Click a wall to remove it. Click a blue detected wall to leave it out of Apply, and click it again to bring it back.",
+  portal: "Pick what the wall should be, then click walls. Players see doors and windows outside fog and can open and close unlocked ones.",
   sample: "Click on a wall in the map: walls that look like it are detected across the whole map.",
   pan: "Drag to move around. The wheel or a pinch zooms; Space-drag or a two-finger drag pans in any mode.",
 };
@@ -33,6 +47,8 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
   const mapUrl = map?.url ?? "";
   const wallCount = Object.keys(state.walls).length;
   const [mode, setMode] = useState<CanvasMode>("draw");
+  const [portalKind, setPortalKind] = useState<PortalKind | "wall">("door");
+  const [portalState, setPortalState] = useState<PortalState>("closed");
   const [availability, setAvailability] = useState<WallDetectionAvailability | null>(null);
   const [detection, setDetection] = useState<{ mapUrl: string; status: WallDetectionStatus | null }>({ mapUrl, status: null });
   const [preview, setPreview] = useState<{ mapUrl: string; url: string } | null>(null);
@@ -134,6 +150,14 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
     return result.ok;
   };
 
+  /** Makes the clicked wall what the Door / window tool is set to; nothing to send when it already is. */
+  const markPortal = (wallId: string) => {
+    const portal: Portal | null = portalKind === "wall" ? null : { kind: portalKind, state: portalState };
+    const current = state.walls[wallId]?.portal ?? null;
+    if (current?.kind === portal?.kind && current?.state === portal?.state) return;
+    void run({ type: "portal.set", wallId, portal });
+  };
+
   const pendingWalls = candidates?.mapUrl === mapUrl ? candidates : null;
   const candidateWalls: Record<string, Wall> = {};
   pendingWalls?.walls.forEach((w, i) => { candidateWalls[String(i)] = { id: String(i), a: w.a, b: w.b }; });
@@ -170,6 +194,7 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
         busy={busy}
         onAdd={(a, b) => void run({ type: "wall.add", walls: [{ a, b }] })}
         onRemove={(wallId) => void run({ type: "wall.remove", wallIds: [wallId] })}
+        onPortal={markPortal}
         onToggleCandidate={toggleCandidate}
         onSample={(at) => void detect(at)}
       />
@@ -196,6 +221,12 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
               );
             })}
           </div>
+          {mode === "portal" && (
+            <div className="stack map-editor-portal">
+              <OptionRow label="Make walls" options={PORTAL_KINDS} value={portalKind} onChange={setPortalKind} />
+              <OptionRow label="Starting state" options={PORTAL_STATES} value={portalState} onChange={setPortalState} disabled={portalKind === "wall"} />
+            </div>
+          )}
           <p className="muted small-print">{HINTS[mode]}</p>
           {mode === "sample" && (
             <label className="stack">
@@ -212,7 +243,7 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
             </label>
           )}
           <p className="map-editor-count">
-            {wallCount} {wallCount === 1 ? "wall" : "walls"} on this map. Tokens can't be placed on them, and players can't move through them. Only you see them.
+            {wallCount} {wallCount === 1 ? "wall" : "walls"} on this map. Tokens can't be placed on them, and players can't move through them or through closed doors. Only you see plain walls.
           </p>
         </section>
 
@@ -289,6 +320,36 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
         )}
         {message && <p className={message.error ? "error" : "muted"} role={message.error ? "alert" : "status"}>{message.text}</p>}
       </aside>
+    </div>
+  );
+}
+
+/** A small radio row for the Door / window tool's choices. */
+function OptionRow<T extends string>({ label, options, value, onChange, disabled }: {
+  label: string;
+  options: { key: T; label: string }[];
+  value: T;
+  onChange: (value: T) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="map-editor-option-row" role="radiogroup" aria-label={label} aria-disabled={disabled}>
+      <span className="muted small-print">{label}</span>
+      <div className="map-editor-options">
+        {options.map((option) => (
+          <button
+            key={option.key}
+            type="button"
+            role="radio"
+            aria-checked={value === option.key}
+            className="tool-button map-editor-option"
+            disabled={disabled}
+            onClick={() => onChange(option.key)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
