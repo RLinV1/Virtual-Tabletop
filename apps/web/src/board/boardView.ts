@@ -124,6 +124,8 @@ const PORTAL_REACH_PX = 10;
 const DOOR_COLOR = 0xc8873a;
 const WINDOW_COLOR = 0x5dade2;
 const LOCK_COLOR = 0xc0392b;
+/** The thinnest a door or window is drawn, in screen pixels, however far the board is zoomed out. */
+const PORTAL_MIN_PX = 6;
 /** How close (screen pixels) the eraser has to come to a line to erase it. */
 const ERASER_REACH_PX = 12;
 /** A brush stroke adds a point once the pointer has moved this far (screen pixels). */
@@ -281,6 +283,9 @@ export class BoardView {
   /** Walls and portals. Plain walls reach the GM only; players get the portals they can see (ADR 0030). */
   private wallGraphics = new Graphics();
   private drawnWalls: RoomState["walls"] | null = null;
+  /** Doors and windows, over the walls; redrawn on zoom so they stay thick enough to find (ADR 0030). */
+  private portalGraphics = new Graphics();
+  private portalsScale = 0;
   private tokenLayer = new Container();
   /** The viewer's own measure, draw and area marks (KAN-69); never sent anywhere. */
   private markLayer = new Container();
@@ -403,7 +408,8 @@ export class BoardView {
     this.fogLayer.eventMode = "none";
     this.fogLayer.addChild(this.fogGraphics, this.fogEdgeGraphics);
     this.wallGraphics.eventMode = "none";
-    this.world.addChild(this.mapSprite, this.grid, this.fogLayer, this.wallGraphics, this.tokenLayer, this.markLayer, this.fxLayer);
+    this.portalGraphics.eventMode = "none";
+    this.world.addChild(this.mapSprite, this.grid, this.fogLayer, this.wallGraphics, this.portalGraphics, this.tokenLayer, this.markLayer, this.fxLayer);
     this.fxLayer.addChild(this.ghostFootprint);
     this.app.stage.addChild(this.world);
 
@@ -492,6 +498,7 @@ export class BoardView {
     }
     for (const from of expiredAims(this.aims, now)) this.clearAim(from);
     if (this.dirty && this.marksScale !== this.world.scale.x) this.redrawMarks();
+    if (this.dirty && this.portalsScale !== this.world.scale.x) this.drawPortals();
     if (this.dirty) {
       this.app.render();
       this.notifyView();
@@ -610,29 +617,41 @@ export class BoardView {
     if (!state || state.walls === this.drawnWalls) return;
     this.drawnWalls = state.walls;
     const g = this.wallGraphics.clear();
-    const walls = Object.values(state.walls);
-    if (walls.length === 0) return;
-    const width = Math.max(3, state.scene.grid.cellSize * 0.09);
-    const plain = walls.filter((w) => !w.portal);
+    const plain = Object.values(state.walls).filter((w) => !w.portal);
     if (plain.length > 0) {
+      const width = Math.max(3, state.scene.grid.cellSize * 0.09);
       for (const wall of plain) g.moveTo(wall.a.x, wall.a.y).lineTo(wall.b.x, wall.b.y);
       g.stroke({ width: width + 4, color: 0x111111, alpha: 0.8, cap: "round", join: "round" });
       for (const wall of plain) g.moveTo(wall.a.x, wall.a.y).lineTo(wall.b.x, wall.b.y);
       g.stroke({ width, color: 0xff6b2c, alpha: 0.95, cap: "round", join: "round" });
     }
-    for (const wall of walls) {
+    this.drawPortals();
+  }
+
+  /**
+   * Doors and windows are what players act on, so they are drawn about a fifth of a cell thick
+   * and never thinner than PORTAL_MIN_PX on screen, at any zoom (ADR 0030).
+   */
+  private drawPortals() {
+    const state = this.state;
+    this.portalsScale = this.world.scale.x;
+    const g = this.portalGraphics.clear();
+    if (!state) return;
+    const px = 1 / this.world.scale.x;
+    const width = Math.max(state.scene.grid.cellSize * 0.2, PORTAL_MIN_PX * px);
+    for (const wall of Object.values(state.walls)) {
       if (!wall.portal) continue;
       const color = wall.portal.kind === "door" ? DOOR_COLOR : WINDOW_COLOR;
       const { a, b } = wall;
       const along = (t: number) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
       const pieces: [Point, Point][] = wall.portal.state === "open" ? [[a, along(0.2)], [along(0.8), b]] : [[a, b]];
       for (const [p, q] of pieces) g.moveTo(p.x, p.y).lineTo(q.x, q.y);
-      g.stroke({ width: width * 1.6 + 4, color: 0x111111, alpha: 0.85, cap: "butt" });
+      g.stroke({ width: width + 3 * px, color: 0x111111, alpha: 0.85, cap: "butt" });
       for (const [p, q] of pieces) g.moveTo(p.x, p.y).lineTo(q.x, q.y);
-      g.stroke({ width: width * 1.6, color, alpha: 1, cap: "butt" });
+      g.stroke({ width, color, alpha: 1, cap: "butt" });
       if (wall.portal.state === "locked") {
         const mid = along(0.5);
-        g.circle(mid.x, mid.y, width * 1.3).fill({ color: LOCK_COLOR }).stroke({ width: 2, color: 0x111111 });
+        g.circle(mid.x, mid.y, width * 0.8).fill({ color: LOCK_COLOR }).stroke({ width: 2 * px, color: 0x111111 });
       }
     }
   }
