@@ -1,6 +1,6 @@
 ## Context
 
-- PR #86 (KAN-66, ADR 0023) defines `scene.setMap { map, grid?, tokenPolicy? }` with policies `scale | keep | recenter`, a `MapSet` that carries `tokenChanges` (`tokenId`, `from`, `to`), and makes a new map action undoable. It has no web changes.
+- PR #86 (KAN-66, ADR 0031) defines `scene.setMap { map, grid?, tokenPolicy? }` with policies `scale | keep | recenter`, a `MapSet` that carries `tokenChanges` (`tokenId`, `from`, `to`), and makes a new map action undoable. It has no web changes.
 - Every map placement goes through the "Prepare map" sheet and `onSetMap` in `GmPanel.tsx` (KAN-59), so one place covers uploads and library maps. The board already refits when the map URL changes.
 
 ## Goals / Non-Goals

@@ -173,7 +173,7 @@ function MapSection(props: {
     if (!command) return setPrepError("Fix the grid before applying the map.");
     setApplyingMap(true);
     try {
-      // One command: the map, its grid and the token moves reach the table together (ADR 0004, 0023).
+      // One command: the map, its grid and the token moves reach the table together (ADR 0004, 0031).
       if (await props.onSetMap(command, setPrepError)) {
         discardPrep();
         setUndoError(null);
