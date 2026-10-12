@@ -15,6 +15,10 @@ const WALL = { a: { x: 140, y: 0 }, b: { x: 140, y: 700 } };
 /** Plays the Python worker's part: records jobs, and emits queue events when told to. */
 class StandInQueue implements WallJobQueue {
   jobs = new Map<string, WallJobData>();
+  /** Stored images, as the worker would find them by key: raw bytes, each with the expiry it was last given. */
+  images = new Map<string, { bytes: Uint8Array; ttl: number }>();
+  puts = 0;
+  extends = 0;
   alive = true;
   async workerAlive() {
     return this.alive;
@@ -23,6 +27,22 @@ class StandInQueue implements WallJobQueue {
   private handler: (event: WallJobEvent) => void = () => {};
   async add(jobId: string, data: WallJobData) {
     this.jobs.set(jobId, data);
+  }
+  async putImage(key: string, bytes: Uint8Array, ttlSeconds: number) {
+    this.puts += 1;
+    this.images.set(key, { bytes, ttl: ttlSeconds });
+  }
+  async extendImage(key: string, ttlSeconds: number) {
+    this.extends += 1;
+    const image = this.images.get(key);
+    if (image) image.ttl = ttlSeconds;
+  }
+  async dropImage(key: string) {
+    this.images.delete(key);
+  }
+  /** The bytes a job's worker would read, by the key in its data. */
+  imageOf(data: WallJobData) {
+    return this.images.get(data.imageKey)?.bytes;
   }
   async remove(jobId: string) {
     this.removed.push(jobId);
@@ -90,7 +110,7 @@ describe("automatic wall detection through the queue (FR-GM-11, ADR 0029)", () =
     const { room, gm, player, playerCreds, url } = await roomWithMap(queue);
     const [jobId, data] = queue.only();
     // The worker gets the stored bytes, never an address to fetch.
-    expect(Buffer.from(data.image, "base64").equals(PNG)).toBe(true);
+    expect(Buffer.from(queue.imageOf(data)!).equals(PNG)).toBe(true);
     expect(data).toMatchObject({ width: 700, height: 700 });
     expect((await statusOf(room.guestToken, room.roomId, url)).body).toEqual({ status: "queued" });
 
@@ -273,7 +293,7 @@ describe("automatic wall detection through the queue (FR-GM-11, ADR 0029)", () =
     expect((await detect()).status).toBe(202);
     const [, data] = queue.only();
     const shipped = await readFile(fileURLToPath(new URL("../../web/public/img/map-ice.webp", import.meta.url)));
-    expect(Buffer.from(data.image, "base64").equals(shipped)).toBe(true);
+    expect(Buffer.from(queue.imageOf(data)!).equals(shipped)).toBe(true);
     expect(data).toMatchObject({ width: 3269, height: 1882 });
 
     // Not a shipped map, and not a path out of the folder: nothing is read or queued.

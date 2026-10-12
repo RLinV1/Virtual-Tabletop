@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { Queue, QueueEvents } from "bullmq";
+import type { Redis } from "ioredis";
 import {
   WALL_DETECTION_QUEUE,
   WallDetectionResult,
@@ -27,14 +28,24 @@ const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
 const MAX_RESULTS = 200;
 /** A job with no answer by then is reported failed, so a missing worker never leaves the GM waiting forever. */
 const JOB_TIMEOUT_MS = 10 * 60_000;
+/** Prefix of an image's Redis key; must match IMAGE_KEY_PREFIX in wall_worker.py. */
+export const WALL_IMAGE_KEY_PREFIX = "vtt:wall-image:";
+/** An image outlives its longest job by a minute, and no longer: Redis removes it if nobody does. */
+const IMAGE_TTL_SECONDS = JOB_TIMEOUT_MS / 1000 + 60;
+/**
+ * Most analyses queued or running at once, server-wide. Each holds one map image in Redis (up to
+ * 25 MB), so this bounds that memory; maps with the same bytes share one image.
+ */
+export const MAX_PENDING_JOBS = 4;
 
 /**
  * What the app server puts on the queue. The bytes are read from its own storage or from the maps
- * that ship with the app, never from a caller's URL.
+ * that ship with the app, never from a caller's URL. They do not travel in the job: they sit in
+ * one raw Redis key with an expiry, and the job names it (wall-job-transport).
  */
 export interface WallJobData {
-  /** Base64 image bytes. */
-  image: string;
+  /** `vtt:wall-image:<sha256 hex of the bytes>`: where the worker reads the image. */
+  imageKey: string;
   width: number;
   height: number;
   /** The room grid's cell size in image pixels, so the worker judges walls against the squares. */
@@ -60,6 +71,12 @@ export type WallJobEvent =
 /** The transport: BullMQ in production, a stand-in in tests (no Redis or Python in CI). */
 export interface WallJobQueue {
   add(jobId: string, data: WallJobData): Promise<void>;
+  /** Stores the image bytes under `key`, to expire after `ttlSeconds`. */
+  putImage(key: string, bytes: Uint8Array, ttlSeconds: number): Promise<void>;
+  /** Pushes an already stored image's expiry out to `ttlSeconds` from now. */
+  extendImage(key: string, ttlSeconds: number): Promise<void>;
+  /** Deletes a stored image; a missing key is fine. */
+  dropImage(key: string): Promise<void>;
   /** Whether a vision worker has checked in recently (its heartbeat key, map-editor D4). */
   workerAlive(): Promise<boolean>;
   remove(jobId: string): Promise<void>;
@@ -75,12 +92,14 @@ interface Entry {
   mapUrl: string;
   map: { width: number; height: number };
   jobId: string;
+  /** The stored image this job holds a reference to, until it is done. */
+  imageKey: string | null;
   status: WallDetectionStatus;
   result: WallDetectionResult | null;
   timer: ReturnType<typeof setTimeout> | null;
 }
 
-export type StartResult = "queued" | "busy" | "unavailable" | "unreadable";
+export type StartResult = "queued" | "busy" | "overloaded" | "unavailable" | "unreadable";
 
 /** Key the Python worker refreshes while it runs; must match HEARTBEAT_KEY in wall_worker.py. */
 export const WALL_WORKER_HEARTBEAT = "vtt:wall-worker:heartbeat";
@@ -102,6 +121,8 @@ export function builtinImageName(url: string): string | null {
 export class WallDetections {
   private entries = new Map<string, Entry>();
   private byJob = new Map<string, Entry>();
+  /** How many live jobs use each stored image; the image is deleted when the last one is done. */
+  private imageRefs = new Map<string, number>();
   private attempts = 0;
 
   constructor(
@@ -144,18 +165,23 @@ export class WallDetections {
     if (!uploadKey(map.url) && !builtinImageName(map.url)) return "unreadable";
     const existing = this.entries.get(entryKey(roomId, map.url));
     if (existing && (existing.status.status === "queued" || existing.status.status === "running")) return "busy";
+    if (this.pending() >= MAX_PENDING_JOBS) return "overloaded";
     const bytes = await this.readMap(map.url);
     if (!bytes) return "unreadable";
+    // The read above can take a while: check again before committing an image to Redis.
+    if (this.pending() >= MAX_PENDING_JOBS) return "overloaded";
     const hash = createHash("sha1").update(map.url).digest("hex").slice(0, 16);
     const jobId = `walls-${roomId}-${hash}-${++this.attempts}`;
+    const imageKey = WALL_IMAGE_KEY_PREFIX + createHash("sha256").update(bytes).digest("hex");
     const entry: Entry = {
-      roomId, mapUrl: map.url, map: { width: map.width, height: map.height }, jobId,
+      roomId, mapUrl: map.url, map: { width: map.width, height: map.height }, jobId, imageKey,
       status: { status: "queued" }, result: null, timer: null,
     };
     this.replace(entry);
     try {
+      await this.holdImage(imageKey, bytes);
       await this.queue.add(jobId, {
-        image: Buffer.from(bytes).toString("base64"),
+        imageKey,
         width: map.width,
         height: map.height,
         cellSize: Number.isFinite(cellSize) && cellSize > 0 ? cellSize : 0,
@@ -172,6 +198,37 @@ export class WallDetections {
     entry.timer.unref?.();
     this.notify(roomId, map.url, entry.status);
     return "queued";
+  }
+
+  /** Analyses queued or running now, across every room. */
+  private pending() {
+    let count = 0;
+    for (const entry of this.byJob.values()) {
+      if (entry.status.status === "queued" || entry.status.status === "running") count += 1;
+    }
+    return count;
+  }
+
+  /**
+   * Takes a reference to the image under `key`. The first reference stores the bytes; later ones
+   * (the same map again, or in another room) only push the expiry out, so one copy serves them all.
+   */
+  private async holdImage(key: string, bytes: Uint8Array) {
+    const held = this.imageRefs.get(key) ?? 0;
+    this.imageRefs.set(key, held + 1);
+    if (held > 0) return this.queue!.extendImage(key, IMAGE_TTL_SECONDS).catch(() => {});
+    await this.queue!.putImage(key, bytes, IMAGE_TTL_SECONDS);
+  }
+
+  /** Gives up an entry's reference; the last one out deletes the image. Safe to call twice. */
+  private releaseImage(entry: Entry) {
+    const key = entry.imageKey;
+    if (!key) return;
+    entry.imageKey = null;
+    const left = (this.imageRefs.get(key) ?? 1) - 1;
+    if (left > 0) return void this.imageRefs.set(key, left);
+    this.imageRefs.delete(key);
+    void this.queue?.dropImage(key).catch(() => {});
   }
 
   /** The map's bytes: an upload from storage, or a built-in map from the web app's files. */
@@ -247,8 +304,9 @@ export class WallDetections {
     entry.status = status;
     entry.result = result;
     this.byJob.delete(entry.jobId);
-    // Remove the job either way: its data holds the whole image.
+    // Remove the job either way, and the image once no other job needs it.
     void this.queue?.remove(entry.jobId).catch(() => {});
+    this.releaseImage(entry);
     if (this.entries.get(entryKey(entry.roomId, entry.mapUrl)) === entry) this.notify(entry.roomId, entry.mapUrl, status);
   }
 
@@ -266,8 +324,9 @@ export class WallDetections {
 
   private drop(entry: Entry) {
     if (entry.timer) clearTimeout(entry.timer);
-    // A job still waiting holds the whole image in Redis; nothing will read its answer now.
+    // A job still waiting holds an image in Redis; nothing will read its answer now.
     if (this.byJob.get(entry.jobId) === entry) void this.queue?.remove(entry.jobId).catch(() => {});
+    this.releaseImage(entry);
     this.entries.delete(entryKey(entry.roomId, entry.mapUrl));
     this.byJob.delete(entry.jobId);
   }
@@ -309,6 +368,8 @@ export function bullmqWallQueue(redisUrl: string): WallJobQueue {
     connection: { ...address, maxRetriesPerRequest: 1, enableOfflineQueue: false, connectTimeout: 1000 },
   });
   queue.on("error", () => {});
+  // BullMQ types its client narrowly; it is an ioredis connection, which has SET ... EX and EXPIRE.
+  const redis = async () => (await queue.client) as unknown as Redis;
   const events = new QueueEvents(WALL_DETECTION_QUEUE, { connection: { ...address, maxRetriesPerRequest: null } });
   events.on("error", () => {});
   return {
@@ -318,6 +379,16 @@ export function bullmqWallQueue(redisUrl: string): WallJobQueue {
     },
     remove: async (jobId) => {
       await queue.remove(jobId);
+    },
+    // Raw bytes, not base64: a quarter smaller, and Redis expires the key if nobody deletes it.
+    putImage: async (key, bytes, ttlSeconds) => {
+      await (await redis()).set(key, Buffer.from(bytes), "EX", ttlSeconds);
+    },
+    extendImage: async (key, ttlSeconds) => {
+      await (await redis()).expire(key, ttlSeconds);
+    },
+    dropImage: async (key) => {
+      await (await redis()).del(key);
     },
     workerAlive: async () => (await (await queue.client).get(WALL_WORKER_HEARTBEAT)) !== null,
     onEvent: (handler) => {

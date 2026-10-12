@@ -47,7 +47,7 @@ Walls are GM-only:
 
 ### Detection pipeline
 
-1. **Producer.** The app server puts a job on the BullMQ queue `wall-detection`. The job data is the image bytes, read by the server-owned object key (`AssetStore.readPrivate`), plus the image size. The worker never fetches a URL.
+1. **Producer.** The app server puts a job on the BullMQ queue `wall-detection`. The job data names the image (see the amendment on the job transport below) and gives its size; the bytes are read by the server-owned object key (`AssetStore.readPrivate`). The worker never fetches a URL.
 2. **Consumer.** `services/vision/wall_worker.py` uses the `bullmq` Python package, which shares the Node package's Lua scripts. It returns `{ walls, preview }`, where `preview` is a JPEG of the map with the walls drawn.
 3. **Completion.** The app server's `QueueEvents` listener receives `completed` and `failed`. It validates the return value (zod: bounds, count, preview size) and keeps it in a bounded in-process store keyed by room and map. It then removes the job and sends `{ type: "wallDetection", mapUrl, status }` to the room's GM sockets only. That notice is not room data and gets no seq (invariant 4).
 4. **Retrieval.** GM-only REST routes return the status and the preview bytes.
@@ -65,7 +65,7 @@ Walls are GM-only:
 
 - `RoomState` and `TableState` grow. Old snapshots and checkpoint events parse unchanged.
 - The vision image now runs a second process, `vision-walls`, which needs `REDIS_URL`.
-- A pending job holds up to about 34 MB of base64 in Redis. The age limits on jobs bound this.
+- A pending job holds one map image in Redis, up to 25 MB as raw bytes, shared between jobs with the same bytes and expiring on its own; at most four analyses are pending at once (see the amendment on the job transport below).
 - An app server restart drops unapplied results, and the GM re-runs detection.
 
 ## Amendment: hand-drawn walls and sampled detection (`openspec/changes/wall-editing`)
@@ -152,3 +152,14 @@ line), and nothing diagonal. Those maps now get a second pipeline, adapted from 
   grid blurs outlines away.
 
 The result shape, the validation of returned walls and GM-only visibility are unchanged.
+
+## Amendment: the job names its image (wall-job-transport)
+
+The first version put the image in the job as base64, about 34 MB for the largest map, and BullMQ keeps job data for as long as the job exists. Now:
+
+- The image sits in one raw Redis key, `vtt:wall-image:<sha256 hex of the bytes>`, written with an expiry of the job timeout plus one minute. The job carries only the key. Raw bytes are a quarter smaller than base64, and a key whose server died still expires.
+- Maps with identical bytes share one key. The app server counts live jobs per key (it is single-process) and deletes the key when the last one finishes, fails, times out or is dropped.
+- At most four analyses may be queued or running across the whole server. A fifth is refused with 503 before any image is stored.
+- The worker reads the key itself with its existing Redis connection, accepts only a key of exactly that shape (so a job cannot make it read another Redis key), and fails the job if the image is missing or over 25 MB. It still never fetches a URL and holds no storage credentials.
+
+Rejected: the worker fetching the image from the app server (new credentials and an HTTP surface on the worker), compressing the base64 (the images are already compressed), and downscaling (it costs detection accuracy and needs an image library in the server). The app server and the worker must be deployed together.

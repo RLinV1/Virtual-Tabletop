@@ -6,8 +6,9 @@ Change: `openspec/changes/auto-wall-detection`.
 ## How it flows
 
 1. The GM uploads a map, or presses **Detect walls** in the map editor's **Walls** step (Manage › Battle map › Edit map).
-2. The app server reads the image from its own storage and adds a job to the BullMQ queue
-   `wall-detection` on the app's Redis: the image bytes, its size, and the room grid's cell size.
+2. The app server reads the image from its own storage, stores the raw bytes once in the app's
+   Redis under `vtt:wall-image:<sha256>` with an expiry, and adds a job to the BullMQ queue
+   `wall-detection` that names that key, with the image's size and the room grid's cell size.
    A built-in library map (`/img/<name>`) is read from the web app's `apps/web/public/img`
    instead; a server deployed without that folder can't analyze built-in maps.
 3. `services/vision/wall_worker.py` takes the job, runs `walls.py`, and returns the wall
@@ -69,8 +70,12 @@ as unavailable (503), and everything else works as before.
 - Run the `vision-walls` process with `REDIS_URL` pointing at the app's Redis. It needs no
   ports, no database and no storage credentials.
 - Scale it with replicas, or with `WALL_WORKER_CONCURRENCY` (default 2).
-- A job with no answer within ten minutes is reported to the GM as failed. Jobs are removed
-  from Redis once answered, so map images don't linger there.
+- A job with no answer within ten minutes is reported to the GM as failed. A map image is
+  stored once, as raw bytes, under a key made from its content, so the same map in two rooms
+  is one copy. The server deletes it when the last job using it is done, and Redis expires it
+  after eleven minutes if the server never does. At most four analyses run at once across the
+  server; a fifth is refused with "Wall detection is busy. Try again in a minute."
+- Deploy the app server and the vision worker together: an old worker cannot read the new job.
 
 ## What it finds, and its limits
 

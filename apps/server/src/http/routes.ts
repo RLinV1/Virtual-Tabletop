@@ -276,6 +276,7 @@ export function registerRoutes(
       const started = await walls.start(room.roomId, map, room.currentGrid().cellSize, body.data);
       if (started === "busy") return res.status(409).json({ error: "Walls are already being detected for this map." });
       if (started === "unreadable") return res.status(422).json({ error: "This map's image can't be analyzed." });
+      if (started === "overloaded") return res.status(503).json({ error: "Wall detection is busy. Try again in a minute." });
       if (started === "unavailable") return res.status(503).json({ error: "Wall detection is unavailable right now." });
       return res.status(202).json(walls.status(room.roomId, map.url));
     })().catch(internalError(req, res));

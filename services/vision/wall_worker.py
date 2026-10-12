@@ -4,7 +4,9 @@ The app server produces jobs on the `wall-detection` queue in the app's Redis; t
 consumes them and returns `{walls, preview}` as the job's return value. The app server learns of
 completion from BullMQ's queue events, validates the result, and notifies the room's GM.
 
-Job data: `{ image: base64 bytes, width, height, cellSize, sample?, tolerance?, strictness?, minLength?, style? }`.
+Job data: `{ imageKey, width, height, cellSize, sample?, tolerance?, strictness?, minLength?, style? }`.
+`imageKey` names a raw Redis key, `vtt:wall-image:<sha256 hex>`, where the app server stored the image with an
+expiry; the job itself carries no image bytes (wall-job-transport). Only a key of that exact shape is read.
 `sample` is a point on a wall the GM clicked and `tolerance` its colour range in Lab units. `strictness` is
 the share of a run's edge that must follow an outline, `minLength` the shortest wall kept, in cells, and
 `style` is "bright" or "dark" to look for only light stone or dark ink walls, or "outlined" for inked outlines. The bytes were read by the app
@@ -12,9 +14,8 @@ server from its own storage; this worker never fetches a URL, and holds no datab
 """
 
 import asyncio
-import base64
-import binascii
 import os
+import re
 import signal
 import time
 
@@ -24,6 +25,9 @@ import redis.asyncio as aioredis
 from walls import MAX_BYTES, SAMPLE_TOLERANCE, analyze
 
 QUEUE = "wall-detection"
+# The only keys a job may name: the app server's content-addressed image keys. Must match
+# WALL_IMAGE_KEY_PREFIX in apps/server/src/domain/wallDetection.ts.
+IMAGE_KEY = re.compile(r"vtt:wall-image:[0-9a-f]{64}")
 # The app server reads this key to know a worker is up (map-editor D4); it must match
 # WALL_WORKER_HEARTBEAT in apps/server/src/domain/wallDetection.ts.
 HEARTBEAT_KEY = "vtt:wall-worker:heartbeat"
@@ -37,16 +41,24 @@ MAX_STRICTNESS = 0.6
 MAX_MIN_LENGTH = 6
 
 
-async def process(job, _token=None) -> dict:
+# Binary-safe client for reading images; set in main(). Tests pass `fetch` to `process` instead.
+_redis = None
+
+
+async def _fetch_image(key: str):
+    return await _redis.get(key) if _redis is not None else None
+
+
+async def process(job, _token=None, fetch=None) -> dict:
     """One job. Raises on bad input, which BullMQ records as the job's failure."""
     data = job.data or {}
-    encoded = data.get("image")
-    if not isinstance(encoded, str) or len(encoded) > (MAX_BYTES // 3 + 1) * 4:
+    key = data.get("imageKey")
+    if not isinstance(key, str) or not IMAGE_KEY.fullmatch(key):
         raise ValueError("Invalid image")
-    try:
-        image = base64.b64decode(encoded, validate=True)
-    except (binascii.Error, ValueError) as err:
-        raise ValueError("Invalid image") from err
+    image = await (fetch or _fetch_image)(key)
+    # Gone (expired or removed) or too big: fail the job; the app server tells the GM it could not be read.
+    if not image or len(image) > MAX_BYTES:
+        raise ValueError("Invalid image")
     width, height = int(data.get("width", 0)), int(data.get("height", 0))
     cell = float(data.get("cellSize") or 0)
     if not 0 <= cell <= 2000:
@@ -84,6 +96,8 @@ async def main() -> None:
     concurrency = int(os.environ.get("WALL_WORKER_CONCURRENCY", "2"))
     worker = Worker(QUEUE, process, {"connection": url, "concurrency": concurrency, "lockDuration": 60_000})
     heartbeat = aioredis.from_url(url)
+    global _redis
+    _redis = heartbeat
 
     async def beat():
         while True:
