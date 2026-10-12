@@ -1,15 +1,24 @@
-## Purpose
+# portals Specification
 
+## Purpose
 Lets the GM turn walls into doors and windows that open, close and lock, so movement through a doorway follows the portal's state, and players see and use the portals in front of them (FR-GM-18, FR-GM-09).
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: The GM designates walls as portals
 The GM SHALL be able to make any wall a door or a window with a state of open, closed or locked, to change an existing portal's kind or state, and to turn a portal back into a plain wall. Players SHALL NOT be able to do any of these. A designation that changes nothing SHALL be refused. Each change SHALL be one undoable action.
 
 #### Scenario: Mark a doorway
-- **WHEN** the GM picks Door and Closed in the map editor's Portal tool and clicks a wall
+- **WHEN** the GM picks Door and Closed in the map editor's Door / window tool, clicks an existing wall, and saves the editor's changes
 - **THEN** that wall becomes a closed door, and the activity log reads "made a wall a closed door"
+
+#### Scenario: Nothing changes before Save
+- **WHEN** the GM marks a wall as a door in the map editor but has not saved
+- **THEN** the room's walls are unchanged and players see no door
+
+#### Scenario: A new wall drawn as a door
+- **WHEN** the GM draws a wall in the map editor, marks it as a door, and saves
+- **THEN** the room gains that wall already a door, in one undoable action
 
 #### Scenario: A player cannot designate portals
 - **WHEN** a player sends `portal.set`
@@ -84,7 +93,7 @@ The GM SHALL be able to undo any portal change from the activity log, which rest
 - **THEN** the undo is refused because the door has changed since
 
 ### Requirement: Portals on the board
-The board SHALL draw every portal the viewer can see, with a style that tells doors from windows and open from closed from locked. Clicking a portal the viewer may toggle SHALL open it if closed and close it if open. For the GM, Shift-clicking SHALL lock a closed or open portal and unlock a locked one to closed. Plain walls SHALL stay visible to the GM only.
+The board SHALL draw every portal the viewer can see, with a style that tells doors from windows and open from closed from locked, and thick enough to find at any zoom. Clicking a portal the viewer may toggle SHALL open it if closed and close it if open. For the GM, Shift-clicking SHALL lock a closed or open portal and unlock a locked one to closed. Plain walls SHALL stay visible to the GM only.
 
 #### Scenario: GM opens a door on the board
 - **WHEN** the GM clicks a closed door with the Select tool
