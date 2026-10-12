@@ -1,6 +1,6 @@
 # ADR 0032 — Atomic fog replacement
 
-**Status:** Proposed — awaiting review by the Real-Time Architecture owner (Raymond) · **Extends:** `docs/adr/0016-manual-fog.md`, `docs/adr/0013-undo.md`, `docs/adr/0031-map-editor-command-context.md`
+**Status:** Accepted — reviewed by the Real-Time Architecture owner (Raymond), 2026-10-12 · **Extends:** `docs/adr/0016-manual-fog.md`, `docs/adr/0013-undo.md`, `docs/adr/0031-map-editor-command-context.md`
 **Owner:** Real-Time Architecture (Raymond) · **Change:** `openspec/changes/atomic-fog-replace` · **Requirements:** FR-GM-17
 
 ## Context
