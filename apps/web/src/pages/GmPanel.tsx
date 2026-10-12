@@ -479,12 +479,10 @@ function MapSection(props: {
             ))}
             {step === "walls" && (prep
               ? <p className="map-editor-empty">Apply the draft map in the Grid step first, then set up its walls here.</p>
-              : <Fragment key={`${editorGeneration}
-${liveMapUrl}`}>{props.walls(draftEdits, draftState)}</Fragment>)}
+              : <Fragment key={`${editorGeneration}:${liveMapUrl}`}>{props.walls(draftEdits, draftState)}</Fragment>)}
             {step === "fog" && (prep
               ? <p className="map-editor-empty">Apply the draft map in the Grid step first, then set up its fog here.</p>
-              : <Fragment key={`${editorGeneration}
-${liveMapUrl}`}>{props.fog(draftEdits, draftState)}</Fragment>)}
+              : <Fragment key={`${editorGeneration}:${liveMapUrl}`}>{props.fog(draftEdits, draftState)}</Fragment>)}
           </div>
         </div>
       </Modal>
