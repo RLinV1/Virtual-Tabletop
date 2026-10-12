@@ -12,7 +12,7 @@ Walls (`auto-wall-detection`, `wall-editing`) block every token permanently, so 
 - **Players see portals.** Players receive portal walls whose midpoint is outside fog, never plain walls. Fog changes, wall changes and portal changes that reveal or withdraw a portal send the player a fresh filtered snapshot.
 - **Map editor.** The Walls step gains a Door / window tool: pick Door, Window or Wall and a starting state, then click a wall. Like other wall edits it changes the editor's draft and reaches the room on Save; `wall.add` walls take an optional `portal` for that.
 - **Board.** Doors and windows are drawn for everyone who can see them, styled by kind and state. The GM clicks one to open or close it and Shift-clicks to lock or unlock it. A player clicks a visible, unlocked portal to open or close it.
-- **Contract change:** `Wall` gains an optional `portal` field, and there are two new commands and one new event. Recorded in a new ADR 0030; needs Real-Time Architecture owner review.
+- **Contract change:** `Wall` gains an optional `portal` field, and there are two new commands and one new event. Recorded in a new ADR 0030; reviewed and accepted by the Real-Time Architecture owner.
 
 ## Non-goals
 

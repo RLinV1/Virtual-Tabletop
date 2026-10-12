@@ -1,7 +1,7 @@
 # ADR 0030 — Portals: doors and windows on walls
 
-**Status:** Proposed — needs review by the Real-Time Architecture owner · **Extends:** `docs/adr/0029-walls-and-wall-detection.md`, `docs/adr/0013-undo.md`, `docs/adr/0016-manual-fog.md`
-**Change:** `openspec/changes/portals` · **Requirements:** FR-GM-18, the portal half of FR-GM-09
+**Status:** Accepted — reviewed by the Real-Time Architecture owner (Raymond), 2026-10-11 · **Extends:** `docs/adr/0029-walls-and-wall-detection.md`, `docs/adr/0013-undo.md`, `docs/adr/0016-manual-fog.md`
+**Owner:** Real-Time Architecture (Raymond) · **Change:** `openspec/changes/portals` · **Requirements:** FR-GM-18, the portal half of FR-GM-09
 
 ## Context
 
