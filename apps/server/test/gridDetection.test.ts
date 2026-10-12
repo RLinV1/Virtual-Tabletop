@@ -131,7 +131,24 @@ describe("automatic map grid detection (FR-GM-03)", () => {
     expect(gm.state.scene.grid).toEqual(DEFAULT_GRID);
     const replacement = await roomUpload(room.guestToken, "map");
     expect((await gm.command({ type: "scene.setMap", map: { url: replacement.url, ...dimensions } })).type).toBe("ack");
-    expect((await roomStatus(room.roomId, room.guestToken, map.url)).status).toBe(404);
+    expect((await roomStatus(room.roomId, room.guestToken, map.url)).status).toBe(200);
+    expect((await roomStatus(room.roomId, room.guestToken, "/uploads/never-uploaded.png")).status).toBe(404);
+    expect((await roomStatus(room.roomId, room.guestToken, "https://example.com/x.png")).status).toBe(404);
+  });
+
+  it("serves a draft map's analysis before it is applied, to its own GM only (FR-GM-03)", async () => {
+    server = await startServer(new MemoryRoomStore(), { detector: vi.fn(detector) });
+    const room = await server.createRoom();
+    const other = await server.createRoom("Other");
+    const playerCreds = await server.join(room.inviteCode, "Player");
+    const draft = await roomUpload(room.guestToken, "map");
+    const result = await until(() => roomStatus(room.roomId, room.guestToken, draft.url), (r) => r.body.status === "suggested");
+    expect(result.body).toMatchObject({ status: "suggested", candidate });
+    expect((await roomStatus(room.roomId, playerCreds.guestToken, draft.url)).status).toBe(403);
+    expect((await roomStatus(room.roomId, other.guestToken, draft.url)).status).toBe(403);
+    expect((await roomStatus(other.roomId, other.guestToken, draft.url)).status).toBe(404);
+    const token = await roomUpload(room.guestToken, "token");
+    expect((await roomStatus(room.roomId, room.guestToken, token.url)).status).toBe(404);
   });
 
   it("reports service failure, allows one retry, and rejects a stale completion", async () => {

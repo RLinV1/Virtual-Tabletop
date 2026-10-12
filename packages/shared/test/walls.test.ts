@@ -59,7 +59,7 @@ function roomWithWalls(walls: DetectedWall[] = [EDGE_WALL]) {
   return { state, token };
 }
 
-describe("wall geometry (FR-GM-11, ADR 0025)", () => {
+describe("wall geometry (FR-GM-11, ADR 0029)", () => {
   it("tells crossing segments from parallel and disjoint ones", () => {
     const h = { a: { x: 0, y: 5 }, b: { x: 10, y: 5 } };
     expect(segmentsCross(h, { a: { x: 5, y: 0 }, b: { x: 5, y: 10 } })).toBe(true);
@@ -122,6 +122,19 @@ describe("applying and clearing walls (FR-GM-11)", () => {
     expect(undone.state.walls).toEqual(before);
   });
 
+  it("leaves out the detected walls the GM erased on the preview (FR-GM-11)", () => {
+    const { state } = roomWithWalls();
+    const found = [EDGE_WALL, CELL_WALL, { a: { x: 0, y: 70 }, b: { x: 140, y: 70 } }];
+    const applied = must(act(state, gm, { type: "wall.applyDetected", mapUrl: MAP.url, exclude: { of: 3, indices: [1] } }, found));
+    expect(Object.values(applied.state.walls).map(({ a, b }) => ({ a, b }))).toEqual([found[0], found[2]]);
+    const undone = must(act(applied.state, gm, { type: "history.undo", commandId: applied.commandId }));
+    expect(undone.state.walls).toEqual(state.walls);
+    // A list made against a different result, an index past the end, or every wall erased is refused.
+    for (const exclude of [{ of: 2, indices: [0] }, { of: 3, indices: [3] }, { of: 3, indices: [0, 1, 2] }]) {
+      expect(act(state, gm, { type: "wall.applyDetected", mapUrl: MAP.url, exclude }, found)).toMatchObject({ ok: false, code: "invalid" });
+    }
+  });
+
   it("refuses walls for another map, a missing result, or an empty one", () => {
     const { state } = roomWithWalls();
     expect(act(state, gm, { type: "wall.applyDetected", mapUrl: "/uploads/other.png" }, [EDGE_WALL]))
@@ -172,7 +185,7 @@ describe("applying and clearing walls (FR-GM-11)", () => {
   });
 });
 
-describe("walls block tokens (FR-GM-11, ADR 0025)", () => {
+describe("walls block tokens (FR-GM-11, ADR 0029)", () => {
   it("refuses dropping a token across a wall, for the GM and players alike", () => {
     const { state, token } = roomWithWalls();
     for (const actor of [gm, alice]) {
@@ -243,11 +256,20 @@ describe("drawing walls by hand (FR-GM-09, wall-editing)", () => {
     expect(WallDetectionRequest.parse({ sample: { x: 10, y: 20 } })).toEqual({ sample: { x: 10, y: 20 } });
     expect(WallDetectionRequest.parse({})).toEqual({});
     expect(WallDetectionRequest.safeParse({ sample: { x: 10 } }).success).toBe(false);
+    expect(WallDetectionRequest.parse({ sample: { x: 1, y: 2 }, tolerance: 20 }).tolerance).toBe(20);
+    expect(WallDetectionRequest.safeParse({ tolerance: 20 }).success).toBe(false);
+    expect(WallDetectionRequest.parse({ strictness: 0.5, minLength: 2 })).toEqual({ strictness: 0.5, minLength: 2 });
+    expect(WallDetectionRequest.parse({ style: "dark" })).toEqual({ style: "dark" });
+    for (const bad of [{ strictness: 0.1 }, { strictness: 0.7 }, { minLength: -1 }, { minLength: 7 }, { style: "stone" }]) {
+      expect(WallDetectionRequest.safeParse(bad).success).toBe(false);
+    }
+    expect(WallDetectionRequest.safeParse({ sample: { x: 1, y: 2 }, tolerance: 5 }).success).toBe(false);
+    expect(WallDetectionRequest.safeParse({ sample: { x: 1, y: 2 }, tolerance: 61 }).success).toBe(false);
     expect(WallDetectionRequest.safeParse({ colour: "#fff" }).success).toBe(false);
   });
 });
 
-describe("walls are GM-only (FR-GM-23, ADR 0025)", () => {
+describe("walls are GM-only (FR-GM-23, ADR 0029)", () => {
   it("withholds walls from player snapshots and redacts their events", () => {
     const { state } = roomWithWalls();
     expect(filterStateForViewer(state, alice).walls).toEqual({});

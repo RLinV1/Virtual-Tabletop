@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
+import { presetOf } from "@vtt/shared";
 import { DiceFive, MapTrifold, Sword, UserList } from "@phosphor-icons/react";
 import { can, type DiceVisibility, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
 import type { DiceBoard } from "../board/Board";
@@ -189,14 +190,16 @@ export function RoomPanel({
     if (tab === "gm" && !isGm) onTab("play");
   }, [tab, isGm, onTab]);
 
+  // What the room's game preset turns on (KAN-63). The server enforces it; this only hides controls.
+  const features = presetOf(state).features;
   const sections: Record<TabId, ReactNode> = {
     play: (
       <>
-        {isGm && <RulingsPanel connection={connection} state={state} airborne={rollThrow.airborne} />}
+        {isGm && features.attacks && <RulingsPanel connection={connection} state={state} airborne={rollThrow.airborne} />}
         <MyTokens connection={connection} state={state} you={you} onFocusToken={onFocusToken} />
         {/* The encounter first: whose turn it is decides who attacks. */}
         <InitiativeTracker connection={connection} state={state} you={you} onFocusToken={onFocusToken} />
-        <AttackPanel
+        {features.attacks && <AttackPanel
           connection={connection}
           state={state}
           you={you}
@@ -210,7 +213,7 @@ export function RoomPanel({
           onShowPing={onShowPing}
           visibility={attackVisibility}
           onVisibility={onAttackVisibility}
-        />
+        />}
       </>
     ),
     tokens: (

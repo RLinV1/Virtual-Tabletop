@@ -56,7 +56,7 @@ function room(portal: Portal | null = door("closed")) {
 const committed = (event: CommittedEvent["event"], seq = 100): CommittedEvent =>
   ({ seq, roomId: "room-1", actorId: gm.id, at: "2026-10-09T00:00:00.000Z", commandId: "c", event }) as CommittedEvent;
 
-describe("portal rules (FR-GM-18, ADR 0026)", () => {
+describe("portal rules (FR-GM-18, ADR 0030)", () => {
   it("blocks movement for plain walls and closed or locked portals only", () => {
     expect(blocksMovement({})).toBe(true);
     expect(blocksMovement({ portal: door("closed") })).toBe(true);
@@ -79,7 +79,7 @@ describe("portal rules (FR-GM-18, ADR 0026)", () => {
   });
 });
 
-describe("designating portals (FR-GM-09, ADR 0026)", () => {
+describe("designating portals (FR-GM-09, ADR 0030)", () => {
   it("lets the GM make a wall a door, change it and turn it back", () => {
     const { state, doorwayId } = room(null);
     const made = must(act(state, gm, { type: "portal.set", wallId: doorwayId, portal: door("closed") }));
@@ -118,7 +118,7 @@ describe("portal state controls movement (FR-GM-18)", () => {
   });
 });
 
-describe("who may change a portal's state (FR-GM-18, ADR 0026)", () => {
+describe("who may change a portal's state (FR-GM-18, ADR 0030)", () => {
   it("lets a player open and close a door they can see", () => {
     const { state, doorwayId } = room();
     const opened = must(act(state, alice, { type: "portal.setState", wallId: doorwayId, state: "open" }));
@@ -163,7 +163,7 @@ describe("who may change a portal's state (FR-GM-18, ADR 0026)", () => {
   });
 });
 
-describe("players see the portals in front of them (FR-GM-18, FR-GM-23, ADR 0026)", () => {
+describe("players see the portals in front of them (FR-GM-18, FR-GM-23, ADR 0030)", () => {
   it("sends players portals outside fog and no plain walls", () => {
     const { state, doorwayId } = room();
     expect(Object.keys(filterStateForViewer(state, alice).walls)).toEqual([doorwayId]);
@@ -197,7 +197,7 @@ describe("players see the portals in front of them (FR-GM-18, FR-GM-23, ADR 0026
   });
 });
 
-describe("portal changes are reversible (FR-REC-02, ADR 0026)", () => {
+describe("portal changes are reversible (FR-REC-02, ADR 0030)", () => {
   it("undoes a player's opening and words it", () => {
     const { state, doorwayId } = room();
     const opened = must(act(state, alice, { type: "portal.setState", wallId: doorwayId, state: "open" }));
@@ -224,10 +224,19 @@ describe("portal changes are reversible (FR-REC-02, ADR 0026)", () => {
   });
 });
 
-describe("portal activity log (FR-GM-18, ADR 0026)", () => {
+describe("portal activity log (FR-GM-18, ADR 0030)", () => {
   it("phrases opening and designating", () => {
     const { state, doorwayId } = room();
     expect(formatActivity({ type: "PortalChanged", wallId: doorwayId, from: door("closed"), to: door("open") }, "Alice", state)).toBe("Alice opened a door");
     expect(formatActivity({ type: "PortalChanged", wallId: doorwayId, from: null, to: { kind: "window", state: "closed" } }, "GM", state)).toBe("GM made a wall a closed window");
+  });
+});
+
+describe("new walls may arrive as doors (FR-GM-09, ADR 0030)", () => {
+  it("keeps the portal a wall.add wall carries", () => {
+    const { state } = room(null);
+    const added = must(act(state, gm, { type: "wall.add", walls: [{ a: { x: 280, y: 70 }, b: { x: 280, y: 140 }, portal: door("open") }] }));
+    const wall = Object.values(added.state.walls).find((w) => w.a.x === 280)!;
+    expect(wall.portal).toEqual(door("open"));
   });
 });

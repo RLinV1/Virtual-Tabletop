@@ -42,7 +42,7 @@ export function templateConcealedFrom(fog: RoomState["fog"], template: AreaTempl
 }
 
 /**
- * Whether `viewer` may not see `wall` (ADR 0026). Plain walls are GM-only (ADR 0025); a portal
+ * Whether `viewer` may not see `wall` (ADR 0030). Plain walls are GM-only (ADR 0029); a portal
  * is concealed when its midpoint is under fog, as a token is by its centre.
  */
 export function portalConcealedFrom(fog: RoomState["fog"], wall: Pick<Wall, "a" | "b" | "portal">, viewer: Participant): boolean {
@@ -77,10 +77,11 @@ export function filterStateForViewer(state: RoomState, viewer: Participant): Roo
   // Fog regions stay: they are the mask the player's board draws, and name nothing (ADR 0016).
   // Chat is public, so `chat` stays as it is in the spread below (ADR 0015).
   // Undo is GM-only, and its entries name hidden tokens and their old values (ADR 0013).
-  // Plain walls are GM-only: inside fog they would draw rooms the players haven't seen (ADR 0025).
-  // Portals outside fog stay, so players can see and use them (ADR 0026).
+  // Plain walls are GM-only: inside fog they would draw rooms the players haven't seen (ADR 0029).
+  // Portals outside fog stay, so players can see and use them (ADR 0030).
   const walls = Object.fromEntries(Object.entries(state.walls).filter(([, w]) => !portalConcealedFrom(state.fog, w, viewer)));
-  return { ...state, tokens, rolls, initiative, templates, walls, undo: [], checkpoints: [] };
+  // Groups are the GM's organisation and would say which group a hidden token is in (KAN-82, ADR 0026).
+  return { ...state, tokens, rolls, initiative, templates, walls, undo: [], checkpoints: [], groups: {}, tokenGroups: {} };
 }
 
 export type FilteredEvent =
@@ -115,14 +116,14 @@ export function filterEventForViewer(
     wasConcealed !== isConcealed ? { kind: "resync" } : isConcealed ? redacted : pass;
 
   switch (e.type) {
-    // Plain walls are GM-only geometry (ADR 0025): players learn only that a seq happened. A
-    // portal they can see appears or vanishes, which a snapshot does without the plain walls (ADR 0026).
+    // Plain walls are GM-only geometry (ADR 0029): players learn only that a seq happened. A
+    // portal they can see appears or vanishes, which a snapshot does without the plain walls (ADR 0030).
     case "WallsAdded":
     case "WallsRemoved":
       return e.walls.some((w) => !portalConcealedFrom(before.fog, w, viewer)) ? { kind: "resync" } : redacted;
     case "PortalChanged": {
       // Seen before and after: a state change the player's copy can apply. Otherwise the wall's
-      // geometry must arrive or leave with it, so resync (ADR 0026).
+      // geometry must arrive or leave with it, so resync (ADR 0030).
       const wall = before.walls[e.wallId];
       if (!wall) return redacted;
       return byVisibility(
@@ -176,6 +177,7 @@ export function filterEventForViewer(
     }
     case "InitiativeStarted":
     case "InitiativeAdvanced":
+    case "InitiativeStartUndone":
       // The order may name hidden tokens, so the player gets a filtered snapshot instead
       // of the raw event — same reasoning as a reveal.
       return { kind: "resync" };
@@ -196,6 +198,12 @@ export function filterEventForViewer(
     case "TokenHiddenSet":
       // A reveal must deliver the whole token; a hide must remove it. A snapshot does both.
       return { kind: "resync" };
+    case "GroupCreated":
+    case "GroupRenamed":
+    case "GroupDeleted":
+    case "TokensGrouped":
+      // GM-only: a player learns only that a seq passed (KAN-82, ADR 0026).
+      return redacted;
     case "CheckpointCreated":
       // Checkpoints are the GM's; a player learns only that a seq passed (ADR 0019).
       return redacted;

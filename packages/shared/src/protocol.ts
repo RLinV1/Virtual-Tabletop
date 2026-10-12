@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { GamePresetId } from "./gamePresets";
 import { TokenAttacks, type AttackPreset } from "./attackPresets";
 import { Command, DEFAULT_TOKEN_COLOR } from "./commands";
 import { CommittedEvent } from "./events";
@@ -104,7 +105,7 @@ export type ServerMessage =
   /** Terminal: this seat has ended (ADR 0006). The server disconnects right after; do not reconnect. */
   | { type: "sessionEnded"; reason: SessionEndReason }
   /**
-   * GM only: a wall analysis of `mapUrl` changed state (ADR 0025). Not room data and no seq
+   * GM only: a wall analysis of `mapUrl` changed state (ADR 0029). Not room data and no seq
    * (invariant 4); the GM fetches the result and preview over REST.
    */
   | { type: "wallDetection"; mapUrl: string; status: WallDetectionStatus }
@@ -130,6 +131,8 @@ export const CreateRoomRequest = z.object({
   guestToken: z.string().min(16).max(256),
   /** Start the room from one of the signed-in GM's encounter templates (FR-GM-13, ADR 0024). */
   templateId: z.uuid().optional(),
+  /** The game preset (KAN-63); Dungeons & Dragons when omitted. */
+  preset: GamePresetId.optional(),
   // `gmToken` was removed (ADR 0017): the signed-in account owns the room. zod strips unknown
   // keys, so an older client that still sends it parses unchanged.
 });
@@ -183,6 +186,8 @@ export type GmIdentifyRequest = z.infer<typeof GmIdentifyRequest>;
 export interface GmRoomSummary {
   id: string;
   name: string;
+  /** The room's game preset id (KAN-63). */
+  preset: string;
   /** ISO-8601 time of the room's most recent event. */
   lastActiveAt: string;
 }

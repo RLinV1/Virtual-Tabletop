@@ -1,6 +1,6 @@
 ## Context
 
-Walls are GM-only room state (`RoomState.walls`, `Wall = { id, a, b }`), added and removed whole by `WallsAdded` / `WallsRemoved`, and they block token footprints and player paths in `decide` (ADR 0025). Players get `walls: {}` and every wall event redacted. The visibility layer already has a "resync" answer for changes that reveal or withdraw things, which fog and checkpoints use. The decision record for this change is `docs/adr/0026-portals.md`; this document summarises it and adds the client side.
+Walls are GM-only room state (`RoomState.walls`, `Wall = { id, a, b }`), added and removed whole by `WallsAdded` / `WallsRemoved`, and they block token footprints and player paths in `decide` (ADR 0029). Players get `walls: {}` and every wall event redacted. The visibility layer already has a "resync" answer for changes that reveal or withdraw things, which fog and checkpoints use. The decision record for this change is `docs/adr/0030-portals.md`; this document summarises it and adds the client side.
 
 ## Goals / Non-Goals
 
@@ -21,7 +21,7 @@ Walls are GM-only room state (`RoomState.walls`, `Wall = { id, a, b }`), added a
 `blocksMovement(wall)` is true for a plain wall and for a closed or locked portal. `decide` filters walls through it before the existing footprint and path checks. Windows block like doors for movement. The kind is stored for FR-GM-19 and drawing.
 
 ### D3. Two commands, one event
-- `portal.set { wallId, portal: Portal | null }`: GM only, from the map editor. It designates, edits or clears.
+- `portal.set { wallId, portal: Portal | null }`: GM only, from the map editor. It designates, edits or clears. The editor applies it to its draft first (map-editor-drafts); Save sends it for kept room walls, and a new wall carries its portal on `wall.add`, whose walls take an optional `portal`.
 - `portal.setState { wallId, state }`: from the board, for the GM and players.
 - Both emit `PortalChanged { wallId, from: Portal | null, to: Portal | null }`. `from` is the replaced value (invariant 6). One event keeps `reduce`, undo and the visibility filter in one place; the activity log tells the cases apart from `from` and `to`.
 *Alternative:* `PortalSet` and `PortalStateChanged`. The two would reduce, undo and filter identically.

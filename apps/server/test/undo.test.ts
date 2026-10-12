@@ -43,7 +43,8 @@ describe("undo across the wire (FR-REC-02, FR-REC-03)", () => {
     const { gm, alice, bob, rogue } = await setup();
     expect(await alice.command({ type: "token.move", tokenId: rogue, to: { x: 300, y: 100 } })).toMatchObject({ type: "ack" });
     await gm.waitForSeq(alice.seq);
-    expect(gm.state.undo).toHaveLength(1);
+    // Setup's token creations are undoable too (KAN-82); the move is the newest action.
+    expect(gm.state.undo.at(-1)!.events).toEqual([expect.objectContaining({ type: "TokenMoved" })]);
 
     expect(await gm.command({ type: "history.undo", commandId: lastUndoable(gm) })).toMatchObject({ type: "ack" });
     for (const c of [gm, alice, bob]) {
@@ -53,7 +54,7 @@ describe("undo across the wire (FR-REC-02, FR-REC-03)", () => {
     // Every client holds exactly the server's filtered view for them (FR-SYNC-01/02).
     for (const c of [alice, bob]) expect(c.state).toEqual(viewFor(gm.state, c));
     // The GM client's history matches the server's; players keep none.
-    expect(gm.state.undo).toEqual([]);
+    expect(gm.state.undo.some((e) => e.events.some((ev) => ev.type === "TokenMoved"))).toBe(false);
     expect(alice.state.undo).toEqual([]);
     expect(bob.rawLog.join("\n")).not.toContain("commandId");
   });

@@ -41,3 +41,14 @@ The server SHALL report whether it can detect walls: a queue is configured and a
 #### Scenario: No Redis or no worker
 - **WHEN** the app runs without Redis, or with no wall worker connected
 - **THEN** the Walls step shows detection as unavailable, its detect controls are disabled, and Draw and Erase still work
+
+### Requirement: The editor works on phones and tablets
+The editor SHALL fit the viewport at phone, tablet and desktop sizes with its close button visible. On narrow or portrait screens the canvas SHALL sit above the side panel, and the panel SHALL scroll on its own instead of pushing the canvas off-screen. Every editor control SHALL be at least 44 by 44 CSS pixels. On the wall canvas, a two-finger pinch SHALL zoom about the fingers' midpoint and a two-finger drag SHALL pan in every mode. A single-finger tap SHALL do the mode's action, and a single-finger drag SHALL pan in Pan mode.
+
+#### Scenario: Pinch while drawing
+- **WHEN** the GM is in Draw mode on a phone and pinches the wall canvas
+- **THEN** the canvas zooms about the pinch midpoint and no wall is added
+
+#### Scenario: Phone portrait
+- **WHEN** the GM opens the Walls step at 390 by 844
+- **THEN** the canvas shows above the tools, the tools panel scrolls, and the close button stays reachable

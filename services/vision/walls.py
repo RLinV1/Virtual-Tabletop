@@ -1,4 +1,4 @@
-"""Wall extraction for battle maps (FR-GM-11, ADR 0025).
+"""Wall extraction for battle maps (FR-GM-11, ADR 0029).
 
 Pipeline, after the prior art named in docs/DESIGN.md section 7 (ThreeHats/auto-wall and
 DimitroffVodka/foundry-auto-wall, both MIT) and standard floor-plan wall extraction:
@@ -18,11 +18,12 @@ DimitroffVodka/foundry-auto-wall, both MIT) and standard floor-plan wall extract
    long run are dropped.
 
 Both styles are tried and the one with more long straight wall wins. The result is a suggestion:
-the GM reviews it on the rendered preview before applying (ADR 0025). Coordinates returned are
+the GM reviews it on the rendered preview before applying (ADR 0029). Coordinates returned are
 original image pixels, the room's board coordinates (invariant 8).
 """
 
 import base64
+import math
 import os
 
 os.environ.setdefault("OPENCV_IO_MAX_IMAGE_PIXELS", "40000000")
@@ -41,6 +42,12 @@ PREVIEW_EDGE = 1024
 BAND_CELLS = (0.9, 1.5)
 # How far, in Lab units (8-bit scale), a pixel's colour may be from a sampled wall's to count.
 SAMPLE_TOLERANCE = 30.0
+# Share of a run's edge that must follow a contrasting outline; higher drops more terrain, and some walls.
+OUTLINE_SHARE = 0.4
+# Automatic strictness: the first share cuts terrain on rich maps; sparser ones (few, thick walls) need a lower one.
+AUTO_SHARES = (OUTLINE_SHARE, 0.3, 0.2)
+# The strictest automatic pass already demands an outline, so it is trusted with less wall than the rest.
+STRICT_PASS_NEEDED = 2
 # A sampled colour this dark (Lab L, 8-bit) is ink: its strokes need no separate outline.
 DARK_INK_L = 80
 
@@ -72,13 +79,15 @@ def _strong(values: np.ndarray, floor: float = 20.0) -> np.ndarray:
     return values > max(otsu, float(values.mean() + values.std()), floor)
 
 
-def _wall_masks(gray: np.ndarray, cell: float) -> list:
-    """Candidate wall masks: bright raised walls and dark ink walls, each with its outline check."""
+def _wall_masks(gray: np.ndarray, cell: float, share: float = OUTLINE_SHARE, style: str = None) -> list:
+    """Candidate wall masks: bright raised walls and dark ink walls, each with its outline check.
+
+    `style` ("bright" or "dark") limits it to one family; None builds both."""
     line = _kernel(cell * 0.25, shape=cv2.MORPH_ELLIPSE)
     dark_lines = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, line)
     out = []
     # One family per wall style, each the union of its thin- and thick-wall scales.
-    for name in ("bright", "dark"):
+    for name in ("bright", "dark") if style is None else (style,):
         family = np.zeros_like(gray)
         for width in BAND_CELLS:
             band = _kernel(cell * width, shape=cv2.MORPH_ELLIPSE)
@@ -93,12 +102,13 @@ def _wall_masks(gray: np.ndarray, cell: float) -> list:
             mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, _kernel(cell * 0.12))
             mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, _kernel(cell * 0.12))
             # Straight runs first: rubble touching a wall would otherwise fail the wall's outline check.
-            family = cv2.bitwise_or(family, _outlined(_straight_runs(mask, cell), outline))
+            family = cv2.bitwise_or(family, _outlined(_straight_runs(mask, cell), outline, share))
         out.append((name, family, cell))
     return out
 
 
-def _sampled_mask(work: np.ndarray, gray: np.ndarray, cell: float, point: tuple) -> np.ndarray:
+def _sampled_mask(work: np.ndarray, gray: np.ndarray, cell: float, point: tuple,
+                  tolerance: float = SAMPLE_TOLERANCE, share: float = OUTLINE_SHARE) -> np.ndarray:
     """Walls the colour of the one the GM clicked (wall-editing): the colour pick of prior art.
 
     The reference is the median Lab colour of a small disc around the point, so a click on a
@@ -113,7 +123,7 @@ def _sampled_mask(work: np.ndarray, gray: np.ndarray, cell: float, point: tuple)
     patch = lab[max(0, y - r):y + r + 1, max(0, x - r):x + r + 1].reshape(-1, 3)
     reference = np.median(patch, axis=0)
     distance = np.sqrt(((lab - reference) ** 2).sum(axis=2))
-    mask = (distance < SAMPLE_TOLERANCE).astype(np.uint8) * 255
+    mask = (distance < tolerance).astype(np.uint8) * 255
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, _kernel(cell * 0.12))
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, _kernel(cell * 0.12))
     wide = cv2.morphologyEx(mask, cv2.MORPH_OPEN, _kernel(cell * max(BAND_CELLS) * 1.1))
@@ -123,10 +133,10 @@ def _sampled_mask(work: np.ndarray, gray: np.ndarray, cell: float, point: tuple)
     if reference[0] < DARK_INK_L:
         return runs
     dark_lines = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, _kernel(cell * 0.25, shape=cv2.MORPH_ELLIPSE))
-    return _outlined(runs, cv2.dilate(_strong(dark_lines).astype(np.uint8) * 255, _kernel(3)))
+    return _outlined(runs, cv2.dilate(_strong(dark_lines).astype(np.uint8) * 255, _kernel(3)), share)
 
 
-def _outlined(mask: np.ndarray, outline: np.ndarray, share: float = 0.3) -> np.ndarray:
+def _outlined(mask: np.ndarray, outline: np.ndarray, share: float = OUTLINE_SHARE) -> np.ndarray:
     """Keeps the components whose boundary mostly runs along a contrasting outline."""
     count, labels = cv2.connectedComponents(mask, connectivity=8)
     boundary = cv2.subtract(mask, cv2.erode(mask, _kernel(3))) > 0
@@ -146,31 +156,44 @@ def _straight_runs(mask: np.ndarray, cell: float) -> np.ndarray:
 
 # ---------- centreline ----------
 
+def _thinning_tables() -> list:
+    """Per sub-iteration, whether a pixel with a given 8-neighbour code is removed (Zhang-Suen)."""
+    tables = []
+    for step in (0, 1):
+        table = np.zeros(256, np.uint8)
+        for code in range(256):
+            # Bit k of the code is neighbour P(k+2), clockwise from north.
+            p2, p3, p4, p5, p6, p7, p8, p9 = [(code >> k) & 1 for k in range(8)]
+            seq = [p2, p3, p4, p5, p6, p7, p8, p9, p2]
+            b = sum(seq[:8])
+            a = sum(1 for i in range(8) if seq[i] == 0 and seq[i + 1] == 1)
+            if step == 0:
+                c = p2 * p4 * p6 == 0 and p4 * p6 * p8 == 0
+            else:
+                c = p2 * p4 * p8 == 0 and p2 * p6 * p8 == 0
+            table[code] = 2 <= b <= 6 and a == 1 and c
+        tables.append(table)
+    return tables
+
+
+_THINNING = _thinning_tables()
+# filter2D weights that pack the 8 neighbours into one byte, bit k = P(k+2): N, NE, E, SE, S, SW, W, NW.
+_NEIGHBOUR_BITS = np.array([[128, 1, 2], [64, 0, 4], [32, 16, 8]], np.float32)
+
+
 def _thin(mask: np.ndarray) -> np.ndarray:
     """Zhang-Suen thinning to a one-pixel skeleton."""
     img = (mask > 0).astype(np.uint8)
-    img = np.pad(img, 1)
     while True:
         changed = False
-        for step in (0, 1):
-            p = img
-            n = [np.roll(np.roll(p, dy, 0), dx, 1) for dy, dx in
-                 ((1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1), (0, 1), (1, 1))]
-            # n[k] is the neighbour P(k+2) of the classic formulation, clockwise from north.
-            p2, p3, p4, p5, p6, p7, p8, p9 = n
-            b = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9
-            seq = [p2, p3, p4, p5, p6, p7, p8, p9, p2]
-            a = sum(((seq[i] == 0) & (seq[i + 1] == 1)).astype(np.uint8) for i in range(8))
-            if step == 0:
-                c = (p2 * p4 * p6 == 0) & (p4 * p6 * p8 == 0)
-            else:
-                c = (p2 * p4 * p8 == 0) & (p2 * p6 * p8 == 0)
-            remove = (p == 1) & (b >= 2) & (b <= 6) & (a == 1) & c
+        for table in _THINNING:
+            code = cv2.filter2D(img, cv2.CV_8U, _NEIGHBOUR_BITS, borderType=cv2.BORDER_CONSTANT)
+            remove = (img == 1) & (table[code] == 1)
             if remove.any():
-                img = img & ~remove.astype(np.uint8)
+                img[remove] = 0
                 changed = True
         if not changed:
-            return img[1:-1, 1:-1]
+            return img
 
 
 _NEIGHBOURS = ((-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1))
@@ -275,13 +298,17 @@ def _weld(segments: list, tolerance: float) -> list:
             i = parent[i]
         return i
 
-    order = np.argsort(points[:, 0])
-    for idx, i in enumerate(order):
-        for j in order[idx + 1:]:
-            if points[j, 0] - points[i, 0] > tolerance:
-                break
-            if np.hypot(*(points[j] - points[i])) <= tolerance:
-                parent[find(i)] = find(j)
+    # Hash points into tolerance-sized buckets: a partner can only sit in the 3x3 buckets around.
+    buckets = {}
+    for i, (x, y) in enumerate(points):
+        buckets.setdefault((int(x // tolerance), int(y // tolerance)), []).append(i)
+    for (bx, by), members in buckets.items():
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for j in buckets.get((bx + dx, by + dy), ()):
+                    for i in members:
+                        if i < j and math.hypot(points[j, 0] - points[i, 0], points[j, 1] - points[i, 1]) <= tolerance:
+                            parent[find(i)] = find(j)
     groups = {}
     for i in range(len(points)):
         groups.setdefault(find(i), []).append(i)
@@ -395,32 +422,45 @@ def _working_cell(width: int, height: int, cell: float, scale: float) -> float:
     return float(min(max(value, 12.0), edge / 6))
 
 
-def detect_walls(image: np.ndarray, cell: float = 0.0, sample: dict = None) -> dict:
+def detect_walls(image: np.ndarray, cell: float = 0.0, sample: dict = None, tolerance: float = SAMPLE_TOLERANCE,
+                 strictness: float = None, min_length: float = 0.0, style: str = None) -> dict:
     """Wall segments in the image's own pixels. `cell` is the grid's cell size in those pixels, or 0.
 
     With `sample` ({x, y} in image pixels, on a wall the GM clicked) the mask comes from that
-    wall's colour; without it, the bright and dark styles are both tried and the better one wins.
+    wall's colour within `tolerance`; without it, the bright and dark styles are both tried and the
+    better one wins. `strictness` is the share of a run's edge that must follow an outline: fixed
+    when given, otherwise the strictest of AUTO_SHARES that finds enough wall. `min_length` (in
+    cells) drops shorter walls from the result. `style` ("bright" or "dark") restricts automatic
+    detection to light stone walls or dark ink walls; None tries both.
     """
     height, width = image.shape[:2]
     scale = min(1.0, WORK_EDGE / max(width, height))
     work = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA) if scale < 1 else image
     working_cell = _working_cell(width, height, cell, scale)
     gray = cv2.bilateralFilter(cv2.cvtColor(work, cv2.COLOR_BGR2GRAY), 7, 25, 5)
+    needed = 2 if sample else 4
     best = ("none", [], 0.0)
-    candidates = (
-        [("sample", _sampled_mask(work, gray, working_cell, (sample["x"] * scale, sample["y"] * scale)), working_cell)]
-        if sample else _wall_masks(gray, working_cell)
-    )
-    for name, mask, c in candidates:
-        segments = _segments_for(mask, c)
-        score = _score(segments, c)
-        if score > best[2]:
-            best = (name, segments, score)
+    shares = AUTO_SHARES if strictness is None else (strictness,)
+    for index, share in enumerate(shares):
+        bar = STRICT_PASS_NEEDED if (strictness is not None or index == 0) else needed
+        candidates = (
+            [("sample", _sampled_mask(work, gray, working_cell, (sample["x"] * scale, sample["y"] * scale), tolerance, share), working_cell)]
+            if sample else _wall_masks(gray, working_cell, share, style)
+        )
+        best = ("none", [], 0.0)
+        for name, mask, c in candidates:
+            segments = _segments_for(mask, c)
+            score = _score(segments, c)
+            if score > best[2]:
+                best = (name, segments, score)
+        if best[2] >= bar:
+            break
     name, segments, score = best
     # A handful of short pieces is noise, not a wall layout. A sample says walls exist, so it
     # keeps whatever long run it found.
-    if score < (2 if sample else 4):
+    if score < bar:
         segments = []
+    segments = [s for s in segments if _length(s) >= min_length * working_cell]
     segments.sort(key=_length, reverse=True)
     walls = []
     for x1, y1, x2, y2 in segments[:MAX_WALLS]:
@@ -468,16 +508,20 @@ def _detected_cell(data: bytes, width: int, height: int) -> float:
     return float(result["cellSize"]) if result.get("kind") == "candidate" else 0.0
 
 
-def analyze(data: bytes, width: int, height: int, cell: float = 0.0, sample: dict = None) -> dict:
+def analyze(data: bytes, width: int, height: int, cell: float = 0.0, sample: dict = None,
+            tolerance: float = SAMPLE_TOLERANCE, strictness: float = None, min_length: float = 0.0,
+            style: str = None) -> dict:
     """One job: decode, detect, render. The result shape is `WallDetectionResult` in packages/shared.
 
     `cell` is the room grid's cell size; without one, the grid detector's suggestion is used.
-    `sample` is a point on a wall the GM clicked, in image pixels, or None.
+    `sample` is a point on a wall the GM clicked, in image pixels, or None; `tolerance` is its colour range.
+    `strictness`, `min_length` and `style` are the outline share, shortest wall (cells) and wall colour
+    family (detect_walls).
     """
     image = decode(data, width, height)
     if not cell:
         cell = _detected_cell(data, width, height)
     if sample is not None and not (0 <= sample["x"] <= width and 0 <= sample["y"] <= height):
         raise ValueError("Sample outside the image")
-    detected = detect_walls(image, cell, sample)
+    detected = detect_walls(image, cell, sample, tolerance, strictness, min_length, style)
     return {"walls": detected["walls"], "preview": render_preview(image, detected["walls"])}

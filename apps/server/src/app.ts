@@ -1,5 +1,6 @@
 import { createServer, type Server as HttpServer } from "node:http";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import express, { type Express } from "express";
 import { Server as SocketIOServer } from "socket.io";
 import { RoomRegistry } from "./domain/roomRegistry";
@@ -27,10 +28,15 @@ export interface AppOptions {
   redisUrl?: string;
   visionUrl?: string;
   /**
-   * The wall-detection queue (ADR 0025). Defaults to BullMQ on `redisUrl`, or none without Redis;
+   * The wall-detection queue (ADR 0029). Defaults to BullMQ on `redisUrl`, or none without Redis;
    * tests pass a stand-in, or null for "unavailable".
    */
   wallQueue?: WallJobQueue | null;
+  /**
+   * The web app's built-in maps (`apps/web/public/img`), so wall detection can read them too.
+   * Defaults to that folder in this repository; null when the server runs without it.
+   */
+  builtinImageDir?: string | null;
   /**
    * Marks the session cookie `Secure` (ADR 0017 I1). Defaults to `COOKIE_SECURE`, else on in
    * production, so LAN phone testing over plain http still works in dev.
@@ -69,6 +75,7 @@ export async function buildApp({
   redisUrl = process.env.REDIS_URL,
   visionUrl = process.env.VISION_URL,
   wallQueue,
+  builtinImageDir = fileURLToPath(new URL("../../web/public/img/", import.meta.url)),
   cookieSecure = cookieSecureFromEnv(),
   now = Date.now,
 }: AppOptions): Promise<App> {
@@ -83,13 +90,14 @@ export async function buildApp({
   });
   const assetStore = assets ?? new LocalDiskAssetStore(uploadDir);
   // Wall analysis results are suggestions held here; a room reads them only when its GM applies
-  // walls, and the GM hears of each finished job over their own socket (ADR 0025).
+  // walls, and the GM hears of each finished job over their own socket (ADR 0029).
   const walls = new WallDetections(
     assetStore,
     wallQueue === undefined ? (redisUrl ? bullmqWallQueue(redisUrl) : null) : wallQueue,
     (roomId, mapUrl, status) => {
       void registry.loaded(roomId).then((room) => room?.notifyGm({ type: "wallDetection", mapUrl, status }));
     },
+    builtinImageDir,
   );
   const registry = new RoomRegistry(store, { detectedWalls: (roomId, mapUrl) => walls.detectedWalls(roomId, mapUrl) });
   const sessions = new Sessions(store, { secure: cookieSecure }, now);

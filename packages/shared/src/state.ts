@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DEFAULT_PRESET_ID } from "./gamePresets";
 import { TokenAttacks } from "./attackPresets";
 import { DICE_SHEET, DieName } from "./diceLooks";
 import type { UndoEntry } from "./undo";
@@ -168,28 +169,28 @@ export const FogRegion = z.object({
 });
 export type FogRegion = z.infer<typeof FogRegion>;
 
-/** Most walls a room holds at once (ADR 0025), so one detection can't grow state without bound. */
+/** Most walls a room holds at once (ADR 0029), so one detection can't grow state without bound. */
 export const MAX_WALLS = 1500;
 
-/** What a portal is (FR-GM-18, ADR 0026). Windows block movement like doors; `kind` is for drawing and line of sight. */
+/** What a portal is (FR-GM-18, ADR 0030). Windows block movement like doors; `kind` is for drawing and line of sight. */
 export const PortalKind = z.enum(["door", "window"]);
 export type PortalKind = z.infer<typeof PortalKind>;
-/** Closed and locked portals block movement like walls; open ones don't (ADR 0026). */
+/** Closed and locked portals block movement like walls; open ones don't (ADR 0030). */
 export const PortalState = z.enum(["open", "closed", "locked"]);
 export type PortalState = z.infer<typeof PortalState>;
 export const Portal = z.object({ kind: PortalKind, state: PortalState }).strict();
 export type Portal = z.infer<typeof Portal>;
 
 /**
- * A wall: a straight segment the GM applied from detection (FR-GM-11, ADR 0025). Board
+ * A wall: a straight segment the GM applied from detection (FR-GM-11, ADR 0029). Board
  * coordinates (invariant 8). Tokens can't stand across one; players can't move through one.
- * Plain walls are GM-only; players receive the portals they can see (ADR 0026).
+ * Plain walls are GM-only; players receive the portals they can see (ADR 0030).
  */
 export const Wall = z.object({
   id: Id,
   a: Point,
   b: Point,
-  /** Set when the wall is a door or window (FR-GM-18, ADR 0026). Absent: a plain wall. */
+  /** Set when the wall is a door or window (FR-GM-18, ADR 0030). Absent: a plain wall. */
   portal: Portal.optional(),
 });
 export type Wall = z.infer<typeof Wall>;
@@ -225,7 +226,7 @@ export const TableState = z.object({
   templates: z.record(Id, AreaTemplate),
   fog: z.record(Id, FogRegion),
   initiative: Initiative.nullable(),
-  /** Optional: tables in events from before walls existed have none (ADR 0025). */
+  /** Optional: tables in events from before walls existed have none (ADR 0029). */
   walls: z.record(Id, Wall).optional(),
 });
 export type TableState = z.infer<typeof TableState>;
@@ -271,9 +272,23 @@ export const ChatMessage = z.object({
 });
 export type ChatMessage = z.infer<typeof ChatMessage>;
 
+/** Most token groups a room holds (KAN-82). */
+export const MAX_GROUPS = 30;
+/** Longest group name, in characters after trimming (KAN-82). */
+export const MAX_GROUP_NAME = 40;
+
+/** A GM-only named set of tokens in one room, e.g. "Gate guards" (KAN-82, ADR 0026). */
+export const TokenGroup = z.object({
+  id: Id,
+  name: z.string().min(1).max(MAX_GROUP_NAME),
+});
+export type TokenGroup = z.infer<typeof TokenGroup>;
+
 export interface RoomState {
   roomId: Id;
   name: string;
+  /** The game preset chosen when the room was created (KAN-63, ADR 0027). Never changes. Public. */
+  preset: string;
   scene: Scene;
   tokens: Record<Id, Token>;
   participants: Record<Id, Participant>;
@@ -287,7 +302,7 @@ export interface RoomState {
   chat: ChatMessage[];
   /** Fog regions, in the order they were added (FR-GM-17, ADR 0016). Sent to players: they are the mask. */
   fog: Record<Id, FogRegion>;
-  /** Walls and portals (FR-GM-11, FR-GM-18). Players get only the portals they can see (ADR 0026). */
+  /** Walls and portals (FR-GM-11, FR-GM-18). Players get only the portals they can see (ADR 0030). */
   walls: Record<Id, Wall>;
   /** Named restore points, oldest first, capped at MAX_CHECKPOINTS (ADR 0019). GM-only. */
   checkpoints: Checkpoint[];
@@ -296,12 +311,20 @@ export interface RoomState {
    * committed events and their `commandId`s; GM-only (players always get an empty list).
    */
   undo: UndoEntry[];
+  /** Token groups, in creation order (KAN-82, ADR 0026). GM-only: players always get none. */
+  groups: Record<Id, TokenGroup>;
+  /**
+   * Which group each token is in, by token id (KAN-82). A token is in at most one group. Entries
+   * outlive a deleted token, so undoing the deletion puts it back in its group. GM-only.
+   */
+  tokenGroups: Record<Id, Id>;
 }
 
 export function emptyRoomState(roomId: Id): RoomState {
   return {
     roomId,
     name: "",
+    preset: DEFAULT_PRESET_ID,
     scene: { map: null, grid: DEFAULT_GRID },
     tokens: {},
     participants: {},
@@ -313,5 +336,7 @@ export function emptyRoomState(roomId: Id): RoomState {
     walls: {},
     checkpoints: [],
     undo: [],
+    groups: {},
+    tokenGroups: {},
   };
 }

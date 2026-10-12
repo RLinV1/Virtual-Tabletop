@@ -1,6 +1,7 @@
-"""Wall extraction on labelled synthetic maps (FR-GM-11, ADR 0025)."""
+"""Wall extraction on labelled synthetic maps (FR-GM-11, ADR 0029)."""
 
 import base64
+import os
 import unittest
 
 import cv2
@@ -144,6 +145,45 @@ class WallDetectionTest(unittest.TestCase):
         walls = detect_walls(ink_dungeon(), CELL, {"x": 140, "y": 300})["walls"]
         on_rooms = [w for w in walls if near_room_edge(w)]
         self.assertGreaterEqual(total_length(on_rooms) / ROOM_PERIMETER, 0.7)
+
+    def test_sample_tolerance_is_honoured(self):
+        img = painted_hall()
+        point = {"x": 385, "y": 140}
+        self.assertEqual(detect_walls(img, CELL, point), detect_walls(img, CELL, point, 30))
+        tight = detect_walls(img, CELL, point, 12)["walls"]
+        self.assertGreaterEqual(total_length([w for w in tight if near_room_edge(w)]) / ROOM_PERIMETER, 0.5)
+        # A range wide enough to take in the floor leaves no wall to tell apart.
+        self.assertEqual(detect_walls(img, CELL, point, 45)["walls"], [])
+
+    def test_strictness_and_minimum_length_only_remove_walls(self):
+        img = stone_keep()
+        default = detect_walls(img, CELL)["walls"]
+        self.assertEqual(default, detect_walls(img, CELL, None, 30, 0.4, 0)["walls"])
+        long_only = detect_walls(img, CELL, None, 30, 0.4, 6)["walls"]
+        self.assertLessEqual(len(long_only), len(default))
+        self.assertTrue(all(np.hypot(w["b"]["x"] - w["a"]["x"], w["b"]["y"] - w["a"]["y"]) >= 6 * CELL * 0.95 for w in long_only))
+        self.assertLessEqual(len(detect_walls(img, CELL, None, 30, 0.6, 0)["walls"]), len(default))
+
+    def test_a_sparse_stone_map_gets_its_light_walls_not_dark_shadows(self):
+        # The Broken Span crop has few, thick stone walls. Automatic detection must keep to the light
+        # stone (the dark family there traces shadows and scraps), and the style can be forced.
+        path = os.path.join(os.path.dirname(__file__), "..", "..", "apps", "web", "public", "img", "home", "broken-span.webp")
+        if not os.path.exists(path):
+            self.skipTest("bundled map not present")
+        img = cv2.imread(path)
+        automatic = detect_walls(img, 70)
+        self.assertEqual(automatic["mask"], "bright")
+        self.assertTrue(automatic["walls"])
+        self.assertEqual(detect_walls(img, 70, style="bright")["walls"], automatic["walls"])
+        self.assertEqual(detect_walls(img, 70, style="dark")["mask"], "dark")
+
+    def test_style_limits_automatic_detection_to_one_kind_of_wall(self):
+        dark = detect_walls(ink_dungeon(), CELL, style="dark")["walls"]
+        wrong = detect_walls(ink_dungeon(), CELL, style="bright")["walls"]
+        self.assertTrue(dark)
+        # Looking for the wrong kind of wall finds little of what is drawn.
+        self.assertLess(total_length(wrong), 0.25 * total_length(dark))
+        self.assertTrue(detect_walls(stone_keep(), CELL, style="bright")["walls"])
 
     def test_sample_outside_the_image_is_refused(self):
         with self.assertRaises(ValueError):

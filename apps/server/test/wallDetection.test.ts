@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ServerMessage, WallDetectionStatus } from "@vtt/shared";
 import type { WallJobData, WallJobEvent, WallJobQueue } from "../src/domain/wallDetection";
@@ -82,7 +84,7 @@ const statusOf = async (token: string, roomId: string, url: string) => {
 
 const isNotice = (m: ServerMessage): m is Extract<ServerMessage, { type: "wallDetection" }> => m.type === "wallDetection";
 
-describe("automatic wall detection through the queue (FR-GM-11, ADR 0025)", () => {
+describe("automatic wall detection through the queue (FR-GM-11, ADR 0029)", () => {
   it("queues a map upload, hears the worker finish, notifies only the GM, and serves the preview", async () => {
     const queue = new StandInQueue();
     const { room, gm, player, playerCreds, url } = await roomWithMap(queue);
@@ -104,7 +106,12 @@ describe("automatic wall detection through the queue (FR-GM-11, ADR 0025)", () =
     expect(preview.headers.get("content-type")).toContain("image/jpeg");
     expect(Buffer.from(await preview.arrayBuffer()).toString()).toBe("preview-bytes");
 
-    // Players get neither the notice, the status nor the preview.
+    const listed = await api(room.guestToken, `/api/rooms/${room.roomId}/wall-detection/walls?map=${encodeURIComponent(url)}`);
+    expect(listed.status).toBe(200);
+    expect(await listed.json()).toEqual({ walls: [WALL] });
+
+    // Players get neither the notice, the status, the preview nor the segments.
+    expect((await api(playerCreds.guestToken, `/api/rooms/${room.roomId}/wall-detection/walls?map=${encodeURIComponent(url)}`)).status).toBe(403);
     expect(player.rawLog.join(" ")).not.toContain("wallDetection");
     expect((await statusOf(playerCreds.guestToken, room.roomId, url)).code).toBe(403);
     expect((await api(playerCreds.guestToken, `/api/rooms/${room.roomId}/wall-detection/preview?map=${encodeURIComponent(url)}`)).status).toBe(403);
@@ -143,6 +150,21 @@ describe("automatic wall detection through the queue (FR-GM-11, ADR 0025)", () =
     expect((await statusOf(other.guestToken, room.roomId, url)).code).toBe(403);
   });
 
+  it("gives the GM the detected walls for the editor's draft, and nobody else (map-editor-drafts)", async () => {
+    const queue = new StandInQueue();
+    const { room, playerCreds, url } = await roomWithMap(queue);
+    const wallsOf = (token: string, map: string) =>
+      api(token, `/api/rooms/${room.roomId}/wall-detection/walls?map=${encodeURIComponent(map)}`);
+    // No finished result yet.
+    expect((await wallsOf(room.guestToken, url)).status).toBe(404);
+    const [jobId] = queue.only();
+    queue.emit({ jobId, kind: "completed", returnvalue: { walls: [WALL], preview: PREVIEW } });
+    await expect.poll(async () => (await wallsOf(room.guestToken, url)).status).toBe(200);
+    expect(await (await wallsOf(room.guestToken, url)).json()).toEqual({ walls: [WALL] });
+    expect((await wallsOf(playerCreds.guestToken, url)).status).toBe(403);
+    expect((await wallsOf(room.guestToken, "/uploads/other.png")).status).toBe(404);
+  });
+
   it("starts detection on demand, refuses a second run while one is pending, and allows a re-run after", async () => {
     const queue = new StandInQueue();
     const { room, gm, url } = await roomWithMap(queue);
@@ -173,11 +195,31 @@ describe("automatic wall detection through the queue (FR-GM-11, ADR 0025)", () =
     expect((await post({ sample: { x: 900, y: 10 } })).status).toBe(400);
     expect((await post({ sample: { x: 10 } })).status).toBe(400);
     expect((await post({ colour: "#fff" })).status).toBe(400);
+    expect((await post({ tolerance: 20 })).status).toBe(400);
+    expect((await post({ strictness: 0.9 })).status).toBe(400);
+    expect((await post({ minLength: -2 })).status).toBe(400);
+    expect((await post({ style: "glass" })).status).toBe(400);
+    expect((await post({ sample: { x: 140, y: 350 }, tolerance: 500 })).status).toBe(400);
     expect(queue.jobs.size).toBe(1);
     expect((await post({ sample: { x: 140, y: 350 } })).status).toBe(202);
     const sampled = [...queue.jobs.values()].at(-1)!;
     expect(sampled.sample).toEqual({ x: 140, y: 350 });
+    expect(sampled.tolerance).toBeUndefined();
     expect(sampled).toMatchObject({ width: 700, height: 700 });
+  });
+
+  it("carries the colour tolerance, strictness and shortest wall to the worker (wall-editing)", async () => {
+    const queue = new StandInQueue();
+    const { room, gm } = await roomWithMap(queue);
+    const [first] = queue.only();
+    queue.emit({ jobId: first, kind: "failed", reason: "no walls" });
+    await gm.waitFor((m) => isNotice(m) && m.status.status === "failed");
+    const res = await fetch(`${server.base}/api/rooms/${room.roomId}/wall-detection`, {
+      method: "POST", headers: { authorization: `Bearer ${room.guestToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ sample: { x: 140, y: 350 }, tolerance: 18, strictness: 0.5, minLength: 2, style: "dark" }),
+    });
+    expect(res.status).toBe(202);
+    expect([...queue.jobs.values()].at(-1)).toMatchObject({ sample: { x: 140, y: 350 }, tolerance: 18, strictness: 0.5, minLength: 2, style: "dark" });
   });
 
   it("treats a result outside the map as failed and never applies it", async () => {
@@ -217,5 +259,28 @@ describe("automatic wall detection through the queue (FR-GM-11, ADR 0025)", () =
     server = await startServer(undefined, { wallQueue: down });
     expect(await (await fetch(`${server.base}/api/wall-detection/availability`)).json())
       .toEqual({ available: false, reason: "The wall detection service isn't running." });
+  });
+  it("reads a built-in library map from the web app's files, and refuses any other address", async () => {
+    const queue = new StandInQueue();
+    server = await startServer(undefined, { wallQueue: queue });
+    const room = await server.createRoom();
+    const gm = await server.connect(room);
+    clients.push(gm);
+    const detect = () => api(room.guestToken, `/api/rooms/${room.roomId}/wall-detection`, { method: "POST" });
+
+    // Hollowfrost Keep ships in apps/web/public/img; it has no upload behind it.
+    expect(await gm.command({ type: "scene.setMap", map: { url: "/img/map-ice.webp", width: 3269, height: 1882 } })).toMatchObject({ type: "ack" });
+    expect((await detect()).status).toBe(202);
+    const [, data] = queue.only();
+    const shipped = await readFile(fileURLToPath(new URL("../../web/public/img/map-ice.webp", import.meta.url)));
+    expect(Buffer.from(data.image, "base64").equals(shipped)).toBe(true);
+    expect(data).toMatchObject({ width: 3269, height: 1882 });
+
+    // Not a shipped map, and not a path out of the folder: nothing is read or queued.
+    for (const url of ["/img/missing.webp", "/img/../../server/package.json", "https://example.com/map.png"]) {
+      expect(await gm.command({ type: "scene.setMap", map: { url, width: 700, height: 700 } })).toMatchObject({ type: "ack" });
+      expect((await detect()).status).toBe(422);
+    }
+    expect(queue.jobs.size).toBe(1);
   });
 });

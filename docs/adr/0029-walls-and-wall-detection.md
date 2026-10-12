@@ -1,11 +1,11 @@
-# ADR 0025 — Walls and automatic wall detection
+# ADR 0029 — Walls and automatic wall detection
 
-**Status:** Proposed — needs review by the Real-Time Architecture owner · **Extends:** `docs/adr/0001-event-model.md`, `docs/adr/0013-undo.md`, `docs/adr/0019-checkpoints.md`, `docs/adr/0012-grid-detection-http-contract.md`
+**Status:** Accepted — reviewed by the Real-Time Architecture owner (Raymond), 2026-10-10 · **Extends:** `docs/adr/0001-event-model.md`, `docs/adr/0013-undo.md`, `docs/adr/0019-checkpoints.md`, `docs/adr/0028-grid-detection-http-contract.md`
 **Change:** `openspec/changes/auto-wall-detection` · **Requirements:** FR-GM-11, the wall data model of FR-GM-09
 
 ## Context
 
-A room has no wall geometry, so a token can be dropped inside a wall and dragged through solid rock. FR-GM-11 asks for walls inferred from the map image by an isolated vision service. DESIGN.md §1 and §2 already fix the service's shape: Python and OpenCV in its own container, "driven by a BullMQ queue on Redis". Grid detection (KAN-09, ADR 0012 there) added `services/vision` and BullMQ to the server, but its jobs are consumed by a Node worker that calls Python over HTTP.
+A room has no wall geometry, so a token can be dropped inside a wall and dragged through solid rock. FR-GM-11 asks for walls inferred from the map image by an isolated vision service. DESIGN.md §1 and §2 already fix the service's shape: Python and OpenCV in its own container, "driven by a BullMQ queue on Redis". Grid detection (KAN-09, ADR 0028) added `services/vision` and BullMQ to the server, but its jobs are consumed by a Node worker that calls Python over HTTP.
 
 Two constraints shape the contract:
 
@@ -84,3 +84,56 @@ Detection on painted maps is noisy, and all-or-nothing results leave the GM stuc
   is the colour pick that both prior-art tools rely on, done at board zoom.
 
 Nothing else changes: results stay suggestions until applied, and walls stay GM-only.
+
+## Amendment: sampled-detection tolerance (`feat/auto-wall-detection`)
+
+Sampled detection used one fixed colour range, which suits some maps and not others, and automatic mode had no controls at all. Three changes:
+
+- **`WallDetectionRequest` gains `tolerance?: number`**, in Lab units from 10 to 60 (default 30, the
+  previous fixed value). It is valid only with `sample`; a request with `tolerance` alone, or one
+  outside the range, is refused with 400. Old clients that send no tolerance behave as before.
+  The shared constants are `SAMPLE_TOLERANCE_MIN`, `_MAX` and `_DEFAULT`.
+- **`strictness?` (0.2-0.6) and `minLength?` (0-6 cells, default 0)** apply to
+  automatic and sampled detection alike. Strictness is the share of a run's edge that must follow
+  a contrasting outline, the threshold that decides terrain from wall; minimum length drops short
+  pieces from the result. Without `strictness` the worker chooses: it tries 0.4, then 0.3, then 0.2,
+  and keeps the first that finds enough wall, so a map with few thick walls still gets a result;
+  a value the GM sets is used as given. Neither field needs a sample.
+- **`style?` (`"bright"` or `"dark"`)** limits automatic detection to light stone walls or to dark
+  ink walls; without it the worker tries both and keeps the better. On the Broken Span crop the dark
+  family follows shadows and scraps, and its raw length can outscore the stone walls.
+- **The job data carries `tolerance?`, `strictness?`, `minLength?` and `style?` beside `sample`.** The worker validates the same range
+  (it trusts nothing the queue holds) and fails the job otherwise. The Walls step shows a colour-range
+  slider in the "Detect like this" tool, and a wall-colour choice with strictness and shortest-wall
+  sliders above Detect walls; each request sends their values.
+
+Automatic strictness starts at 40% (it was a fixed 30%): a run is kept only when that share of its
+edge lies along a contrasting outline. On the bundled maps it cuts the walls found on the snowy-cliff map from 147 to 81 and on the jungle map from 78 to 51,
+mostly cliff and vine runs, and leaves the hero map's score unchanged. The worker's weld and thinning
+steps were also rewritten to run in linear time, with identical output, so a map now takes under 5 s.
+
+## Amendment: erasing detected walls before applying (`feat/auto-wall-detection`)
+
+False detections used to be removable only after applying, one command per wall. The GM can now
+leave them out first:
+
+- **`GET /api/rooms/:roomId/wall-detection/walls?map=`** (GM only, like the preview) returns
+  `{ walls }`, the validated segments of the latest result, in the order `decide` will read them.
+  Players get 403: the segments are as GM-only as the walls they become.
+- **`wall.applyDetected` gains `exclude?: { of, indices }`.** `indices` are positions in that list
+  and `of` is its length when the GM looked. `decide` refuses the command if `of` differs from the
+  server's current result, if an index is out of range, or if nothing would be left, so an
+  exclusion list made against an older result is never applied to a newer one. The segments still
+  come from the server's result, never the client; the client only chooses which to skip. The
+  command stays one action, so one undo restores the walls it replaced.
+- **The Walls step draws the detected walls as candidates** over the map. With the Erase tool a
+  click on a candidate toggles it out of (or back into) the pending result; a click on a wall
+  already in the room still removes that wall. Apply shows the remaining count.
+
+## Amendment: walls and fog as an editor draft (`openspec/changes/map-editor-drafts`)
+
+The map editor now edits walls and fog as a private draft and saves the difference with existing
+commands (new fog, wall removals, wall additions in batches, then fog removals, so fog hides
+before it reveals). Apply in the Walls step, with its `exclude` list, loads the remaining detected
+walls from the endpoint above into the draft instead of sending `wall.applyDetected`; Save then
+sends them with `wall.add`. No command, event or state changes beyond the amendment above.

@@ -2,7 +2,7 @@ import type { Point } from "./geometry";
 import type { Portal, PortalState, Wall } from "./state";
 
 /**
- * Doors and windows on walls (FR-GM-18, ADR 0026). The rules every reader shares: what blocks
+ * Doors and windows on walls (FR-GM-18, ADR 0030). The rules every reader shares: what blocks
  * movement, where a portal is for fog, and how a change reads in the activity log and undo.
  */
 
@@ -26,7 +26,7 @@ const STATE_VERBS: Partial<Record<`${PortalState}>${PortalState}`, [string, stri
 };
 
 /**
- * One portal change in words (ADR 0026): `past` for the activity log ("opened a door"), `verb`
+ * One portal change in words (ADR 0030): `past` for the activity log ("opened a door"), `verb`
  * for the Undo button ("open a door") and `gerund` for "Undid …" ("opening a door").
  */
 export function describePortalChange(from: Portal | null, to: Portal | null): { past: string; verb: string; gerund: string } {

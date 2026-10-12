@@ -35,7 +35,7 @@ async function setup() {
   return { gm, alice, doorway, aria };
 }
 
-describe("portals over the wire (FR-GM-18, FR-GM-09, ADR 0026)", () => {
+describe("portals over the wire (FR-GM-18, FR-GM-09, ADR 0030)", () => {
   it("shows a player the door but not the walls, and lets them open it and walk through", async () => {
     const { gm, alice, doorway, aria } = await setup();
     expect(walls(alice)).toEqual([]);

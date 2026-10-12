@@ -1,4 +1,4 @@
-"""The BullMQ job handler, called directly without Redis (ADR 0025)."""
+"""The BullMQ job handler, called directly without Redis (ADR 0029)."""
 
 import asyncio
 import base64
@@ -27,6 +27,22 @@ class WallWorkerTest(unittest.TestCase):
         self.assertTrue(result["walls"])
         with self.assertRaises(ValueError):
             asyncio.run(process(job(image=image, width=SIZE[1], height=SIZE[0], cellSize=CELL, sample={"x": "left"})))
+
+    def test_passes_a_tolerance_through_and_refuses_a_bad_one(self):
+        image = base64.b64encode(encode(ink_dungeon())).decode("ascii")
+        common = dict(image=image, width=SIZE[1], height=SIZE[0], cellSize=CELL, sample={"x": 140, "y": 300})
+        result = asyncio.run(process(job(**common, tolerance=20)))
+        self.assertTrue(result["walls"])
+        for bad in (0, 500, "wide", True):
+            with self.assertRaises(ValueError):
+                asyncio.run(process(job(**common, tolerance=bad)))
+        self.assertTrue(asyncio.run(process(job(**common, strictness=0.5, minLength=1)))["walls"])
+        self.assertTrue(asyncio.run(process(job(**common, style="dark")))["walls"])
+        with self.assertRaises(ValueError):
+            asyncio.run(process(job(**common, style="glass")))
+        for field, bad in (("strictness", 0.9), ("strictness", "x"), ("minLength", -1), ("minLength", 9), ("minLength", True)):
+            with self.assertRaises(ValueError):
+                asyncio.run(process(job(**common, **{field: bad})))
 
     def test_fails_the_job_on_bad_input(self):
         for data in ({}, {"image": "%%%", "width": 10, "height": 10}, {"image": "aGVsbG8=", "width": 5, "height": 5},

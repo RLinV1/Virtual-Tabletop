@@ -1,4 +1,5 @@
 import type { DiceRoll } from "./dice";
+import { DEFAULT_PRESET_ID } from "./gamePresets";
 import type { CommittedEvent, DomainEvent } from "./events";
 import { CHAT_LOG_LIMIT, MAX_CHECKPOINTS, ROLL_LOG_LIMIT, emptyRoomState, type RoomState } from "./state";
 import { eventMeta, recordUndo, type EventMeta } from "./undo";
@@ -64,7 +65,7 @@ export function reduceReceived(state: RoomState, committed: CommittedEvent): Roo
 function apply(state: RoomState, event: DomainEvent, at: string | null): RoomState {
   switch (event.type) {
     case "RoomCreated":
-      return { ...state, name: event.name };
+      return { ...state, name: event.name, preset: event.preset ?? DEFAULT_PRESET_ID };
 
     case "ParticipantJoined":
       return {
@@ -167,6 +168,40 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
     case "InitiativeEnded":
       return { ...state, initiative: null };
 
+    case "InitiativeStartUndone": {
+      // Back to the order and saved scores the start replaced (KAN-82).
+      const tokens = { ...state.tokens };
+      for (const { tokenId, score } of event.scores) {
+        const token = tokens[tokenId];
+        if (token) tokens[tokenId] = { ...token, initiative: score };
+      }
+      return { ...state, initiative: event.initiative, tokens: event.scores.length > 0 ? tokens : state.tokens };
+    }
+
+    case "GroupCreated":
+      return { ...state, groups: { ...state.groups, [event.group.id]: event.group } };
+
+    case "GroupRenamed": {
+      const group = required(state.groups[event.groupId], event);
+      return { ...state, groups: { ...state.groups, [group.id]: { ...group, name: event.name } } };
+    }
+
+    case "GroupDeleted": {
+      // Its tokens stay on the board, ungrouped (KAN-82).
+      const { [event.group.id]: _removed, ...groups } = state.groups;
+      const tokenGroups = Object.fromEntries(Object.entries(state.tokenGroups).filter(([, g]) => g !== event.group.id));
+      return { ...state, groups, tokenGroups };
+    }
+
+    case "TokensGrouped": {
+      const tokenGroups = { ...state.tokenGroups };
+      for (const { tokenId } of event.changes) {
+        if (event.groupId === null) delete tokenGroups[tokenId];
+        else tokenGroups[tokenId] = event.groupId;
+      }
+      return { ...state, tokenGroups };
+    }
+
     case "DiceRolled": {
       // Stored events are loaded without parsing, so an attack roll from before ADR 0011 arrives
       // with no `kind`; the schema's default only applies on parse. Fill it in here instead.
@@ -214,7 +249,7 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
 
     case "CheckpointRestored":
       // Only the board changes: participants, rolls, chat and history stay (ADR 0019). A table
-      // from before walls existed had none (ADR 0025).
+      // from before walls existed had none (ADR 0029).
       return { ...state, ...event.restored, walls: event.restored.walls ?? {} };
 
     case "EncounterApplied":

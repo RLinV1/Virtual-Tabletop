@@ -9,13 +9,24 @@ import {
   DirectUploadFields,
   GridDetectionStatus,
   WallDetectionRequest,
+  type DetectedWallsResponse,
   JoinRoomRequest,
   HistoryQuery,
   ROOM_FULL,
   HistoryResponse,
+  ReplayPointsResponse,
+  ReplayResponse,
+  replayFrom,
+  replayPoints,
   activityHistory,
+  DEFAULT_GRID,
+  DEFAULT_PRESET_ID,
   emptyRoomState,
   encounterTable,
+  presetOf,
+  tableForPreset,
+  type GamePreset,
+  type TableState,
   tableOf,
   type CreateRoomResponse,
   type InviteResponse,
@@ -93,8 +104,14 @@ export function registerRoutes(
       });
       await store.putMember({ roomId, participantId, userId: account.user.id });
       const room = await registry.get(roomId);
+      // The game preset's defaults (KAN-63, ADR 0027): its grid units, when they aren't the default grid's.
+      const preset = presetOf({ preset: body.data.preset ?? DEFAULT_PRESET_ID });
+      const grid = { ...DEFAULT_GRID, ...preset.grid };
       await room!.appendSystem(participantId, [
-        { type: "RoomCreated", name: body.data.roomName },
+        { type: "RoomCreated", name: body.data.roomName, preset: preset.id },
+        ...(grid.unitsPerCell !== DEFAULT_GRID.unitsPerCell || grid.unitLabel !== DEFAULT_GRID.unitLabel
+          ? [{ type: "GridSet" as const, grid, previous: DEFAULT_GRID }]
+          : []),
         {
           type: "ParticipantJoined",
           participant: { id: participantId, role: "gm", displayName: body.data.displayName.trim() },
@@ -104,8 +121,8 @@ export function registerRoutes(
             type: "EncounterApplied" as const,
             templateId: encounter.id,
             name: encounter.name,
-            applied: encounterTable(encounter, randomUUID),
-            previous: tableOf(emptyRoomState(roomId)),
+            applied: tableForPreset(withPresetGrid(encounterTable(encounter, randomUUID), preset), preset),
+            previous: { ...tableOf(emptyRoomState(roomId)), scene: { map: null, grid } },
           }]
           : []),
       ]);
@@ -182,7 +199,7 @@ export function registerRoutes(
       }
       if (fields.data.purpose === "map") {
         await enqueueDetection(store, detection, { scope: "room", roomId: actor.roomId, objectKey: key }, 1);
-        // Walls too, while the GM lines up the grid; best-effort, like grid analysis (ADR 0025).
+        // Walls too, while the GM lines up the grid; best-effort, like grid analysis (ADR 0029).
         if (walls.available && fields.data.width && fields.data.height) {
           await walls.start(actor.roomId, { url, width: fields.data.width, height: fields.data.height }, 0).catch((err: unknown) => {
             console.error(`[vtt] could not queue wall detection for an upload in room ${actor.roomId}`, err);
@@ -194,20 +211,22 @@ export function registerRoutes(
     })().catch(internalError(req, res));
   });
 
-  const currentDirectMap = async (roomId: string, expectedUrl: string | undefined): Promise<DetectionTarget | null> => {
-    const room = await registry.get(roomId);
-    const map = room?.currentMap();
-    if (!map || map.url !== expectedUrl || map.assetId || !/^\/uploads\/[^/?#]+$/.test(map.url)) return null;
-    return { scope: "room", roomId, objectKey: map.url.slice("/uploads/".length) };
+  /**
+   * A direct map upload of this room, applied or not, so the GM can read its analysis while lining up
+   * the grid. The analysis row is keyed by room, so another room's upload never resolves here.
+   */
+  const roomUploadTarget = (roomId: string, expectedUrl: string | undefined): DetectionTarget | null => {
+    if (!expectedUrl || !/^\/uploads\/[^/?#]+$/.test(expectedUrl)) return null;
+    return { scope: "room", roomId, objectKey: expectedUrl.slice("/uploads/".length) };
   };
 
   app.get("/api/rooms/:roomId/grid-detection", (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     void (async () => {
       if (!(await isRoomGm(req, req.params.roomId))) return res.status(403).json({ error: "GM only" });
-      const target = await currentDirectMap(req.params.roomId, req.get("x-expected-map-url"));
+      const target = roomUploadTarget(req.params.roomId, req.get("x-expected-map-url"));
       const row = target ? await store.findDetection(target) : null;
-      if (!row) return res.status(404).json({ error: "No analysis for current map" });
+      if (!row) return res.status(404).json({ error: "No analysis for this map" });
       return res.json(detectionWire(row));
     })().catch(internalError(req, res));
   });
@@ -216,8 +235,8 @@ export function registerRoutes(
     res.setHeader("Cache-Control", "no-store");
     void (async () => {
       if (!(await isRoomGm(req, req.params.roomId))) return res.status(403).json({ error: "GM only" });
-      const target = await currentDirectMap(req.params.roomId, req.get("x-expected-map-url"));
-      if (!target || !(await store.findDetection(target))) return res.status(404).json({ error: "No analysis for current map" });
+      const target = roomUploadTarget(req.params.roomId, req.get("x-expected-map-url"));
+      if (!target || !(await store.findDetection(target))) return res.status(404).json({ error: "No analysis for this map" });
       const attempt = await store.retryDetection(target);
       if (!attempt) return res.status(409).json({ error: "Analysis is not in error" });
       await enqueueDetection(store, detection, target, attempt);
@@ -227,7 +246,7 @@ export function registerRoutes(
   });
 
   /**
-   * Wall detection for the room's map (FR-GM-11, ADR 0025). GM only. POST queues an analysis of the
+   * Wall detection for the room's map (FR-GM-11, ADR 0029). GM only. POST queues an analysis of the
    * current map, judged against the room's grid; GET reads the latest status, or the rendered
    * preview, of a map this room analyzed. Applying the walls is a room command, not a route.
    */
@@ -254,7 +273,7 @@ export function registerRoutes(
       if (sample && !(sample.x >= 0 && sample.y >= 0 && sample.x <= map.width && sample.y <= map.height)) {
         return res.status(400).json({ error: "Click on the map to pick a wall." });
       }
-      const started = await walls.start(room.roomId, map, room.currentGrid().cellSize, sample);
+      const started = await walls.start(room.roomId, map, room.currentGrid().cellSize, body.data);
       if (started === "busy") return res.status(409).json({ error: "Walls are already being detected for this map." });
       if (started === "unreadable") return res.status(422).json({ error: "This map's image can't be analyzed." });
       if (started === "unavailable") return res.status(503).json({ error: "Wall detection is unavailable right now." });
@@ -271,6 +290,20 @@ export function registerRoutes(
       const status = walls.status(req.params.roomId, query.data.map);
       if (!status) return res.status(404).json({ error: "No wall detection for that map" });
       return res.json(status);
+    })().catch(internalError(req, res));
+  });
+
+  /** The detected segments themselves, for the GM to erase false ones on the preview before applying. */
+  app.get("/api/rooms/:roomId/wall-detection/walls", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void (async () => {
+      if (!(await isRoomGm(req, req.params.roomId))) return res.status(403).json({ error: "GM only" });
+      const query = MapQuery.safeParse(req.query);
+      if (!query.success) return res.status(400).json({ error: "Name the map" });
+      const detected = walls.detectedWalls(req.params.roomId, query.data.map);
+      if (!detected) return res.status(404).json({ error: "No wall detection for that map" });
+      const body: DetectedWallsResponse = { walls: [...detected] };
+      return res.json(body);
     })().catch(internalError(req, res));
   });
 
@@ -372,6 +405,38 @@ export function registerRoutes(
     })().catch(internalError(req, res));
   });
 
+  /**
+   * FR-PL-07: any participant still in the room may replay its history, filtered for them exactly
+   * as live sync filters it (ADR 0025). Read-only: nothing here touches the live room.
+   */
+  app.get("/api/rooms/:roomId/replay", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void (async () => {
+      const auth = await authenticate(req);
+      if (!auth || auth.roomId !== req.params.roomId) return res.status(403).json({ error: "Not in this room" });
+      const events = await store.loadEvents(auth.roomId);
+      return res.json(ReplayPointsResponse.parse({ points: replayPoints(events, auth.participant) }));
+    })().catch(internalError(req, res));
+  });
+
+  app.get("/api/rooms/:roomId/replay/:pointId", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void (async () => {
+      const auth = await authenticate(req);
+      if (!auth || auth.roomId !== req.params.roomId) return res.status(403).json({ error: "Not in this room" });
+      const started = performance.now();
+      const events = await store.loadEvents(auth.roomId);
+      // Only a point from the viewer's own list: known starting places, never an arbitrary seq.
+      const point = replayPoints(events, auth.participant).find((p) => p.id === req.params.pointId);
+      if (!point) return res.status(404).json({ error: "No such replay point" });
+      const replay = ReplayResponse.parse(replayFrom(auth.roomId, events, auth.participant, point));
+      const ms = performance.now() - started;
+      // Same cue as a slow checkpoint restore: time for a snapshot cache (ADR 0019).
+      if (ms > 500) console.warn(`[vtt] replay of room ${auth.roomId} took ${Math.round(ms)} ms (${events.length} events)`);
+      return res.json(replay);
+    })().catch(internalError(req, res));
+  });
+
   /** True when the bearer credential is this room's GM, still in the room. */
   async function isRoomGm(req: Request, roomId: string) {
     const header = req.headers.authorization;
@@ -392,6 +457,11 @@ export function registerRoutes(
     const participant = room && !room.closed ? room.activeParticipant(cred.participantId) : undefined;
     return participant ? { roomId: cred.roomId, participant } : null;
   }
+}
+
+/** A template's table keeps its own grid alignment but takes the room's preset units (KAN-63). */
+function withPresetGrid(table: TableState, preset: GamePreset): TableState {
+  return { ...table, scene: { ...table.scene, grid: { ...table.scene.grid, ...preset.grid } } };
 }
 
 /**

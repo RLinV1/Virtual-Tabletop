@@ -1,11 +1,11 @@
-# ADR 0026 — Portals: doors and windows on walls
+# ADR 0030 — Portals: doors and windows on walls
 
-**Status:** Proposed — needs review by the Real-Time Architecture owner · **Extends:** `docs/adr/0025-walls-and-wall-detection.md`, `docs/adr/0013-undo.md`, `docs/adr/0016-manual-fog.md`
+**Status:** Proposed — needs review by the Real-Time Architecture owner · **Extends:** `docs/adr/0029-walls-and-wall-detection.md`, `docs/adr/0013-undo.md`, `docs/adr/0016-manual-fog.md`
 **Change:** `openspec/changes/portals` · **Requirements:** FR-GM-18, the portal half of FR-GM-09
 
 ## Context
 
-ADR 0025 made walls straight segments that block tokens, kept GM-only because wall geometry inside fog draws rooms the players have not seen. A doorway is either a wall that can never be crossed or a gap that can never be shut. FR-GM-18 asks for doors and windows that are `Open`, `Closed` or `Locked`, which the GM controls and players understand. Players can only use a door they can see, so portals cannot stay GM-only the way walls are.
+ADR 0029 made walls straight segments that block tokens, kept GM-only because wall geometry inside fog draws rooms the players have not seen. A doorway is either a wall that can never be crossed or a gap that can never be shut. FR-GM-18 asks for doors and windows that are `Open`, `Closed` or `Locked`, which the GM controls and players understand. Players can only use a door they can see, so portals cannot stay GM-only the way walls are.
 
 ## Decision
 
@@ -13,17 +13,17 @@ ADR 0025 made walls straight segments that block tokens, kept GM-only because wa
 
 - `Portal = { kind: "door" | "window", state: "open" | "closed" | "locked" }`.
 - `Wall` gains `portal?: Portal`. A wall without it is a plain wall. Old events, snapshots and checkpoint tables parse unchanged.
-- `WallsAdded` and `WallsRemoved` carry the portal with the rest of the wall, so removing a door and undoing that brings back the same door in the same state. `wall.add` and `wall.applyDetected` create plain walls.
+- `WallsAdded` and `WallsRemoved` carry the portal with the rest of the wall, so removing a door and undoing that brings back the same door in the same state. `wall.applyDetected` creates plain walls. Each wall in `wall.add` may carry an optional `portal`, so the map editor's Save can add a door drawn in its draft in one step.
 
 ### Blocking
 
-- A plain wall, a closed portal and a locked portal block movement exactly as ADR 0025 describes (footprint for everyone, straight path for players). An open portal does not.
+- A plain wall, a closed portal and a locked portal block movement exactly as ADR 0029 describes (footprint for everyone, straight path for players). An open portal does not.
 - Windows block movement like doors. `kind` matters for drawing now and for line of sight (FR-GM-19) later, where a closed window will let sight through.
 - Closing a door on a token that stands in the doorway is allowed. The path check already ignores walls the token stands across, so it can step out.
 
 ### Commands
 
-- **`portal.set { wallId, portal: Portal | null }`** — GM only. Designates a wall as a portal, edits its kind or state, or (`null`) turns it back into a plain wall. The map editor's Portal tool sends it.
+- **`portal.set { wallId, portal: Portal | null }`** — GM only. Designates a wall as a portal, edits its kind or state, or (`null`) turns it back into a plain wall. The map editor's Door / window tool marks walls in its private draft (map-editor-drafts); Save sends `portal.set` for each kept room wall whose portal changed, and new walls carry theirs on `wall.add`.
 - **`portal.setState { wallId, state }`** — the board sends it.
   - The GM may set any portal to any state.
   - A player may set `open` or `closed` on a portal they can see (below). The checks run in this order, so a refusal never depends on what the player cannot see:

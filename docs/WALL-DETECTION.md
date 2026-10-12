@@ -1,6 +1,6 @@
 # Wall detection (FR-GM-11)
 
-Decisions: [`adr/0025-walls-and-wall-detection.md`](adr/0025-walls-and-wall-detection.md).
+Decisions: [`adr/0029-walls-and-wall-detection.md`](adr/0029-walls-and-wall-detection.md).
 Change: `openspec/changes/auto-wall-detection`.
 
 ## How it flows
@@ -8,6 +8,8 @@ Change: `openspec/changes/auto-wall-detection`.
 1. The GM uploads a map, or presses **Detect walls** in the map editor's **Walls** step (Manage › Battle map › Edit map).
 2. The app server reads the image from its own storage and adds a job to the BullMQ queue
    `wall-detection` on the app's Redis: the image bytes, its size, and the room grid's cell size.
+   A built-in library map (`/img/<name>`) is read from the web app's `apps/web/public/img`
+   instead; a server deployed without that folder can't analyze built-in maps.
 3. `services/vision/wall_worker.py` takes the job, runs `walls.py`, and returns the wall
    segments and a rendered preview (the map with the walls drawn in orange).
 4. The app server hears the job finish from BullMQ's queue events, validates the result, and

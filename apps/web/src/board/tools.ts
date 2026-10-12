@@ -26,17 +26,12 @@ export type BoardTool =
       gmOnly: boolean;
     }
   | { kind: "erase" }
-  /** GM only (FR-GM-17, ADR 0016): conceal a rectangle or polygon, or reveal (remove) a fogged region. */
-  | { kind: "fog"; mode: FogMode }
   /** Picking whom `attackerId` attacks (attack-targeting). Started from a token's Attack button, not the rail. */
   | { kind: "attack"; attackerId: string };
 
-/** What the Fog tool does: drag a rectangle, click out a polygon, or click a region to remove it. */
-export type FogMode = "rect" | "polygon" | "reveal";
-
 /**
  * What the map editor's Walls step does (map-editor): chain walls, remove one, detect walls like a
- * clicked one, or make a wall a door or window (ADR 0026).
+ * clicked one, or make a wall a door or window (ADR 0030).
  */
 export type WallMode = "draw" | "erase" | "sample" | "portal";
 
@@ -64,7 +59,7 @@ export function wallAt(walls: Record<string, Wall>, p: Point, tolerance: number)
   return best;
 }
 
-/** The door or window nearest `p` within `tolerance` board pixels, or null (FR-GM-18, ADR 0026). */
+/** The door or window nearest `p` within `tolerance` board pixels, or null (FR-GM-18, ADR 0030). */
 export function portalAt(walls: Record<string, Wall>, p: Point, tolerance: number): Wall | null {
   return wallAt(Object.fromEntries(Object.entries(walls).filter(([, w]) => w.portal)), p, tolerance);
 }

@@ -1,8 +1,8 @@
-# ADR 0012: Private grid detection HTTP contract
+# ADR 0028: Private grid detection HTTP contract
 
 ## Status
 
-Proposed for real-time architecture owner review.
+Accepted — reviewed by the Real-Time Architecture owner (Raymond), 2026-10-10.
 
 ## Context
 

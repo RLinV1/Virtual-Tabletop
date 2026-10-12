@@ -1,4 +1,5 @@
 import type { Command, DepartureAction } from "./commands";
+import { presetOf, tableForPreset } from "./gamePresets";
 import { MIN_HP } from "./conditions";
 import { formatExpression, parseDiceExpression, rollDice, type AttackContext } from "./dice";
 import type { DomainEvent } from "./events";
@@ -10,7 +11,7 @@ import { blocksMovement } from "./portals";
 import { inverseOf, undoableAction, undoConflict } from "./undo";
 import { concealedFrom, fogConcealsSide, isInFog, portalConcealedFrom, templateConcealedFrom } from "./visibility";
 import { wallsFitMap, type DetectedWall } from "./wallDetection";
-import { MAX_AREA_TEMPLATES, MAX_LINE_WIDTH_CELLS, MAX_CHECKPOINT_NAME, MAX_FOG_REGIONS, MAX_PLAYERS_PER_ROOM, MAX_WALLS, tableOf, type AreaTemplate, type DiceLookOnTable, type Initiative, type Participant, type Portal, type RoomState, type TableState, type Token, type Wall } from "./state";
+import { MAX_GROUP_NAME, MAX_GROUPS, MAX_AREA_TEMPLATES, MAX_LINE_WIDTH_CELLS, MAX_CHECKPOINT_NAME, MAX_FOG_REGIONS, MAX_PLAYERS_PER_ROOM, MAX_WALLS, tableOf, type AreaTemplate, type DiceLookOnTable, type Initiative, type Participant, type Portal, type RoomState, type TableState, type Token, type Wall } from "./state";
 
 export type RejectionCode = "forbidden" | "not_found" | "invalid";
 
@@ -44,7 +45,7 @@ export interface DecideContext {
   encounterTemplate?: (templateId: string) => ResolvedEncounter | null;
   /**
    * The walls the vision service detected for this room's map at `mapUrl`, as the server
-   * validated them (ADR 0025). Filled only for `wall.applyDetected`; null when there is no
+   * validated them (ADR 0029). Filled only for `wall.applyDetected`; null when there is no
    * finished result for that map.
    */
   detectedWalls?: (mapUrl: string) => readonly DetectedWall[] | null;
@@ -56,7 +57,7 @@ export interface DecideContext {
 export const can = {
   administer: (actor: Participant) => actor.role === "gm",
   /**
-   * Who may open or close a portal from the board (ADR 0026): the GM any; a player one in their
+   * Who may open or close a portal from the board (ADR 0030): the GM any; a player one in their
    * filtered state (so one they can see) that isn't locked. A UI hint; `decide` checks the rest.
    */
   togglePortal: (actor: Participant, wall: Wall) =>
@@ -96,10 +97,10 @@ function resnapToGrid(state: RoomState, grid: GridSpec): DomainEvent[] {
 }
 
 const wallsOf = (state: RoomState): Wall[] => Object.values(state.walls);
-/** The walls that stop tokens: plain walls and closed or locked portals (ADR 0026). */
+/** The walls that stop tokens: plain walls and closed or locked portals (ADR 0030). */
 const blockingWalls = (state: RoomState): Wall[] => wallsOf(state).filter(blocksMovement);
 
-/** Every wall, removed in one event, or nothing when there are none (ADR 0025). */
+/** Every wall, removed in one event, or nothing when there are none (ADR 0029). */
 function removeAllWalls(state: RoomState): DomainEvent[] {
   const walls = wallsOf(state);
   return walls.length > 0 ? [{ type: "WallsRemoved", walls }] : [];
@@ -112,7 +113,7 @@ const samePortal = (a: Portal | null, b: Portal | null) => a?.kind === b?.kind &
 const wallBlocked = (): Decision => reject("invalid", "That spot is blocked by a wall.");
 
 /**
- * Why walls refuse this move, or null (ADR 0025). Nobody may put a token across a wall; a player
+ * Why walls refuse this move, or null (ADR 0029). Nobody may put a token across a wall; a player
  * also may not move straight through one. Walls the token already stands across are ignored for
  * the path, so a token caught by newly applied walls can still step out.
  */
@@ -163,7 +164,7 @@ export function decide(
               gridChange: { grid: command.grid, previous: state.scene.grid },
             }
           : { type: "MapSet", map: command.map, previous: state.scene.map },
-        // Walls describe one image: a different map leaves none behind (ADR 0025).
+        // Walls describe one image: a different map leaves none behind (ADR 0029).
         ...(command.map.url !== state.scene.map?.url ? removeAllWalls(state) : []),
         ...(command.grid ? resnapToGrid(state, command.grid) : []),
       );
@@ -180,6 +181,8 @@ export function decide(
 
     case "token.create": {
       if (!can.administer(actor)) return forbidden();
+      const off = presetRefusal(state, { attacks: command.attacks.length > 0, conditions: command.conditions.length > 0, ac: command.stats.ac });
+      if (off) return off;
       const ownerError = checkOwners(state, command.ownerIds);
       if (ownerError) return ownerError;
       if (!command.name.trim()) return reject("invalid", "Token name can't be blank.");
@@ -188,35 +191,78 @@ export function decide(
       }
       if (new Set(command.conditions).size !== command.conditions.length) return reject("invalid", "A condition is listed twice.");
       if (footprintCrossesWall(command.position, command.size, state.scene.grid, blockingWalls(state))) return wallBlocked();
-      // Several copies are one action (KAN-70): spread over the nearest free squares, each
-      // numbered against the room and the copies before it.
-      const positions = spreadPositions(
-        command.position, command.size, command.count, state.scene.grid, state.scene.map,
-        Object.values(state.tokens).map((t) => ({ position: t.position, size: t.size })),
-        (p) => footprintCrossesWall(p, command.size, state.scene.grid, blockingWalls(state)),
-      );
-      let named = state;
-      const events: DomainEvent[] = positions.map((position) => {
-        const token: Token = {
-          id: ctx.newId(),
-          // Duplicates are numbered, not rejected: placing five goblins is routine (KAN-62).
-          name: uniqueTokenName(named, command.name),
-          position,
-          size: command.size,
-          rotation: normalizeRotation(command.rotation),
-          color: command.color,
-          imageUrl: command.imageUrl,
-          assetId: command.assetId,
-          ownerIds: command.ownerIds,
-          hidden: command.hidden,
-          stats: command.stats,
-          conditions: command.conditions,
-          ...(command.attacks.length > 0 ? { attacks: command.attacks } : {}),
-        };
-        named = { ...named, tokens: { ...named.tokens, [token.id]: token } };
-        return { type: "TokenCreated", token };
-      });
-      return accept(...events);
+      return accept(...createTokens(state, {
+        name: command.name,
+        position: command.position,
+        size: command.size,
+        rotation: normalizeRotation(command.rotation),
+        color: command.color,
+        imageUrl: command.imageUrl,
+        assetId: command.assetId,
+        ownerIds: command.ownerIds,
+        hidden: command.hidden,
+        stats: command.stats,
+        conditions: command.conditions,
+        ...(command.attacks.length > 0 ? { attacks: command.attacks } : {}),
+      }, command.count, ctx));
+    }
+
+    case "token.duplicate": {
+      if (!can.administer(actor)) return forbidden();
+      const original = state.tokens[command.tokenId];
+      if (!original) return notFound("token");
+      // Everything but identity and the remembered initiative score, which belongs to the original.
+      const { id: _id, initiative: _initiative, ...copy } = original;
+      // Beside the original, never on it: its own square is the first spot the spread offers.
+      const created = createTokens(state, copy, command.count, ctx, { besideOrigin: true });
+      // Copies join the original's group, in the same action (KAN-82).
+      const groupId = state.tokenGroups[original.id];
+      const grouped: DomainEvent[] = groupId && state.groups[groupId]
+        ? [{ type: "TokensGrouped", groupId, changes: created.flatMap((e) => (e.type === "TokenCreated" ? [{ tokenId: e.token.id, previous: null }] : [])) }]
+        : [];
+      return accept(...created, ...grouped);
+    }
+
+    case "group.create": {
+      if (!can.administer(actor)) return forbidden();
+      const name = command.name.trim();
+      const invalid = groupNameProblem(state, name);
+      if (invalid) return reject("invalid", invalid);
+      if (Object.keys(state.groups).length >= MAX_GROUPS) return reject("invalid", `A room holds at most ${MAX_GROUPS} groups.`);
+      return accept({ type: "GroupCreated", group: { id: ctx.newId(), name } });
+    }
+
+    case "group.rename": {
+      if (!can.administer(actor)) return forbidden();
+      const group = state.groups[command.groupId];
+      if (!group) return notFound("group");
+      const name = command.name.trim();
+      if (name === group.name) return reject("invalid", "That is already the group's name.");
+      const invalid = groupNameProblem(state, name, group.id);
+      if (invalid) return reject("invalid", invalid);
+      return accept({ type: "GroupRenamed", groupId: group.id, name, previous: group.name });
+    }
+
+    case "group.delete": {
+      if (!can.administer(actor)) return forbidden();
+      const group = state.groups[command.groupId];
+      if (!group) return notFound("group");
+      const members = Object.entries(state.tokenGroups).filter(([, g]) => g === group.id).map(([tokenId]) => tokenId);
+      return accept({ type: "GroupDeleted", group, members });
+    }
+
+    case "group.assign": {
+      if (!can.administer(actor)) return forbidden();
+      if (command.groupId !== null && !state.groups[command.groupId]) return notFound("group");
+      const missing = command.tokenIds.find((id) => !state.tokens[id]);
+      if (missing) return notFound("token");
+      const changes = [...new Set(command.tokenIds)]
+        .map((tokenId) => ({ tokenId, previous: state.tokenGroups[tokenId] ?? null }))
+        .filter((c) => c.previous !== command.groupId);
+      if (changes.length === 0) {
+        return reject("invalid", command.groupId === null ? "Those tokens are not in a group." : "Those tokens are already in that group.");
+      }
+      return accept({ type: "TokensGrouped", groupId: command.groupId, changes });
     }
 
     case "token.move": {
@@ -244,6 +290,8 @@ export function decide(
         changes.rotation !== undefined || changes.imageUrl !== undefined || changes.assetId !== undefined ||
         changes.ownerIds !== undefined || changes.hidden !== undefined;
       if (gmFields && !can.administer(actor)) return forbidden();
+      const off = presetRefusal(state, { conditions: (changes.conditions?.length ?? 0) > 0, ac: changes.stats?.ac ?? null });
+      if (off) return off;
       if (changes.name !== undefined && !changes.name.trim()) return reject("invalid", "Token name can't be blank.");
       if (changes.stats && changes.stats.hp !== null && changes.stats.maxHp !== null && changes.stats.hp > changes.stats.maxHp) {
         return reject("invalid", "Current HP cannot exceed maximum HP");
@@ -375,6 +423,8 @@ export function decide(
       const token = state.tokens[command.tokenId];
       if (!token || concealedFrom(state.fog, token, actor)) return notFound("token");
       if (!can.editToken(actor, token)) return forbidden();
+      const off = presetRefusal(state, { ac: command.stats.ac });
+      if (off) return off;
       if (command.stats.hp !== null && command.stats.maxHp !== null && command.stats.hp > command.stats.maxHp) {
         return reject("invalid", "Current HP cannot exceed maximum HP");
       }
@@ -406,6 +456,8 @@ export function decide(
       const token = state.tokens[command.tokenId];
       if (!token || concealedFrom(state.fog, token, actor)) return notFound("token");
       if (!can.editToken(actor, token)) return forbidden();
+      const off = presetRefusal(state, { conditions: command.conditions.length > 0 });
+      if (off) return off;
       return accept({
         type: "TokenConditionsSet",
         tokenId: token.id,
@@ -471,6 +523,8 @@ export function decide(
         // An unowned token under fog is concealed on the roll for good, like a hidden one (ADR 0016).
         const side = (t: Token) => ({ tokenId: t.id, name: t.name, hidden: t.hidden || fogConcealsSide(state, t) });
         attack = { actor: side(attacker), target: side(target), label: command.attack.label || null, kind: command.attack.kind };
+        const off = presetRefusal(state, { attacks: true });
+        if (off) return off;
       }
       if (command.visibility === "gm" && !can.rollHidden(actor)) return forbidden();
       const parsed = parseDiceExpression(command.expression);
@@ -496,6 +550,8 @@ export function decide(
     case "roll.rule": {
       // The GM rules afterwards; nobody asks before rolling, and the app never decides (ADR 0011).
       if (!can.ruleRolls(actor)) return forbidden();
+      const rulingOff = presetRefusal(state, { attacks: true });
+      if (rulingOff) return rulingOff;
       const roll = state.rolls.find((r) => r.id === command.rollId);
       if (!roll) return reject("not_found", "That roll is too old to rule on");
       if (roll.attack?.kind !== "toHit") return reject("invalid", "Only to-hit attack rolls take a ruling");
@@ -508,6 +564,8 @@ export function decide(
 
     case "roll.applyDamage": {
       if (!can.ruleRolls(actor)) return forbidden();
+      const damageOff = presetRefusal(state, { attacks: true });
+      if (damageOff) return damageOff;
       const roll = state.rolls.find((r) => r.id === command.rollId);
       if (!roll) return reject("not_found", "That roll is too old to apply");
       if (roll.attack?.kind !== "damage") return reject("invalid", "Only damage rolls can be applied");
@@ -593,7 +651,13 @@ export function decide(
       if (!detected) return reject("invalid", "No detected walls are ready for this map.");
       if (detected.length === 0) return reject("invalid", "No walls were detected on this map.");
       if (detected.length > MAX_WALLS || !wallsFitMap(detected, map)) return reject("invalid", "The detected walls don't fit this map.");
-      const walls: Wall[] = detected.map((w) => ({ id: ctx.newId(), a: w.a, b: w.b }));
+      const { exclude } = command;
+      if (exclude && exclude.of !== detected.length) return reject("invalid", "The detected walls changed. Check the preview again.");
+      const erased = new Set(exclude?.indices);
+      if (exclude && [...erased].some((i) => i >= detected.length)) return reject("invalid", "The detected walls changed. Check the preview again.");
+      const kept = detected.filter((_, i) => !erased.has(i));
+      if (kept.length === 0) return reject("invalid", "Every detected wall was erased.");
+      const walls: Wall[] = kept.map((w) => ({ id: ctx.newId(), a: w.a, b: w.b }));
       // Applying replaces: one action, so one undo puts the old walls back.
       return accept(...removeAllWalls(state), { type: "WallsAdded", walls });
     }
@@ -607,7 +671,7 @@ export function decide(
       if (Object.keys(state.walls).length + command.walls.length > MAX_WALLS) {
         return reject("invalid", `A room can hold at most ${MAX_WALLS} walls. Remove some first.`);
       }
-      return accept({ type: "WallsAdded", walls: command.walls.map((w) => ({ id: ctx.newId(), a: w.a, b: w.b })) });
+      return accept({ type: "WallsAdded", walls: command.walls.map((w) => ({ id: ctx.newId(), a: w.a, b: w.b, ...(w.portal && { portal: w.portal }) })) });
     }
 
     case "wall.remove": {
@@ -635,7 +699,7 @@ export function decide(
     }
 
     case "portal.setState": {
-      // Players may only open and close; refused before any lookup, so it says nothing (ADR 0026).
+      // Players may only open and close; refused before any lookup, so it says nothing (ADR 0030).
       if (command.state === "locked" && !can.administer(actor)) return forbidden();
       const wall = state.walls[command.wallId];
       // A plain wall, a missing one and a portal under fog read the same to a player.
@@ -719,7 +783,7 @@ export function decide(
       const conflict = undoConflict(state, entry);
       if (conflict) return reject("invalid", conflict);
       // Reverse order, so an editor save's "hide first, reveal last" stays safe when undone (ADR 0013).
-      return accept(...entry.events.map(inverseOf).reverse(), { type: "ActionUndone", commandId: entry.commandId });
+      return accept(...entry.events.map(inverseOf).reverse().flat(), { type: "ActionUndone", commandId: entry.commandId });
     }
 
     case "checkpoint.create": {
@@ -740,7 +804,8 @@ export function decide(
         type: "EncounterApplied",
         templateId: encounter.id,
         name: encounter.name,
-        applied: encounterTable(encounter, ctx.newId),
+        // A template saved in another game's room loads without the features this room has off (KAN-63).
+        applied: tableForPreset(encounterTable(encounter, ctx.newId), presetOf(state)),
         previous: tableOf(state),
       });
     }
@@ -849,6 +914,41 @@ export function uniqueTokenName(state: RoomState, name: string, exceptId?: strin
   }
 }
 
+/**
+ * The `TokenCreated` events for `count` copies of `base` (KAN-70, KAN-82): spread over the nearest
+ * free squares around `base.position`, each named against the room and the copies before it.
+ */
+function createTokens(
+  state: RoomState,
+  base: Omit<Token, "id">,
+  count: number,
+  ctx: DecideContext,
+  { besideOrigin = false } = {},
+): DomainEvent[] {
+  const spread = spreadPositions(
+    base.position, base.size, besideOrigin ? count + 1 : count, state.scene.grid, state.scene.map,
+    Object.values(state.tokens).map((t) => ({ position: t.position, size: t.size })),
+    // No copy lands across a wall (ADR 0029).
+    (p) => footprintCrossesWall(p, base.size, state.scene.grid, blockingWalls(state)),
+  );
+  const positions = besideOrigin ? spread.slice(1) : spread;
+  let named = state;
+  return positions.map((position) => {
+    // Duplicates are numbered, not rejected: placing five goblins is routine (KAN-62).
+    const token: Token = { ...base, id: ctx.newId(), name: uniqueTokenName(named, base.name), position };
+    named = { ...named, tokens: { ...named.tokens, [token.id]: token } };
+    return { type: "TokenCreated", token };
+  });
+}
+
+/** Why `name` can't name a group, or null (KAN-82): blank, too long, or another group's. */
+export function groupNameProblem(state: RoomState, name: string, exceptId?: string): string | null {
+  if (!name) return "Give the group a name.";
+  if (name.length > MAX_GROUP_NAME) return `Group names are at most ${MAX_GROUP_NAME} characters.`;
+  const taken = Object.values(state.groups).some((g) => g.id !== exceptId && normalizeName(g.name) === normalizeName(name));
+  return taken ? `There is already a group named "${name}".` : null;
+}
+
 /** Keep persisted angles compact while accepting any finite angle from clients. */
 const normalizeRotation = (degrees: number) => ((degrees % 360) + 360) % 360;
 
@@ -929,6 +1029,18 @@ function advance(current: Initiative): Initiative {
   return next >= current.order.length
     ? { ...current, activeIndex: 0, round: current.round + 1 }
     : { ...current, activeIndex: next };
+}
+
+/**
+ * Refuses a command that uses a rules feature the room's game preset turns off (KAN-63, ADR 0027).
+ * Called after authorization, so a player still gets "forbidden" for what they may never do.
+ */
+function presetRefusal(state: RoomState, uses: { attacks?: boolean; conditions?: boolean; ac?: number | null }): Decision | null {
+  const preset = presetOf(state);
+  if (uses.attacks && !preset.features.attacks) return reject("invalid", `Attack rolls are off in ${preset.name}.`);
+  if (uses.conditions && !preset.features.conditions) return reject("invalid", `Conditions are off in ${preset.name}.`);
+  if (uses.ac != null && !preset.features.armorClass) return reject("invalid", `AC is off in ${preset.name}.`);
+  return null;
 }
 
 const accept = (...events: DomainEvent[]): Decision => ({ ok: true, events });

@@ -1,6 +1,8 @@
 import {
   GM_TOKEN_HEADER,
   HistoryResponse,
+  ReplayPointsResponse,
+  ReplayResponse,
   type AssetKind,
   type CreateCreatureRequest,
   type DiceLookView,
@@ -9,9 +11,11 @@ import {
   type EncounterSummary,
   type GridSpec,
   GridDetectionStatus,
+  DetectedWallsResponse,
   WallDetectionStatus,
+  type DetectedWall,
   WallDetectionAvailability,
-  type Point,
+  type WallDetectionRequest,
   type InviteSeatResponse,
   type LegacySummary,
   type LibraryAsset,
@@ -135,6 +139,24 @@ export const api = {
     return HistoryResponse.parse(await res.json());
   },
 
+  /** Where this participant can start a replay of the room (FR-PL-07, ADR 0025). */
+  async replayPoints(roomId: string, token: string, signal?: AbortSignal) {
+    const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/replay`, {
+      headers: { authorization: `Bearer ${token}` }, signal,
+    });
+    if (!res.ok) throw await errorFrom(res);
+    return ReplayPointsResponse.parse(await res.json()).points;
+  },
+
+  /** The room's history from one replay point, filtered for this participant by the server (FR-PL-07). */
+  async replay(roomId: string, token: string, pointId: string, signal?: AbortSignal) {
+    const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/replay/${encodeURIComponent(pointId)}`, {
+      headers: { authorization: `Bearer ${token}` }, signal,
+    });
+    if (!res.ok) throw await errorFrom(res);
+    return ReplayResponse.parse(await res.json());
+  },
+
   /** The room's current invite code (FR-GM-20). GM only; the server answers 403 otherwise. */
   getInvite: (roomId: string, token: string) => roomRequest<InviteResponse>(roomId, token, "GET"),
 
@@ -169,17 +191,18 @@ export const api = {
     return (await res.json()) as UploadResponse;
   },
 
-  /** Wall detection for the room's map, as its GM (FR-GM-11, ADR 0025). */
+  /** Wall detection for the room's map, as its GM (FR-GM-11, ADR 0029). */
   walls: {
     /**
      * Queues an analysis of the room's current map. With `sample`, a point on a wall the GM
-     * clicked, the worker looks for walls of that colour (wall-editing).
+     * clicked, the worker looks for walls of that colour, within `tolerance` Lab units of it
+     * (wall-editing); `strictness` and `minLength` filter what it finds.
      */
-    async detect(roomId: string, token: string, sample?: Point): Promise<WallDetectionStatus> {
+    async detect(roomId: string, token: string, request: WallDetectionRequest = {}): Promise<WallDetectionStatus> {
       const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/wall-detection`, {
         method: "POST",
         headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-        body: JSON.stringify(sample ? { sample } : {}),
+        body: JSON.stringify(request),
       });
       if (!res.ok) throw await errorFrom(res);
       return WallDetectionStatus.parse(await res.json());
@@ -198,6 +221,14 @@ export const api = {
       if (res.status === 404) return null;
       if (!res.ok) throw await errorFrom(res);
       return WallDetectionStatus.parse(await res.json());
+    },
+    /** The detected segments of a finished analysis, for erasing false ones before applying. */
+    async detected(roomId: string, token: string, mapUrl: string, signal?: AbortSignal): Promise<DetectedWall[]> {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/wall-detection/walls?map=${encodeURIComponent(mapUrl)}`, {
+        signal, cache: "no-store", headers: { authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw await errorFrom(res);
+      return DetectedWallsResponse.parse(await res.json()).walls;
     },
     /** The rendered preview, fetched with the GM's credential (an <img> can't send it). */
     async preview(roomId: string, token: string, mapUrl: string, signal?: AbortSignal): Promise<Blob> {

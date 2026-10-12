@@ -1,6 +1,6 @@
 ## 1. Decision record
 
-- [x] 1.1 Write `docs/adr/0026-portals.md` (visibility, commands, undo, activity log wording) marked as needing Real-Time Architecture owner review; verify it links ADR 0025 and this change
+- [x] 1.1 Write `docs/adr/0030-portals.md` (visibility, commands, undo, activity log wording) marked as needing Real-Time Architecture owner review; verify it links ADR 0029 and this change
 
 ## 2. Shared contract
 

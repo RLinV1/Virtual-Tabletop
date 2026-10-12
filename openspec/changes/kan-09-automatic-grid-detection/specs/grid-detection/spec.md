@@ -33,14 +33,18 @@ Analysis SHALL return either a candidate containing finite cell size, canonical 
 - **THEN** analysis reports `no_grid` rather than a high-confidence candidate
 
 ### Requirement: Analysis status is private and retryable
-An authorized GM SHALL be able to read `queued`, `running`, `suggested`, `no_grid`, or `error` for an owned library map or the current directly uploaded room map. Only an error SHALL offer retry. One retry SHALL create one new attempt; concurrent retries SHALL NOT duplicate running work. Stale completions SHALL NOT replace newer attempts. Deletion SHALL remove the analysis record. Players SHALL NOT receive status, candidates, job details, or image contents in room payloads or logs.
+An authorized GM SHALL be able to read `queued`, `running`, `suggested`, `no_grid`, or `error` for an owned library map or a map directly uploaded to its own room, whether or not that map is applied yet. Only an error SHALL offer retry. One retry SHALL create one new attempt; concurrent retries SHALL NOT duplicate running work. Stale completions SHALL NOT replace newer attempts. Deletion SHALL remove the analysis record. Players SHALL NOT receive status, candidates, job details, or image contents in room payloads or logs.
 
 #### Scenario: GM polls a current map
 - **WHEN** its GM opens the relevant grid editor
 - **THEN** the editor can poll the private status endpoint for that map
 
+#### Scenario: GM reads a draft map's analysis
+- **WHEN** a GM uploads a map directly to a room and opens the map editor's Grid step before applying it
+- **THEN** the editor can read and retry that upload's analysis, and only that room's GM can
+
 #### Scenario: Player requests status
-- **WHEN** a player credential requests room analysis status, or another GM requests a library map's status
+- **WHEN** a player credential requests room analysis status, a GM requests another room's upload, or another GM requests a library map's status
 - **THEN** the server denies access without exposing the result
 
 #### Scenario: Retry after failure
@@ -62,6 +66,6 @@ The editor SHALL show a candidate and its confidence separately from the current
 - **WHEN** the GM selects Use suggestion and then cancels
 - **THEN** the saved library or room grid remains unchanged
 
-#### Scenario: Room map replaced mid-analysis
-- **WHEN** the room map changes while the editor or a poll is active
+#### Scenario: Map changed mid-analysis
+- **WHEN** the editor's map changes while a poll is active
 - **THEN** the old result and preview are discarded and cannot be shown over the new map

@@ -269,6 +269,9 @@ a.tool-button { text-decoration: none; }
 }
 .popover-left { left: 0; }
 .popover-right { right: 0; }
+/* The room bar's More menu: one full-width item per row. */
+.room-menu { display: flex; flex-direction: column; gap: var(--space-1); }
+.room-menu .tool-button { justify-content: flex-start; white-space: nowrap; }
 .participant-list li {
   display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3);
   padding: 0.3rem 0; font-size: var(--fs-md);
@@ -541,7 +544,11 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 
 /* --- Chat (KAN-75) --- */
 .chat-widget { position: fixed; right: var(--space-4); bottom: var(--space-4); z-index: 50; display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-2); }
+/* Moved to the left or top half of the window: the popup opens toward the middle instead. */
+.chat-widget-left { align-items: flex-start; }
+.chat-widget-top { flex-direction: column-reverse; }
 .chat-fab {
+  touch-action: none;
   position: relative; width: 3.25rem; height: 3.25rem; padding: 0; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgb(0 0 0 / 0.45);
 }
@@ -554,8 +561,8 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
   width: min(22rem, calc(100vw - 2 * var(--space-4))); display: flex; flex-direction: column; gap: var(--space-2);
   padding: var(--space-3); background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--radius);
   box-shadow: 0 8px 28px rgb(0 0 0 / 0.55);
-  /* Never taller than the room above the launcher, so the header and close button stay reachable. */
-  max-height: calc(100dvh - 3.25rem - 3 * var(--space-4)); min-height: 0;
+  /* Never taller than the room beside the launcher, so the header and close button stay reachable. */
+  max-height: var(--chat-room, calc(100dvh - 3.25rem - 3 * var(--space-4))); min-height: 0;
 }
 .chat-popup-header { display: flex; align-items: center; justify-content: space-between; }
 .chat-popup-header h2 { margin: 0; font-size: var(--fs-sm); color: var(--muted); }
@@ -760,9 +767,9 @@ dialog.modal.dice-look-modal { width: min(40rem, calc(100vw - 2rem)); }
 
 /* --- Initiative --- */
 .init-setup { display: flex; flex-direction: column; gap: 0.3rem; }
-.init-setup li { display: grid; grid-template-columns: auto 1fr 4.5rem; align-items: center; gap: var(--space-2); }
+.init-setup li { display: grid; grid-template-columns: auto auto 1fr 4.5rem; align-items: center; gap: var(--space-2); }
 .init-hint { font-size: var(--fs-sm); }
-.init-setup input { width: 100%; text-align: right; font-variant-numeric: tabular-nums; }
+.init-setup input[type="number"] { width: 100%; text-align: right; font-variant-numeric: tabular-nums; }
 /* Spinner arrows crowd a 4.5rem field and nobody steps initiative by one. */
 .init-setup input::-webkit-outer-spin-button,
 .init-setup input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
@@ -1212,6 +1219,8 @@ dialog.modal.prep-sheet { width: min(1120px, calc(100vw - 48px)); }
   stroke: var(--focus); stroke-width: 3px; vector-effect: non-scaling-stroke;
 }
 .map-grid-help { margin: 0; }
+.map-grid-keys summary { cursor: pointer; color: var(--muted); }
+.map-grid-keys p { margin: var(--space-1) 0 0; }
 .grid-line-fields { display: flex; flex-direction: column; gap: var(--space-3); }
 .grid-editor-footer {
   position: sticky; bottom: calc(-1 * var(--space-4)); z-index: 1;
@@ -2169,11 +2178,6 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 .checkpoint-row > span { min-width: 0; overflow-wrap: anywhere; }
 
 /* Fog of war by keyboard (FR-GM-17): fog the map or a block of cells, reveal from a list. */
-.fog-cells fieldset { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-2) 0 0; padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius); }
-.fog-cells legend { padding: 0 var(--space-1); font-size: var(--fs-sm); font-weight: 500; }
-.fog-cells-hint { margin: 0; font-size: var(--fs-xs); }
-.fog-cells-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
-.fog-cells-grid input { width: 100%; font-variant-numeric: tabular-nums; }
 .fog-count { margin: var(--space-3) 0 var(--space-1); font-size: var(--fs-sm); }
 .fog-list { display: flex; flex-direction: column; gap: var(--space-2); }
 .fog-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: var(--fs-sm); }
@@ -2262,7 +2266,7 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 .participant-view-as { margin-left: auto; }
 .preview-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; display: contents; }
 
-/* Automatic walls (FR-GM-11, ADR 0025): the GM reviews the rendered detection before applying. */
+/* Automatic walls (FR-GM-11, ADR 0029): the GM reviews the rendered detection before applying. */
 .walls-status { margin: 0; font-weight: 600; }
 .walls-preview { margin: 0; display: grid; gap: var(--space-1); }
 .walls-preview img, .walls-preview-placeholder {
@@ -2271,7 +2275,7 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 }
 .walls-preview figcaption { font-size: var(--fs-sm); color: var(--muted); }
 
-/* A refused move, e.g. into or through a wall (ADR 0025): bottom centre, clear of notices and hints. */
+/* A refused move, e.g. into or through a wall (ADR 0029): bottom centre, clear of notices and hints. */
 .board-refusal {
   position: absolute; left: 50%; bottom: calc(var(--space-3) * 4); transform: translateX(-50%); z-index: 7;
   margin: 0; padding: var(--space-2) var(--space-3); max-width: min(24rem, calc(100% - 2 * var(--space-3)));
@@ -2290,18 +2294,24 @@ dialog.modal.map-editor {
 }
 .map-editor .modal-body {
   height: 100dvh; max-height: none; box-sizing: border-box; display: flex; flex-direction: column;
-  gap: var(--space-2); padding: var(--space-3) var(--space-4);
+  gap: var(--space-2); padding: var(--space-2) var(--space-3);
 }
-.map-editor-shell { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--space-3); }
-.map-editor-steps { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.map-editor .modal-head { flex: none; }
+.map-editor-shell { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* The steps sit in the dialog title bar, so the editor has one header row (map-editor D1). */
+.map-editor-steps { flex: 1; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 .map-editor-step {
-  min-height: 40px; padding: 0.35rem 0.9rem; border: 1px solid var(--border); border-radius: var(--radius);
+  min-height: 44px; padding: 0.35rem 0.9rem; border: 1px solid var(--border); border-radius: var(--radius);
   background: var(--raised); color: var(--text);
 }
 .map-editor-step[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .map-editor-draft { margin-left: auto; font-size: var(--fs-sm); color: var(--warn); }
+/* Unsaved walls or fog (map-editor-drafts): the note and its Save and Discard, at the header's end. */
+.map-editor-unsaved { margin-left: auto; display: inline-flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.map-editor-unsaved .map-editor-draft { margin-left: 0; }
+.map-editor-save-error { font-size: var(--fs-sm); }
 .map-editor-body { flex: 1; min-height: 0; overflow: auto; }
-.map-editor-split { height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 20rem; gap: var(--space-3); }
+.map-editor-split { height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 17rem; grid-template-rows: minmax(0, 1fr); gap: var(--space-2); }
 .map-editor-stage {
   min-height: 0; display: flex; align-items: center; justify-content: center;
   background: var(--raised); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
@@ -2313,14 +2323,20 @@ dialog.modal.map-editor {
 }
 .map-editor-heading { margin: 0; font-size: var(--fs-md); }
 .map-editor-empty { margin: var(--space-4) auto; max-width: 32rem; text-align: center; color: var(--muted); }
-.map-editor-grid { max-width: 1120px; margin: 0 auto; }
+/* The Grid step fills the editor, and the map takes every row the controls leave free. */
+.map-editor-grid { height: 100%; }
+.map-editor-grid, .map-editor-grid .grid-editor, .map-editor-grid .map-grid-preview { display: flex; flex-direction: column; }
+.map-editor-grid .grid-editor, .map-editor-grid .map-grid-preview { flex: 1; min-height: 0; }
+.map-editor-grid .map-grid-canvas { flex: 1; height: auto; min-height: 20rem; }
+.map-editor-grid .grid-editor-footer { flex-direction: row; flex-wrap: wrap; align-items: center; }
+.map-editor-grid .grid-editor-footer .grid-actions { margin-left: auto; }
 .map-editor-modes { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
 .map-editor-mode { display: inline-flex; align-items: center; justify-content: flex-start; gap: var(--space-2); min-height: 44px; padding: 0.35rem 0.6rem; }
 .map-editor-portal { gap: var(--space-2); }
 .map-editor-option-row { display: grid; gap: var(--space-1); }
 .map-editor-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-1); }
 .map-editor-option { justify-content: center; min-height: 36px; padding: 0.25rem 0.4rem; }
-.map-editor-mode[aria-checked="true"], .map-editor-option[aria-checked="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.map-editor-mode[aria-checked="true"], .map-editor-mode[aria-pressed="true"], .map-editor-option[aria-checked="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .map-editor-mode:disabled { opacity: 0.45; cursor: not-allowed; }
 .map-editor-count { margin: 0; font-size: var(--fs-sm); }
 /* Detection the server can't run: shown, but greyed out with its reason (map-editor D4). */
@@ -2332,7 +2348,61 @@ dialog.modal.map-editor {
 .wall-canvas-svg.mode-erase { cursor: pointer; }
 .wall-canvas-svg.mode-pan { cursor: grab; }
 .wall-canvas-zoom { position: absolute; right: var(--space-2); top: var(--space-2); display: flex; gap: var(--space-1); }
+/* A full-screen editor driven by touch on phones and tablets: every control is a 44px target
+   (WCAG 2.2 2.5.8 asks 24px; 44px suits a thumb), the close button included. */
+.map-editor .modal-close { width: 44px; height: 44px; }
+.map-editor button, .map-editor select, .map-editor .upload-button,
+.map-editor input:not([type="checkbox"]):not([type="radio"]):not(.sr-only) { min-height: 44px; }
+.wall-canvas-zoom button, .map-editor .map-grid-toolbar button { min-width: 44px; }
+/* The editor body is the scroller here, with no padding below, so the grid footer sticks at its edge. */
+.map-editor .grid-editor-footer { bottom: 0; }
+/* Narrow or portrait screens stack the canvas above the HUD. The canvas keeps most of the height;
+   the HUD is capped and scrolls on its own, so it never pushes the canvas off-screen. */
+@media (max-width: 760px), (orientation: portrait) {
+  .map-editor-split { grid-template-columns: 1fr; grid-template-rows: minmax(50dvh, 1fr) auto; }
+  .map-editor-hud { max-height: 36dvh; }
+}
 @media (max-width: 760px) {
-  .map-editor-split { grid-template-columns: 1fr; grid-template-rows: minmax(16rem, 1fr) auto; }
   .map-editor .modal-body { padding: var(--space-2); }
 }
+
+/* Token groups in the GM's roster and the Start encounter dialog (KAN-82). */
+.roster-group + .roster-group { margin-top: var(--space-2); }
+.group-heading { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1) var(--space-2); padding: 0.2rem 0; border-bottom: 1px solid var(--border); }
+.group-toggle { display: inline-flex; align-items: baseline; gap: var(--space-2); min-width: 0; padding: 0.15rem 0; background: none; border: 0; color: inherit; cursor: pointer; text-align: left; }
+.group-toggle .group-name { font-weight: 600; overflow-wrap: anywhere; }
+.group-caret { width: 1ch; }
+.group-actions { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); margin-left: auto; }
+.new-group { margin-top: var(--space-2); gap: var(--space-2); }
+.new-group input { flex: 1; min-width: 0; }
+.token-duplicate { align-items: flex-end; flex-wrap: wrap; gap: var(--space-2); }
+.token-duplicate input { width: 5rem; }
+.init-groups { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin: 0 0 var(--space-2); padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius); }
+.init-groups legend { padding: 0 var(--space-1); }
+.init-groups p { flex-basis: 100%; }
+.init-left-out .init-name { color: var(--muted); text-decoration: line-through; }
+
+/* Game presets (KAN-63): the create-room choice and the room's preset badge. */
+.preset-choice { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius); }
+.preset-choice legend { padding: 0 var(--space-1); }
+.preset-option { display: flex; flex-direction: row; align-items: flex-start; gap: var(--space-2); margin: 0; cursor: pointer; }
+.preset-option > span { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+.preset-option input { margin-top: 0.25rem; }
+.preset-badge { flex-shrink: 0; padding: 0.05rem 0.45rem; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: var(--fs-sm); white-space: nowrap; }
+
+/* Encounter replay (FR-PL-07): bottom-centre like the preview banner, above the board. */
+.replay-bar {
+  position: fixed; left: 50%; bottom: var(--space-4); transform: translateX(-50%); z-index: 60;
+  display: flex; flex-direction: column; gap: var(--space-2);
+  width: min(40rem, calc(100vw - 2 * var(--space-4)));
+  padding: var(--space-2) var(--space-3); background: var(--panel); color: var(--text);
+  border: 2px solid var(--accent); border-radius: var(--radius); box-shadow: 0 8px 28px rgb(0 0 0 / 0.55);
+}
+.replay-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; min-width: 0; }
+.replay-point { display: flex; flex-direction: row; align-items: center; margin: 0; gap: var(--space-2); flex: 1 1 12rem; min-width: 0; }
+.replay-point select { flex: 1; min-width: 0; }
+.replay-exit { margin-left: auto; }
+.replay-slider { flex: 1 1 8rem; min-width: 6rem; }
+.replay-count { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.replay-sentence { margin: 0; min-height: 1.4em; overflow-wrap: anywhere; }
+.replay-bar .small-print { margin: 0; }

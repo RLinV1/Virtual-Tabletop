@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { Door, Eraser, Eyedropper, Hand, LineSegments } from "@phosphor-icons/react";
-import type { CommandInput, Point, Portal, PortalKind, PortalState, RoomState, WallDetectionAvailability, WallDetectionStatus } from "@vtt/shared";
+import {
+  MIN_LENGTH_MAX, SAMPLE_TOLERANCE_DEFAULT, SAMPLE_TOLERANCE_MAX, SAMPLE_TOLERANCE_MIN,
+  STRICTNESS_DEFAULT, STRICTNESS_MAX, STRICTNESS_MIN,
+  type CommandInput, type DetectedWall, type Point, type Portal, type PortalKind, type PortalState, type RoomState, type Wall, type WallStyle, type WallDetectionAvailability, type WallDetectionRequest, type WallDetectionStatus,
+} from "@vtt/shared";
 import { api } from "../../net/api";
 import type { RoomConnection } from "../../net/roomConnection";
 import { WallCanvas, type CanvasMode } from "./WallCanvas";
@@ -13,7 +17,7 @@ const MODES: { key: CanvasMode; label: string; icon: typeof Eraser; needsDetecti
   { key: "pan", label: "Pan", icon: Hand },
 ];
 
-/** What the Door / window tool turns a clicked wall into (ADR 0026). "wall" makes it plain again. */
+/** What the Door / window tool turns a clicked wall into (ADR 0030). "wall" makes it plain again. */
 const PORTAL_KINDS: { key: PortalKind | "wall"; label: string }[] = [
   { key: "door", label: "Door" },
   { key: "window", label: "Window" },
@@ -27,10 +31,10 @@ const PORTAL_STATES: { key: PortalState; label: string }[] = [
 
 const HINTS: Record<CanvasMode, string> = {
   draw: "Click to start a wall, click again to end it and start the next. Ends snap to grid corners and wall ends; hold Alt to place freely. Enter, Esc or right-click stops.",
-  erase: "Click a wall to remove it. Undo it from the activity log.",
+  erase: "Click a wall to remove it. Click a blue detected wall to leave it out of Apply, and click it again to bring it back.",
   portal: "Pick what the wall should be, then click walls. Players see doors and windows outside fog and can open and close unlocked ones.",
   sample: "Click on a wall in the map: walls that look like it are detected across the whole map.",
-  pan: "Drag to move around. The wheel zooms; Space-drag pans in any mode.",
+  pan: "Drag to move around. The wheel or a pinch zooms; Space-drag or a two-finger drag pans in any mode.",
 };
 
 /**
@@ -49,6 +53,14 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
   const [detection, setDetection] = useState<{ mapUrl: string; status: WallDetectionStatus | null }>({ mapUrl, status: null });
   const [preview, setPreview] = useState<{ mapUrl: string; url: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  // The detected segments waiting to be applied, and the ones the GM has erased from them (by index).
+  const [candidates, setCandidates] = useState<{ mapUrl: string; walls: DetectedWall[]; erased: ReadonlySet<string> } | null>(null);
+  const [tolerance, setTolerance] = useState(SAMPLE_TOLERANCE_DEFAULT);
+  // null: automatic, the detector's own choice per map; a number is the GM's fixed setting.
+  const [strictness, setStrictness] = useState<number | null>(null);
+  const [minLength, setMinLength] = useState(0);
+  // null: try both light stone and dark ink walls and keep the better.
+  const [style, setStyle] = useState<WallStyle | null>(null);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
   const status = detection.mapUrl === mapUrl ? detection.status : null;
   const canDetect = availability?.available === true;
@@ -95,13 +107,34 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
     };
   }, [done, status, state.roomId, token, mapUrl]);
 
+  // The detected segments themselves, so false ones can be erased on the canvas before applying.
+  useEffect(() => {
+    if (!done || !mapUrl) {
+      setCandidates(null);
+      return;
+    }
+    const abort = new AbortController();
+    api.walls.detected(state.roomId, token, mapUrl, abort.signal)
+      .then((walls) => setCandidates({ mapUrl, walls, erased: new Set() }))
+      .catch(() => {});
+    return () => abort.abort();
+  }, [done, status, state.roomId, token, mapUrl]);
+
   if (!map) return <p className="map-editor-empty">Apply a map in the Map step first, then set up its walls here.</p>;
+
+  /** The detection request: the sliders' values, and the clicked wall's point when there is one. */
+  const request = (sample?: Point): WallDetectionRequest => ({
+    ...(sample && { sample, tolerance }),
+    ...(strictness !== null && { strictness }),
+    ...(style !== null && { style }),
+    minLength,
+  });
 
   const detect = async (sample?: Point) => {
     setBusy(true);
     setMessage(null);
     try {
-      setDetection({ mapUrl, status: await api.walls.detect(state.roomId, token, sample) });
+      setDetection({ mapUrl, status: await api.walls.detect(state.roomId, token, request(sample)) });
       setMessage({ text: sample ? "Detecting walls like the one you clicked…" : "Detecting walls…", error: false });
     } catch (err) {
       setMessage({ text: err instanceof Error ? err.message : "Couldn't start wall detection", error: true });
@@ -114,6 +147,7 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
     const result = await connection.command(command);
     if (!result.ok) setMessage({ text: result.message, error: true });
     else if (doneText) setMessage({ text: doneText, error: false });
+    return result.ok;
   };
 
   /** Makes the clicked wall what the Door / window tool is set to; nothing to send when it already is. */
@@ -122,6 +156,26 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
     const current = state.walls[wallId]?.portal ?? null;
     if (current?.kind === portal?.kind && current?.state === portal?.state) return;
     void run({ type: "portal.set", wallId, portal });
+  };
+
+  const pendingWalls = candidates?.mapUrl === mapUrl ? candidates : null;
+  const candidateWalls: Record<string, Wall> = {};
+  pendingWalls?.walls.forEach((w, i) => { candidateWalls[String(i)] = { id: String(i), a: w.a, b: w.b }; });
+  const toggleCandidate = (key: string) => setCandidates((current) => {
+    if (!current) return current;
+    const erased = new Set(current.erased);
+    if (!erased.delete(key)) erased.add(key);
+    return { ...current, erased };
+  });
+  const keeping = pendingWalls ? pendingWalls.walls.length - pendingWalls.erased.size : null;
+
+  const apply = async () => {
+    const exclude = pendingWalls && pendingWalls.erased.size > 0
+      ? { of: pendingWalls.walls.length, indices: [...pendingWalls.erased].map(Number).sort((a, b) => a - b) }
+      : undefined;
+    const ok = await run({ type: "wall.applyDetected", mapUrl, ...(exclude && { exclude }) }, `Applied ${keeping ?? found} walls.`);
+    // The result is spent: drop its overlay so the new walls aren't drawn twice.
+    if (ok) setDetection({ mapUrl, status: null });
   };
 
   const pending = status?.status === "queued" || status?.status === "running";
@@ -134,11 +188,14 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
         map={map}
         grid={state.scene.grid}
         walls={state.walls}
+        candidates={candidateWalls}
+        erased={pendingWalls?.erased ?? new Set()}
         mode={mode}
         busy={busy}
         onAdd={(a, b) => void run({ type: "wall.add", walls: [{ a, b }] })}
         onRemove={(wallId) => void run({ type: "wall.remove", wallIds: [wallId] })}
         onPortal={markPortal}
+        onToggleCandidate={toggleCandidate}
         onSample={(at) => void detect(at)}
       />
       <aside className="map-editor-hud" aria-label="Wall tools">
@@ -171,6 +228,20 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
             </div>
           )}
           <p className="muted small-print">{HINTS[mode]}</p>
+          {mode === "sample" && (
+            <label className="stack">
+              <span className="small-print">Colour range: {tolerance}</span>
+              <input
+                type="range"
+                min={SAMPLE_TOLERANCE_MIN}
+                max={SAMPLE_TOLERANCE_MAX}
+                value={tolerance}
+                onChange={(event) => setTolerance(Number(event.target.value))}
+                aria-describedby="wall-tolerance-hint"
+              />
+              <span id="wall-tolerance-hint" className="muted small-print">Lower finds only walls very close to the clicked colour; higher also finds paler or darker stone, and more noise.</span>
+            </label>
+          )}
           <p className="map-editor-count">
             {wallCount} {wallCount === 1 ? "wall" : "walls"} on this map. Tokens can't be placed on them, and players can't move through them or through closed doors. Only you see plain walls.
           </p>
@@ -189,16 +260,54 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
               ) : (
                 <div className="walls-preview-placeholder" aria-hidden="true" />
               )}
-              <figcaption>{found === 0 ? "No walls found on this map." : `${found} ${found === 1 ? "wall" : "walls"} found. Check them before applying.`}</figcaption>
+              <figcaption>{found === 0 ? "No walls found on this map." : `${found} ${found === 1 ? "wall" : "walls"} found. Check them before applying; the Erase tool leaves a false one out.`}</figcaption>
             </figure>
+          )}
+          {canDetect && (
+            <div className="stack">
+              <label className="stack">
+                <span className="small-print">Wall colour</span>
+                <select value={style ?? "auto"} onChange={(event) => setStyle(event.target.value === "auto" ? null : (event.target.value as WallStyle))}>
+                  <option value="auto">Automatic</option>
+                  <option value="bright">Light stone walls</option>
+                  <option value="dark">Dark ink walls</option>
+                </select>
+                <span className="muted small-print">Pick one if automatic detection follows the wrong thing, such as shadows instead of stone.</span>
+              </label>
+              <label className="stack">
+                <span className="small-print">Strictness: {strictness === null ? "automatic" : strictness.toFixed(2)}</span>
+                <input
+                  type="range"
+                  min={STRICTNESS_MIN}
+                  max={STRICTNESS_MAX}
+                  step={0.05}
+                  value={strictness ?? STRICTNESS_DEFAULT}
+                  onChange={(event) => setStrictness(Number(event.target.value))}
+                />
+                <span className="muted small-print">Higher keeps only walls with a clear drawn edge: less terrain, but it can miss faint walls.</span>
+                {strictness !== null && <button type="button" className="secondary" onClick={() => setStrictness(null)}>Back to automatic</button>}
+              </label>
+              <label className="stack">
+                <span className="small-print">Shortest wall: {minLength === 0 ? "any" : `${minLength} ${minLength === 1 ? "cell" : "cells"}`}</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={MIN_LENGTH_MAX}
+                  step={0.5}
+                  value={minLength}
+                  onChange={(event) => setMinLength(Number(event.target.value))}
+                />
+                <span className="muted small-print">Drops short pieces such as rubble. Use Detect again to apply a change.</span>
+              </label>
+            </div>
           )}
           <div className="row button-row">
             <button type="button" className="secondary" disabled={!canDetect || busy || pending} onClick={() => void detect()}>
               {status ? "Detect again" : "Detect walls"}
             </button>
             {canDetect && found !== null && found > 0 && (
-              <button type="button" disabled={busy} onClick={() => void run({ type: "wall.applyDetected", mapUrl }, `Applied ${found} walls.`)}>
-                {wallCount > 0 ? `Replace with ${found} walls` : `Apply ${found} walls`}
+              <button type="button" disabled={busy || keeping === 0} onClick={() => void apply()}>
+                {wallCount > 0 ? `Replace with ${keeping ?? found} walls` : `Apply ${keeping ?? found} walls`}
               </button>
             )}
           </div>

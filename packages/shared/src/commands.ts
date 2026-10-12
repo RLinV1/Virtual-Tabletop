@@ -3,9 +3,9 @@ import { TokenAttacks } from "./attackPresets";
 import { ConditionId, EMPTY_STATS, TokenStats } from "./conditions";
 import { AttackKind, DiceVisibility, MAX_ATTACK_LABEL, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
-import { AreaShape, Id, MapImage, MAX_CHAT_LENGTH, MAX_FOG_POINTS, Portal, PortalState } from "./state";
+import { AreaShape, Id, MapImage, MAX_CHAT_LENGTH, MAX_FOG_POINTS, MAX_WALLS, Portal, PortalState } from "./state";
 
-/** Most walls one `wall.remove` names (ADR 0025), keeping the command under the socket limit. */
+/** Most walls one `wall.remove` names (ADR 0029), keeping the command under the socket limit. */
 export const MAX_WALLS_PER_REMOVE = 500;
 /** Most walls one `wall.add` draws (wall-editing). The Walls tool sends one per segment. */
 export const MAX_WALLS_PER_ADD = 50;
@@ -100,6 +100,32 @@ export const Command = z.discriminatedUnion("type", [
     /** Place this many copies in one action, numbered and spread over free squares (KAN-70). */
     count: z.number().int().min(1).max(MAX_TOKENS_PER_CREATE).default(1),
   }),
+  /** GM copies a token, 1–20 times, onto the nearest free squares beside it (KAN-82). */
+  z.object({
+    type: z.literal("token.duplicate"),
+    tokenId: Id,
+    count: z.number().int().min(1).max(MAX_TOKENS_PER_CREATE).default(1),
+  }).strict(),
+  /** GM-only token groups (KAN-82, ADR 0026). */
+  z.object({
+    type: z.literal("group.create"),
+    name: z.string().max(200),
+  }).strict(),
+  z.object({
+    type: z.literal("group.rename"),
+    groupId: Id,
+    name: z.string().max(200),
+  }).strict(),
+  z.object({
+    type: z.literal("group.delete"),
+    groupId: Id,
+  }).strict(),
+  /** Puts tokens into a group, or takes them out of any group with `groupId: null`. */
+  z.object({
+    type: z.literal("group.assign"),
+    groupId: Id.nullable(),
+    tokenIds: z.array(Id).min(1).max(100),
+  }).strict(),
   z.object({
     type: z.literal("token.move"),
     tokenId: Id,
@@ -262,34 +288,41 @@ export const Command = z.discriminatedUnion("type", [
     regionId: Id,
   }).strict(),
   /**
-   * GM applies the walls detected for the room's current map (FR-GM-11, ADR 0025), replacing any
+   * GM applies the walls detected for the room's current map (FR-GM-11, ADR 0029), replacing any
    * walls already there. The segments come from the server's validated result, never the client.
+   * `exclude` names segments of that result the GM erased on the preview: `indices` into it, and
+   * `of`, how many it had, so a list made against an older result is refused rather than misapplied.
    */
   z.object({
     type: z.literal("wall.applyDetected"),
     mapUrl: z.string().min(1).max(2048),
+    exclude: z.object({
+      of: z.number().int().min(1).max(MAX_WALLS),
+      indices: z.array(z.number().int().min(0).max(MAX_WALLS - 1)).max(MAX_WALLS),
+    }).strict().optional(),
   }).strict(),
-  /** GM draws walls by hand (wall-editing, ADR 0025). Board coordinates (invariant 8). */
+  /** GM draws walls by hand (wall-editing, ADR 0029). Board coordinates (invariant 8). */
   z.object({
     type: z.literal("wall.add"),
-    walls: z.array(z.object({ a: Point, b: Point }).strict()).min(1).max(MAX_WALLS_PER_ADD),
+    /** `portal` lets the map editor's Save keep a door drawn in its draft (ADR 0030). */
+    walls: z.array(z.object({ a: Point, b: Point, portal: Portal.optional() }).strict()).min(1).max(MAX_WALLS_PER_ADD),
   }).strict(),
-  /** GM removes chosen walls (ADR 0025). */
+  /** GM removes chosen walls (ADR 0029). */
   z.object({
     type: z.literal("wall.remove"),
     wallIds: z.array(Id).min(1).max(MAX_WALLS_PER_REMOVE),
   }).strict(),
-  /** GM removes every wall (ADR 0025). */
+  /** GM removes every wall (ADR 0029). */
   z.object({
     type: z.literal("wall.clear"),
   }).strict(),
-  /** GM makes a wall a door or window, edits it, or (`null`) turns it back into a plain wall (FR-GM-09, ADR 0026). */
+  /** GM makes a wall a door or window, edits it, or (`null`) turns it back into a plain wall (FR-GM-09, ADR 0030). */
   z.object({
     type: z.literal("portal.set"),
     wallId: Id,
     portal: Portal.nullable(),
   }).strict(),
-  /** Opens, closes or locks a portal (FR-GM-18, ADR 0026). Players may only open or close one they can see. */
+  /** Opens, closes or locks a portal (FR-GM-18, ADR 0030). Players may only open or close one they can see. */
   z.object({
     type: z.literal("portal.setState"),
     wallId: Id,
