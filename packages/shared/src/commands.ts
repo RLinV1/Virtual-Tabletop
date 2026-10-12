@@ -277,6 +277,7 @@ export const Command = z.discriminatedUnion("type", [
    */
   z.object({
     type: z.literal("fog.add"),
+    expectedMapUrl: z.string().min(1).max(2048).optional(),
     region: z.discriminatedUnion("shape", [
       z.object({ shape: z.literal("rect"), from: Point, to: Point }).strict(),
       z.object({ shape: z.literal("polygon"), points: z.array(Point).min(3).max(MAX_FOG_POINTS) }).strict(),
@@ -285,40 +286,43 @@ export const Command = z.discriminatedUnion("type", [
   /** GM removes one fog region, revealing what it covered (FR-GM-17). */
   z.object({
     type: z.literal("fog.remove"),
+    expectedMapUrl: z.string().min(1).max(2048).optional(),
     regionId: Id,
   }).strict(),
   /**
    * GM applies the walls detected for the room's current map (FR-GM-11, ADR 0029), replacing any
    * walls already there. The segments come from the server's validated result, never the client.
-   * `exclude` names segments of that result the GM erased on the preview: `indices` into it, and
-   * `of`, how many it had, so a list made against an older result is refused rather than misapplied.
    */
   z.object({
     type: z.literal("wall.applyDetected"),
     mapUrl: z.string().min(1).max(2048),
     exclude: z.object({
-      of: z.number().int().min(1).max(MAX_WALLS),
+      resultId: z.string().min(1).max(128),
       indices: z.array(z.number().int().min(0).max(MAX_WALLS - 1)).max(MAX_WALLS),
     }).strict().optional(),
   }).strict(),
   /** GM draws walls by hand (wall-editing, ADR 0029). Board coordinates (invariant 8). */
   z.object({
     type: z.literal("wall.add"),
+    expectedMapUrl: z.string().min(1).max(2048).optional(),
     /** `portal` lets the map editor's Save keep a door drawn in its draft (ADR 0030). */
     walls: z.array(z.object({ a: Point, b: Point, portal: Portal.optional() }).strict()).min(1).max(MAX_WALLS_PER_ADD),
   }).strict(),
   /** GM removes chosen walls (ADR 0029). */
   z.object({
     type: z.literal("wall.remove"),
+    expectedMapUrl: z.string().min(1).max(2048).optional(),
     wallIds: z.array(Id).min(1).max(MAX_WALLS_PER_REMOVE),
   }).strict(),
   /** GM removes every wall (ADR 0029). */
   z.object({
     type: z.literal("wall.clear"),
+    expectedMapUrl: z.string().min(1).max(2048).optional(),
   }).strict(),
   /** GM makes a wall a door or window, edits it, or (`null`) turns it back into a plain wall (FR-GM-09, ADR 0030). */
   z.object({
     type: z.literal("portal.set"),
+    expectedMapUrl: z.string().min(1).max(2048).optional(),
     wallId: Id,
     portal: Portal.nullable(),
   }).strict(),

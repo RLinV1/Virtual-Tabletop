@@ -16,7 +16,7 @@ import {
   referencedAssetIds,
   type Command,
   type CommittedEvent,
-  type DetectedWall,
+  type DetectedWallsResponse,
   type DiceLookOnTable,
   type DieName,
   type DomainEvent,
@@ -46,7 +46,7 @@ const RESTORE_SLOW_MS = 500;
 /** Server services a room consults while deciding, passed in so `decide` stays pure. */
 export interface RoomHooks {
   /** The validated detected walls for this room's map (ADR 0029), or null. */
-  detectedWalls?: (roomId: string, mapUrl: string) => readonly DetectedWall[] | null;
+  detectedWalls?: (roomId: string, mapUrl: string) => DetectedWallsResponse | null;
 }
 
 /** A connected socket bound to a participant. */

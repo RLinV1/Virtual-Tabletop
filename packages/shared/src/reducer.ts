@@ -30,7 +30,9 @@ export function reduce(state: RoomState, event: DomainEvent, meta?: EventMeta): 
   // rulings, which live on rolls rather than the board, stay (ADR 0019).
   const history = event.type === "CheckpointRestored" || event.type === "EncounterApplied"
     ? { ...state, undo: state.undo.filter((e) => e.events.length > 0 && e.events.every((ev) => ev.type === "RollRuled")) }
-    : state;
+    : event.type === "MapSet" && event.map.url !== event.previous?.url
+      ? { ...state, undo: state.undo.filter((e) => !e.events.some((ev) => ev.type === "WallsAdded" || ev.type === "WallsRemoved" || ev.type === "PortalChanged")) }
+      : state;
   return { ...next, undo: recordUndo(history, event, { ...meta, commandId: meta.commandId }) };
 }
 

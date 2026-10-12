@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { toGridDraft } from "../src/pages/gridDraft";
-import { SAMPLE_TOLERANCE_DEFAULT, type RoomState, type Wall } from "@vtt/shared";
+import { MAX_WALLS_PER_ADD, SAMPLE_TOLERANCE_DEFAULT, type DetectedWallsResponse, type RoomState, type Wall } from "@vtt/shared";
 import { api } from "../src/net/api";
 import { GmPanel } from "../src/pages/GmPanel";
 import { WallSetup } from "../src/pages/mapEditor/WallSetup";
@@ -22,7 +22,7 @@ beforeEach(() => {
   vi.spyOn(api.walls, "availability").mockResolvedValue({ available: true });
   vi.spyOn(api.walls, "status").mockResolvedValue(null);
   vi.spyOn(api.walls, "preview").mockResolvedValue(new Blob(["png"]));
-  vi.spyOn(api.walls, "detected").mockResolvedValue(detectedRows(7));
+  vi.spyOn(api.walls, "detected").mockResolvedValue({ resultId: "result-a", walls: detectedRows(7) });
 });
 afterEach(() => {
   cleanup();
@@ -193,7 +193,7 @@ describe("map editor walls (FR-GM-09, FR-GM-11)", () => {
     click(canvas(), { x: 135, y: 52 });
     fireEvent.click(await screen.findByRole("button", { name: "Apply 5 walls" }));
     await waitFor(() => expect(fake.commands).toEqual([
-      { type: "wall.applyDetected", mapUrl: MAP_URL, exclude: { of: 7, indices: [0, 2] } },
+      { type: "wall.applyDetected", mapUrl: MAP_URL, exclude: { resultId: "result-a", indices: [0, 2] } },
     ]));
     // Nothing the GM erased reaches the room's own walls.
     expect(fake.commands.some((c) => c.type === "wall.remove")).toBe(false);
@@ -210,15 +210,16 @@ describe("map editor walls (FR-GM-09, FR-GM-11)", () => {
 describe("map editor in the GM panel (FR-GM-09, FR-GM-17)", () => {
   const mount = (state: RoomState) => {
     const fake = fakeConnection();
-    render(
+    const panel = (state: RoomState) => (
       <GmPanel
         connection={fake.connection} state={state} token={TOKEN}
         gridDraft={toGridDraft(state.scene.grid)} hasGridDraft={false}
         onGridDraftChange={() => {}} onGridDraftCancel={() => {}} onGridApply={async () => true}
         gridApplying={false} gridError={null} onReviewDeparture={() => {}}
-      />,
+      />
     );
-    return fake;
+    const view = render(panel(state));
+    return { ...fake, rerender: (next: RoomState) => view.rerender(panel(next)) };
   };
 
   /** Opens Edit map on the Fog step and fogs the whole map, in the draft. */
@@ -237,8 +238,74 @@ describe("map editor in the GM panel (FR-GM-09, FR-GM-17)", () => {
     expect(fake.commands).toEqual([]);
     fireEvent.click(within(editor).getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(fake.commands).toEqual([
-      { type: "fog.add", region: { shape: "rect", from: { x: 0, y: 0 }, to: { x: 800, y: 600 } } },
+      { type: "fog.add", expectedMapUrl: MAP_URL, region: { shape: "rect", from: { x: 0, y: 0 }, to: { x: 800, y: 600 } } },
     ]));
+  });
+
+  it("does not apply a delayed detection to a reopened editor", async () => {
+    const fake = mount(room());
+    fireEvent.click(screen.getByRole("button", { name: "Edit map" }));
+    fireEvent.click(screen.getByRole("tab", { name: "3 · Walls" }));
+    fake.notify({ status: "done", wallCount: 7, width: 800, height: 600 });
+    await waitFor(() => expect(screen.getByTestId("wall-candidates").children).toHaveLength(7));
+    let complete!: (result: DetectedWallsResponse) => void;
+    vi.mocked(api.walls.detected).mockReturnValueOnce(new Promise((resolve) => { complete = resolve; }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply 7 walls" }));
+    const editor = screen.getByRole("dialog", { name: "Edit map" });
+    fireEvent.click(within(editor).getByRole("button", { name: "Close" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit map" }));
+    await act(async () => { complete({ resultId: "result-a", walls: detectedRows(7) }); });
+    expect(screen.queryByText(/Unsaved changes/)).toBeNull();
+    expect(fake.commands).toEqual([]);
+  });
+
+  it("stops a multi-batch Save when another GM changes the map", async () => {
+    const fake = mount(room());
+    const walls = Array.from({ length: MAX_WALLS_PER_ADD + 1 }, (_, i) => ({ a: { x: i * 5, y: 0 }, b: { x: i * 5, y: 50 } }));
+    vi.mocked(api.walls.detected).mockResolvedValue({ resultId: "large-result", walls });
+    fireEvent.click(screen.getByRole("button", { name: "Edit map" }));
+    fireEvent.click(screen.getByRole("tab", { name: "3 · Walls" }));
+    fake.notify({ status: "done", wallCount: walls.length, width: 800, height: 600 });
+    await waitFor(() => expect(screen.getByTestId("wall-candidates").children).toHaveLength(walls.length));
+    fireEvent.click(screen.getByRole("button", { name: `Apply ${walls.length} walls` }));
+    await screen.findByText(/Unsaved changes/);
+    let complete!: () => void;
+    vi.mocked(fake.connection.command).mockImplementationOnce(async (command) => {
+      fake.commands.push(command);
+      await new Promise<void>((resolve) => { complete = resolve; });
+      return { ok: true, seq: null };
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(fake.commands).toHaveLength(1));
+    expect(fake.commands[0]).toMatchObject({ type: "wall.add", expectedMapUrl: MAP_URL });
+    const next = room();
+    next.scene.map = { ...next.scene.map!, url: "/uploads/other.png" };
+    fake.rerender(next);
+    await act(async () => { complete(); });
+    expect(fake.commands).toHaveLength(1);
+    expect(screen.getByRole("dialog", { name: "Edit map" })).toBeTruthy();
+  });
+
+  it("uses saved wall IDs for subsequent portal edits in the same editor", async () => {
+    const fake = mount(room());
+    fireEvent.click(screen.getByRole("button", { name: "Edit map" }));
+    fireEvent.click(screen.getByRole("tab", { name: "3 · Walls" }));
+    click(canvas(), { x: 100, y: 100 });
+    click(canvas(), { x: 200, y: 100 });
+    fireEvent.keyDown(canvas(), { key: "Enter" });
+    const saved = room({ walls: [{ id: "saved-wall", a: { x: 100, y: 100 }, b: { x: 200, y: 100 } }] });
+    Object.defineProperty(fake.connection, "snapshot", { get: () => ({ state: saved }) });
+    vi.mocked(fake.connection.command).mockImplementationOnce(async (command) => {
+      fake.commands.push(command);
+      fake.rerender(saved);
+      return { ok: true, seq: null };
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(screen.queryByText(/Unsaved changes/)).toBeNull());
+    fireEvent.click(screen.getByRole("radio", { name: "Door / window" }));
+    click(canvas(), { x: 150, y: 100 });
+    fireEvent.click(await screen.findByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(fake.commands[1]).toEqual({ type: "portal.set", expectedMapUrl: MAP_URL, wallId: "saved-wall", portal: { kind: "door", state: "closed" } }));
   });
 
   it("asks before closing with unsaved changes, and Discard sends nothing (map-editor-drafts)", async () => {

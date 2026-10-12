@@ -34,8 +34,8 @@ const CELL_WALL: DetectedWall = { a: { x: 220, y: 245 }, b: { x: 270, y: 245 } }
 
 let batch = 0;
 /** Like the server: decide with the detection hook, then reduce the batch under one command id (ADR 0013). */
-function act(state: RoomState, actor: Participant, input: CommandInput, detected: DetectedWall[] | null = null) {
-  const context: DecideContext = { ...ctx, detectedWalls: (url) => (url === MAP.url ? detected : null) };
+function act(state: RoomState, actor: Participant, input: CommandInput, detected: DetectedWall[] | null = null, resultId = "result-a") {
+  const context: DecideContext = { ...ctx, detectedWalls: (url) => (url === MAP.url && detected ? { resultId, walls: detected } : null) };
   const decision = decide(state, actor, Command.parse(input), context);
   if (!decision.ok) return { ok: false as const, code: decision.code, message: decision.message, state };
   const meta = { commandId: `wall-cmd-${++batch}`, actorId: actor.id };
@@ -105,6 +105,66 @@ describe("wall geometry (FR-GM-11, ADR 0029)", () => {
 });
 
 describe("applying and clearing walls (FR-GM-11)", () => {
+  it("refuses exclusions from another result with the same wall count", () => {
+    const { state } = roomWithWalls();
+    const input: CommandInput = { type: "wall.applyDetected", mapUrl: MAP.url, exclude: { resultId: "result-a", indices: [0] } };
+    const changed = [CELL_WALL, EDGE_WALL];
+    expect(act(state, gm, input, changed, "result-b")).toMatchObject({ ok: false, code: "invalid" });
+    const applied = must(act(state, gm, { ...input, exclude: { resultId: "result-b", indices: [0] } }, changed, "result-b"));
+    expect(Object.values(applied.state.walls).map(({ a, b }) => ({ a, b }))).toEqual([EDGE_WALL]);
+  });
+
+  it("refuses every draft save command after its map changes", () => {
+    const { state } = roomWithWalls();
+    const wallId = Object.keys(state.walls)[0]!;
+    const fogged = must(act(state, gm, { type: "fog.add", region: { shape: "rect", from: { x: 0, y: 0 }, to: { x: 70, y: 70 } } })).state;
+    const regionId = Object.keys(fogged.fog)[0]!;
+    const commands: CommandInput[] = [
+      { type: "wall.add", walls: [CELL_WALL] },
+      { type: "wall.remove", wallIds: [wallId] },
+      { type: "wall.clear" },
+      { type: "portal.set", wallId, portal: { kind: "door", state: "locked" } },
+      { type: "fog.add", region: { shape: "rect", from: { x: 70, y: 70 }, to: { x: 140, y: 140 } } },
+      { type: "fog.remove", regionId },
+    ];
+    const other = must(act(fogged, gm, { type: "scene.setMap", map: { ...MAP, url: "/uploads/other.png" } })).state;
+    for (const command of commands) {
+      const guarded = { ...command, expectedMapUrl: MAP.url };
+      expect(act(fogged, gm, guarded).ok).toBe(true);
+      expect(act(other, gm, guarded)).toMatchObject({ ok: false, code: "invalid", state: other });
+      expect(act(other, alice, guarded)).toMatchObject({ ok: false, code: "forbidden" });
+    }
+  });
+
+  it("refuses undoing an addition after its wall geometry or portal changes", () => {
+    const { state } = roomWithWalls([]);
+    const added = must(act(state, gm, { type: "wall.add", walls: [EDGE_WALL] }));
+    const wallId = Object.keys(added.state.walls)[0]!;
+    const marked = must(act(added.state, gm, { type: "portal.set", wallId, portal: { kind: "door", state: "locked" } }));
+    expect(act(marked.state, gm, { type: "history.undo", commandId: added.commandId })).toMatchObject({ ok: false, code: "invalid" });
+    const unmarked = must(act(marked.state, gm, { type: "history.undo", commandId: marked.commandId }));
+    expect(must(act(unmarked.state, gm, { type: "history.undo", commandId: added.commandId })).state.walls).toEqual({});
+    for (const ends of [{ a: { x: 141, y: 0 } }, { b: { x: 141, y: 700 } }]) {
+      const moved = { ...added.state, walls: { [wallId]: { ...added.state.walls[wallId]!, ...ends } } };
+      expect(act(moved, gm, { type: "history.undo", commandId: added.commandId })).toMatchObject({ ok: false, code: "invalid" });
+    }
+  });
+
+  it("invalidates wall and portal undo when changing maps, even when returning", () => {
+    const { state } = roomWithWalls();
+    const wallId = Object.keys(state.walls)[0]!;
+    const marked = must(act(state, gm, { type: "portal.set", wallId, portal: { kind: "window", state: "open" } }));
+    const cleared = must(act(marked.state, gm, { type: "wall.clear" }));
+    const same = must(act(cleared.state, gm, { type: "scene.setMap", map: MAP }));
+    expect(must(act(same.state, gm, { type: "history.undo", commandId: cleared.commandId })).state.walls).toEqual(marked.state.walls);
+    const other = must(act(cleared.state, gm, { type: "scene.setMap", map: { ...MAP, width: 70, height: 70, url: "/uploads/other.png" } }));
+    const returned = must(act(other.state, gm, { type: "scene.setMap", map: MAP }));
+    for (const commandId of [marked.commandId, cleared.commandId]) {
+      expect(act(other.state, gm, { type: "history.undo", commandId }).ok).toBe(false);
+      expect(act(returned.state, gm, { type: "history.undo", commandId }).ok).toBe(false);
+    }
+  });
+
   it("applies the detected walls for the current map", () => {
     const { state } = roomWithWalls([EDGE_WALL, CELL_WALL]);
     expect(Object.values(state.walls).map(({ a, b }) => ({ a, b }))).toEqual([EDGE_WALL, CELL_WALL]);
@@ -125,12 +185,12 @@ describe("applying and clearing walls (FR-GM-11)", () => {
   it("leaves out the detected walls the GM erased on the preview (FR-GM-11)", () => {
     const { state } = roomWithWalls();
     const found = [EDGE_WALL, CELL_WALL, { a: { x: 0, y: 70 }, b: { x: 140, y: 70 } }];
-    const applied = must(act(state, gm, { type: "wall.applyDetected", mapUrl: MAP.url, exclude: { of: 3, indices: [1] } }, found));
+    const applied = must(act(state, gm, { type: "wall.applyDetected", mapUrl: MAP.url, exclude: { resultId: "result-a", indices: [1] } }, found));
     expect(Object.values(applied.state.walls).map(({ a, b }) => ({ a, b }))).toEqual([found[0], found[2]]);
     const undone = must(act(applied.state, gm, { type: "history.undo", commandId: applied.commandId }));
     expect(undone.state.walls).toEqual(state.walls);
     // A list made against a different result, an index past the end, or every wall erased is refused.
-    for (const exclude of [{ of: 2, indices: [0] }, { of: 3, indices: [3] }, { of: 3, indices: [0, 1, 2] }]) {
+    for (const exclude of [{ resultId: "result-b", indices: [0] }, { resultId: "result-a", indices: [3] }, { resultId: "result-a", indices: [0, 1, 2] }]) {
       expect(act(state, gm, { type: "wall.applyDetected", mapUrl: MAP.url, exclude }, found)).toMatchObject({ ok: false, code: "invalid" });
     }
   });
@@ -186,6 +246,22 @@ describe("applying and clearing walls (FR-GM-11)", () => {
 });
 
 describe("walls block tokens (FR-GM-11, ADR 0029)", () => {
+  it.each(["horizontal", "vertical"])("rejects fallback copies across a %s wall and preserves clear stacking", (direction) => {
+    const small = { ...MAP, width: 70, height: 70 };
+    const state = must(act(baseRoom(), gm, { type: "scene.setMap", map: small })).state;
+    const created = must(act(state, gm, { type: "token.create", name: "Aria", position: { x: 35, y: 35 } }));
+    const tokenId = Object.keys(created.state.tokens)[0]!;
+    const duplicate: CommandInput = { type: "token.duplicate", tokenId, count: 2 };
+    const stacked = must(act(created.state, gm, duplicate));
+    expect(Object.values(stacked.state.tokens).map((t) => t.position)).toEqual(Array(3).fill({ x: 35, y: 35 }));
+    const wall = direction === "horizontal"
+      ? { a: { x: 0, y: 35 }, b: { x: 70, y: 35 } }
+      : { a: { x: 35, y: 0 }, b: { x: 35, y: 70 } };
+    const blocked = must(act(created.state, gm, { type: "wall.add", walls: [wall] })).state;
+    expect(act(blocked, gm, duplicate)).toMatchObject({ ok: false, code: "invalid", state: blocked });
+    expect(act(blocked, gm, { type: "token.create", name: "Goblin", position: { x: 35, y: 35 }, count: 2 })).toMatchObject({ ok: false, code: "invalid" });
+  });
+
   it("refuses dropping a token across a wall, for the GM and players alike", () => {
     const { state, token } = roomWithWalls();
     for (const actor of [gm, alice]) {

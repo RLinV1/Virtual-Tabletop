@@ -201,6 +201,10 @@ function MapSection(props: {
   /** Asking "Save changes?" before closing with unsaved walls or fog. */
   const [confirmSave, setConfirmSave] = useState(false);
   const liveMapUrl = props.map?.url ?? null;
+  const [editorGeneration, setEditorGeneration] = useState(0);
+  const editorSession = useMemo(() => ({ open: editorOpen, mapUrl: liveMapUrl }), [editorOpen, liveMapUrl, editorGeneration, props.roomId, props.connection]);
+  const currentSession = useRef(editorSession);
+  currentSession.current = editorSession;
   useEffect(() => {
     if (!editorOpen || !liveMapUrl) return setDraft(null);
     setDraft((current) => (current?.mapUrl === liveMapUrl ? current : draftFrom(props.room)));
@@ -209,10 +213,12 @@ function MapSection(props: {
   const draftEdits = useMemo(
     () => draftConnection(
       props.connection,
-      (change) => setDraft((current) => (current ? change(current) : current)),
+      (change) => setDraft((current) => (current && currentSession.current === editorSession && current.mapUrl === editorSession.mapUrl ? change(current) : current)),
       (mapUrl) => api.walls.detected(props.roomId, props.token, mapUrl),
+      editorSession.mapUrl ?? "",
+      () => currentSession.current === editorSession && editorSession.open,
     ),
-    [props.connection, props.roomId, props.token],
+    [props.connection, props.roomId, props.token, editorSession],
   );
   const draftState: RoomState = draft ? { ...props.room, walls: draft.walls, fog: draft.fog } : props.room;
   const unsaved = draft !== null && draftDirty(props.room, draft);
@@ -223,18 +229,29 @@ function MapSection(props: {
     setSaveError(null);
     try {
       for (const command of planDraftSave(props.room, draft)) {
+        if (currentSession.current !== editorSession) return false;
         const result = await props.connection.command(command);
+        if (currentSession.current !== editorSession) return false;
         if (!result.ok) {
           setSaveError(result.message);
           return false;
         }
       }
+      const saved = props.connection.snapshot?.state;
+      if (saved?.scene.map?.url === draft.mapUrl) {
+        setDraft((current) => current === draft && currentSession.current === editorSession ? draftFrom(saved) : current);
+      }
       return true;
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Couldn't save the map draft.");
+      return false;
     } finally {
       setSaving(false);
     }
   };
   const discardDraft = () => {
+    currentSession.current = { ...editorSession };
+    setEditorGeneration((generation) => generation + 1);
     setDraft(draftFrom(props.room));
     setSaveError(null);
   };
@@ -244,6 +261,7 @@ function MapSection(props: {
     setPrepError(null);
   };
   const closeEditor = () => {
+    currentSession.current = { ...editorSession, open: false };
     discardPrep();
     setConfirmSave(false);
     setSaveError(null);

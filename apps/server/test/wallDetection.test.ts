@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import type { ServerMessage, WallDetectionStatus } from "@vtt/shared";
+import { DetectedWallsResponse, type ServerMessage, type WallDetectionStatus } from "@vtt/shared";
 import type { WallJobData, WallJobEvent, WallJobQueue } from "../src/domain/wallDetection";
 import { startServer, type TestClient } from "./helpers";
 
@@ -105,6 +105,42 @@ const statusOf = async (token: string, roomId: string, url: string) => {
 const isNotice = (m: ServerMessage): m is Extract<ServerMessage, { type: "wallDetection" }> => m.type === "wallDetection";
 
 describe("automatic wall detection through the queue (FR-GM-11, ADR 0029)", () => {
+  it("rejects exclusions from a previous equal-count result across the wire", async () => {
+    const queue = new StandInQueue();
+    const { room, gm, url } = await roomWithMap(queue);
+    const [first] = queue.only();
+    const extra = { a: { x: 0, y: 70 }, b: { x: 140, y: 70 } };
+    queue.emit({ jobId: first, kind: "completed", returnvalue: { walls: [WALL, extra], preview: PREVIEW } });
+    await gm.waitFor((m) => isNotice(m) && m.status.status === "done");
+    const endpoint = `/api/rooms/${room.roomId}/wall-detection/walls?map=${encodeURIComponent(url)}`;
+    const old = DetectedWallsResponse.parse(await (await api(room.guestToken, endpoint)).json());
+    expect((await api(room.guestToken, `/api/rooms/${room.roomId}/wall-detection`, { method: "POST" })).status).toBe(202);
+    const latest = [...queue.jobs.keys()].at(-1)!;
+    queue.emit({ jobId: latest, kind: "completed", returnvalue: { walls: [extra, WALL], preview: PREVIEW } });
+    const next = DetectedWallsResponse.parse(await (await api(room.guestToken, endpoint)).json());
+    expect(next.walls).toHaveLength(old.walls.length);
+    expect(next.resultId).not.toBe(old.resultId);
+    expect(await gm.command({ type: "wall.applyDetected", mapUrl: url, exclude: { resultId: old.resultId, indices: [0] } })).toMatchObject({ type: "rejected", code: "invalid" });
+    expect(gm.state.walls).toEqual({});
+    const applied = await gm.command({ type: "wall.applyDetected", mapUrl: url, exclude: { resultId: next.resultId, indices: [0] } });
+    expect(applied).toMatchObject({ type: "ack" });
+    await gm.waitForSeq((applied as { seq: number }).seq);
+    expect(Object.values(gm.state.walls).map(({ a, b }) => ({ a, b }))).toEqual([WALL]);
+  });
+
+  it("refuses remaining save commands when the applied map changes across the wire", async () => {
+    const queue = new StandInQueue();
+    const { gm, url } = await roomWithMap(queue);
+    expect(await gm.command({ type: "wall.add", expectedMapUrl: url, walls: [WALL] })).toMatchObject({ type: "ack" });
+    const switched = await gm.command({ type: "scene.setMap", map: { ...MAP, url: "/img/other.png" } });
+    expect(switched).toMatchObject({ type: "ack" });
+    await gm.waitForSeq((switched as { seq: number }).seq);
+    expect(await gm.command({ type: "wall.add", expectedMapUrl: url, walls: [WALL] })).toMatchObject({ type: "rejected", code: "invalid" });
+    expect(await gm.command({ type: "fog.add", expectedMapUrl: url, region: { shape: "rect", from: { x: 0, y: 0 }, to: { x: 70, y: 70 } } })).toMatchObject({ type: "rejected", code: "invalid" });
+    expect(gm.state.walls).toEqual({});
+    expect(gm.state.fog).toEqual({});
+  });
+
   it("queues a map upload, hears the worker finish, notifies only the GM, and serves the preview", async () => {
     const queue = new StandInQueue();
     const { room, gm, player, playerCreds, url } = await roomWithMap(queue);
@@ -128,7 +164,7 @@ describe("automatic wall detection through the queue (FR-GM-11, ADR 0029)", () =
 
     const listed = await api(room.guestToken, `/api/rooms/${room.roomId}/wall-detection/walls?map=${encodeURIComponent(url)}`);
     expect(listed.status).toBe(200);
-    expect(await listed.json()).toEqual({ walls: [WALL] });
+    expect(await listed.json()).toEqual({ resultId: expect.any(String), walls: [WALL] });
 
     // Players get neither the notice, the status, the preview nor the segments.
     expect((await api(playerCreds.guestToken, `/api/rooms/${room.roomId}/wall-detection/walls?map=${encodeURIComponent(url)}`)).status).toBe(403);
@@ -180,7 +216,7 @@ describe("automatic wall detection through the queue (FR-GM-11, ADR 0029)", () =
     const [jobId] = queue.only();
     queue.emit({ jobId, kind: "completed", returnvalue: { walls: [WALL], preview: PREVIEW } });
     await expect.poll(async () => (await wallsOf(room.guestToken, url)).status).toBe(200);
-    expect(await (await wallsOf(room.guestToken, url)).json()).toEqual({ walls: [WALL] });
+    expect(await (await wallsOf(room.guestToken, url)).json()).toEqual({ resultId: expect.any(String), walls: [WALL] });
     expect((await wallsOf(playerCreds.guestToken, url)).status).toBe(403);
     expect((await wallsOf(room.guestToken, "/uploads/other.png")).status).toBe(404);
   });

@@ -54,7 +54,7 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
   const [preview, setPreview] = useState<{ mapUrl: string; url: string } | null>(null);
   const [busy, setBusy] = useState(false);
   // The detected segments waiting to be applied, and the ones the GM has erased from them (by index).
-  const [candidates, setCandidates] = useState<{ mapUrl: string; walls: DetectedWall[]; erased: ReadonlySet<string> } | null>(null);
+  const [candidates, setCandidates] = useState<{ mapUrl: string; resultId: string; walls: DetectedWall[]; erased: ReadonlySet<string> } | null>(null);
   const [tolerance, setTolerance] = useState(SAMPLE_TOLERANCE_DEFAULT);
   // null: automatic, the detector's own choice per map; a number is the GM's fixed setting.
   const [strictness, setStrictness] = useState<number | null>(null);
@@ -97,6 +97,7 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
     let objectUrl: string | null = null;
     api.walls.preview(state.roomId, token, mapUrl, abort.signal)
       .then((blob) => {
+        if (abort.signal.aborted) return;
         objectUrl = URL.createObjectURL(blob);
         setPreview({ mapUrl, url: objectUrl });
       })
@@ -115,7 +116,7 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
     }
     const abort = new AbortController();
     api.walls.detected(state.roomId, token, mapUrl, abort.signal)
-      .then((walls) => setCandidates({ mapUrl, walls, erased: new Set() }))
+      .then((result) => { if (!abort.signal.aborted) setCandidates({ mapUrl, ...result, erased: new Set() }); })
       .catch(() => {});
     return () => abort.abort();
   }, [done, status, state.roomId, token, mapUrl]);
@@ -171,7 +172,7 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
 
   const apply = async () => {
     const exclude = pendingWalls && pendingWalls.erased.size > 0
-      ? { of: pendingWalls.walls.length, indices: [...pendingWalls.erased].map(Number).sort((a, b) => a - b) }
+      ? { resultId: pendingWalls.resultId, indices: [...pendingWalls.erased].map(Number).sort((a, b) => a - b) }
       : undefined;
     const ok = await run({ type: "wall.applyDetected", mapUrl, ...(exclude && { exclude }) }, `Applied ${keeping ?? found} walls.`);
     // The result is spent: drop its overlay so the new walls aren't drawn twice.

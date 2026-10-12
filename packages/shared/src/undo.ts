@@ -280,9 +280,9 @@ export function undoConflict(state: RoomState, entry: UndoEntry): string | null 
       if (!sameValue(tableOf(state), withWalls(event.applied))) return `Can't undo: the board has changed since "${event.name}" was applied.`;
       continue;
     }
-    // Walls are never edited in place either: each must still be there, or still gone (ADR 0029).
     if (event.type === "WallsAdded") {
       if (event.walls.some((w) => !state.walls[w.id])) return "Can't undo: some of those walls have already been removed.";
+      if (event.walls.some((w) => !sameValue(state.walls[w.id], w))) return "Can't undo: some of those walls have changed since.";
       continue;
     }
     if (event.type === "WallsRemoved") {

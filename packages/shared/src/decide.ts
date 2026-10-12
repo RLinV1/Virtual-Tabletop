@@ -10,7 +10,7 @@ import type { SessionEndReason } from "./protocol";
 import { blocksMovement } from "./portals";
 import { inverseOf, undoableAction, undoConflict } from "./undo";
 import { concealedFrom, fogConcealsSide, isInFog, portalConcealedFrom, templateConcealedFrom } from "./visibility";
-import { wallsFitMap, type DetectedWall } from "./wallDetection";
+import { wallsFitMap, type DetectedWallsResponse } from "./wallDetection";
 import { MAX_GROUP_NAME, MAX_GROUPS, MAX_AREA_TEMPLATES, MAX_LINE_WIDTH_CELLS, MAX_CHECKPOINT_NAME, MAX_FOG_REGIONS, MAX_PLAYERS_PER_ROOM, MAX_WALLS, tableOf, type AreaTemplate, type DiceLookOnTable, type Initiative, type Participant, type Portal, type RoomState, type TableState, type Token, type Wall } from "./state";
 
 export type RejectionCode = "forbidden" | "not_found" | "invalid";
@@ -48,7 +48,7 @@ export interface DecideContext {
    * validated them (ADR 0029). Filled only for `wall.applyDetected`; null when there is no
    * finished result for that map.
    */
-  detectedWalls?: (mapUrl: string) => readonly DetectedWall[] | null;
+  detectedWalls?: (mapUrl: string) => DetectedWallsResponse | null;
   /** The room's last committed seq: where a checkpoint saved now points (ADR 0019). */
   lastSeq?: number;
 }
@@ -148,6 +148,10 @@ export function decide(
   command: Command,
   ctx: DecideContext,
 ): Decision {
+  if ("expectedMapUrl" in command && command.expectedMapUrl !== undefined) {
+    if (!can.administer(actor)) return forbidden();
+    if (state.scene.map?.url !== command.expectedMapUrl) return reject("invalid", "The map changed. Reopen the editor before saving.");
+  }
   switch (command.type) {
     case "scene.setMap":
       if (!can.administer(actor)) return forbidden();
@@ -191,7 +195,7 @@ export function decide(
       }
       if (new Set(command.conditions).size !== command.conditions.length) return reject("invalid", "A condition is listed twice.");
       if (footprintCrossesWall(command.position, command.size, state.scene.grid, blockingWalls(state))) return wallBlocked();
-      return accept(...createTokens(state, {
+      return createTokens(state, {
         name: command.name,
         position: command.position,
         size: command.size,
@@ -204,7 +208,7 @@ export function decide(
         stats: command.stats,
         conditions: command.conditions,
         ...(command.attacks.length > 0 ? { attacks: command.attacks } : {}),
-      }, command.count, ctx));
+      }, command.count, ctx);
     }
 
     case "token.duplicate": {
@@ -215,12 +219,13 @@ export function decide(
       const { id: _id, initiative: _initiative, ...copy } = original;
       // Beside the original, never on it: its own square is the first spot the spread offers.
       const created = createTokens(state, copy, command.count, ctx, { besideOrigin: true });
+      if (!created.ok) return created;
       // Copies join the original's group, in the same action (KAN-82).
       const groupId = state.tokenGroups[original.id];
       const grouped: DomainEvent[] = groupId && state.groups[groupId]
-        ? [{ type: "TokensGrouped", groupId, changes: created.flatMap((e) => (e.type === "TokenCreated" ? [{ tokenId: e.token.id, previous: null }] : [])) }]
+        ? [{ type: "TokensGrouped", groupId, changes: created.events.flatMap((e) => (e.type === "TokenCreated" ? [{ tokenId: e.token.id, previous: null }] : [])) }]
         : [];
-      return accept(...created, ...grouped);
+      return accept(...created.events, ...grouped);
     }
 
     case "group.create": {
@@ -647,12 +652,13 @@ export function decide(
       if (!can.administer(actor)) return forbidden();
       const map = state.scene.map;
       if (!map || map.url !== command.mapUrl) return reject("invalid", "Those walls were detected for a different map.");
-      const detected = ctx.detectedWalls?.(command.mapUrl) ?? null;
-      if (!detected) return reject("invalid", "No detected walls are ready for this map.");
+      const result = ctx.detectedWalls?.(command.mapUrl) ?? null;
+      if (!result) return reject("invalid", "No detected walls are ready for this map.");
+      const detected = result.walls;
       if (detected.length === 0) return reject("invalid", "No walls were detected on this map.");
       if (detected.length > MAX_WALLS || !wallsFitMap(detected, map)) return reject("invalid", "The detected walls don't fit this map.");
       const { exclude } = command;
-      if (exclude && exclude.of !== detected.length) return reject("invalid", "The detected walls changed. Check the preview again.");
+      if (exclude && exclude.resultId !== result.resultId) return reject("invalid", "The detected walls changed. Check the preview again.");
       const erased = new Set(exclude?.indices);
       if (exclude && [...erased].some((i) => i >= detected.length)) return reject("invalid", "The detected walls changed. Check the preview again.");
       const kept = detected.filter((_, i) => !erased.has(i));
@@ -924,7 +930,7 @@ function createTokens(
   count: number,
   ctx: DecideContext,
   { besideOrigin = false } = {},
-): DomainEvent[] {
+): Decision {
   const spread = spreadPositions(
     base.position, base.size, besideOrigin ? count + 1 : count, state.scene.grid, state.scene.map,
     Object.values(state.tokens).map((t) => ({ position: t.position, size: t.size })),
@@ -932,13 +938,14 @@ function createTokens(
     (p) => footprintCrossesWall(p, base.size, state.scene.grid, blockingWalls(state)),
   );
   const positions = besideOrigin ? spread.slice(1) : spread;
+  if (positions.some((p) => footprintCrossesWall(p, base.size, state.scene.grid, blockingWalls(state)))) return wallBlocked();
   let named = state;
-  return positions.map((position) => {
+  return accept(...positions.map((position) => {
     // Duplicates are numbered, not rejected: placing five goblins is routine (KAN-62).
     const token: Token = { ...base, id: ctx.newId(), name: uniqueTokenName(named, base.name), position };
     named = { ...named, tokens: { ...named.tokens, [token.id]: token } };
     return { type: "TokenCreated", token };
-  });
+  }));
 }
 
 /** Why `name` can't name a group, or null (KAN-82): blank, too long, or another group's. */

@@ -7,7 +7,7 @@ import {
   WALL_DETECTION_QUEUE,
   WallDetectionResult,
   wallsFitMap,
-  type DetectedWall,
+  type DetectedWallsResponse,
   type MapImage,
   type WallDetectionRequest,
   type WallDetectionAvailability,
@@ -97,6 +97,7 @@ interface Entry {
   status: WallDetectionStatus;
   result: WallDetectionResult | null;
   timer: ReturnType<typeof setTimeout> | null;
+  publishing: boolean;
 }
 
 export type StartResult = "queued" | "busy" | "overloaded" | "unavailable" | "unreadable";
@@ -122,7 +123,7 @@ export class WallDetections {
   private entries = new Map<string, Entry>();
   private byJob = new Map<string, Entry>();
   /** How many live jobs use each stored image; the image is deleted when the last one is done. */
-  private imageRefs = new Map<string, number>();
+  private imageRefs = new Map<string, { count: number; ready: Promise<void> }>();
   private attempts = 0;
 
   constructor(
@@ -166,20 +167,24 @@ export class WallDetections {
     const existing = this.entries.get(entryKey(roomId, map.url));
     if (existing && (existing.status.status === "queued" || existing.status.status === "running")) return "busy";
     if (this.pending() >= MAX_PENDING_JOBS) return "overloaded";
-    const bytes = await this.readMap(map.url);
-    if (!bytes) return "unreadable";
-    // The read above can take a while: check again before committing an image to Redis.
-    if (this.pending() >= MAX_PENDING_JOBS) return "overloaded";
     const hash = createHash("sha1").update(map.url).digest("hex").slice(0, 16);
     const jobId = `walls-${roomId}-${hash}-${++this.attempts}`;
-    const imageKey = WALL_IMAGE_KEY_PREFIX + createHash("sha256").update(bytes).digest("hex");
     const entry: Entry = {
-      roomId, mapUrl: map.url, map: { width: map.width, height: map.height }, jobId, imageKey,
-      status: { status: "queued" }, result: null, timer: null,
+      roomId, mapUrl: map.url, map: { width: map.width, height: map.height }, jobId, imageKey: null,
+      status: { status: "queued" }, result: null, timer: null, publishing: true,
     };
     this.replace(entry);
     try {
+      const bytes = await this.readMap(map.url);
+      if (this.entries.get(entryKey(roomId, map.url)) !== entry) return "unavailable";
+      if (!bytes) {
+        this.finish(entry, { status: "failed", message: "Wall detection couldn't read this map." }, null);
+        return "unreadable";
+      }
+      const imageKey = WALL_IMAGE_KEY_PREFIX + createHash("sha256").update(bytes).digest("hex");
+      entry.imageKey = imageKey;
       await this.holdImage(imageKey, bytes);
+      if (this.entries.get(entryKey(roomId, map.url)) !== entry) return "unavailable";
       await this.queue.add(jobId, {
         imageKey,
         width: map.width,
@@ -187,13 +192,19 @@ export class WallDetections {
         cellSize: Number.isFinite(cellSize) && cellSize > 0 ? cellSize : 0,
         ...request,
       });
+      if (this.entries.get(entryKey(roomId, map.url)) !== entry) return "unavailable";
     } catch {
       this.finish(entry, { status: "failed", message: "Wall detection is unavailable right now." }, null);
       return "unavailable";
+    } finally {
+      entry.publishing = false;
+      if (this.entries.get(entryKey(roomId, map.url)) !== entry || (entry.status.status !== "queued" && entry.status.status !== "running")) {
+        this.retire(entry);
+      }
     }
+    if (entry.status.status !== "queued" && entry.status.status !== "running") return "queued";
     entry.timer = setTimeout(() => {
       this.finish(entry, { status: "failed", message: "The vision service didn't answer in time." }, null);
-      void this.queue?.remove(entry.jobId).catch(() => {});
     }, JOB_TIMEOUT_MS);
     entry.timer.unref?.();
     this.notify(roomId, map.url, entry.status);
@@ -202,11 +213,7 @@ export class WallDetections {
 
   /** Analyses queued or running now, across every room. */
   private pending() {
-    let count = 0;
-    for (const entry of this.byJob.values()) {
-      if (entry.status.status === "queued" || entry.status.status === "running") count += 1;
-    }
-    return count;
+    return this.byJob.size;
   }
 
   /**
@@ -214,10 +221,15 @@ export class WallDetections {
    * (the same map again, or in another room) only push the expiry out, so one copy serves them all.
    */
   private async holdImage(key: string, bytes: Uint8Array) {
-    const held = this.imageRefs.get(key) ?? 0;
-    this.imageRefs.set(key, held + 1);
-    if (held > 0) return this.queue!.extendImage(key, IMAGE_TTL_SECONDS).catch(() => {});
-    await this.queue!.putImage(key, bytes, IMAGE_TTL_SECONDS);
+    const held = this.imageRefs.get(key);
+    if (held) {
+      held.count += 1;
+      await held.ready;
+      return this.queue!.extendImage(key, IMAGE_TTL_SECONDS);
+    }
+    const ready = this.queue!.putImage(key, bytes, IMAGE_TTL_SECONDS);
+    this.imageRefs.set(key, { count: 1, ready });
+    await ready;
   }
 
   /** Gives up an entry's reference; the last one out deletes the image. Safe to call twice. */
@@ -225,8 +237,8 @@ export class WallDetections {
     const key = entry.imageKey;
     if (!key) return;
     entry.imageKey = null;
-    const left = (this.imageRefs.get(key) ?? 1) - 1;
-    if (left > 0) return void this.imageRefs.set(key, left);
+    const held = this.imageRefs.get(key);
+    if (held && --held.count > 0) return;
     this.imageRefs.delete(key);
     void this.queue?.dropImage(key).catch(() => {});
   }
@@ -258,8 +270,9 @@ export class WallDetections {
   }
 
   /** The walls `decide` may commit for this room's map (ADR 0029). */
-  detectedWalls(roomId: string, mapUrl: string): readonly DetectedWall[] | null {
-    return this.result(roomId, mapUrl)?.walls ?? null;
+  detectedWalls(roomId: string, mapUrl: string): DetectedWallsResponse | null {
+    const result = this.result(roomId, mapUrl);
+    return result ? { resultId: createHash("sha256").update(JSON.stringify(result.walls)).digest("hex"), walls: result.walls } : null;
   }
 
   /** Drops a deleted room's results. */
@@ -270,7 +283,7 @@ export class WallDetections {
   }
 
   async close() {
-    for (const entry of this.entries.values()) if (entry.timer) clearTimeout(entry.timer);
+    for (const entry of [...this.entries.values()]) this.drop(entry);
     await this.queue?.close();
   }
 
@@ -303,10 +316,7 @@ export class WallDetections {
     entry.timer = null;
     entry.status = status;
     entry.result = result;
-    this.byJob.delete(entry.jobId);
-    // Remove the job either way, and the image once no other job needs it.
-    void this.queue?.remove(entry.jobId).catch(() => {});
-    this.releaseImage(entry);
+    if (!entry.publishing) this.retire(entry);
     if (this.entries.get(entryKey(entry.roomId, entry.mapUrl)) === entry) this.notify(entry.roomId, entry.mapUrl, status);
   }
 
@@ -324,11 +334,15 @@ export class WallDetections {
 
   private drop(entry: Entry) {
     if (entry.timer) clearTimeout(entry.timer);
-    // A job still waiting holds an image in Redis; nothing will read its answer now.
-    if (this.byJob.get(entry.jobId) === entry) void this.queue?.remove(entry.jobId).catch(() => {});
-    this.releaseImage(entry);
-    this.entries.delete(entryKey(entry.roomId, entry.mapUrl));
+    if (this.entries.get(entryKey(entry.roomId, entry.mapUrl)) === entry) this.entries.delete(entryKey(entry.roomId, entry.mapUrl));
+    if (!entry.publishing) this.retire(entry);
+  }
+
+  private retire(entry: Entry) {
+    if (this.byJob.get(entry.jobId) !== entry) return;
     this.byJob.delete(entry.jobId);
+    void this.queue?.remove(entry.jobId).catch(() => {});
+    this.releaseImage(entry);
   }
 }
 

@@ -303,7 +303,7 @@ export function registerRoutes(
       if (!query.success) return res.status(400).json({ error: "Name the map" });
       const detected = walls.detectedWalls(req.params.roomId, query.data.map);
       if (!detected) return res.status(404).json({ error: "No wall detection for that map" });
-      const body: DetectedWallsResponse = { walls: [...detected] };
+      const body: DetectedWallsResponse = detected;
       return res.json(body);
     })().catch(internalError(req, res));
   });
