@@ -104,33 +104,50 @@ export function registerEncounterEditRoutes(
       const built = await boardFromRoom(store, registry, gmId, roomId.data);
       if (!built.ok) return void res.status(built.status).json({ error: built.error });
       const now = new Date().toISOString();
+      const board = built.data;
 
-      const record = session.editsEncounterId ? await store.findEncounter(session.editsEncounterId, gmId) : null;
-      if (record) {
-        if (!record.mapAssetId) return void res.status(409).json({ error: mapDeletedMessage(record.name) });
-        if (built.data.map.assetId !== record.mapAssetId) {
-          return void res.status(409).json({ error: `This room's map is no longer the map of "${record.name}". Save it as a new template instead.` });
+      /** Replaces a linked template's board; false when the template has since been deleted. */
+      async function saveTo(templateId: string): Promise<boolean> {
+        const record = await store.findEncounter(templateId, gmId);
+        if (!record) return false;
+        if (!record.mapAssetId) {
+          res.status(409).json({ error: mapDeletedMessage(record.name) });
+          return true;
         }
-        const updated = await store.updateEncounter(record.id, gmId, { name: record.name, data: built.data, updatedAt: now });
-        if (!updated) return void notTemporary(res);
-        return void res.json(toSummary(updated));
+        if (board.map.assetId !== record.mapAssetId) {
+          res.status(409).json({ error: `This room's map is no longer the map of "${record.name}". Save it as a new template instead.` });
+          return true;
+        }
+        const updated = await store.updateEncounter(record.id, gmId, { name: record.name, data: board, updatedAt: now });
+        if (!updated) return false;
+        res.json(toSummary(updated));
+        return true;
       }
+
+      if (session.editsEncounterId && (await saveTo(session.editsEncounterId))) return;
 
       // A new template (or one deleted while it was being edited): the first save names it.
       if (!body.data.name) return void res.status(400).json({ error: "Name this encounter template to save it." });
+      const name = body.data.name;
       try {
-        const created = await store.createEncounter({
-          id: randomUUID(),
-          ownerGmId: gmId,
-          name: body.data.name,
-          version: ENCOUNTER_TEMPLATE_VERSION,
-          data: built.data,
-          mapAssetId: built.data.map.assetId,
-          createdAt: now,
-          updatedAt: now,
-        }, MAX_ENCOUNTER_TEMPLATES);
-        await store.setEditsEncounter(roomId.data, created.id);
-        res.status(201).json(toSummary(created));
+        // Creating and linking are one step, so overlapping first saves create one template; the
+        // others update it. Twice at most: a template deleted in between unlinks the room again.
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const result = await store.createEncounterForEditRoom(roomId.data, {
+            id: randomUUID(),
+            ownerGmId: gmId,
+            name,
+            version: ENCOUNTER_TEMPLATE_VERSION,
+            data: board,
+            mapAssetId: board.map.assetId,
+            createdAt: now,
+            updatedAt: now,
+          }, MAX_ENCOUNTER_TEMPLATES);
+          if (!result) return void notTemporary(res);
+          if ("created" in result) return void res.status(201).json(toSummary(result.created));
+          if (await saveTo(result.linkedTo)) return;
+        }
+        notTemporary(res);
       } catch (err) {
         if (err instanceof EncounterMapMissingError || err instanceof EncounterLimitError) {
           return void res.status(400).json({ error: err.message });

@@ -272,8 +272,9 @@ for (const [label, store] of stores) {
       expect(await s().findEditSession(fresh, gm)).toEqual({ editsEncounterId: null });
       expect(await s().findEditSession(editing, other)).toBeNull();
       expect(await s().findEditSession(normal, gm)).toBeNull();
-      await s().setEditsEncounter(fresh, e.id);
-      expect(await s().findEditSession(fresh, gm)).toEqual({ editsEncounterId: e.id });
+      const first = encounter(gm, map.id);
+      expect(await s().createEncounterForEditRoom(fresh, first, 50)).toMatchObject({ created: { id: first.id } });
+      expect(await s().findEditSession(fresh, gm)).toEqual({ editsEncounterId: first.id });
 
       const later = new Date(Date.now() + 60_000).toISOString();
       const stale = await s().listTemporaryRoomsBefore(later);
@@ -301,6 +302,34 @@ for (const [label, store] of stores) {
       const otherMap = asset(other);
       await s().createAsset(otherMap);
       await expect(s().createEncounter(encounter(other, otherMap.id), 3)).resolves.toBeTruthy();
+    });
+
+    it("creates and links a temporary room's first template in one step (encounter-templates, FR-GM-13)", async () => {
+      const [gm, other] = [await s().registerGm(randomUUID()), await s().registerGm(randomUUID())];
+      const map = asset(gm);
+      await s().createAsset(map);
+      const [room, normal] = [randomUUID(), randomUUID()];
+      await s().createRoom(room, randomUUID().slice(0, 8), { ownerGmId: gm, name: "New", temporary: true });
+      await s().createRoom(normal, randomUUID().slice(0, 8), { ownerGmId: gm, name: "Table" });
+
+      // Not one of this owner's temporary rooms: nothing is created.
+      expect(await s().createEncounterForEditRoom(room, encounter(other, null), 50)).toBeNull();
+      expect(await s().createEncounterForEditRoom(normal, encounter(gm, map.id), 50)).toBeNull();
+      expect(await s().createEncounterForEditRoom("not-a-uuid", encounter(gm, map.id), 50)).toBeNull();
+      // A refused create links nothing.
+      await expect(s().createEncounterForEditRoom(room, encounter(gm, randomUUID()), 50)).rejects.toBeInstanceOf(EncounterMapMissingError);
+      await expect(s().createEncounterForEditRoom(room, encounter(gm, map.id), 0)).rejects.toBeInstanceOf(EncounterLimitError);
+      expect(await s().countEncounters(gm)).toBe(0);
+      expect(await s().findEditSession(room, gm)).toEqual({ editsEncounterId: null });
+
+      // Saves that arrive together create one template; the others get its id.
+      const results = await Promise.all([0, 1, 2].map(() => s().createEncounterForEditRoom(room, encounter(gm, map.id), 50)));
+      const created = results.flatMap((r) => (r && "created" in r ? [r.created.id] : []));
+      expect(created).toHaveLength(1);
+      expect(results.filter((r) => r && "linkedTo" in r)).toEqual([{ linkedTo: created[0] }, { linkedTo: created[0] }]);
+      expect(await s().countEncounters(gm)).toBe(1);
+      expect(await s().findEditSession(room, gm)).toEqual({ editsEncounterId: created[0] });
+      for (const id of [room, normal]) await s().deleteRoom(id);
     });
 
     it("reads an id that is not a uuid as no template", async () => {

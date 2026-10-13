@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { MAX_ENCOUNTER_NAME, type EncounterEditSession } from "@vtt/shared";
 import { api } from "../../net/api";
 import { forgetCredentials } from "../../net/identity";
@@ -26,6 +26,8 @@ export function EncounterEditBar({ roomId, seq, onLeaving }: {
   const [prompt, setPrompt] = useState<Prompt>(null);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
+  /** Set synchronously, so a second click before `busy` re-renders the button sends no second save. */
+  const saving = useRef(false);
   const [error, setError] = useState<string | null>(null);
   /** Set when the name prompt was opened by Close's "Save", so naming then leaves. */
   const [pendingClose, setPendingClose] = useState(false);
@@ -55,6 +57,8 @@ export function EncounterEditBar({ roomId, seq, onLeaving }: {
       setPrompt("name");
       return false;
     }
+    if (saving.current) return false;
+    saving.current = true;
     const at = seq;
     setBusy(true);
     setError(null);
@@ -67,6 +71,7 @@ export function EncounterEditBar({ roomId, seq, onLeaving }: {
       setError(err instanceof Error ? err.message : "Save failed");
       return false;
     } finally {
+      saving.current = false;
       setBusy(false);
     }
   }

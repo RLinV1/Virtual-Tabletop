@@ -114,6 +114,22 @@ describe("saving, discarding and closing a temporary room (encounter-templates, 
     await screen.findByRole("heading", { name: "Crypt guards" });
   });
 
+  it("sends one save when Save is pressed twice before the first finishes (FR-GM-13)", async () => {
+    const { save } = mount(fresh);
+    await screen.findByRole("heading", { name: "New encounter" });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    const dialog = screen.getByRole("dialog", { name: "Name this encounter" });
+    fireEvent.change(within(dialog).getByLabelText("Template name"), { target: { value: "Crypt guards" } });
+    const submit = within(dialog).getByRole("button", { name: "Save" });
+    // Both clicks land before React re-renders the button as disabled.
+    act(() => {
+      submit.click();
+      submit.click();
+    });
+    await screen.findByRole("heading", { name: "Crypt guards" });
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
   it("closes without a prompt when saved, deleting the temporary room", async () => {
     const { remove, navigate, onLeaving } = mount(existing);
     await screen.findByRole("heading", { name: "Crypt guards" });

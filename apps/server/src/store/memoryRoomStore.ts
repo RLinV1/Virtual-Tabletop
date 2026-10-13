@@ -188,9 +188,14 @@ export class MemoryRoomStore implements RoomStore {
     return room?.temporary && room.ownerGmId === ownerGmId ? { editsEncounterId: room.editsEncounterId } : null;
   }
 
-  async setEditsEncounter(roomId: string, encounterId: string) {
+  async createEncounterForEditRoom(roomId: string, encounter: NewEncounterRecord, maxPerOwner: number) {
+    // No await between the link check, the insert and the link, so this is atomic on the one event loop.
     const room = this.rooms.get(roomId);
-    if (room) room.editsEncounterId = encounterId;
+    if (!room?.temporary || room.ownerGmId !== encounter.ownerGmId) return null;
+    if (room.editsEncounterId) return { linkedTo: room.editsEncounterId };
+    const created = this.insertEncounter(encounter, maxPerOwner);
+    room.editsEncounterId = created.id;
+    return { created };
   }
 
   async listTemporaryRoomsBefore(at: string) {
@@ -600,7 +605,11 @@ export class MemoryRoomStore implements RoomStore {
   }
 
   async createEncounter(encounter: NewEncounterRecord, maxPerOwner: number) {
-    // No await between the count and the insert, so this is atomic on the one event loop.
+    return this.insertEncounter(encounter, maxPerOwner);
+  }
+
+  /** Synchronous, so callers can make it part of a larger atomic step. */
+  private insertEncounter(encounter: NewEncounterRecord, maxPerOwner: number) {
     if ([...this.encounters.values()].filter((e) => e.ownerGmId === encounter.ownerGmId).length >= maxPerOwner) {
       throw new EncounterLimitError(maxPerOwner);
     }

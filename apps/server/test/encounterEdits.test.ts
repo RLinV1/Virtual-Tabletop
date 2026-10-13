@@ -93,6 +93,30 @@ describe("edit encounter templates in temporary rooms (encounter-templates, FR-G
     expect(await list(cookie)).toHaveLength(1);
   });
 
+  it("creates one template when first saves overlap, as after a double click or a retry", async () => {
+    // A read whose answer arrives later, as over a database connection, so every save reads the
+    // room as unlinked before any of them creates a template.
+    class SlowReads extends MemoryRoomStore {
+      override async findEditSession(roomId: string, ownerGmId: string) {
+        const found = await super.findEditSession(roomId, ownerGmId);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return found;
+      }
+    }
+    server = await startServer(new SlowReads());
+    const { cookie } = await server.signUp();
+    const map = await upload(cookie, "Crypt");
+    const { roomId, gm } = await editing(cookie, { mapAssetId: map.id });
+    await ok(gm.command({ type: "token.create", name: "Goblin", position: { x: 35, y: 35 } }));
+
+    const responses = await Promise.all([0, 1, 2].map(() => save(cookie, roomId, { name: "Crypt guards" })));
+    expect(responses.map((r) => r.status).sort()).toEqual([200, 200, 201]);
+    const saved = (await Promise.all(responses.map((r) => r.json()))) as EncounterSummary[];
+    expect(new Set(saved.map((s) => s.id)).size).toBe(1);
+    expect((await list(cookie)).map((t) => t.id)).toEqual([saved[0]!.id]);
+    expect(await session(cookie, roomId)).toMatchObject({ templateId: saved[0]!.id, templateName: "Crypt guards" });
+  });
+
   it("opens a template, saves changes in place, and never saves walls", async () => {
     server = await startServer();
     const { cookie } = await server.signUp();

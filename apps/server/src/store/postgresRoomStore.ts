@@ -266,8 +266,21 @@ export class PostgresRoomStore implements RoomStore {
     return room ? { editsEncounterId: room.editsEncounterId } : null;
   }
 
-  async setEditsEncounter(roomId: string, encounterId: string) {
-    await this.prisma.room.updateMany({ where: { id: roomId, temporary: true }, data: { editsEncounterId: encounterId } });
+  async createEncounterForEditRoom(roomId: string, encounter: NewEncounterRecord, maxPerOwner: number) {
+    if (!UUID.test(roomId)) return null;
+    return this.withEncounterErrors(() => this.prisma.$transaction(async (tx) => {
+      // The room row lock makes a second save of this room wait, then see the first one's link.
+      // Lock order is the room, then the owner's template lock; nothing takes them the other way.
+      const [room] = await tx.$queryRaw<{ edits_encounter_id: string | null }[]>`
+        SELECT edits_encounter_id FROM rooms
+        WHERE id = ${roomId}::uuid AND owner_gm_id = ${encounter.ownerGmId}::uuid AND temporary
+        FOR UPDATE`;
+      if (!room) return null;
+      if (room.edits_encounter_id) return { linkedTo: room.edits_encounter_id };
+      const created = await insertEncounter(tx, encounter, maxPerOwner);
+      await tx.room.update({ where: { id: roomId }, data: { editsEncounterId: created.id } });
+      return { created: toEncounterRecord(created) };
+    }));
   }
 
   async listTemporaryRoomsBefore(at: string) {
@@ -528,25 +541,13 @@ export class PostgresRoomStore implements RoomStore {
   }
 
   async createEncounter(encounter: NewEncounterRecord, maxPerOwner: number) {
+    return this.withEncounterErrors(async () =>
+      toEncounterRecord(await this.prisma.$transaction((tx) => insertEncounter(tx, encounter, maxPerOwner))));
+  }
+
+  private async withEncounterErrors<T>(run: () => Promise<T>): Promise<T> {
     try {
-      const row = await this.prisma.$transaction(async (tx) => {
-        // One save at a time per owner: the lock is held until the transaction ends, so the count
-        // below cannot go stale before the insert.
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`encounter_templates:${encounter.ownerGmId}`}))`;
-        if ((await tx.encounterTemplate.count({ where: { ownerGmId: encounter.ownerGmId } })) >= maxPerOwner) {
-          throw new EncounterLimitError(maxPerOwner);
-        }
-        return tx.encounterTemplate.create({
-          data: {
-            ...encounter,
-            data: encounter.data as unknown as Prisma.InputJsonValue,
-            createdAt: new Date(encounter.createdAt),
-            updatedAt: new Date(encounter.updatedAt),
-          },
-          include: WITH_MAP,
-        });
-      });
-      return toEncounterRecord(row);
+      return await run();
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === PRISMA_FOREIGN_KEY_VIOLATION) throw new EncounterMapMissingError();
       throw err;
@@ -836,6 +837,26 @@ async function missingImageAsError<T>(write: () => Promise<T>): Promise<T> {
     }
     throw err;
   }
+}
+
+/**
+ * One save at a time per owner: the advisory lock is held until the transaction ends, so the count
+ * cannot go stale before the insert.
+ */
+async function insertEncounter(tx: Prisma.TransactionClient, encounter: NewEncounterRecord, maxPerOwner: number) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`encounter_templates:${encounter.ownerGmId}`}))`;
+  if ((await tx.encounterTemplate.count({ where: { ownerGmId: encounter.ownerGmId } })) >= maxPerOwner) {
+    throw new EncounterLimitError(maxPerOwner);
+  }
+  return tx.encounterTemplate.create({
+    data: {
+      ...encounter,
+      data: encounter.data as unknown as Prisma.InputJsonValue,
+      createdAt: new Date(encounter.createdAt),
+      updatedAt: new Date(encounter.updatedAt),
+    },
+    include: WITH_MAP,
+  });
 }
 
 function toEncounterRecord(row: EncounterTemplate & { map: { name: string; url: string } | null }): EncounterRecord {
