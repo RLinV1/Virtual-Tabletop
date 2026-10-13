@@ -1,10 +1,11 @@
-import { CornersOut, Eye, EyeSlash, UserFocus } from "@phosphor-icons/react";
+import { CornersOut } from "@phosphor-icons/react";
 import { Suspense, forwardRef, lazy, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
 import { DEFAULT_TOKEN_COLOR, EMPTY_STATS, conditionSpec, presetOf, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { guardedConnection } from "../net/previewConnection";
 import { DEFAULT_TOOL_OPTIONS, ToolRail, toolFor, type ToolOptions } from "../ui/ToolRail";
 import { usePersistentState } from "../ui/usePersistentState";
+import { BoardFilters } from "./BoardFilters";
 import { canAnimateDice, type TrayRoll } from "../ui/Die3D";
 import { ThrownDice, type ActiveThrow } from "./ThrownDice";
 import { BoardView, type GmFogView } from "./boardView";
@@ -77,12 +78,7 @@ const HINTS: Record<BoardTool["kind"], string> = {
   attack: "Click the token to attack · Esc or right-click to cancel",
 };
 
-/** The GM's fog button cycles Fog on, Player view, Fog off (FR-GM-17). Only this browser remembers it. */
-const FOG_VIEWS: Record<GmFogView, { label: string; title: string; icon: ReactNode; next: GmFogView }> = {
-  tint: { label: "Fog on", title: "Show fog as players see it", icon: <Eye size={16} aria-hidden="true" />, next: "player" },
-  player: { label: "Player view", title: "See everything: hide the fog on your view", icon: <UserFocus size={16} aria-hidden="true" />, next: "off" },
-  off: { label: "Fog off", title: "Show the fog tint on your view again", icon: <EyeSlash size={16} aria-hidden="true" />, next: "tint" },
-};
+/** Only this browser remembers the GM's fog choice; "player" is an older saved value and counts as on. */
 const isGmFogView = (v: unknown): v is GmFogView => v === "tint" || v === "player" || v === "off";
 
 /** With GM only ticked, the areas are the GM's alone; saying "everyone sees them" would mislead. */
@@ -102,11 +98,17 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   const viewRef = useRef<BoardView | null>(null);
   /** GM only: false shows everything through the fog (this browser remembers it). */
   const [gmFog, setGmFog] = usePersistentState<GmFogView>("vtt.ui.gmFogView", "tint", isGmFogView);
+  /** GM only: whether this browser draws the walls. Players never receive them. */
+  const [showWalls, setShowWalls] = usePersistentState<boolean>("vtt.ui.gmShowWalls", true, (v): v is boolean => typeof v === "boolean");
+  /** GM only: whether this browser draws doors and windows. Players always see the ones they can reach. */
+  const [showPortals, setShowPortals] = usePersistentState<boolean>("vtt.ui.gmShowPortals", true, (v): v is boolean => typeof v === "boolean");
   const hasFog = Object.keys(state.fog).length > 0;
+  const hasPortals = Object.values(state.walls).some((wall) => wall.portal);
+  const hasWalls = Object.values(state.walls).some((wall) => !wall.portal);
   /** Strikes waiting for their thrown dice to land, by roll id, oldest first (KAN-76). */
   const waitingStrikes = useRef(new Map<string, { effect: AttackEffect; timer: number }>());
-  const latest = useRef({ state, you, gridPreview, onPickTarget, gmFog: "tint" as GmFogView, readOnly: false });
-  latest.current = { state, you, gridPreview, onPickTarget, gmFog, readOnly };
+  const latest = useRef({ state, you, gridPreview, onPickTarget, gmFog: "tint" as GmFogView, showWalls: true, showPortals: true, readOnly: false });
+  latest.current = { state, you, gridPreview, onPickTarget, gmFog, showWalls, showPortals, readOnly };
   // Sends nothing while previewing as a player, whatever the board is asked to do. Stable for as
   // long as the connection is, so entering and leaving a preview never rebuilds the board view.
   const guarded = useMemo(() => guardedConnection(connection, () => latest.current.readOnly), [connection]);
@@ -256,6 +258,8 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       if (disposed) return view.destroy();
       viewRef.current = view;
       view.setGmFogView(latest.current.gmFog);
+      view.setShowWalls(latest.current.showWalls);
+      view.setShowPortals(latest.current.showPortals);
       view.setReadOnly(latest.current.readOnly);
       view.setGridPreview(latest.current.gridPreview);
       view.update(latest.current.state, latest.current.you);
@@ -332,6 +336,11 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       setTool({ kind: "select" });
     }
   }, [readOnly]);
+
+  useEffect(() => {
+    viewRef.current?.setShowWalls(showWalls);
+    viewRef.current?.setShowPortals(showPortals);
+  }, [showWalls, showPortals]);
 
   useEffect(() => {
     viewRef.current?.setGmFogView(gmFog);
@@ -453,16 +462,16 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
           <CornersOut size={16} aria-hidden="true" />
           Fit
         </button>
-        {you.role === "gm" && hasFog && (
-          <button
-            type="button"
-            className="tool-button"
-            onClick={() => setGmFog(FOG_VIEWS[gmFog].next)}
-            title={FOG_VIEWS[gmFog].title}
-          >
-            {FOG_VIEWS[gmFog].icon}
-            {FOG_VIEWS[gmFog].label}
-          </button>
+        {you.role === "gm" && (
+          <BoardFilters
+            value={{ fog: gmFog !== "off", walls: showWalls, portals: showPortals }}
+            available={{ fog: hasFog, walls: hasWalls, portals: hasPortals }}
+            onChange={(next) => {
+              setGmFog(next.fog ? "tint" : "off");
+              setShowWalls(next.walls);
+              setShowPortals(next.portals);
+            }}
+          />
         )}
       </div>
       {gridPreview && <p className="grid-preview-label" role="status">Preview · Not applied</p>}

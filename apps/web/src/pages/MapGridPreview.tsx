@@ -1,4 +1,4 @@
-import { CornersOut, Hand, MagnifyingGlassMinus, MagnifyingGlassPlus } from "@phosphor-icons/react";
+import { CornersOut, MagnifyingGlassMinus, MagnifyingGlassPlus } from "@phosphor-icons/react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { gridLineStyle, type GridSpec, type Point } from "@vtt/shared";
 import { gridLines } from "../board/gridLines";
@@ -47,7 +47,6 @@ export function MapGridPreview({ map, grid, onChange, onPreviewChange, previewEn
   const [cursor, setCursor] = useState<Point | null>(null);
   const [previewActive, setPreviewActive] = useState(false);
   const [freeform, setFreeform] = useState(false);
-  const [pan, setPan] = useState(false);
   const [space, setSpace] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const gesture = useRef<PointerGesture>(EMPTY_GESTURE);
@@ -240,7 +239,7 @@ export function MapGridPreview({ map, grid, onChange, onPreviewChange, previewEn
     svgRef.current?.focus();
     e.currentTarget.setPointerCapture(e.pointerId);
     gesture.current = beginPointerGesture(gesture.current, { id: e.pointerId, type: e.pointerType,
-      start: screen, current: screen, anchor: action === "A" || action === "B" ? action : null }, pan || space || e.button === 1);
+      start: screen, current: screen, anchor: action === "A" || action === "B" ? action : null }, space || e.button === 1);
     const touches = gesture.current.pointers.filter((p) => p.type === "touch");
     const [firstTouch, secondTouch] = touches;
     if (touches.length === 2 && firstTouch && secondTouch) {
@@ -258,7 +257,7 @@ export function MapGridPreview({ map, grid, onChange, onPreviewChange, previewEn
     const before = gesture.current;
     const previous = before.pointers.find((p) => p.id === e.pointerId);
     if (!previous) {
-      if (!before.pointers.length && e.pointerType !== "touch" && !pan && !space && previewEnabled) {
+      if (!before.pointers.length && e.pointerType !== "touch" && !space && previewEnabled) {
         setCursor(mapPoint(screen));
         setPreviewActive(true);
       }
@@ -342,7 +341,7 @@ export function MapGridPreview({ map, grid, onChange, onPreviewChange, previewEn
       const step = e.shiftKey ? 10 : 1;
       const delta = { x: arrow.x * step, y: arrow.y * step };
       const cellSizeStep = e.shiftKey ? 0 : GRID_CELL_SNAP;
-      if (placement.stage === "awaiting-b" && !pan && !space) {
+      if (placement.stage === "awaiting-b" && !space) {
         const provisional = preview;
         const adjusted = provisional && adjustGridSampleCorner(provisional, delta, map, cellSizeStep);
         const next = adjusted && snapGridSampleOffsets(adjusted, map, cellSizeStep);
@@ -352,7 +351,7 @@ export function MapGridPreview({ map, grid, onChange, onPreviewChange, previewEn
           setProvisionalSample(next); setPreviewActive(true); setMessage(null);
         }
         else invalid();
-      } else if (sample && anchor && !pan && !space) {
+      } else if (sample && anchor && !space) {
         const editing = transitionPlacement(placement, { type: "select", anchor }, count, grid, map).placement;
         const result = transitionPlacement(editing, { type: "adjust", anchor, delta, cellSizeStep, offsetStep: e.shiftKey ? 0 : GRID_CELL_SNAP }, count, grid, map);
         if (result.invalid) invalid();
@@ -374,14 +373,14 @@ export function MapGridPreview({ map, grid, onChange, onPreviewChange, previewEn
       if (sample) {
         // Hover confirmation uses the visible candidate; keyboard adjustments are
         // already in the draft, so confirming those only clears the selection.
-        if (selected && previewActive && cursor && !pan && !space) commit(cursor, e.shiftKey);
+        if (selected && previewActive && cursor && !space) commit(cursor, e.shiftKey);
         else {
           setPlacement(transitionPlacement(placement, { type: "confirm" }, count, grid, map).placement);
           setMessage(null);
         }
         svgRef.current?.focus();
       } else if (placement.stage === "awaiting-b") {
-        if (previewActive && cursor && !pan && !space) commit(cursor, e.shiftKey);
+        if (previewActive && cursor && !space) commit(cursor, e.shiftKey);
         else if (preview) {
           const result = transitionPlacement(placement, { type: "confirm", sample: preview }, count, grid, map);
           if (result.invalid) invalid();
@@ -394,7 +393,7 @@ export function MapGridPreview({ map, grid, onChange, onPreviewChange, previewEn
           }
         }
         svgRef.current?.focus();
-      } else if (!pan && !space) {
+      } else if (!space) {
         commit({ x: view.cx, y: view.cy }, e.shiftKey);
       }
     }
@@ -452,8 +451,6 @@ export function MapGridPreview({ map, grid, onChange, onPreviewChange, previewEn
               onKeyDown={onKeyDown}>Select {anchor}</button>
           ))}
         </div>
-        <button type="button" className="secondary" aria-pressed={pan} disabled={disabled}
-          onClick={() => { clearTransient(); setPan((current) => !current); }}><Hand size={16} aria-hidden="true" /> Pan</button>
         <div className="map-grid-zoom" role="group" aria-label="Zoom">
           <button type="button" className="secondary" aria-label="Zoom out" disabled={view.zoom <= 1}
             onClick={() => zoomAt(1 / BUTTON_STEP)}><MagnifyingGlassMinus size={18} aria-hidden="true" /></button>
@@ -466,7 +463,7 @@ export function MapGridPreview({ map, grid, onChange, onPreviewChange, previewEn
         </div>
       </div>
       <p id={statusId} className="map-grid-status small-print" role="status">{status}</p>
-      <svg ref={svgRef} className={`map-grid-canvas${pan || space ? " is-panning" : ""}`}
+      <svg ref={svgRef} className={`map-grid-canvas${space ? " is-panning" : ""}`}
         viewBox={ready ? `${vx} ${vy} ${vw} ${vh}` : `0 0 ${map.width} ${map.height}`}
         role="group" aria-label="Place grid anchors on the map" aria-describedby={`${statusId} ${helpId} ${keysId}`} tabIndex={0}
         aria-disabled={disabled} onPointerDown={onPointerDown} onPointerMove={onPointerMove}
@@ -500,7 +497,7 @@ export function MapGridPreview({ map, grid, onChange, onPreviewChange, previewEn
         )}
       </svg>
       <p id={helpId} className="muted small-print map-grid-help">
-        Hold Shift to place freely. Scroll to zoom; Space-drag or Pan moves the view.
+        Hold Shift to place freely. Scroll to zoom; middle-drag or Space-drag moves the view.
       </p>
       <details className="map-grid-keys small-print">
         <summary>Keyboard and fine control</summary>

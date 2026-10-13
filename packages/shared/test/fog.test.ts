@@ -355,3 +355,21 @@ describe("fog.replace swaps fog in one action (FR-GM-17, ADR 0032)", () => {
     expect(after.fog[old.id]).toEqual(old);
   });
 });
+
+describe("a new map clears the fog (FR-GM-17, ADR 0029)", () => {
+  const MAP_A = { url: "/uploads/a.png", width: 700, height: 700 };
+
+  it("removes every fog region when the map changes, carrying each (invariant 6), and keeps them for the same map", () => {
+    let state = act(baseRoom(), gm, { type: "scene.setMap", map: MAP_A }).state;
+    state = addFog(state).state;
+    state = addFog(state, { type: "fog.add", region: { shape: "rect", from: { x: 100, y: 100 }, to: { x: 200, y: 200 } } }).state;
+    const regions = Object.values(state.fog);
+
+    const same = act(state, gm, { type: "scene.setMap", map: MAP_A });
+    expect(Object.keys(same.state.fog)).toHaveLength(2);
+
+    const other = act(state, gm, { type: "scene.setMap", map: { ...MAP_A, url: "/uploads/b.png" } });
+    expect(other.state.fog).toEqual({});
+    expect(other.events.filter((e) => e.type === "FogRemoved")).toEqual(regions.map((region) => ({ type: "FogRemoved", region })));
+  });
+});

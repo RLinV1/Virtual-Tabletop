@@ -15,8 +15,8 @@ export type CanvasMode = WallMode;
 
 /**
  * The Walls step's canvas (map-editor D3): the map with its walls in board coordinates
- * (invariant 8). Draw chains walls, Erase removes the wall under the pointer, Door / window picks
- * the wall to make a door or window (ADR 0030), and Detect like this sends the clicked point. Detected walls waiting to be applied are drawn as candidates, and
+ * (invariant 8). Draw chains walls, Erase removes the wall under the pointer, Door picks
+ * the wall to make a door or window (ADR 0030), and Pick sends the clicked point. Detected walls waiting to be applied are drawn as candidates, and
  * Erase toggles one off (or back on) instead of touching the room's walls.
  */
 export function WallCanvas({ map, grid, walls, candidates, erased, mode, onAdd, onRemove, onPortal, onToggleCandidate, onSample, busy }: {
@@ -119,7 +119,7 @@ export function WallCanvas({ map, grid, walls, candidates, erased, mode, onAdd, 
             <g strokeLinecap="round">
               {Object.values(walls).map((w) => {
                 const hot = erasing?.id === w.id || marking?.id === w.id;
-                const color = erasing?.id === w.id ? "#e74c3c" : marking?.id === w.id ? "#ffd166" : w.portal ? PORTAL_COLORS[w.portal.kind] : "#ff6b2c";
+                const color = erasing?.id === w.id ? "#e74c3c" : marking?.id === w.id ? "#ffd166" : w.portal ? PORTAL_COLORS[w.portal.kind] : "#f0a24a";
                 // An open portal is drawn dashed, a locked one with a lock mark (ADR 0030).
                 const dash = w.portal?.state === "open" ? `${10 * px} ${6 * px}` : undefined;
                 return (

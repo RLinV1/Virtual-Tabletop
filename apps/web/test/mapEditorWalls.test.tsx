@@ -74,7 +74,7 @@ describe("map editor walls (FR-GM-09, FR-GM-11)", () => {
     mount();
     expect(await screen.findByText(/The vision service is not running\./)).toBeTruthy();
     expect((screen.getByRole("button", { name: "Detect walls" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((tool("Detect like this") as HTMLButtonElement).disabled).toBe(true);
+    expect((tool("Pick") as HTMLButtonElement).disabled).toBe(true);
     expect((tool("Draw") as HTMLButtonElement).disabled).toBe(false);
     expect((tool("Erase") as HTMLButtonElement).disabled).toBe(false);
   });
@@ -116,7 +116,7 @@ describe("map editor walls (FR-GM-09, FR-GM-11)", () => {
   it("makes the clicked wall the chosen door or window, and sends nothing when it already is (FR-GM-18)", async () => {
     const wall: Wall = { id: "w1", a: { x: 100, y: 100 }, b: { x: 300, y: 100 }, portal: { kind: "door", state: "closed" } };
     const { commands } = mount(room({ walls: [wall] }));
-    fireEvent.click(tool("Door / window"));
+    fireEvent.click(tool("Door"));
     const svg = canvas();
 
     // Door, Closed is the default and the wall is one already.
@@ -130,11 +130,11 @@ describe("map editor walls (FR-GM-09, FR-GM-11)", () => {
     await waitFor(() => expect(commands).toEqual([{ type: "portal.set", wallId: "w1", portal: { kind: "window", state: "locked" } }]));
   });
 
-  it("sends the clicked map point to Detect like this", async () => {
+  it("sends the clicked map point to the Pick tool", async () => {
     const detect = vi.spyOn(api.walls, "detect").mockResolvedValue({ status: "queued" });
     mount();
-    await waitFor(() => expect((tool("Detect like this") as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(tool("Detect like this"));
+    await waitFor(() => expect((tool("Pick") as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(tool("Pick"));
     click(canvas(), { x: 321, y: 123 });
     await waitFor(() => expect(detect).toHaveBeenCalledWith("r1", TOKEN, { sample: { x: 321, y: 123 }, tolerance: SAMPLE_TOLERANCE_DEFAULT, minLength: 0 }));
   });
@@ -159,8 +159,8 @@ describe("map editor walls (FR-GM-09, FR-GM-11)", () => {
   it("sends the colour range chosen on the slider with the click", async () => {
     const detect = vi.spyOn(api.walls, "detect").mockResolvedValue({ status: "queued" });
     mount();
-    await waitFor(() => expect((tool("Detect like this") as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(tool("Detect like this"));
+    await waitFor(() => expect((tool("Pick") as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(tool("Pick"));
     fireEvent.change(screen.getByLabelText(/Colour range/), { target: { value: "18" } });
     click(canvas(), { x: 321, y: 123 });
     await waitFor(() => expect(detect).toHaveBeenCalledWith("r1", TOKEN, expect.objectContaining({ sample: { x: 321, y: 123 }, tolerance: 18 })));
@@ -302,7 +302,7 @@ describe("map editor in the GM panel (FR-GM-09, FR-GM-17)", () => {
     });
     fireEvent.click(await screen.findByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(screen.queryByText(/Unsaved changes/)).toBeNull());
-    fireEvent.click(screen.getByRole("radio", { name: "Door / window" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Door" }));
     click(canvas(), { x: 150, y: 100 });
     fireEvent.click(await screen.findByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(fake.commands[1]).toEqual({ type: "portal.set", expectedMapUrl: MAP_URL, wallId: "saved-wall", portal: { kind: "door", state: "closed" } }));

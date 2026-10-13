@@ -34,8 +34,39 @@ function sample(values: Float32Array, cells: number, u: number, v: number): numb
   return top * (1 - fy) + bottom * fy;
 }
 
-/** The fog as a canvas; the caller turns it into a repeating texture. */
-export function makeFogCanvas(): HTMLCanvasElement {
+export type Rgb = readonly [number, number, number];
+
+/** Blue-grey banks and pale mist, used when the map's own colour is not known. */
+const DEFAULT_DARK: Rgb = [96, 104, 118];
+const DEFAULT_LIGHT: Rgb = [236, 240, 246];
+
+/** The map's average colour, or null when the browser won't let the image be read. */
+export function averageColor(source: CanvasImageSource): Rgb | null {
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = 8;
+    canvas.height = 8;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(source, 0, 0, 8, 8);
+    const { data } = ctx.getImageData(0, 0, 8, 8);
+    let r = 0, g = 0, b = 0;
+    for (let i = 0; i < data.length; i += 4) { r += data[i]!; g += data[i + 1]!; b += data[i + 2]!; }
+    const n = data.length / 4;
+    return [r / n, g / n, b / n];
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The fog as a canvas; the caller turns it into a repeating texture. Given the map's average
+ * colour, the fog's dark banks and pale mist are shades of that colour, so it sits in the map
+ * instead of looking pasted on.
+ */
+export function makeFogCanvas(base?: Rgb | null): HTMLCanvasElement {
+  const dark: Rgb = base ? [base[0] * 0.45, base[1] * 0.45, base[2] * 0.45] : DEFAULT_DARK;
+  const light: Rgb = base ? [base[0] + (255 - base[0]) * 0.55, base[1] + (255 - base[1]) * 0.55, base[2] + (255 - base[2]) * 0.55] : DEFAULT_LIGHT;
   const size = FOG_TEXTURE_SIZE;
   const canvas = document.createElement("canvas");
   canvas.width = size;
@@ -67,9 +98,9 @@ export function makeFogCanvas(): HTMLCanvasElement {
       const t = Math.min(1, Math.max(0, (n - 0.22) * 2.1));
       const lift = t * t * (3 - 2 * t);
       const i = (y * size + x) * 4;
-      image.data[i] = 96 + lift * 140;
-      image.data[i + 1] = 104 + lift * 136;
-      image.data[i + 2] = 118 + lift * 128;
+      image.data[i] = dark[0] + lift * (light[0] - dark[0]);
+      image.data[i + 1] = dark[1] + lift * (light[1] - dark[1]);
+      image.data[i + 2] = dark[2] + lift * (light[2] - dark[2]);
       image.data[i + 3] = 255;
     }
   }

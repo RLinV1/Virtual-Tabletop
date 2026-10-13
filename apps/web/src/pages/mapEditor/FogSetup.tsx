@@ -4,6 +4,7 @@ import type { RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../../net/roomConnection";
 import { FogControls } from "./FogControls";
 import { FogCanvas, type FogAdd, type FogCanvasMode } from "./FogCanvas";
+import { HudLayout } from "./HudLayout";
 
 const MODES: { key: FogCanvasMode; label: string; icon: typeof Eye }[] = [
   { key: "rect", label: "Rectangle", icon: Rectangle },
@@ -40,7 +41,7 @@ export function FogSetup({ connection, state }: { connection: RoomConnection; st
 
   const regions = Object.keys(state.fog).length;
   return (
-    <div className="map-editor-split">
+    <HudLayout className="map-editor-split">
       <FogCanvas
         map={map}
         grid={state.scene.grid}
@@ -90,6 +91,6 @@ export function FogSetup({ connection, state }: { connection: RoomConnection; st
         </section>
         {message && <p className={message.error ? "error" : "muted"} role={message.error ? "alert" : "status"}>{message.text}</p>}
       </aside>
-    </div>
+    </HudLayout>
   );
 }

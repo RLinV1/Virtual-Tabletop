@@ -44,7 +44,7 @@ import {
   watchReducedMotion,
   type AttackEffect,
 } from "./effects";
-import { makeFogCanvas } from "./fogTexture";
+import { averageColor, makeFogCanvas, type Rgb } from "./fogTexture";
 import { areaOrigin, areaShape, areaSizeFromDrag, formatDistance, hitMark, measure, portalAt, sweepPoints, templateMark, type BoardTool, type Mark } from "./tools";
 import { aimExpiry, expiredAims } from "./aims";
 import { PING_MS, pingPulse } from "./ping";
@@ -116,7 +116,8 @@ const FOG_CLOUD_SCALE = 2.5;
 const FOG_WISP_SCALE = 1.55;
 const FOG_WISP_ANGLE = 0.6;
 const FOG_WISP_ALPHA = 0.55;
-const FOG_GM_ALPHA = 0.5;
+/** The GM sees fog nearly opaque too, so what players cannot see is hidden from the GM view as well (the Fog toggle shows everything). */
+const FOG_GM_ALPHA = 1;
 const FOG_EDGE = 0x9fb3c8;
 /** How close (screen pixels) a click has to come to a door or window to use it (ADR 0030). */
 const PORTAL_REACH_PX = 10;
@@ -273,6 +274,8 @@ export class BoardView {
   private fogLayer = new Container();
   /** The cloudy fog texture, made on first use and repeated across every region. */
   private fogTexture: Texture | null = null;
+  /** The map's average colour, which the fog takes after (null until the map has loaded). */
+  private fogBase: Rgb | null = null;
   /** The fog drift loop is in `animations`. */
   private gmFogView: GmFogView = "tint";
   private readOnly = false;
@@ -619,11 +622,11 @@ export class BoardView {
     const g = this.wallGraphics.clear();
     const plain = Object.values(state.walls).filter((w) => !w.portal);
     if (plain.length > 0) {
-      const width = Math.max(3, state.scene.grid.cellSize * 0.09);
+      const width = Math.max(2, state.scene.grid.cellSize * 0.05);
       for (const wall of plain) g.moveTo(wall.a.x, wall.a.y).lineTo(wall.b.x, wall.b.y);
-      g.stroke({ width: width + 4, color: 0x111111, alpha: 0.8, cap: "round", join: "round" });
+      g.stroke({ width: width + 3, color: 0x14110e, alpha: 0.55, cap: "round", join: "round" });
       for (const wall of plain) g.moveTo(wall.a.x, wall.a.y).lineTo(wall.b.x, wall.b.y);
-      g.stroke({ width, color: 0xff6b2c, alpha: 0.95, cap: "round", join: "round" });
+      g.stroke({ width, color: 0xf0a24a, alpha: 0.95, cap: "round", join: "round" });
     }
     this.drawPortals();
   }
@@ -669,6 +672,20 @@ export class BoardView {
     for (const view of this.tokens.values()) view.drawnKey = "";
     if (this.initialized && this.state && this.you) this.syncTokens();
     this.invalidate();
+  }
+
+  /** GM only: whether the GM's own board draws the walls. Doors and windows stay, as players see them. */
+  setShowWalls(show: boolean) {
+    if (this.wallGraphics.visible === show) return;
+    this.wallGraphics.visible = show;
+    if (this.initialized) this.invalidate();
+  }
+
+  /** GM only: whether the GM's own board draws doors and windows. */
+  setShowPortals(show: boolean) {
+    if (this.portalGraphics.visible === show) return;
+    this.portalGraphics.visible = show;
+    if (this.initialized) this.invalidate();
   }
 
   /** GM only: how the GM's own board shows fog (see `GmFogView`). */
@@ -956,10 +973,15 @@ export class BoardView {
 
   // ---------- fog of war (FR-GM-17, ADR 0016) ----------
 
-  /** Draw fog: opaque for players, see-through with an outline for the GM. */
+  /**
+   * Draw fog: opaque for players and for a GM with fog on, which hides the walls and tokens under
+   * it too; a GM with fog off sees everything, with only an outline. Players never have what is
+   * under fog in their state (ADR 0016), so for them the order changes nothing.
+   */
   private redrawFog() {
     const state = this.state;
     this.drawnFog = state?.fog ?? null;
+    this.layerFog(this.you?.role === "gm" && this.gmFogView !== "off");
     const g = this.fogGraphics.clear();
     const edge = this.fogEdgeGraphics.clear();
     if (!state) return;
@@ -989,10 +1011,27 @@ export class BoardView {
     this.syncFogLoop();
   }
 
+  /** Puts the fog over the tokens (`covering`) or back under the walls, only when that changes. */
+  private layerFog(covering: boolean) {
+    const kids = this.world.children;
+    const covered = kids.indexOf(this.fogLayer) > kids.indexOf(this.tokenLayer);
+    if (covering === covered) return;
+    this.world.setChildIndex(this.fogLayer, covering ? kids.indexOf(this.tokenLayer) : kids.indexOf(this.wallGraphics));
+  }
+
+  /** Re-colours the fog to the map's average colour (null: the default blue-grey). */
+  private setFogBase(base: Rgb | null) {
+    if (!base && !this.fogBase) return;
+    this.fogBase = base;
+    this.fogTexture?.destroy(true);
+    this.fogTexture = null;
+    if (this.initialized) this.invalidateFog();
+  }
+
   /** The seamless cloud texture, drawn once on first use. */
   private fogCloud(): Texture {
     if (!this.fogTexture) {
-      this.fogTexture = Texture.from(makeFogCanvas());
+      this.fogTexture = Texture.from(makeFogCanvas(this.fogBase));
       this.fogTexture.source.style.addressMode = "repeat";
     }
     return this.fogTexture;
@@ -1302,6 +1341,7 @@ export class BoardView {
     this.autoFit = true;
     this.mapMissing = false;
     this.mapSprite.texture = Texture.EMPTY;
+    this.setFogBase(null);
     if (!url) return;
     const markMissing = () => {
       if (this.mapUrl !== url || !this.initialized) return;
@@ -1317,6 +1357,7 @@ export class BoardView {
       (texture) => {
         if (this.mapUrl !== url || !this.initialized) return;
         this.mapSprite.texture = texture;
+        this.setFogBase(averageColor(texture.source.resource as CanvasImageSource));
         this.invalidate();
       },
       () => {
