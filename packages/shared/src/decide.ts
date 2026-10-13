@@ -106,6 +106,11 @@ function removeAllWalls(state: RoomState): DomainEvent[] {
   return walls.length > 0 ? [{ type: "WallsRemoved", walls }] : [];
 }
 
+/** Every fog region, each removed with its full value so undo can restore it (invariant 6). */
+function removeAllFog(state: RoomState): DomainEvent[] {
+  return Object.values(state.fog).map((region) => ({ type: "FogRemoved", region }));
+}
+
 /** Whether two portal values (null: a plain wall) are the same. */
 const samePortal = (a: Portal | null, b: Portal | null) => a?.kind === b?.kind && a?.state === b?.state;
 
@@ -168,8 +173,8 @@ export function decide(
               gridChange: { grid: command.grid, previous: state.scene.grid },
             }
           : { type: "MapSet", map: command.map, previous: state.scene.map },
-        // Walls describe one image: a different map leaves none behind (ADR 0029).
-        ...(command.map.url !== state.scene.map?.url ? removeAllWalls(state) : []),
+        // Walls and fog describe one image: a different map leaves none behind (ADR 0029, ADR 0016).
+        ...(command.map.url !== state.scene.map?.url ? [...removeAllWalls(state), ...removeAllFog(state)] : []),
         ...(command.grid ? resnapToGrid(state, command.grid) : []),
       );
 

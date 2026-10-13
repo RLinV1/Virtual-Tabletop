@@ -2447,3 +2447,12 @@ dialog.modal.map-editor {
 .replay-count { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .replay-sentence { margin: 0; min-height: 1.4em; overflow-wrap: anywhere; }
 .replay-bar .small-print { margin: 0; }
+
+/* The GM's "Show" filter menu on the board toolbar. */
+.board-filters { position: relative; }
+.board-filters-menu {
+  position: absolute; top: calc(100% + var(--space-1)); left: 0; z-index: 20; min-width: 12rem;
+  display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-2);
+  background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--radius); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+.board-filters-row { display: flex; align-items: center; gap: var(--space-2); min-height: 32px; cursor: pointer; }
