@@ -8,7 +8,7 @@ import { MapCanvas } from "./MapCanvas";
 const CLOSE_PX = 12;
 
 /** Drag a rectangle, click out a polygon, click a region to reveal it, or pan. */
-export type FogCanvasMode = "rect" | "polygon" | "reveal" | "pan";
+export type FogCanvasMode = "rect" | "polygon" | "reveal";
 export type FogAdd = Extract<Command, { type: "fog.add" }>["region"];
 
 const clamp = (p: Point, map: MapImage): Point => ({
@@ -83,7 +83,7 @@ export function FogCanvas({ map, grid, fog, mode, onAdd, onRemove, onNotice, bus
       map={map}
       grid={grid}
       mode={mode}
-      pan={mode === "pan"}
+      pan={false}
       label="Map fog. Drag a rectangle, click out a polygon, or click fog to reveal it; the wheel or a pinch zooms, and two fingers pan."
       onMove={(p) => setHover(p)}
       onCancel={() => setAnchor(null)}

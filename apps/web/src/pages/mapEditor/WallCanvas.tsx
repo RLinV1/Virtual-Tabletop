@@ -11,7 +11,7 @@ const PICK_PX = 10;
 const PORTAL_COLORS = { door: "#c8873a", window: "#5dade2" } as const;
 const LOCK_COLOR = "#c0392b";
 
-export type CanvasMode = WallMode | "pan";
+export type CanvasMode = WallMode;
 
 /**
  * The Walls step's canvas (map-editor D3): the map with its walls in board coordinates
@@ -53,8 +53,8 @@ export function WallCanvas({ map, grid, walls, candidates, erased, mode, onAdd, 
       map={map}
       grid={grid}
       mode={mode}
-      pan={mode === "pan"}
-      label="Map walls. Draw, erase, mark doors and windows, or detect walls with the pointer; the wheel or a pinch zooms, and two fingers pan."
+      pan={false}
+      label="Map walls. Draw, erase, mark doors and windows, or detect walls with the pointer; the wheel or a pinch zooms; the middle button, Space-drag or two fingers pan."
       onMove={(p, e, view) => {
         setFree(e.altKey);
         setHover(p && (mode === "draw" ? snap(p, e.altKey, view.px) : p));
