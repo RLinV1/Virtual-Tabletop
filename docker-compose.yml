@@ -48,6 +48,7 @@ services:
   # talks to Redis, taking jobs from the app server and returning walls and a preview.
   vision-walls:
     build: ./services/vision
+    restart: unless-stopped
     command: ["python", "wall_worker.py"]
     environment:
       REDIS_URL: redis://redis:6379
@@ -56,6 +57,9 @@ services:
   # The app server: applies the Prisma migrations, then serves the API and the sockets.
   server:
     build: .
+    # Dependencies can still be starting after their containers are "up" (SeaweedFS, Postgres),
+    # and the server exits when one is not ready; retry until they are.
+    restart: unless-stopped
     command: ["sh", "-c", "npm run prisma:migrate --workspace=@vtt/server && npm run dev --workspace=@vtt/server"]
     environment:
       DATABASE_URL: postgres://vtt:vtt@postgres:5432/vtt
@@ -67,6 +71,7 @@ services:
     depends_on: [postgres, redis, s3]
   web:
     build: .
+    restart: unless-stopped
     command: ["npm", "run", "dev", "--workspace=@vtt/web"]
     environment:
       VTT_SERVER: http://server:3001
