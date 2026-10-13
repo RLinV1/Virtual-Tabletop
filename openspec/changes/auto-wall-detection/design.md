@@ -55,7 +55,7 @@ This keeps fogged geometry from leaking. It also means a player's client cannot 
 
 Rejected:
 - **Node worker plus Python HTTP, as the grid branch does.** DESIGN.md names BullMQ as the vision service's driver, and the user asked for the Python service to consume the queue.
-- **Python writing results to Postgres or MinIO.** That would give the CV container database and storage credentials and widen its blast radius.
+- **Python writing results to Postgres or object storage.** That would give the CV container database and storage credentials and widen its blast radius.
 - **Persisting results in Postgres.** They are suggestions. Re-running detection after a restart is cheap, and nothing in the event log depends on them.
 
 ### D6. REST and socket contract

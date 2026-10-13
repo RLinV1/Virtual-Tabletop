@@ -627,18 +627,25 @@ export function decide(
       if (Object.keys(state.fog).length >= MAX_FOG_REGIONS) {
         return reject("invalid", `A room can hold at most ${MAX_FOG_REGIONS} fog regions. Remove some first.`);
       }
-      const { region } = command;
-      const points: Point[] = region.shape === "rect"
-        ? [
-            { x: Math.min(region.from.x, region.to.x), y: Math.min(region.from.y, region.to.y) },
-            { x: Math.max(region.from.x, region.to.x), y: Math.min(region.from.y, region.to.y) },
-            { x: Math.max(region.from.x, region.to.x), y: Math.max(region.from.y, region.to.y) },
-            { x: Math.min(region.from.x, region.to.x), y: Math.max(region.from.y, region.to.y) },
-          ]
-        : region.points;
+      const points = fogPoints(command.region);
       // A line or a point conceals nothing and can't be clicked to remove; refuse it.
       if (Math.abs(polygonArea(points)) < 1) return reject("invalid", "A fog region needs some area.");
-      return accept({ type: "FogAdded", region: { id: ctx.newId(), shape: region.shape, points } });
+      return accept({ type: "FogAdded", region: { id: ctx.newId(), shape: command.region.shape, points } });
+    }
+
+    case "fog.replace": {
+      if (!can.administer(actor)) return forbidden();
+      const removed = [...new Set(command.removeIds)].map((id) => state.fog[id]);
+      if (removed.some((region) => !region)) return notFound("fog region");
+      if (Object.keys(state.fog).length - removed.length + command.add.length > MAX_FOG_REGIONS) {
+        return reject("invalid", `A room can hold at most ${MAX_FOG_REGIONS} fog regions. Remove some first.`);
+      }
+      const added = command.add.map((region) => ({ shape: region.shape, points: fogPoints(region) }));
+      if (added.some((region) => Math.abs(polygonArea(region.points)) < 1)) return reject("invalid", "A fog region needs some area.");
+      return accept(
+        ...removed.map((region) => ({ type: "FogRemoved" as const, region: region! })),
+        ...added.map((region) => ({ type: "FogAdded" as const, region: { id: ctx.newId(), ...region } })),
+      );
     }
 
     case "fog.remove": {
@@ -946,6 +953,18 @@ function createTokens(
     named = { ...named, tokens: { ...named.tokens, [token.id]: token } };
     return { type: "TokenCreated" as const, token };
   }));
+}
+
+/** A fog region's corners as the room stores them: a rectangle becomes its four corners. */
+function fogPoints(region: Extract<Command, { type: "fog.add" }>["region"]): Point[] {
+  return region.shape === "rect"
+    ? [
+        { x: Math.min(region.from.x, region.to.x), y: Math.min(region.from.y, region.to.y) },
+        { x: Math.max(region.from.x, region.to.x), y: Math.min(region.from.y, region.to.y) },
+        { x: Math.max(region.from.x, region.to.x), y: Math.max(region.from.y, region.to.y) },
+        { x: Math.min(region.from.x, region.to.x), y: Math.max(region.from.y, region.to.y) },
+      ]
+    : region.points;
 }
 
 /** Why `name` can't name a group, or null (KAN-82): blank, too long, or another group's. */

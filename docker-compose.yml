@@ -1,15 +1,20 @@
-# Local infrastructure (DESIGN.md §2).
+# The whole app: infrastructure (DESIGN.md §2), the vision services, the app server and the web app.
 #
-#   docker compose up -d
+#   docker compose up -d --build      # then open http://localhost:5173
+#
+# To run only the infrastructure and start the app from source instead:
+#
+#   docker compose up -d postgres redis s3 vision vision-walls
 #   export DATABASE_URL=postgres://vtt:vtt@localhost:5432/vtt
 #   npm run prisma:migrate --workspace=@vtt/server   # apply prisma/migrations
 #   DATABASE_URL=$DATABASE_URL \
 #   REDIS_URL=redis://localhost:6379 \
-#   MINIO_ENDPOINT=http://localhost:9000 npm run dev
+#   S3_ENDPOINT=http://localhost:8333 npm run dev
 #
 # With none of those set the server falls back to the in-memory store, so `npm run dev`
-# and CI still work with no containers running. Uploads go to this MinIO whenever it is
-# up, even without MINIO_ENDPOINT; local disk is the dev fallback when it is not.
+# and CI still work with no containers running. Uploads go to this S3 store (SeaweedFS)
+# whenever it is up, even without S3_ENDPOINT; local disk is the dev fallback when it is not.
+name: cse416
 services:
   postgres:
     image: postgres:17
@@ -26,15 +31,13 @@ services:
     ports: ["6379:6379"]
     volumes:
       - redisdata:/data
-  minio:
-    image: quay.io/minio/minio:latest
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: vtt
-      MINIO_ROOT_PASSWORD: vttvttvtt
-    ports: ["9000:9000", "9001:9001"]
+  # S3-compatible object storage (SeaweedFS). The S3 API is on 8333; the app creates its bucket.
+  s3:
+    image: chrislusf/seaweedfs:latest
+    command: ["server", "-s3", "-dir=/data"]
+    ports: ["${S3_PORT:-8333}:8333"]
     volumes:
-      - miniodata:/data
+      - s3data:/data
   vision:
     build: ./services/vision
     environment:
@@ -50,7 +53,26 @@ services:
       REDIS_URL: redis://redis:6379
       OPENCV_IO_MAX_IMAGE_PIXELS: 40000000
     depends_on: [redis]
+  # The app server: applies the Prisma migrations, then serves the API and the sockets.
+  server:
+    build: .
+    command: ["sh", "-c", "npm run prisma:migrate --workspace=@vtt/server && npm run dev --workspace=@vtt/server"]
+    environment:
+      DATABASE_URL: postgres://vtt:vtt@postgres:5432/vtt
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://s3:8333
+      # Dev only: signs in as t@gmail.com / password with no sign-up (never set in production).
+      SEED_DEV_ACCOUNT: "1"
+    ports: ["3001:3001"]
+    depends_on: [postgres, redis, s3]
+  web:
+    build: .
+    command: ["npm", "run", "dev", "--workspace=@vtt/web"]
+    environment:
+      VTT_SERVER: http://server:3001
+    ports: ["5173:5173"]
+    depends_on: [server]
 volumes:
   pgdata:
   redisdata:
-  miniodata:
+  s3data:

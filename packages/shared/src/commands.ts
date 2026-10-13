@@ -3,7 +3,7 @@ import { TokenAttacks } from "./attackPresets";
 import { ConditionId, EMPTY_STATS, TokenStats } from "./conditions";
 import { AttackKind, DiceVisibility, MAX_ATTACK_LABEL, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
-import { AreaShape, Id, MapImage, MAX_CHAT_LENGTH, MAX_FOG_POINTS, MAX_WALLS, Portal, PortalState } from "./state";
+import { AreaShape, Id, MapImage, MAX_CHAT_LENGTH, MAX_FOG_POINTS, MAX_FOG_REGIONS, MAX_WALLS, Portal, PortalState } from "./state";
 
 /** Most walls one `wall.remove` names (ADR 0029), keeping the command under the socket limit. */
 export const MAX_WALLS_PER_REMOVE = 500;
@@ -282,6 +282,19 @@ export const Command = z.discriminatedUnion("type", [
       z.object({ shape: z.literal("rect"), from: Point, to: Point }).strict(),
       z.object({ shape: z.literal("polygon"), points: z.array(Point).min(3).max(MAX_FOG_POINTS) }).strict(),
     ]),
+  }).strict(),
+  /**
+   * GM swaps fog in one action (FR-GM-17, ADR 0032): removes the listed regions and adds the new
+   * ones together, so a full room can still take a replacement and a refusal changes nothing.
+   */
+  z.object({
+    type: z.literal("fog.replace"),
+    expectedMapUrl: z.string().min(1).max(2048).optional(),
+    removeIds: z.array(Id).max(MAX_FOG_REGIONS),
+    add: z.array(z.discriminatedUnion("shape", [
+      z.object({ shape: z.literal("rect"), from: Point, to: Point }).strict(),
+      z.object({ shape: z.literal("polygon"), points: z.array(Point).min(3).max(MAX_FOG_POINTS) }).strict(),
+    ])).max(MAX_FOG_REGIONS),
   }).strict(),
   /** GM removes one fog region, revealing what it covered (FR-GM-17). */
   z.object({

@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildApp } from "./app";
+import { seedDevAccount } from "./identity/devAccount";
 import { createAssetStore } from "./store/assetStore";
 import { MemoryRoomStore } from "./store/memoryRoomStore";
 import { PostgresRoomStore } from "./store/postgresRoomStore";
@@ -35,8 +36,10 @@ process.on("unhandledRejection", (reason) => {
 });
 
 await mkdir(uploadDir, { recursive: true });
+const store = await createStore();
+await seedDevAccount(store);
 const app = await buildApp({
-  store: await createStore(),
+  store,
   assets: await createAssetStore(uploadDir),
   uploadDir,
   logger: true,

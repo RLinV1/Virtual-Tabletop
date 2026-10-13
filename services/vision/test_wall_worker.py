@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import unittest
+from unittest import mock
 from types import SimpleNamespace
 
 from test_walls import CELL, SIZE, encode, ink_dungeon
@@ -40,6 +41,13 @@ class WallWorkerTest(unittest.TestCase):
         self.assertEqual(set(result), {"walls", "preview"})
         self.assertEqual(set(result["preview"]), {"contentType", "width", "height", "data"})
         self.assertEqual(self.reads, [self.key])
+
+    def test_runs_as_bullmq_calls_it(self):
+        # BullMQ calls process(job, token, signal): the signal must not be taken for the image fetch.
+        signal = object()
+        with mock.patch("wall_worker._fetch_image", self.fetch):
+            result = asyncio.run(process(job(imageKey=self.key, **self.common), "token", signal))
+        self.assertTrue(result["walls"])
 
     def test_passes_a_sample_through(self):
         result = run(self.key, self.fetch, **self.common, sample={"x": 140, "y": 300})

@@ -250,6 +250,11 @@ export function undoConflict(state: RoomState, entry: UndoEntry): string | null 
     e.type === "WallsAdded" ? n - e.walls.filter((w) => state.walls[w.id]).length
     : e.type === "WallsRemoved" ? n + e.walls.length : n, 0);
   if (wallsAfter > MAX_WALLS) return `Can't undo: the room would hold more than ${MAX_WALLS} walls.`;
+  // Fog the undo would leave behind, counted the same way, so undoing a swap in a full room still fits.
+  const fogAfter = Object.keys(state.fog).length + entry.events.reduce((n, e) =>
+    e.type === "FogAdded" ? n - (state.fog[e.region.id] ? 1 : 0)
+    : e.type === "FogRemoved" ? n + 1 : n, 0);
+  if (fogAfter > MAX_FOG_REGIONS) return `Can't undo: the room would hold more than ${MAX_FOG_REGIONS} fog regions.`;
   for (const event of entry.events) {
     if (isGroupEvent(event)) {
       const conflict = groupUndoConflict(state, event);
@@ -305,8 +310,6 @@ export function undoConflict(state: RoomState, entry: UndoEntry): string | null 
     }
     if (event.type === "FogRemoved") {
       if (state.fog[event.region.id]) return "Can't undo: that fog is already back.";
-      // Undo must not grow the room past the cap `fog.add` enforces.
-      if (Object.keys(state.fog).length >= MAX_FOG_REGIONS) return `Can't undo: the room already has ${MAX_FOG_REGIONS} fog regions.`;
       continue;
     }
     if (!("tokenId" in event)) {

@@ -25,9 +25,9 @@ exists elsewhere is missing:
    could send a fresh address with each request and walk past every per-address limit: sign-in,
    sign-up and invite joins. A value that is neither `true` nor a number was silently ignored, which
    behind a proxy puts every user in one shared bucket.
-6. **Production can run MinIO with the built-in credentials.** When `MINIO_ACCESS_KEY` and
-   `MINIO_SECRET_KEY` are unset, the server connects with `vtt` / `vttvttvtt`, the docker-compose
-   development values. In production that means a deployment can run against a MinIO left with
+6. **Production can run object storage with the built-in credentials.** When `S3_ACCESS_KEY` and
+   `S3_SECRET_KEY` are unset, the server connects with `vtt` / `vttvttvtt`, the docker-compose
+   development values. In production that means a deployment can run against a object storage left with
    publicly known root credentials without anyone noticing.
 
 ## What Changes
@@ -46,8 +46,8 @@ exists elsewhere is missing:
   connection.
 - **Proxy trust:** with `NODE_ENV=production`, the server refuses to start with `TRUST_PROXY=true`
   or with a value that is not a hop count. Outside production, `true` still works with a warning.
-- **MinIO in production:** with `NODE_ENV=production`, the server refuses to start unless
-  `MINIO_ACCESS_KEY` and `MINIO_SECRET_KEY` are set. Development keeps the compose defaults.
+- **object storage in production:** with `NODE_ENV=production`, the server refuses to start unless
+  `S3_ACCESS_KEY` and `S3_SECRET_KEY` are set. Development keeps the compose defaults.
 
 **Not in this change** (recorded in design.md, "Findings not fixed here"):
 
@@ -70,7 +70,7 @@ None.
 - `room-participants`: adds a per-address, per-room limit on invite joins.
 - `room-chat`: the chat rate limit counts per participant, not per connection.
 - `dice-looks`: the look-change limit counts per participant, not per connection.
-- `upload-storage`: production requires explicit MinIO credentials.
+- `upload-storage`: production requires explicit object storage credentials.
 - `user-accounts`: per-address limits use an address the client can't forge in production.
 
 ## Impact

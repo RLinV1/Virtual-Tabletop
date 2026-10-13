@@ -35,7 +35,7 @@ Open http://localhost:5173 → create a room → copy the invite link. To be a p
 | Ordering | Per-room FIFO queue → gap-free `seq`; store rejects appends on seq mismatch | FR-SYNC-01, FR-SYNC-04 | P → P |
 | Authorization | Owner-only token moves, GM-only admin commands, checked per message; hidden tokens answer `not_found` (no existence leak) | FR-GM-14, FR-GM-15, FR-PL-04 | P → P |
 | Visibility | Hidden tokens stripped from snapshots; events about them sent to players as `redacted {seq}`; reveal/hide forces a fresh snapshot | FR-GM-16, FR-GM-23 | P → P |
-| Map | Upload PNG/JPEG/WebP (GM only, type + size checked), rendered as board | FR-GM-02 | D → P (local disk, not MinIO) |
+| Map | Upload PNG/JPEG/WebP (GM only, type + size checked), rendered as board | FR-GM-02 | D → P (local disk, not object storage) |
 | Grid | Manual cell size / offset / units form; grid in board coordinates | FR-GM-04 (manual path), FR-GM-05 | D/~ → ~/P |
 | Tokens | Create, delete, assign owner, hide/reveal from GM panel | FR-GM-08 (partial), FR-GM-10 | D/~ → ~/P |
 | Board | PixiJS v8, per-viewer pan/zoom, drag with grid snapping (Alt = free), auto-fit | FR-TAC-01, FR-TAC-02 | D/~ → P |
@@ -44,7 +44,7 @@ Open http://localhost:5173 → create a room → copy the invite link. To be a p
 
 **Tests:** 11 unit tests over the pure kernel (`packages/shared/test`) and 7 multi-client integration tests over real WebSockets (`apps/server/test/sync.test.ts`): convergence, forbidden moves, 20 concurrent commands → gap-free seqs, no hidden-token bytes in player payloads, reconnect after missed events, GM stays GM after reconnect, bad token refused.
 
-**Not here:** Postgres/Redis/MinIO (in-memory store behind a `RoomStore` interface; target SQL in `apps/server/db/001_init.sql`), GM accounts (FR-GM-01), auto grid detection, Playwright, undo UI, everything else in M2/M3.
+**Not here:** Postgres/Redis/SeaweedFS (in-memory store behind a `RoomStore` interface; target SQL in `apps/server/db/001_init.sql`), GM accounts (FR-GM-01), auto grid detection, Playwright, undo UI, everything else in M2/M3.
 
 ## 4. Deviations from DESIGN.md — for discussion
 

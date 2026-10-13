@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Eye, Hand, Polygon, Rectangle, UserFocus } from "@phosphor-icons/react";
+import { Eye, Polygon, Rectangle, UserFocus } from "@phosphor-icons/react";
 import type { RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../../net/roomConnection";
 import { FogControls } from "./FogControls";
@@ -9,14 +9,12 @@ const MODES: { key: FogCanvasMode; label: string; icon: typeof Eye }[] = [
   { key: "rect", label: "Rectangle", icon: Rectangle },
   { key: "polygon", label: "Polygon", icon: Polygon },
   { key: "reveal", label: "Reveal", icon: Eye },
-  { key: "pan", label: "Pan", icon: Hand },
 ];
 
 const HINTS: Record<FogCanvasMode, string> = {
   rect: "Drag to fog a rectangle.",
   polygon: "Click each corner. Click the first corner or press Enter to close it. Esc or right-click drops it.",
   reveal: "Click a fogged region to reveal what it covers.",
-  pan: "Drag to move around. The wheel or a pinch zooms; Space-drag or a two-finger drag pans in any tool.",
 };
 
 /**

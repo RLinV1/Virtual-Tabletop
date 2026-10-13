@@ -85,8 +85,8 @@ replaced by **Prisma** (`DESIGN.md` §2 "PostgreSQL + Prisma", `DELIVERY.md` §8
   carry no room data; access control is at the room level, not the object level, and
   DESIGN.md §5 wants uploads served from an origin separate from the app. Without the
   policy every URL the server hands back is a 403 in the browser.
-- MinIO is pulled from `quay.io/minio/minio`; the Docker Hub `minio/minio` image is no
-  longer publicly pullable.
+- The original object store, SeaweedFS, stopped publishing public images, so compose now runs
+  SeaweedFS (`chrislusf/seaweedfs`), which speaks the same S3 API.
 - The Vite dev proxy forwards `/socket.io` instead of `/ws`.
 - Multi-instance deployment is now a Socket.IO Redis adapter away, rather than requiring a
   bespoke fan-out.

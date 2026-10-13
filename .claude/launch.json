@@ -22,7 +22,7 @@
       "env": {
         "DATABASE_URL": "postgres://vtt:vtt@127.0.0.1:5432/vtt",
         "REDIS_URL": "redis://127.0.0.1:6379",
-        "MINIO_ENDPOINT": "http://127.0.0.1:9000"
+        "S3_ENDPOINT": "http://127.0.0.1:8333"
       },
       "port": 3001
     },

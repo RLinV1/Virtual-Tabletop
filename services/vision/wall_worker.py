@@ -49,8 +49,10 @@ async def _fetch_image(key: str):
     return await _redis.get(key) if _redis is not None else None
 
 
-async def process(job, _token=None, fetch=None) -> dict:
-    """One job. Raises on bad input, which BullMQ records as the job's failure."""
+async def process(job, _token=None, _signal=None, *, fetch=None) -> dict:
+    """One job. Raises on bad input, which BullMQ records as the job's failure.
+
+    BullMQ calls `process(job, token, signal)`; `fetch` is keyword-only so it can never take the signal."""
     data = job.data or {}
     key = data.get("imageKey")
     if not isinstance(key, str) or not IMAGE_KEY.fullmatch(key):

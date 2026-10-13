@@ -44,12 +44,12 @@ This document covers architecture, stack, repository, and the running prototype.
    ╔═════════╪══════════════╪═════════════╪═══════════════════════╗
    ║  Docker Compose        │             │    docker-compose.yml ║
    ║ ┌───────▼──────┐ ┌─────▼─────┐ ┌─────▼──────┐                ║
-   ║ │  PostgreSQL  │ │   Redis   │ │   MinIO    │                ║
+   ║ │  PostgreSQL  │ │   Redis   │ │ SeaweedFS  │                ║
    ║ │  event log   │ │  seq,     │ │  map and   │                ║
    ║ │  snapshots   │ │  pub/sub  │ │  token art │                ║
    ║ │  credentials │ │  sessions │ │            │                ║
    ║ └──────┬───────┘ └─────┬─────┘ └─────┬──────┘                ║
-   ║     pgdata          redisdata     miniodata   (named volumes)║
+   ║     pgdata          redisdata     s3data       (named volumes)║
    ║                                                              ║
    ║ ┌──────────────────────────────────────────┐                 ║
    ║ │  Vision service (services/vision)        │                 ║
@@ -61,9 +61,9 @@ This document covers architecture, stack, repository, and the running prototype.
 
    The App Server and the web client run on the host, not in Docker.
    Each service is optional: with DATABASE_URL, REDIS_URL or
-   MINIO_ENDPOINT unset the server falls back to in-memory state,
+   S3_ENDPOINT unset the server falls back to in-memory state,
    Postgres-only sequencing, and uploads on local disk (dev only,
-   and only when no MinIO answers at 127.0.0.1:9000).
+   and only when no S3 store answers at 127.0.0.1:8333).
 ```
 
 `packages/shared` is the contract both sides import: zod schemas, `decide`, `reduce`,
@@ -121,26 +121,26 @@ may not see arrives as `redacted`, so their counter advances without leaking the
 | Validation | zod | Express validates nothing on its own; zod guards every trust boundary (FR-GM-15). |
 | Database | PostgreSQL + Prisma | An append-only event table with snapshots is inherently relational, and migrations stop four people fighting over schema drift. |
 | Cache and bus | Redis | Atomic `INCR` gives the per-room seq, pub/sub fans out across instances, guest sessions rebind through it. |
-| Object storage | MinIO → S3/R2 | Map images do not belong in Postgres, and MinIO speaks S3 so local dev needs no cloud account. |
+| Object storage | SeaweedFS → S3/R2 | Map images do not belong in Postgres, and SeaweedFS speaks S3 so local dev needs no cloud account. |
 | Jobs | BullMQ | Grid detection, wall extraction and snapshots are async, and BullMQ rides the Redis already required. |
 | Map analysis | Python + FastAPI + OpenCV | Grid and wall detection are solved in the Python CV ecosystem; isolating it matches the boundary FR-GM-11 specifies. |
 | Auth | argon2id, opaque session tokens | Memory-hard hashing, and server-side sessions revoke instantly with no refresh-token choreography. |
 | Tests | Vitest + Playwright | Vitest shares Vite's transform; Playwright drives two browser contexts in one test, the only practical way to assert convergence. |
 | CI | GitHub Actions | Free for the repo, and the whole matrix is one YAML job. |
-| Local services | Docker Compose | Everyone runs identical versions of Postgres, Redis and MinIO with one command. |
+| Local services | Docker Compose | Everyone runs identical versions of Postgres, Redis and SeaweedFS with one command. |
 | Hosting | Fly.io or Railway | Both hold persistent WebSocket connections; serverless cannot. |
 
 ### Running the backing services
 
 Every stateful dependency runs in Docker, declared in [`../docker-compose.yml`](../docker-compose.yml).
-Nobody installs Postgres, Redis or MinIO locally, so a broken environment is fixed by
+Nobody installs Postgres, Redis or SeaweedFS locally, so a broken environment is fixed by
 deleting a volume rather than by debugging one laptop.
 
 | Service | Image | Ports | Volume | Holds |
 | --- | --- | --- | --- | --- |
 | `postgres` | `postgres:17` | 5432 | `pgdata` | Event log, snapshots, credentials |
 | `redis` | `redis:7-alpine` | 6379 | `redisdata` | Sequence numbers, pub/sub, sessions |
-| `minio` | `minio:latest` | 9000, 9001 | `miniodata` | Uploaded map and token images |
+| `s3` | `chrislusf/seaweedfs` | 8333 | `s3data` | Uploaded map and token images |
 
 ```bash
 docker compose up -d
@@ -148,7 +148,7 @@ npm run prisma:migrate --workspace=@vtt/server
 
 DATABASE_URL=postgres://vtt:vtt@localhost:5432/vtt \
 REDIS_URL=redis://localhost:6379 \
-MINIO_ENDPOINT=http://localhost:9000 \
+S3_ENDPOINT=http://localhost:8333 \
 npm run dev
 ```
 
@@ -161,7 +161,7 @@ the inner loop wants Vite HMR and `tsx watch`.
 
 **Containers are optional, deliberately.** Each service is selected by an environment
 variable and the server falls back when one is absent: no `DATABASE_URL` means an in-memory
-store, no `MINIO_ENDPOINT` means the compose MinIO at `127.0.0.1:9000` if it answers and local disk
+store, no `S3_ENDPOINT` means the compose SeaweedFS at `127.0.0.1:8333` if it answers and local disk
 otherwise (never in production, which refuses to start without it), no `REDIS_URL` means sequencing from
 Postgres alone. A fresh checkout runs with no containers, which is what keeps CI free of a
 service matrix. Startup states the mode:
@@ -198,7 +198,7 @@ npm workspaces, one install from the root.
 ```
 packages/shared    the contract: schemas, decide, reduce, visibility filters. No I/O.
 apps/server        Express + Socket.IO. domain/liveRoom.ts is the pipeline;
-                   store/ holds memory, Postgres, Redis and MinIO adapters.
+                   store/ holds memory, Postgres, Redis and SeaweedFS adapters.
 apps/web           React panels + PixiJS board (board/boardView.ts).
                    net/roomConnection.ts is the sync client.
 services/vision    Python/OpenCV grid detection and the BullMQ wall-detection worker.
@@ -256,7 +256,7 @@ window to join as a player. Everything in "working today" holds **except persist
 rooms live in memory and die on every server restart, including the restart `tsx watch`
 performs each time you save a file.
 
-**Run it — with persistence.** Needed to exercise the Postgres event store, MinIO uploads
+**Run it — with persistence.** Needed to exercise the Postgres event store, S3 uploads
 and Redis sequencing, and therefore needed for any manual test of restart survival,
 reconnection or recovery.
 
@@ -266,7 +266,7 @@ npm run prisma:migrate --workspace=@vtt/server
 
 DATABASE_URL=postgres://vtt:vtt@localhost:5432/vtt \
 REDIS_URL=redis://localhost:6379 \
-MINIO_ENDPOINT=http://localhost:9000 \
+S3_ENDPOINT=http://localhost:8333 \
 npm run dev
 ```
 

@@ -110,3 +110,29 @@ describe("manual fog of war over the wire (FR-GM-17, FR-GM-23, ADR 0016)", () =>
     expect(alice.rawLog.join(" ")).not.toContain("Lurker");
   });
 });
+
+describe("fog.replace over the wire (FR-GM-17, ADR 0032)", () => {
+  const rectAt = (n: number) => ({ shape: "rect", from: { x: n * 10, y: 0 }, to: { x: n * 10 + 5, y: 5 } }) as const;
+
+  it("swaps a region in a room at the fog cap, for everyone, and refuses a player", async () => {
+    const { gm, alice } = await setup();
+    let seq = 0;
+    for (let i = 0; i < 100; i++) seq = seqOf(await gm.command({ type: "fog.add", region: rectAt(i) }));
+    await Promise.all([gm, alice].map((c) => c.waitForSeq(seq)));
+    expect(fog(gm)).toHaveLength(100);
+    expect(await gm.command({ type: "fog.add", region: rectAt(200) })).toMatchObject({ type: "rejected", code: "invalid" });
+
+    const old = fog(gm)[0]!;
+    const swap = { type: "fog.replace" as const, removeIds: [old.id], add: [rectAt(300)] };
+    expect(await alice.command(swap)).toMatchObject({ type: "rejected", code: "forbidden" });
+    const done = seqOf(await gm.command(swap));
+    await Promise.all([gm, alice].map((c) => c.waitForSeq(done)));
+    for (const c of [gm, alice]) {
+      expect(fog(c)).toHaveLength(100);
+      expect(c.state.fog[old.id]).toBeUndefined();
+    }
+    // A refused swap changes nothing.
+    expect(await gm.command({ type: "fog.replace", removeIds: [], add: [rectAt(301)] })).toMatchObject({ type: "rejected", code: "invalid" });
+    expect(fog(gm)).toHaveLength(100);
+  });
+});

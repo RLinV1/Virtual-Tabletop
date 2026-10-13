@@ -76,9 +76,6 @@ export function planDraftSave(room: Pick<RoomState, "scene" | "walls" | "fog">, 
   if (room.scene.map?.url !== draft.mapUrl) throw new Error("The map changed. Reopen the editor before saving.");
   const commands: CommandInput[] = [];
   const fogMatches = matchEntities(room.fog, draft.fog, fogKey);
-  for (const region of Object.values(draft.fog)) {
-    if (!fogMatches.has(region.id)) commands.push({ type: "fog.add", region: fogAdd(region) });
-  }
 
   const roomWalls = Object.values(room.walls);
   const draftWalls = Object.values(draft.walls);
@@ -98,10 +95,11 @@ export function planDraftSave(room: Pick<RoomState, "scene" | "walls" | "fog">, 
     commands.push({ type: "portal.set", wallId: roomWall.id, portal: w.portal ?? null });
   }
 
+  // Fog goes in one command so a full room can take a replacement and a refusal changes nothing (ADR 0032).
   const retainedFogIds = new Set([...fogMatches.values()].map((f) => f.id));
-  for (const region of Object.values(room.fog)) {
-    if (!retainedFogIds.has(region.id)) commands.push({ type: "fog.remove", regionId: region.id });
-  }
+  const removeIds = Object.values(room.fog).filter((f) => !retainedFogIds.has(f.id)).map((f) => f.id);
+  const add = Object.values(draft.fog).filter((f) => !fogMatches.has(f.id)).map(fogAdd);
+  if (removeIds.length > 0 || add.length > 0) commands.push({ type: "fog.replace", removeIds, add });
   return commands.map((command) => ({ ...command, expectedMapUrl: draft.mapUrl }));
 }
 

@@ -8,7 +8,7 @@ The team plans changes with OpenSpec (`/opsx:propose`, `openspec/`).
 
 ## Layout
 - `packages/shared` — THE CONTRACT: zod schemas for state/commands/events/protocol, `decide`, `reduce`, visibility filters. Pure TS, no I/O.
-- `apps/server` — Express + Socket.IO. `domain/liveRoom.ts` is the command pipeline. `store/` is persistence (memory, Postgres via Prisma, Redis seq, MinIO assets).
+- `apps/server` — Express + Socket.IO. `domain/liveRoom.ts` is the command pipeline. `store/` is persistence (memory, Postgres via Prisma, Redis seq, S3 assets).
 - `apps/web` — React panels + PixiJS board (`board/boardView.ts`). `net/roomConnection.ts` is the sync client.
 - `services/vision` — (planned) Python/OpenCV grid detection and wall parsing.
 
