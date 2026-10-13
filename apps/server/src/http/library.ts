@@ -7,6 +7,7 @@ import {
   canRenderGrid,
   LibraryPatchRequest,
   LibraryUploadFields,
+  GridDetectionStatus,
   type GmRoomSummary,
   type LibraryAsset,
   type LibraryUsageResponse,
@@ -15,6 +16,8 @@ import { registerCreatureRoutes } from "./creatures";
 import type { AssetStore } from "../store/assetStore";
 import type { LibraryAssetRecord } from "../store/libraryStore";
 import type { RoomStore } from "../store/roomStore";
+import { enqueueDetection, type GridDetectionDispatcher } from "../domain/gridDetection";
+import type { DetectionRecord } from "../store/gridDetectionStore";
 import { requireAccountOwner, resolveOwner, type Owner } from "../ownership/resolveOwner";
 import { imageUploader } from "./imageUpload";
 
@@ -28,9 +31,9 @@ const AssetIdParam = z.uuid();
  */
 export function registerLibraryRoutes(
   app: Express,
-  deps: { store: RoomStore; uploadDir: string; assets: AssetStore },
+  deps: { store: RoomStore; uploadDir: string; assets: AssetStore; detection: GridDetectionDispatcher },
 ) {
-  const { store, uploadDir, assets } = deps;
+  const { store, uploadDir, assets, detection } = deps;
   const receiveImage = imageUploader(uploadDir);
 
   /**
@@ -77,10 +80,15 @@ export function registerLibraryRoutes(
         height: fields.data.height,
         // Uploading an image does not establish its spacing. The setup editor saves
         // an explicit grid, including when the GM accepts the default values (KAN-09).
+        // Analysis only suggests one (grid-detection).
         grid: null,
+        detectionStatus: fields.data.kind === "map" ? "queued" : null,
+        detectionAttempt: fields.data.kind === "map" ? 1 : 0,
+        detectionResult: null,
         createdAt: new Date().toISOString(),
       };
       await store.createAsset(record);
+      if (record.kind === "map") await enqueueDetection(store, detection, { scope: "library", id: record.id }, 1);
       res.status(201).json(toWire(record));
     });
   });
@@ -103,6 +111,30 @@ export function registerLibraryRoutes(
       const updated = await store.updateAsset(id.data, gmId, patch.data);
       if (!updated) return void notFound(res);
       res.json(toWire(updated));
+    });
+  });
+
+  app.get("/api/library/:id/grid-detection", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void withGm(req, res, async (gmId) => {
+      const id = AssetIdParam.safeParse(req.params.id);
+      if (!id.success || !(await store.findAsset(id.data, gmId))) return void notFound(res);
+      const row = await store.findDetection({ scope: "library", id: id.data });
+      if (!row) return void notFound(res);
+      res.json(detectionWire(row));
+    });
+  });
+
+  app.post("/api/library/:id/grid-detection/retry", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void withGm(req, res, async (gmId) => {
+      const id = AssetIdParam.safeParse(req.params.id);
+      if (!id.success || !(await store.findAsset(id.data, gmId))) return void notFound(res);
+      const target = { scope: "library" as const, id: id.data };
+      const attempt = await store.retryDetection(target);
+      if (!attempt) return void res.status(409).json({ error: "Analysis is not in error" });
+      await enqueueDetection(store, detection, target, attempt);
+      res.status(202).json(detectionWire((await store.findDetection(target))!));
     });
   });
 
@@ -142,6 +174,12 @@ export function registerLibraryRoutes(
       if (!res.headersSent) res.status(500).json({ error: "Internal error" });
     }
   }
+}
+
+export function detectionWire(row: DetectionRecord): GridDetectionStatus {
+  return GridDetectionStatus.parse(row.status === "suggested" && row.candidate
+    ? { status: "suggested", attempt: row.attempt, candidate: row.candidate }
+    : { status: row.status, attempt: row.attempt });
 }
 
 function notFound(res: Response) {

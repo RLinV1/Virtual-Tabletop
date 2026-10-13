@@ -8,7 +8,7 @@ Frontend geometry and interaction tests cover two-click placement, all four quad
 
 `npm run lint`, `npm run typecheck`, `npm test`, and `npm run build` passed on the final feature branch based on mainline `bb89754`. The PR #66 review suite passed 743 tests (268 shared, 133 server, 342 web), with 20 environment-dependent store tests skipped; 83 focused frontend cases cover sample geometry and interaction transitions. All 43 Chromium assertion groups passed against isolated processes on ports 5305/5306 using Chrome Headless Shell 151.0.7922.34. The original 39 groups also passed before the fixes, so the new regressions cover previously missing cases. Strict OpenSpec validation passed for the active `kan-10-grid-preview` change and the `room-grid-calibration` and `asset-library` contracts. The build reported the existing dependency annotation and bundle-size warnings, without failing.
 
-The review suite ran with local socket access enabled. The 20 skipped tests require Postgres (`DATABASE_URL`); the room deletion Redis case additionally requires `REDIS_URL`. Browser QA used an in-memory store and temporary local uploads with MinIO autodetection disabled. No database migration or shared schema change was needed.
+The review suite ran with local socket access enabled. The 20 skipped tests require Postgres (`DATABASE_URL`); the room deletion Redis case additionally requires `REDIS_URL`. Browser QA used an in-memory store and temporary local uploads with object-storage autodetection disabled. No database migration or shared schema change was needed.
 
 ## Browser acceptance results
 

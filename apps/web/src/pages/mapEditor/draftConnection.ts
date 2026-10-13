@@ -1,0 +1,61 @@
+import type { CommandInput, DetectedWallsResponse } from "@vtt/shared";
+import type { CommandResult, RoomConnection } from "../../net/roomConnection";
+import { applyToDraft, draftCommandProblem, DRAFT_ID, withDetectedWalls, type MapDraft } from "./mapDraft";
+
+/** The commands the draft holds; `applyToDraft` handles each. */
+const DRAFT_COMMANDS = new Set<CommandInput["type"]>(["wall.add", "wall.remove", "wall.clear", "portal.set", "fog.add", "fog.remove"]);
+
+/**
+ * The room connection as the map editor's Walls and Fog steps see it (map-editor-drafts): wall and
+ * fog commands change the draft instead of the room, and everything else, such as wall-detection
+ * notices, goes to the real connection. The steps don't need to know they are editing a draft.
+ */
+export function draftConnection(
+  connection: RoomConnection,
+  update: (change: (draft: MapDraft) => MapDraft) => void,
+  /** The finished detection's walls for a map, fetched with the GM's credential. */
+  detectedWalls: (mapUrl: string) => Promise<DetectedWallsResponse>,
+  mapUrl: string,
+  map: { width: number; height: number },
+  isCurrent: () => boolean,
+): RoomConnection {
+  let next = 0;
+  const newId = () => `${DRAFT_ID}${Date.now().toString(36)}-${++next}`;
+  const ok: CommandResult = { ok: true, seq: null };
+
+  const command = async (input: CommandInput): Promise<CommandResult> => {
+    if (!isCurrent()) return { ok: false, code: "invalid", message: "The map editor changed. Try again in the current editor." };
+    if (input.type === "wall.applyDetected") {
+      try {
+        if (input.mapUrl !== mapUrl) return { ok: false, code: "invalid", message: "Those walls were detected for a different map." };
+        const result = await detectedWalls(input.mapUrl);
+        if (!isCurrent()) return { ok: false, code: "invalid", message: "The map editor changed. Try again in the current editor." };
+        const walls = result.walls;
+        const { exclude } = input;
+        if (exclude && (exclude.resultId !== result.resultId || exclude.indices.some((i) => i < 0 || i >= walls.length))) {
+          return { ok: false, code: "invalid", message: "The detected walls changed. Check the preview again." };
+        }
+        const erased = new Set(exclude?.indices);
+        const kept = walls.filter((_, i) => !erased.has(i));
+        if (kept.length === 0) return { ok: false, code: "invalid", message: "No detected walls remain to apply." };
+        update((draft) => draft.mapUrl === mapUrl ? withDetectedWalls(draft, kept, newId) : draft);
+        return ok;
+      } catch (err) {
+        return { ok: false, code: "invalid", message: err instanceof Error ? err.message : "Couldn't load the detected walls." };
+      }
+    }
+    if (!DRAFT_COMMANDS.has(input.type)) return connection.command(input);
+    const problem = draftCommandProblem(input, map);
+    if (problem) return { ok: false, code: "invalid", message: problem };
+    update((draft) => draft.mapUrl === mapUrl ? applyToDraft(draft, input, newId) ?? draft : draft);
+    return ok;
+  };
+
+  return new Proxy(connection, {
+    get(target, prop) {
+      if (prop === "command") return command;
+      const value: unknown = Reflect.get(target, prop, target);
+      return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+    },
+  });
+}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { guideSteps, placeCard } from "../src/ui/guide";
 
-const GM_ONLY = ["share", "rulings", "gm-map", "gm-grid", "gm-add-token", "tab-gm", "activity-log"];
+const GM_ONLY = ["share", "rulings", "gm-map", "gm-grid", "gm-add-token", "tab-gm"];
 
 describe("guided tour on demand (room-sidebar-layout)", () => {
   it("gives the GM the setup steps", () => {
@@ -10,13 +10,18 @@ describe("guided tour on demand (room-sidebar-layout)", () => {
     expect(targets.at(-1)).toBe("guide");
   });
 
-  it("walks through every panel tab for the role, and the GM's activity log", () => {
-    expect(guideSteps("gm").map((s) => s.target).filter((t) => t.startsWith("tab-") || t === "activity-log")).toEqual([
-      "tab-play", "tab-tokens", "tab-dice", "tab-gm", "activity-log",
+  it("walks through every panel tab for the role", () => {
+    expect(guideSteps("gm").map((s) => s.target).filter((t) => t.startsWith("tab-"))).toEqual([
+      "tab-play", "tab-tokens", "tab-dice", "tab-gm",
     ]);
-    expect(guideSteps("player").map((s) => s.target).filter((t) => t.startsWith("tab-") || t === "activity-log")).toEqual([
+    expect(guideSteps("player").map((s) => s.target).filter((t) => t.startsWith("tab-"))).toEqual([
       "tab-play", "tab-tokens", "tab-dice",
     ]);
+  });
+
+  it("ends on the More menu, naming the activity log only to the GM", () => {
+    expect(guideSteps("gm").at(-1)!.body).toMatch(/activity log/);
+    expect(guideSteps("player").at(-1)!.body).not.toMatch(/activity log/);
   });
 
   it("gives players no GM-only step, but their tokens and dice", () => {

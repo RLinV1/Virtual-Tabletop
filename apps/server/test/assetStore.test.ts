@@ -5,16 +5,17 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../src/app";
-import { DEV_MINIO_ENDPOINT, LocalDiskAssetStore, createAssetStore, type AssetStore } from "../src/store/assetStore";
+import { DEV_S3_ENDPOINT, LocalDiskAssetStore, createAssetStore, type AssetStore } from "../src/store/assetStore";
 import { MemoryRoomStore } from "../src/store/memoryRoomStore";
 import { listenForFetch } from "./helpers";
 
-/** Stands in for a connected MinIO: reads come from an in-memory map. */
-function fakeMinio(objects: Record<string, string> = {}): AssetStore {
+/** Stands in for a connected object storage: reads come from an in-memory map. */
+function fakeS3(objects: Record<string, string> = {}): AssetStore {
   return {
     put: async (_temp, key) => `/uploads/${key}`,
     delete: async () => {},
     read: async (key) => (key in objects ? { body: Readable.from([objects[key]!]), contentType: "image/png" } : null),
+    readPrivate: async (key) => (key in objects ? Buffer.from(objects[key]!) : null),
   };
 }
 
@@ -22,55 +23,55 @@ describe("choosing upload storage (upload-storage)", () => {
   afterEach(() => vi.restoreAllMocks());
   const quiet = () => vi.spyOn(console, "log").mockImplementation(() => {});
 
-  it("connects to MINIO_ENDPOINT when it is set", async () => {
+  it("connects to S3_ENDPOINT when it is set", async () => {
     quiet();
-    const minio = fakeMinio();
-    const connect = vi.fn(async () => minio);
-    const store = await createAssetStore("/tmp/u", { MINIO_ENDPOINT: "http://minio:9000" }, connect);
+    const s3 = fakeS3();
+    const connect = vi.fn(async () => s3);
+    const store = await createAssetStore("/tmp/u", { S3_ENDPOINT: "http://s3:9000" }, connect);
     expect(store).not.toBeInstanceOf(LocalDiskAssetStore);
     expect(store.read).toBeTypeOf("function");
-    expect(connect).toHaveBeenCalledWith(expect.objectContaining({ endpoint: "http://minio:9000" }));
+    expect(connect).toHaveBeenCalledWith(expect.objectContaining({ endpoint: "http://s3:9000" }));
   });
 
-  it("refuses to start in production without MINIO_ENDPOINT", async () => {
-    const connect = vi.fn(async () => fakeMinio());
-    await expect(createAssetStore("/tmp/u", { NODE_ENV: "production" }, connect)).rejects.toThrow(/MINIO_ENDPOINT/);
+  it("refuses to start in production without S3_ENDPOINT", async () => {
+    const connect = vi.fn(async () => fakeS3());
+    await expect(createAssetStore("/tmp/u", { NODE_ENV: "production" }, connect)).rejects.toThrow(/S3_ENDPOINT/);
     expect(connect).not.toHaveBeenCalled();
   });
 
-  it("refuses to start in production with the development MinIO credentials (security-hardening)", async () => {
-    const connect = vi.fn(async () => fakeMinio());
-    for (const keys of [{}, { MINIO_ACCESS_KEY: "prod" }, { MINIO_SECRET_KEY: "prod-secret" }]) {
+  it("refuses to start in production with the development object storage credentials (security-hardening)", async () => {
+    const connect = vi.fn(async () => fakeS3());
+    for (const keys of [{}, { S3_ACCESS_KEY: "prod" }, { S3_SECRET_KEY: "prod-secret" }]) {
       await expect(
-        createAssetStore("/tmp/u", { NODE_ENV: "production", MINIO_ENDPOINT: "http://minio:9000", ...keys }, connect),
-      ).rejects.toThrow(/MINIO_ACCESS_KEY and MINIO_SECRET_KEY/);
+        createAssetStore("/tmp/u", { NODE_ENV: "production", S3_ENDPOINT: "http://s3:9000", ...keys }, connect),
+      ).rejects.toThrow(/S3_ACCESS_KEY and S3_SECRET_KEY/);
     }
     expect(connect).not.toHaveBeenCalled();
   });
 
-  it("connects in production with its own MinIO credentials", async () => {
+  it("connects in production with its own object storage credentials", async () => {
     quiet();
-    const connect = vi.fn(async () => fakeMinio());
-    const env = { NODE_ENV: "production", MINIO_ENDPOINT: "http://minio:9000", MINIO_ACCESS_KEY: "prod", MINIO_SECRET_KEY: "prod-secret" };
+    const connect = vi.fn(async () => fakeS3());
+    const env = { NODE_ENV: "production", S3_ENDPOINT: "http://s3:9000", S3_ACCESS_KEY: "prod", S3_SECRET_KEY: "prod-secret" };
     await createAssetStore("/tmp/u", env, connect);
     expect(connect).toHaveBeenCalledWith(expect.objectContaining({ accessKeyId: "prod", secretAccessKey: "prod-secret" }));
   });
 
-  it("uses local disk without probing when MINIO_AUTODETECT=0", async () => {
+  it("uses local disk without probing when S3_AUTODETECT=0", async () => {
     quiet();
-    const connect = vi.fn(async () => fakeMinio());
-    const store = await createAssetStore("/tmp/u", { MINIO_AUTODETECT: "0" }, connect);
+    const connect = vi.fn(async () => fakeS3());
+    const store = await createAssetStore("/tmp/u", { S3_AUTODETECT: "0" }, connect);
     expect(store).toBeInstanceOf(LocalDiskAssetStore);
     expect(connect).not.toHaveBeenCalled();
   });
 
-  it("uses the compose MinIO when it answers, with a single attempt", async () => {
+  it("uses the compose object store when it answers, with a single attempt", async () => {
     quiet();
-    const minio = fakeMinio();
-    const connect = vi.fn(async () => minio);
+    const s3 = fakeS3();
+    const connect = vi.fn(async () => s3);
     const store = await createAssetStore("/tmp/u", {}, connect);
     expect(store).not.toBeInstanceOf(LocalDiskAssetStore);
-    expect(connect).toHaveBeenCalledWith(expect.objectContaining({ endpoint: DEV_MINIO_ENDPOINT, attempts: 1 }));
+    expect(connect).toHaveBeenCalledWith(expect.objectContaining({ endpoint: DEV_S3_ENDPOINT, attempts: 1 }));
   });
 
   it("falls back to local disk when nothing answers", async () => {
@@ -90,30 +91,39 @@ describe("choosing upload storage (upload-storage)", () => {
   });
 });
 
-describe("keeping a disk copy alongside MinIO (upload-storage)", () => {
+describe("keeping a disk copy alongside object storage (upload-storage)", () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it("deletes both the MinIO object and the disk copy, so a deleted asset stops loading", async () => {
+  it("deletes both the object storage object and the disk copy, so a deleted asset stops loading", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     const uploadDir = await mkdtemp(path.join(tmpdir(), "vtt-uploads-"));
     await writeFile(path.join(uploadDir, "map.png"), "disk copy");
-    const minioDelete = vi.fn(async () => {});
-    const connect = vi.fn(async (): Promise<AssetStore> => ({ ...fakeMinio(), delete: minioDelete }));
-    const store = await createAssetStore(uploadDir, { MINIO_ENDPOINT: "http://minio:9000" }, connect);
+    const s3Delete = vi.fn(async () => {});
+    const connect = vi.fn(async (): Promise<AssetStore> => ({ ...fakeS3(), delete: s3Delete }));
+    const store = await createAssetStore(uploadDir, { S3_ENDPOINT: "http://s3:9000" }, connect);
     await store.delete("map.png");
-    expect(minioDelete).toHaveBeenCalledWith("map.png");
+    expect(s3Delete).toHaveBeenCalledWith("map.png");
     expect(existsSync(path.join(uploadDir, "map.png"))).toBe(false);
+  });
+
+  it("reads private analysis bytes by object key and falls back to the disk copy", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const uploadDir = await mkdtemp(path.join(tmpdir(), "vtt-uploads-"));
+    await writeFile(path.join(uploadDir, "map.png"), "stored bytes");
+    const store = await createAssetStore(uploadDir, { S3_ENDPOINT: "http://s3:9000" }, async () => fakeS3());
+    expect(Buffer.from((await store.readPrivate("map.png", 100))!).toString()).toBe("stored bytes");
+    await expect(store.readPrivate("map.png", 2)).rejects.toThrow("limit");
   });
 });
 
-describe("serving uploads while MinIO is in use (upload-storage)", () => {
-  it("serves MinIO objects, falls through to disk for older uploads, and 404s the rest", async () => {
+describe("serving uploads while object storage is in use (upload-storage)", () => {
+  it("serves object storage objects, falls through to disk for older uploads, and 404s the rest", async () => {
     const uploadDir = await mkdtemp(path.join(tmpdir(), "vtt-uploads-"));
     await writeFile(path.join(uploadDir, "old.png"), "from-disk");
-    const app = await buildApp({ store: new MemoryRoomStore(), uploadDir, assets: fakeMinio({ "new.png": "from-minio" }) });
+    const app = await buildApp({ store: new MemoryRoomStore(), uploadDir, assets: fakeS3({ "new.png": "from-s3" }) });
     const base = await listenForFetch(app);
     try {
-      expect(await (await fetch(`${base}/uploads/new.png`)).text()).toBe("from-minio");
+      expect(await (await fetch(`${base}/uploads/new.png`)).text()).toBe("from-s3");
       expect(await (await fetch(`${base}/uploads/old.png`)).text()).toBe("from-disk");
       expect((await fetch(`${base}/uploads/missing.png`)).status).toBe(404);
     } finally {

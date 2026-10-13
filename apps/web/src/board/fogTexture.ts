@@ -1,7 +1,8 @@
 /**
- * A seamless, cloudy fog texture drawn once with fractal value noise: pale grey-white mist with
- * soft darker pockets, like the fog on a printed battle mat or a VTT's cloud cover. Tiles at
- * `FOG_TEXTURE_SIZE` pixels, so the fog can repeat across any map.
+ * A seamless, cloudy fog texture drawn once with domain-warped fractal value noise: wisps of pale
+ * mist curling through darker blue-grey banks. Tiles at `FOG_TEXTURE_SIZE` pixels, so the fog can
+ * repeat across any map; the board layers it twice, at different scales and angles, so the
+ * repeat doesn't show.
  */
 export const FOG_TEXTURE_SIZE = 512;
 
@@ -26,7 +27,8 @@ function sample(values: Float32Array, cells: number, u: number, v: number): numb
   const y0 = Math.floor(y);
   const fx = smooth(x - x0);
   const fy = smooth(y - y0);
-  const at = (gx: number, gy: number) => values[(gy % cells) * cells + (gx % cells)]!;
+  const wrap = (n: number) => ((n % cells) + cells) % cells;
+  const at = (gx: number, gy: number) => values[wrap(gy) * cells + wrap(gx)]!;
   const top = at(x0, y0) * (1 - fx) + at(x0 + 1, y0) * fx;
   const bottom = at(x0, y0 + 1) * (1 - fx) + at(x0 + 1, y0 + 1) * fx;
   return top * (1 - fy) + bottom * fy;
@@ -41,23 +43,33 @@ export function makeFogCanvas(): HTMLCanvasElement {
   const ctx = canvas.getContext("2d");
   if (!ctx) return canvas;
   const image = ctx.createImageData(size, size);
-  const octaves = [
-    { cells: 4, weight: 0.5, seed: 11 },
-    { cells: 8, weight: 0.27, seed: 23 },
-    { cells: 16, weight: 0.15, seed: 37 },
-    { cells: 32, weight: 0.08, seed: 51 },
+  const fbm = (octaves: { cells: number; weight: number; values: Float32Array }[], u: number, v: number) => {
+    let n = 0;
+    for (const o of octaves) n += sample(o.values, o.cells, u, v) * o.weight;
+    return n;
+  };
+  const octaves = (seed: number) => [
+    { cells: 4, weight: 0.5, seed },
+    { cells: 8, weight: 0.27, seed: seed + 12 },
+    { cells: 16, weight: 0.15, seed: seed + 26 },
+    { cells: 32, weight: 0.08, seed: seed + 40 },
   ].map((o) => ({ ...o, values: lattice(o.cells, o.seed) }));
+  const mist = octaves(11);
+  const warpX = octaves(101);
+  const warpY = octaves(211);
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      let n = 0;
-      for (const o of octaves) n += sample(o.values, o.cells, x / size, y / size) * o.weight;
-      // Stretch the middle of the range so the clouds have contrast, then map to grey-white.
-      const t = Math.min(1, Math.max(0, (n - 0.25) * 2));
-      const shade = 150 + t * 95;
+      const u = x / size;
+      const v = y / size;
+      // Bend the lookup by another noise field, so the clouds stretch into curls and wisps.
+      const n = fbm(mist, u + 0.35 * (fbm(warpX, u, v) - 0.5), v + 0.35 * (fbm(warpY, u, v) - 0.5));
+      // Stretch the middle of the range for contrast: dark blue-grey banks, pale mist on top.
+      const t = Math.min(1, Math.max(0, (n - 0.22) * 2.1));
+      const lift = t * t * (3 - 2 * t);
       const i = (y * size + x) * 4;
-      image.data[i] = shade;
-      image.data[i + 1] = shade + 3;
-      image.data[i + 2] = shade + 8;
+      image.data[i] = 96 + lift * 140;
+      image.data[i + 1] = 104 + lift * 136;
+      image.data[i + 2] = 118 + lift * 128;
       image.data[i + 3] = 255;
     }
   }

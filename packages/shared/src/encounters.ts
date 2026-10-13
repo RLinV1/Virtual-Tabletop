@@ -54,7 +54,8 @@ export function encounterTable(encounter: ResolvedEncounter, newId: () => string
     const id = newId();
     fog[id] = { ...region, id };
   }
-  return { scene: encounter.scene, tokens, templates: {}, fog, initiative: null };
+  // Templates keep no walls yet; the applied board has none (ADR 0029).
+  return { scene: encounter.scene, tokens, templates: {}, fog, initiative: null, walls: {} };
 }
 
 /** Rebuilds a map image from a template's saved reference and the address the server resolved. */

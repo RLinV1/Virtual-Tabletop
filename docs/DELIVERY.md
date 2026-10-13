@@ -40,7 +40,7 @@ The prototype already covers the three requirements rated **High** difficulty �
 ```
                     ┌────────────────────────┐
                     │ Slice 0: Foundations   │  blocks everything
-                    │ Postgres/Redis/MinIO,  │
+                    │ Postgres/Redis/SeaweedFS,  │
                     │ schema, workspace split│
                     └───────────┬────────────┘
                                 │
@@ -68,7 +68,7 @@ Slices 1–3 run **in parallel** across three workstreams.
 
 | Work | Requirements |
 | --- | --- |
-| Docker Compose: Postgres, Redis, MinIO | — |
+| Docker Compose: Postgres, Redis, SeaweedFS | — |
 | Prisma schema from `DESIGN.md` §5, with migrations | — |
 | Workspace split: `apps/web`, `apps/server`, `services/map-analysis`, `packages/shared` | — |
 | Move the prototype's in-memory room onto Postgres + Redis `INCR` | FR-SYNC-01, FR-SYNC-02, FR-SYNC-04 |
@@ -90,7 +90,7 @@ Writing the event log now rather than during Tactical Play costs almost nothing 
 
 | Work | Requirements |
 | --- | --- |
-| Map upload → MinIO, served from a separate origin | FR-GM-02 |
+| Map upload → S3 object storage, served from a separate origin | FR-GM-02 |
 | **Manual** grid alignment UI (cell size, offset, nudge) | FR-GM-04 |
 | Grid metadata stored in board coordinates | FR-GM-05 |
 | Automatic detection via BullMQ → analysis service, with confidence | FR-GM-03 |

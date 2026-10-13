@@ -121,8 +121,7 @@ export function SignInPage() {
       onSubmit={() => void submit()}
       footer={
         <>
-          New here? <Link href={withNext("/signup")}>Create an account</Link>. Players never need one: they join from the
-          GM&apos;s invite link.
+          New here? <Link href={withNext("/signup")}>Create an account</Link>
         </>
       }
     >

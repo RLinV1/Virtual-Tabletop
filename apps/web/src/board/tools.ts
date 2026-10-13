@@ -1,4 +1,4 @@
-import { pointInPolygon, snapTokenCenter, type AreaShape, type AreaTemplate, type FogRegion, type GridSpec, type Point } from "@vtt/shared";
+import { pointInPolygon, snapTokenCenter, type AreaShape, type AreaTemplate, type FogRegion, type GridSpec, type Point, type Wall } from "@vtt/shared";
 
 export type { AreaShape };
 
@@ -26,13 +26,63 @@ export type BoardTool =
       gmOnly: boolean;
     }
   | { kind: "erase" }
-  /** GM only (FR-GM-17, ADR 0016): conceal a rectangle or polygon, or reveal (remove) a fogged region. */
-  | { kind: "fog"; mode: FogMode }
   /** Picking whom `attackerId` attacks (attack-targeting). Started from a token's Attack button, not the rail. */
   | { kind: "attack"; attackerId: string };
 
-/** What the Fog tool does: drag a rectangle, click out a polygon, or click a region to remove it. */
-export type FogMode = "rect" | "polygon" | "reveal";
+/**
+ * What the map editor's Walls step does (map-editor): chain walls, remove one, detect walls like a
+ * clicked one, or make a wall a door or window (ADR 0030).
+ */
+export type WallMode = "draw" | "erase" | "sample" | "portal";
+
+/** The nearest point to `p` on the segment from `a` to `b`. */
+export function closestOnSegment(p: Point, a: Point, b: Point): Point {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const length2 = dx * dx + dy * dy;
+  const t = length2 === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / length2));
+  return { x: a.x + t * dx, y: a.y + t * dy };
+}
+
+/** The wall nearest `p` within `tolerance` board pixels, or null (the Walls tool's Erase). */
+export function wallAt(walls: Record<string, Wall>, p: Point, tolerance: number): Wall | null {
+  let best: Wall | null = null;
+  let bestDistance = tolerance;
+  for (const wall of Object.values(walls)) {
+    const q = closestOnSegment(p, wall.a, wall.b);
+    const distance = Math.hypot(q.x - p.x, q.y - p.y);
+    if (distance <= bestDistance) {
+      best = wall;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+/** The door or window nearest `p` within `tolerance` board pixels, or null (FR-GM-18, ADR 0030). */
+export function portalAt(walls: Record<string, Wall>, p: Point, tolerance: number): Wall | null {
+  return wallAt(Object.fromEntries(Object.entries(walls).filter(([, w]) => w.portal)), p, tolerance);
+}
+
+/**
+ * Where a drawn wall's end goes (wall-editing): onto an existing wall's end within `reach` board
+ * pixels, so walls join, else onto the nearest grid corner. `free` (Alt held) leaves it as is.
+ */
+export function wallPoint(p: Point, walls: Record<string, Wall>, grid: GridSpec, reach: number, free: boolean): Point {
+  if (free) return p;
+  let best: Point | null = null;
+  let bestDistance = reach;
+  for (const wall of Object.values(walls)) {
+    for (const end of [wall.a, wall.b]) {
+      const distance = Math.hypot(end.x - p.x, end.y - p.y);
+      if (distance <= bestDistance) {
+        best = end;
+        bestDistance = distance;
+      }
+    }
+  }
+  return best ?? snapToIntersection(p, grid);
+}
 
 /** The topmost fog region under `p` (the last added wins), or null. */
 export function fogRegionAt(fog: Record<string, FogRegion>, p: Point): FogRegion | null {

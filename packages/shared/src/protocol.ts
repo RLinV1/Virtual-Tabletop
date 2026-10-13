@@ -7,7 +7,9 @@ import { GridSpec, Point } from "./geometry";
 import { TokenStats, type ConditionId } from "./conditions";
 import { AreaShape, Id, Participant, Token, type RoomState } from "./state";
 import type { RejectionCode } from "./decide";
+import { RoomUploadPurpose } from "./gridDetection";
 import { MAX_ENCOUNTER_NAME } from "./encounters";
+import type { WallDetectionStatus } from "./wallDetection";
 
 /**
  * WebSocket wire protocol. One socket per client carries two logical channels:
@@ -102,6 +104,11 @@ export type ServerMessage =
   | { type: "ephemeral"; from: Id; payload: EphemeralPayload }
   /** Terminal: this seat has ended (ADR 0006). The server disconnects right after; do not reconnect. */
   | { type: "sessionEnded"; reason: SessionEndReason }
+  /**
+   * GM only: a wall analysis of `mapUrl` changed state (ADR 0029). Not room data and no seq
+   * (invariant 4); the GM fetches the result and preview over REST.
+   */
+  | { type: "wallDetection"; mapUrl: string; status: WallDetectionStatus }
   | { type: "error"; code: "unauthorized" | "bad_request" | "not_found"; message: string };
 
 /**
@@ -202,6 +209,13 @@ export const LibraryUploadFields = z.object({
   height: Dimension,
 });
 export type LibraryUploadFields = z.infer<typeof LibraryUploadFields>;
+
+export const DirectUploadFields = z.object({
+  purpose: RoomUploadPurpose.default("token"),
+  width: Dimension.optional(),
+  height: Dimension.optional(),
+}).refine((data) => data.purpose !== "map" || (data.width !== undefined && data.height !== undefined),
+  { message: "Map uploads require image width and height" });
 
 export const LibraryPatchRequest = z
   .object({
