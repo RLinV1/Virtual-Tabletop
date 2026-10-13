@@ -20,6 +20,7 @@ import { MAX_FOG_REGIONS, MAX_GROUPS, MAX_WALLS, tableOf, type RoomState, type T
 export const UNDO_HISTORY_LIMIT = 20;
 
 export const REVERSIBLE_EVENT_TYPES = [
+  "MapSet",
   "TokenMoved",
   "TokenHiddenSet",
   "TokenConditionsSet",
@@ -42,7 +43,16 @@ export const REVERSIBLE_EVENT_TYPES = [
   "TokensGrouped",
 ] as const;
 
-export type ReversibleEvent = Extract<DomainEvent, { type: (typeof REVERSIBLE_EVENT_TYPES)[number] }>;
+type MapSetEvent = Extract<DomainEvent, { type: "MapSet" }>;
+type CompleteMapSet = MapSetEvent & {
+  gridChange: NonNullable<MapSetEvent["gridChange"]>;
+  tokenChanges: NonNullable<MapSetEvent["tokenChanges"]>;
+};
+export type ReversibleEvent =
+  | Exclude<Extract<DomainEvent, { type: (typeof REVERSIBLE_EVENT_TYPES)[number] }>, MapSetEvent>
+  | CompleteMapSet;
+
+
 
 export interface UndoEntry {
   /** The action's `commandId` (or `seq:<n>` for an event from before undo existed). */
@@ -78,6 +88,7 @@ export interface EventMeta {
 
 /** Whether an event type can take part in an undoable action. */
 export function isReversible(event: DomainEvent): event is ReversibleEvent {
+  if (event.type === "MapSet") return event.gridChange !== undefined && event.tokenChanges !== undefined;
   return (REVERSIBLE_EVENT_TYPES as readonly string[]).includes(event.type);
 }
 
@@ -129,6 +140,15 @@ function withLabels(
   event: ReversibleEvent,
 ): Pick<UndoEntry, "tokenNames" | "rollLabels"> {
   const { tokenNames, rollLabels } = labels;
+  if (event.type === "MapSet") {
+    const names = { ...tokenNames };
+    for (const change of event.tokenChanges) {
+      const token = state.tokens[change.tokenId];
+      if (token) names[token.id] = token.name;
+    }
+    return { tokenNames: names, rollLabels };
+  }
+
   if (event.type === "TokenCreated") return { tokenNames: { ...tokenNames, [event.token.id]: event.token.name }, rollLabels };
   if (event.type === "TokensGrouped") {
     const names = Object.fromEntries(event.changes.flatMap(({ tokenId }) => {
@@ -209,6 +229,14 @@ type SingleInverse = Exclude<ReversibleEvent, { type: "TokenCreated" | "Initiati
 /** The single compensating event for the reversible types that need only one. */
 function inverseOfOne(event: SingleInverse): DomainEvent {
   switch (event.type) {
+    case "MapSet":
+      return {
+        type: "MapSet",
+        map: event.previous,
+        previous: event.map,
+        gridChange: { grid: event.gridChange.previous, previous: event.gridChange.grid },
+        tokenChanges: event.tokenChanges.map((change) => ({ tokenId: change.tokenId, from: change.to, to: change.from })),
+      };
     case "TokenMoved":
       return { type: "TokenMoved", tokenId: event.tokenId, from: event.to, to: event.from };
     case "TokenHiddenSet":
@@ -256,6 +284,18 @@ export function undoConflict(state: RoomState, entry: UndoEntry): string | null 
     : e.type === "FogRemoved" ? n + 1 : n, 0);
   if (fogAfter > MAX_FOG_REGIONS) return `Can't undo: the room would hold more than ${MAX_FOG_REGIONS} fog regions.`;
   for (const event of entry.events) {
+    if (event.type === "MapSet") {
+      if (!sameValue(state.scene.map, event.map)) return "Can't undo: the map has changed since.";
+      if (!sameValue(state.scene.grid, event.gridChange.grid)) return "Can't undo: the grid has changed since.";
+      for (const change of event.tokenChanges) {
+        const token = state.tokens[change.tokenId];
+        const name = token?.name ?? entry.tokenNames[change.tokenId] ?? "That token";
+        if (!token) return `Can't undo: ${name} no longer exists.`;
+        if (token.position.x !== change.to.x || token.position.y !== change.to.y) return `Can't undo: ${name} has changed since.`;
+      }
+      continue;
+    }
+
     if (isGroupEvent(event)) {
       const conflict = groupUndoConflict(state, event);
       if (conflict) return conflict;
@@ -334,52 +374,52 @@ export function undoConflict(state: RoomState, entry: UndoEntry): string | null 
   return null;
 }
 
-/** A table as `reduce` applies it: one from before walls existed had none (ADR 0029). */
+/** A table as `reduce` applies it: one from before walls existed had none (ADR 0029). */
 const withWalls = (table: TableState): TableState => ({ ...table, walls: table.walls ?? {} });
 
-type GroupEvent = Extract<ReversibleEvent, { type: "GroupCreated" | "GroupRenamed" | "GroupDeleted" | "TokensGrouped" }>;
-
-const isGroupEvent = (event: ReversibleEvent): event is GroupEvent =>
-  event.type === "GroupCreated" || event.type === "GroupRenamed" || event.type === "GroupDeleted" || event.type === "TokensGrouped";
-
-/**
- * Why undoing a group event would clobber a newer change: a message, or null when it is safe (KAN-82).
- */
-function groupUndoConflict(state: RoomState, event: GroupEvent): string | null {
-  const label = (id: string) => `"${state.groups[id]?.name ?? "that group"}"`;
-  switch (event.type) {
-    case "GroupCreated": {
-      const group = state.groups[event.group.id];
-      if (!group) return "Can't undo: that group has already been deleted.";
-      if (group.name !== event.group.name) return `Can't undo: ${label(group.id)} has been renamed since.`;
-      // Deleting it now would also ungroup tokens put in it later.
-      if (Object.values(state.tokenGroups).includes(group.id)) return `Can't undo: ${label(group.id)} has tokens in it now.`;
-      return null;
-    }
-    case "GroupRenamed": {
-      const group = state.groups[event.groupId];
-      if (!group) return "Can't undo: that group has been deleted.";
-      return group.name === event.name ? null : `Can't undo: ${label(group.id)} has been renamed since.`;
-    }
-    case "GroupDeleted": {
-      if (state.groups[event.group.id]) return `Can't undo: ${label(event.group.id)} is already back.`;
-      if (Object.keys(state.groups).length >= MAX_GROUPS) return `Can't undo: the room already has ${MAX_GROUPS} groups.`;
-      const clash = Object.values(state.groups).find((g) => normalizeName(g.name) === normalizeName(event.group.name));
-      if (clash) return `Can't undo: another group is now named "${clash.name}".`;
-      if (event.members.some((id) => state.tokenGroups[id] !== undefined)) return "Can't undo: some of its tokens are in another group now.";
-      return null;
-    }
-    case "TokensGrouped": {
-      if (event.changes.some(({ tokenId }) => (state.tokenGroups[tokenId] ?? null) !== event.groupId)) {
-        return "Can't undo: some of those tokens have moved to another group since.";
-      }
-      if (event.changes.some(({ previous }) => previous !== null && !state.groups[previous])) {
-        return "Can't undo: a group those tokens came from has been deleted.";
-      }
-      return null;
-    }
-  }
-}
+type GroupEvent = Extract<ReversibleEvent, { type: "GroupCreated" | "GroupRenamed" | "GroupDeleted" | "TokensGrouped" }>;
+
+const isGroupEvent = (event: ReversibleEvent): event is GroupEvent =>
+  event.type === "GroupCreated" || event.type === "GroupRenamed" || event.type === "GroupDeleted" || event.type === "TokensGrouped";
+
+/**
+ * Why undoing a group event would clobber a newer change: a message, or null when it is safe (KAN-82).
+ */
+function groupUndoConflict(state: RoomState, event: GroupEvent): string | null {
+  const label = (id: string) => `"${state.groups[id]?.name ?? "that group"}"`;
+  switch (event.type) {
+    case "GroupCreated": {
+      const group = state.groups[event.group.id];
+      if (!group) return "Can't undo: that group has already been deleted.";
+      if (group.name !== event.group.name) return `Can't undo: ${label(group.id)} has been renamed since.`;
+      // Deleting it now would also ungroup tokens put in it later.
+      if (Object.values(state.tokenGroups).includes(group.id)) return `Can't undo: ${label(group.id)} has tokens in it now.`;
+      return null;
+    }
+    case "GroupRenamed": {
+      const group = state.groups[event.groupId];
+      if (!group) return "Can't undo: that group has been deleted.";
+      return group.name === event.name ? null : `Can't undo: ${label(group.id)} has been renamed since.`;
+    }
+    case "GroupDeleted": {
+      if (state.groups[event.group.id]) return `Can't undo: ${label(event.group.id)} is already back.`;
+      if (Object.keys(state.groups).length >= MAX_GROUPS) return `Can't undo: the room already has ${MAX_GROUPS} groups.`;
+      const clash = Object.values(state.groups).find((g) => normalizeName(g.name) === normalizeName(event.group.name));
+      if (clash) return `Can't undo: another group is now named "${clash.name}".`;
+      if (event.members.some((id) => state.tokenGroups[id] !== undefined)) return "Can't undo: some of its tokens are in another group now.";
+      return null;
+    }
+    case "TokensGrouped": {
+      if (event.changes.some(({ tokenId }) => (state.tokenGroups[tokenId] ?? null) !== event.groupId)) {
+        return "Can't undo: some of those tokens have moved to another group since.";
+      }
+      if (event.changes.some(({ previous }) => previous !== null && !state.groups[previous])) {
+        return "Can't undo: a group those tokens came from has been deleted.";
+      }
+      return null;
+    }
+  }
+}
 
 /** Deep equality for plain data, ignoring object key order. */
 function sameValue(a: unknown, b: unknown): boolean {
@@ -416,6 +456,12 @@ export function describeUndo(entry: UndoEntry, tokens: RoomState["tokens"]): { v
   }
   const first = entry.events[0];
   if (!first) return { verb: "last action", noun: "an action" };
+  if (first.type === "MapSet") {
+    const count = first.tokenChanges.length;
+    const positions = count ? ` and ${count} token position${count === 1 ? "" : "s"}` : "";
+    const action = first.map ? first.previous ? "map replacement" : "map placement" : "map removal";
+    return { verb: `${action}${positions}`, noun: `the ${action}${positions}` };
+  }
   if (first.type === "CheckpointRestored") {
     return { verb: `restore of "${first.name}"`, noun: `restoring checkpoint "${first.name}"` };
   }

@@ -30,7 +30,7 @@ export function reduce(state: RoomState, event: DomainEvent, meta?: EventMeta): 
   // rulings, which live on rolls rather than the board, stay (ADR 0019).
   const history = event.type === "CheckpointRestored" || event.type === "EncounterApplied"
     ? { ...state, undo: state.undo.filter((e) => e.events.length > 0 && e.events.every((ev) => ev.type === "RollRuled")) }
-    : event.type === "MapSet" && event.map.url !== event.previous?.url
+    : event.type === "MapSet" && event.map?.url !== event.previous?.url
       ? { ...state, undo: state.undo.filter((e) => !e.events.some((ev) => ev.type === "WallsAdded" || ev.type === "WallsRemoved" || ev.type === "PortalChanged")) }
       : state;
   return { ...next, undo: recordUndo(history, event, { ...meta, commandId: meta.commandId }) };
@@ -102,8 +102,14 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
       return { ...state, participants: { ...state.participants, [p.id]: { ...p, revoked: true } } };
     }
 
-    case "MapSet":
-      return { ...state, scene: { ...state.scene, map: event.map, grid: event.gridChange?.grid ?? state.scene.grid } };
+    case "MapSet": {
+      const tokens = { ...state.tokens };
+      for (const change of event.tokenChanges ?? []) {
+        const token = required(tokens[change.tokenId], event);
+        tokens[token.id] = { ...token, position: change.to };
+      }
+      return { ...state, scene: { ...state.scene, map: event.map, grid: event.gridChange?.grid ?? state.scene.grid }, tokens };
+    }
 
     case "GridSet":
       return { ...state, scene: { ...state.scene, grid: event.grid } };
@@ -327,6 +333,7 @@ function assertNever(x: never): never {
 function concealFoggedSides(state: RoomState, event: DomainEvent): RoomState {
   const tokenIds =
     event.type === "FogAdded" ? Object.keys(state.tokens)
+    : event.type === "MapSet" ? (event.tokenChanges ?? []).map((change) => change.tokenId)
     : event.type === "TokenMoved" || event.type === "TokenOwnersSet" ? [event.tokenId]
     : [];
   let rolls = state.rolls;

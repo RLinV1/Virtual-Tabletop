@@ -40,12 +40,16 @@ describe("tokens stay in a cell when the grid changes (KAN-74, FR-TAC-02)", () =
     expect(run(t.state, gm, { type: "scene.setGrid", grid: restyled }).events).toHaveLength(1);
   });
 
-  it("re-snaps tokens when a map is placed with its own grid", () => {
+  it("records map-specific resnapping inside one composite map event (KAN-66)", () => {
     const t = place(baseRoom(), "Fighter", { x: 105, y: 105 });
     const { events } = run(t.state, gm, {
       type: "scene.setMap", map: { url: "/uploads/keep.png", width: 1400, height: 1000 }, grid: smaller,
     });
-    expect(events.map((e) => e.type)).toEqual(["MapSet", "TokenMoved"]);
+    expect(events).toEqual([{
+      type: "MapSet", map: { url: "/uploads/keep.png", width: 1400, height: 1000 }, previous: null,
+      gridChange: { grid: smaller, previous: DEFAULT_GRID },
+      tokenChanges: [{ tokenId: t.id, from: { x: 105, y: 105 }, to: { x: 106, y: 116 } }],
+    }]);
   });
 
   it("undoes cleanly: the moves carry where each token was", () => {

@@ -6,6 +6,7 @@ import type { DomainEvent } from "./events";
 import { encounterTable, type ResolvedEncounter } from "./encounters";
 import { footprintCrossesWall, isSnapped, pathCrossesWall, polygonArea, resizedTokenCenter, snapTokenCenter, spreadPositions, type GridSpec, type Point } from "./geometry";
 import { canRenderGrid } from "./gridRenderLimit";
+import { adjustMapTokens } from "./mapTokenAdjustment";
 import type { SessionEndReason } from "./protocol";
 import { blocksMovement } from "./portals";
 import { inverseOf, undoableAction, undoConflict } from "./undo";
@@ -158,25 +159,30 @@ export function decide(
     if (state.scene.map?.url !== command.expectedMapUrl) return reject("invalid", "The map changed. Reopen the editor before saving.");
   }
   switch (command.type) {
-    case "scene.setMap":
+    case "scene.setMap": {
       if (!can.administer(actor)) return forbidden();
-      if (!canRenderGrid((command.grid ?? state.scene.grid).cellSize, command.map)) {
+      const grid = command.grid ?? state.scene.grid;
+      if (!canRenderGrid(grid.cellSize, command.map)) {
         return reject("invalid", "Grid cell size creates too many lines for this map.");
       }
-      // One event, not MapSet + GridSet: a library map and its grid are one undoable step (ADR 0004).
-      return accept(
-        command.grid
-          ? {
-              type: "MapSet",
-              map: command.map,
-              previous: state.scene.map,
-              gridChange: { grid: command.grid, previous: state.scene.grid },
-            }
-          : { type: "MapSet", map: command.map, previous: state.scene.map },
-        // Walls and fog describe one image: a different map leaves none behind (ADR 0029, ADR 0016).
-        ...(command.map.url !== state.scene.map?.url ? [...removeAllWalls(state), ...removeAllFog(state)] : []),
-        ...(command.grid ? resnapToGrid(state, command.grid) : []),
+      const adjustment = adjustMapTokens(
+        Object.values(state.tokens), state.scene.map, command.map, state.scene.grid, grid, command.tokenPolicy,
       );
+      if (!adjustment.ok) {
+        const token = state.tokens[adjustment.tokenId]!;
+        return reject("invalid", `${token.name}'s ${adjustment.footprint} px footprint cannot fit this ${command.map.width} × ${command.map.height} px map. Use a larger map, reduce the grid cell size, or reduce the token's size.`);
+      }
+      // Map, effective grid and adjusted positions are one reversible fact (ADR 0034).
+      return accept({
+        type: "MapSet",
+        map: command.map,
+        previous: state.scene.map,
+        gridChange: { grid, previous: state.scene.grid },
+        tokenChanges: adjustment.changes,
+      },
+        ...(command.map.url !== state.scene.map?.url ? [...removeAllWalls(state), ...removeAllFog(state)] : []),
+      );
+    }
 
     case "scene.setGrid":
       if (!can.administer(actor)) return forbidden();

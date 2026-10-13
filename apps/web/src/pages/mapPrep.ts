@@ -1,4 +1,4 @@
-import { normalizeLegacyGridForBoard, type Command, type GridSpec, type MapImage } from "@vtt/shared";
+import { normalizeLegacyGridForBoard, type Command, type GridSpec, type MapImage, type MapTokenPolicy, type RoomState } from "@vtt/shared";
 import { gridsEqual, parseGridDraft, toGridDraft, type GridDraft } from "./gridDraft";
 
 /**
@@ -29,7 +29,24 @@ export function prepDirty(prep: MapPrep): boolean {
 }
 
 /** The one command Apply sends: map and grid together, a single `MapSet` (ADR 0004). Null while the grid is invalid. */
-export function prepCommand(prep: MapPrep): Extract<Command, { type: "scene.setMap" }> | null {
+export function prepCommand(prep: MapPrep, tokenPolicy?: MapTokenPolicy): Extract<Command, { type: "scene.setMap" }> | null {
   const grid = parseGridDraft(prep.draft, prep.map);
-  return grid ? { type: "scene.setMap", map: prep.map, grid } : null;
+  return grid ? { type: "scene.setMap", map: prep.map, grid, ...(tokenPolicy ? { tokenPolicy } : {}) } : null;
+}
+
+/** The choices for tokens already on a map that is about to be replaced (KAN-67, ADR 0034). */
+export const TOKEN_POLICY_CHOICES: readonly { value: MapTokenPolicy; label: string; hint: string }[] = [
+  { value: "scale", label: "Scale to fit", hint: "Move tokens in proportion to the size of the new map." },
+  { value: "keep", label: "Keep positions", hint: "Leave tokens where they are; any off the new map move to its edge." },
+  { value: "recenter", label: "Recenter", hint: "Move the tokens to the middle of the new map." },
+];
+
+/** The choice is only worth asking when a map would be replaced and tokens exist to move. */
+export function offersTokenPolicy(state: RoomState): boolean {
+  return state.scene.map !== null && Object.keys(state.tokens).length > 0;
+}
+
+/** "3 tokens adjusted", or null when nothing moved. */
+export function adjustedMessage(count: number): string | null {
+  return count === 0 ? null : `${count} ${count === 1 ? "token" : "tokens"} adjusted`;
 }
