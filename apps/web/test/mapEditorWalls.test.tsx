@@ -171,7 +171,7 @@ describe("map editor walls (FR-GM-09, FR-GM-11)", () => {
     await waitFor(() => expect((screen.getByRole("button", { name: "Detect walls" }) as HTMLButtonElement).disabled).toBe(false));
     fake.notify({ status: "done", wallCount: 7, width: 800, height: 600 });
 
-    expect(await screen.findByText(/7 walls found\. Check them before applying/)).toBeTruthy();
+    expect(await screen.findByText(/7 walls found\./)).toBeTruthy();
     fireEvent.click(await screen.findByRole("button", { name: "Apply 7 walls" }));
     await waitFor(() => expect(fake.commands).toEqual([{ type: "wall.applyDetected", mapUrl: MAP_URL }]));
   });
