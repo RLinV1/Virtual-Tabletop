@@ -31,6 +31,7 @@ export function GridForm({
   busyLabel = "Applying…",
   cancelLabel = "Cancel",
   allowUnchanged = false,
+  advancedOpen = false,
   children,
 }: {
   grid: GridSpec;
@@ -52,6 +53,8 @@ export function GridForm({
   cancelLabel?: string;
   /** An unconfigured map must be able to save an explicit grid equal to the defaults. */
   allowUnchanged?: boolean;
+  /** Shows the line and geometry fields always, under a plain heading, instead of behind "Advanced". */
+  advancedOpen?: boolean;
   /** Extra actions below the form, e.g. the room's "Save grid to library". */
   children?: ReactNode;
 }) {
@@ -123,12 +126,14 @@ export function GridForm({
         })}
       />
       <div className="grid-advanced">
-        <button type="button" className="grid-advanced-toggle" aria-expanded={advanced}
-          aria-controls={advancedId} onClick={() => setAdvanced((open) => !open)}>
-          <span className="grid-advanced-title">Advanced</span>
-          <CaretDown size={14} weight="bold" className="grid-advanced-caret" aria-hidden="true" />
-        </button>
-        <div id={advancedId} className="grid-advanced-body" hidden={!advanced}>
+        {advancedOpen ? <h3 className="map-editor-heading">Advanced</h3> : (
+          <button type="button" className="grid-advanced-toggle" aria-expanded={advanced}
+            aria-controls={advancedId} onClick={() => setAdvanced((open) => !open)}>
+            <span className="grid-advanced-title">Advanced</span>
+            <CaretDown size={14} weight="bold" className="grid-advanced-caret" aria-hidden="true" />
+          </button>
+        )}
+        <div id={advancedId} className="grid-advanced-body" hidden={!advancedOpen && !advanced}>
           <p id={previewHelpId} className="muted small-print" role="status" hidden={!liveGeometry}>
             Temporary preview values. Click the map or press Enter to confirm placement.
           </p>

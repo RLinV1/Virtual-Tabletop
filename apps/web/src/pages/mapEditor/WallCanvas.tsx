@@ -119,7 +119,7 @@ export function WallCanvas({ map, grid, walls, candidates, erased, mode, onAdd, 
             <g strokeLinecap="round">
               {Object.values(walls).map((w) => {
                 const hot = erasing?.id === w.id || marking?.id === w.id;
-                const color = erasing?.id === w.id ? "#e74c3c" : marking?.id === w.id ? "#ffd166" : w.portal ? PORTAL_COLORS[w.portal.kind] : "#ff6b2c";
+                const color = erasing?.id === w.id ? "#e74c3c" : marking?.id === w.id ? "#ffd166" : w.portal ? PORTAL_COLORS[w.portal.kind] : "#f0a24a";
                 // An open portal is drawn dashed, a locked one with a lock mark (ADR 0030).
                 const dash = w.portal?.state === "open" ? `${10 * px} ${6 * px}` : undefined;
                 return (

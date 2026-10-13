@@ -116,7 +116,8 @@ const FOG_CLOUD_SCALE = 2.5;
 const FOG_WISP_SCALE = 1.55;
 const FOG_WISP_ANGLE = 0.6;
 const FOG_WISP_ALPHA = 0.55;
-const FOG_GM_ALPHA = 0.5;
+/** The GM sees fog nearly opaque too, so what players cannot see is hidden from the GM view as well (the Fog toggle shows everything). */
+const FOG_GM_ALPHA = 0.93;
 const FOG_EDGE = 0x9fb3c8;
 /** How close (screen pixels) a click has to come to a door or window to use it (ADR 0030). */
 const PORTAL_REACH_PX = 10;
@@ -619,11 +620,11 @@ export class BoardView {
     const g = this.wallGraphics.clear();
     const plain = Object.values(state.walls).filter((w) => !w.portal);
     if (plain.length > 0) {
-      const width = Math.max(3, state.scene.grid.cellSize * 0.09);
+      const width = Math.max(2, state.scene.grid.cellSize * 0.05);
       for (const wall of plain) g.moveTo(wall.a.x, wall.a.y).lineTo(wall.b.x, wall.b.y);
-      g.stroke({ width: width + 4, color: 0x111111, alpha: 0.8, cap: "round", join: "round" });
+      g.stroke({ width: width + 3, color: 0x14110e, alpha: 0.55, cap: "round", join: "round" });
       for (const wall of plain) g.moveTo(wall.a.x, wall.a.y).lineTo(wall.b.x, wall.b.y);
-      g.stroke({ width, color: 0xff6b2c, alpha: 0.95, cap: "round", join: "round" });
+      g.stroke({ width, color: 0xf0a24a, alpha: 0.95, cap: "round", join: "round" });
     }
     this.drawPortals();
   }
@@ -669,6 +670,13 @@ export class BoardView {
     for (const view of this.tokens.values()) view.drawnKey = "";
     if (this.initialized && this.state && this.you) this.syncTokens();
     this.invalidate();
+  }
+
+  /** GM only: whether the GM's own board draws the walls. Doors and windows stay, as players see them. */
+  setShowWalls(show: boolean) {
+    if (this.wallGraphics.visible === show) return;
+    this.wallGraphics.visible = show;
+    if (this.initialized) this.invalidate();
   }
 
   /** GM only: how the GM's own board shows fog (see `GmFogView`). */

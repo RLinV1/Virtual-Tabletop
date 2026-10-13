@@ -1,4 +1,4 @@
-import { CornersOut, Eye, EyeSlash, UserFocus } from "@phosphor-icons/react";
+import { CornersOut, LineSegments, Eye, EyeSlash, UserFocus } from "@phosphor-icons/react";
 import { Suspense, forwardRef, lazy, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
 import { DEFAULT_TOKEN_COLOR, EMPTY_STATS, conditionSpec, presetOf, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
@@ -102,11 +102,14 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   const viewRef = useRef<BoardView | null>(null);
   /** GM only: false shows everything through the fog (this browser remembers it). */
   const [gmFog, setGmFog] = usePersistentState<GmFogView>("vtt.ui.gmFogView", "tint", isGmFogView);
+  /** GM only: whether this browser draws the walls. Players never receive them. */
+  const [showWalls, setShowWalls] = usePersistentState<boolean>("vtt.ui.gmShowWalls", true, (v): v is boolean => typeof v === "boolean");
   const hasFog = Object.keys(state.fog).length > 0;
+  const hasWalls = Object.values(state.walls).some((wall) => !wall.portal);
   /** Strikes waiting for their thrown dice to land, by roll id, oldest first (KAN-76). */
   const waitingStrikes = useRef(new Map<string, { effect: AttackEffect; timer: number }>());
-  const latest = useRef({ state, you, gridPreview, onPickTarget, gmFog: "tint" as GmFogView, readOnly: false });
-  latest.current = { state, you, gridPreview, onPickTarget, gmFog, readOnly };
+  const latest = useRef({ state, you, gridPreview, onPickTarget, gmFog: "tint" as GmFogView, showWalls: true, readOnly: false });
+  latest.current = { state, you, gridPreview, onPickTarget, gmFog, showWalls, readOnly };
   // Sends nothing while previewing as a player, whatever the board is asked to do. Stable for as
   // long as the connection is, so entering and leaving a preview never rebuilds the board view.
   const guarded = useMemo(() => guardedConnection(connection, () => latest.current.readOnly), [connection]);
@@ -256,6 +259,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       if (disposed) return view.destroy();
       viewRef.current = view;
       view.setGmFogView(latest.current.gmFog);
+      view.setShowWalls(latest.current.showWalls);
       view.setReadOnly(latest.current.readOnly);
       view.setGridPreview(latest.current.gridPreview);
       view.update(latest.current.state, latest.current.you);
@@ -332,6 +336,10 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       setTool({ kind: "select" });
     }
   }, [readOnly]);
+
+  useEffect(() => {
+    viewRef.current?.setShowWalls(showWalls);
+  }, [showWalls]);
 
   useEffect(() => {
     viewRef.current?.setGmFogView(gmFog);
@@ -453,6 +461,18 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
           <CornersOut size={16} aria-hidden="true" />
           Fit
         </button>
+        {you.role === "gm" && hasWalls && (
+          <button
+            type="button"
+            className="tool-button"
+            aria-pressed={showWalls}
+            onClick={() => setShowWalls(!showWalls)}
+            title={showWalls ? "Hide the walls on your view. Players never see them." : "Show the walls on your view"}
+          >
+            <LineSegments size={16} aria-hidden="true" />
+            {showWalls ? "Walls on" : "Walls off"}
+          </button>
+        )}
         {you.role === "gm" && hasFog && (
           <button
             type="button"

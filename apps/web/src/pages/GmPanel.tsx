@@ -101,7 +101,7 @@ export function GmPanel({
 function RoomGridEditor(props: ComponentProps<typeof GridForm> & {
   roomId: string; token: string; directMap: boolean;
 }) {
-  return props.directMap ? <DirectMapGridEditor {...props} /> : <GridForm {...props} />;
+  return props.directMap ? <DirectMapGridEditor {...props} advancedOpen /> : <GridForm {...props} advancedOpen />;
 }
 
 function DirectMapGridEditor(props: ComponentProps<typeof RoomGridEditor>) {
