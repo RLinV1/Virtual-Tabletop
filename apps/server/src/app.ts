@@ -118,9 +118,9 @@ export async function buildApp({
     res.setHeader("X-Content-Type-Options", "nosniff");
     next();
   });
-  // Objects in MinIO are streamed through here so their URLs stay origin-relative and
-  // work from any device. Anything MinIO does not have falls through to the disk folder,
-  // so images uploaded before a checkout started using MinIO still load (upload-storage).
+  // Objects in object storage are streamed through here so their URLs stay origin-relative and
+  // work from any device. Anything object storage does not have falls through to the disk folder,
+  // so images uploaded before a checkout started using object storage still load (upload-storage).
   if (assets?.read) {
     app.get("/uploads/:key", (req, res, next) => {
       void assets

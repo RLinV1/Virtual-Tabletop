@@ -12,7 +12,7 @@ or the `vtt` database itself.
 |---|---|---|---|
 | Scratch Postgres DB `vtt_kan7_fresh` | compose container `vtt-postgres-1` | migration test from empty; server tests; the live test server | drop when done |
 | Scratch Postgres DB `vtt_kan7_old` | same | migration test from `0005` with existing rows | drop when done |
-| Test server | `:3101`, `DATABASE_URL=…/vtt_kan7_fresh`, uploads to session scratchpad, `MINIO_AUTODETECT=0` | isolated from your dev server | stop when done |
+| Test server | `:3101`, `DATABASE_URL=…/vtt_kan7_fresh`, uploads to session scratchpad, `S3_AUTODETECT=0` | isolated from your dev server | stop when done |
 | Test web | `:5273`, proxying to `:3101` | isolated from your Vite | stop when done |
 | Temporary `.claude/launch.json` entries `kan7-server`, `kan7-web` | tracked file | to start the two servers above | **reverted** |
 

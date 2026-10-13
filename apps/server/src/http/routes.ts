@@ -173,7 +173,7 @@ export function registerRoutes(
     })().catch(internalError(req, res));
   });
 
-  /** Image upload for maps/tokens. GM only (FR-GM-02). Stored in MinIO/S3 when configured. */
+  /** Image upload for maps/tokens. GM only (FR-GM-02). Stored in S3 when configured. */
   app.post("/api/uploads", (req, res) => {
     void (async () => {
       const actor = await authenticate(req);

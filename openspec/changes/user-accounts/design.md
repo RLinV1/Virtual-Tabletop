@@ -164,7 +164,7 @@ users.active_dice_look_id → dice_looks.id  ON DELETE SET NULL
 
 **Why the choice lives on `users`:** "the look in use" is one choice per person and must follow them across devices.
 
-**Pictures** use the existing upload path (multer, random object key, MinIO or disk) with dice limits: 5 MB, PNG, JPEG or WebP, and declared dimensions of 3:2 up to 1536 × 1024 or 1:1 up to 512 × 512. The browser already re-encodes every picture (`dice-image-skins`). The server trusts declared dimensions, as the library upload does: while a look is drawn only for its owner, a lie only misdraws the liar's own dice. `shared-dice-looks` tightens this when others start loading the pictures.
+**Pictures** use the existing upload path (multer, random object key, object storage or disk) with dice limits: 5 MB, PNG, JPEG or WebP, and declared dimensions of 3:2 up to 1536 × 1024 or 1:1 up to 512 × 512. The browser already re-encodes every picture (`dice-image-skins`). The server trusts declared dimensions, as the library upload does: while a look is drawn only for its owner, a lie only misdraws the liar's own dice. `shared-dice-looks` tightens this when others start loading the pictures.
 
 Replacing, resetting or deleting a face deletes its old object, and deleting a look deletes all of them.
 

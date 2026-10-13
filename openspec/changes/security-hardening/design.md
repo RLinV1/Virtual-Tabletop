@@ -70,10 +70,10 @@ array. A `WeakMap` keyed by the room means the counters go when the room is evic
 any cleanup code. The arrays are filtered to the window on every use, as now, so each holds at most
 the limit's count of entries.
 
-### D4. Production MinIO credentials
+### D4. Production object storage credentials
 
-`createAssetStore` throws at startup when `NODE_ENV=production`, `MINIO_ENDPOINT` is set, and either
-`MINIO_ACCESS_KEY` or `MINIO_SECRET_KEY` is missing. The error names both variables. Outside
+`createAssetStore` throws at startup when `NODE_ENV=production`, `S3_ENDPOINT` is set, and either
+`S3_ACCESS_KEY` or `S3_SECRET_KEY` is missing. The error names both variables. Outside
 production, unset credentials keep defaulting to the docker-compose values.
 
 ### D5. Proxy trust that clients can't forge

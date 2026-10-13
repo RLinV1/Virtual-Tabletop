@@ -15,9 +15,9 @@ import {
 /**
  * Where uploaded map and token images live (DESIGN.md §2).
  *
- * Images do not belong in Postgres, so they go to object storage. MinIO speaks the S3
+ * Images do not belong in Postgres, so they go to object storage. The compose object store speaks the S3
  * API, so local dev and the deploy target run the same code path — and a checkout with
- * no MinIO running still works, on local disk.
+ * no object store running still works, on local disk.
  */
 export interface AssetStore {
   /**
@@ -73,7 +73,7 @@ export class LocalDiskAssetStore implements AssetStore {
   }
 }
 
-export class MinioAssetStore implements AssetStore {
+export class S3AssetStore implements AssetStore {
   private constructor(
     private s3: S3Client,
     private bucket: string,
@@ -87,13 +87,13 @@ export class MinioAssetStore implements AssetStore {
     region?: string;
     /** S3 client attempts per request; 1 for a quick availability probe. */
     attempts?: number;
-  }): Promise<MinioAssetStore> {
+  }): Promise<S3AssetStore> {
     const bucket = opts.bucket ?? "vtt-assets";
     const s3 = new S3Client({
       endpoint: opts.endpoint,
       region: opts.region ?? "us-east-1",
       ...(opts.attempts !== undefined && { maxAttempts: opts.attempts }),
-      // MinIO serves buckets as a path, not a subdomain.
+      // Path-style addressing: the bucket is in the path, not the subdomain.
       forcePathStyle: true,
       credentials: {
         accessKeyId: opts.accessKeyId ?? "vtt",
@@ -127,7 +127,7 @@ export class MinioAssetStore implements AssetStore {
       }),
     );
 
-    return new MinioAssetStore(s3, bucket);
+    return new S3AssetStore(s3, bucket);
   }
 
   async put(tempPath: string, filename: string, contentType: string): Promise<string> {
@@ -173,74 +173,74 @@ export class MinioAssetStore implements AssetStore {
   }
 }
 
-/** Where `docker compose up` puts MinIO. 127.0.0.1, not localhost: a WSL relay can hold ::1. */
-export const DEV_MINIO_ENDPOINT = "http://127.0.0.1:9000";
+/** Where `docker compose up` puts the S3 object store. 127.0.0.1, not localhost: a WSL relay can hold ::1. */
+export const DEV_S3_ENDPOINT = "http://127.0.0.1:8333";
 const PROBE_TIMEOUT_MS = 1000;
 
-type Connect = (opts: Parameters<typeof MinioAssetStore.connect>[0]) => Promise<AssetStore>;
+type Connect = (opts: Parameters<typeof S3AssetStore.connect>[0]) => Promise<AssetStore>;
 
 /**
- * Uploads go to MinIO whenever it is available (upload-storage):
- * `MINIO_ENDPOINT` when set; otherwise, outside production, the compose MinIO if it answers
+ * Uploads go to object storage whenever it is available (upload-storage):
+ * `S3_ENDPOINT` when set; otherwise, outside production, the compose object store if it answers
  * within a second; local disk only when neither applies. Production never falls back.
  */
 export async function createAssetStore(
   uploadDir: string,
   env: NodeJS.ProcessEnv = process.env,
-  connect: Connect = (opts) => MinioAssetStore.connect(opts),
+  connect: Connect = (opts) => S3AssetStore.connect(opts),
 ): Promise<AssetStore> {
   const credentials = {
-    bucket: env.MINIO_BUCKET,
-    accessKeyId: env.MINIO_ACCESS_KEY,
-    secretAccessKey: env.MINIO_SECRET_KEY,
+    bucket: env.S3_BUCKET,
+    accessKeyId: env.S3_ACCESS_KEY,
+    secretAccessKey: env.S3_SECRET_KEY,
   };
   const disk = new LocalDiskAssetStore(uploadDir);
   // The defaults in `connect` are the docker-compose development values: publicly known, so
   // production must name its own (security-hardening D4).
-  if (env.NODE_ENV === "production" && env.MINIO_ENDPOINT && (!env.MINIO_ACCESS_KEY || !env.MINIO_SECRET_KEY)) {
-    throw new Error("MINIO_ACCESS_KEY and MINIO_SECRET_KEY are required in production; the development credentials must not be used");
+  if (env.NODE_ENV === "production" && env.S3_ENDPOINT && (!env.S3_ACCESS_KEY || !env.S3_SECRET_KEY)) {
+    throw new Error("S3_ACCESS_KEY and S3_SECRET_KEY are required in production; the development credentials must not be used");
   }
-  if (env.MINIO_ENDPOINT) {
-    const store = await connect({ endpoint: env.MINIO_ENDPOINT, ...credentials });
-    console.log(`[vtt] storing uploads in MinIO at ${env.MINIO_ENDPOINT} (and on local disk)`);
+  if (env.S3_ENDPOINT) {
+    const store = await connect({ endpoint: env.S3_ENDPOINT, ...credentials });
+    console.log(`[vtt] storing uploads in object storage at ${env.S3_ENDPOINT} (and on local disk)`);
     return withDiskCopy(store, disk);
   }
   if (env.NODE_ENV === "production") {
-    throw new Error("MINIO_ENDPOINT is required in production; uploads must not go to local disk");
+    throw new Error("S3_ENDPOINT is required in production; uploads must not go to local disk");
   }
-  if (env.MINIO_AUTODETECT === "0") {
-    console.log("[vtt] MINIO_AUTODETECT=0 — storing uploads on local disk");
+  if (env.S3_AUTODETECT === "0") {
+    console.log("[vtt] S3_AUTODETECT=0 — storing uploads on local disk");
     return disk;
   }
-  const found = await withTimeout(connect({ endpoint: DEV_MINIO_ENDPOINT, ...credentials, attempts: 1 }), PROBE_TIMEOUT_MS);
+  const found = await withTimeout(connect({ endpoint: DEV_S3_ENDPOINT, ...credentials, attempts: 1 }), PROBE_TIMEOUT_MS);
   if (found) {
-    console.log(`[vtt] found MinIO at ${DEV_MINIO_ENDPOINT} — storing uploads there (and on local disk)`);
+    console.log(`[vtt] found object storage at ${DEV_S3_ENDPOINT} — storing uploads there (and on local disk)`);
     return withDiskCopy(found, disk);
   }
-  console.log(`[vtt] no MinIO at ${DEV_MINIO_ENDPOINT} — storing uploads on local disk`);
+  console.log(`[vtt] no object storage at ${DEV_S3_ENDPOINT} — storing uploads on local disk`);
   return disk;
 }
 
 /**
  * Every upload lands on local disk first (multer writes it there) and stays there; with
- * MinIO it is also stored in the bucket, which serves it. The disk copy is the fallback the
- * `/uploads` route reads when MinIO misses, so a delete must remove both, or a deleted
+ * object storage it is also stored in the bucket, which serves it. The disk copy is the fallback the
+ * `/uploads` route reads when object storage misses, so a delete must remove both, or a deleted
  * library asset would keep loading from disk.
  */
-function withDiskCopy(minio: AssetStore, disk: LocalDiskAssetStore): AssetStore {
+function withDiskCopy(s3: AssetStore, disk: LocalDiskAssetStore): AssetStore {
   return {
-    put: (tempPath, filename, contentType) => minio.put(tempPath, filename, contentType),
-    read: minio.read?.bind(minio),
+    put: (tempPath, filename, contentType) => s3.put(tempPath, filename, contentType),
+    read: s3.read?.bind(s3),
     readPrivate: async (key, maxBytes) => {
       try {
-        return (await minio.readPrivate(key, maxBytes)) ?? disk.readPrivate(key, maxBytes);
+        return (await s3.readPrivate(key, maxBytes)) ?? disk.readPrivate(key, maxBytes);
       } catch {
         // Multer's local copy is the same fallback used by the public /uploads route.
         return disk.readPrivate(key, maxBytes);
       }
     },
     delete: async (key) => {
-      await minio.delete(key);
+      await s3.delete(key);
       await disk.delete(key);
     },
   };

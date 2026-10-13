@@ -33,18 +33,18 @@ a second tab in the same window is still the GM.
 ### Running with persistence
 
 By default the server keeps everything in memory, so restarting `npm run dev` clears every
-room. Uploads go to MinIO whenever it is running: with `MINIO_ENDPOINT` unset, the dev server
-looks for the compose MinIO at `127.0.0.1:9000` and only falls back to local disk when nothing
-answers (`MINIO_AUTODETECT=0` skips the check; production refuses to start without
-`MINIO_ENDPOINT`). That is deliberate — a fresh checkout runs with
-no containers. To run the real stack (Postgres, Redis, MinIO — see [`docs/DESIGN.md`](docs/DESIGN.md) §2):
+room. Uploads go to the S3 object store (SeaweedFS) whenever it is running: with `S3_ENDPOINT` unset, the dev server
+looks for the compose SeaweedFS at `127.0.0.1:8333` and only falls back to local disk when nothing
+answers (`S3_AUTODETECT=0` skips the check; production refuses to start without
+`S3_ENDPOINT`). That is deliberate — a fresh checkout runs with
+no containers. To run the real stack (Postgres, Redis, SeaweedFS — see [`docs/DESIGN.md`](docs/DESIGN.md) §2):
 
 ```bash
 docker compose up -d
 export DATABASE_URL=postgres://vtt:vtt@localhost:5432/vtt
 npm run prisma:migrate --workspace=@vtt/server
 REDIS_URL=redis://localhost:6379 \
-MINIO_ENDPOINT=http://localhost:9000 \
+S3_ENDPOINT=http://localhost:8333 \
 npm run dev
 ```
 
