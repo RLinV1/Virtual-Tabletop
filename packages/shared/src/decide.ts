@@ -921,8 +921,16 @@ const MAX_TOKEN_NAME = 60;
  * so it's deterministic; the result goes into `TokenCreated`, so replay never re-runs it.
  */
 export function uniqueTokenName(state: RoomState, name: string, exceptId?: string): string {
+  return uniqueName(Object.values(state.tokens).filter((t) => t.id !== exceptId).map((t) => t.name), name);
+}
+
+/**
+ * `uniqueTokenName` over a plain list of names already in use, for boards that are not a room,
+ * such as the encounter editor's draft (ADR 0033). Same numbering and the same comparison.
+ */
+export function uniqueName(namesInUse: Iterable<string>, name: string): string {
   const trimmed = name.trim();
-  const taken = new Set(Object.values(state.tokens).filter((t) => t.id !== exceptId).map((t) => normalizeName(t.name)));
+  const taken = new Set(Array.from(namesInUse, normalizeName));
   if (!taken.has(normalizeName(trimmed))) return trimmed;
   const base = trimmed.replace(/\s+\d+$/, "") || trimmed;
   for (let n = 2; ; n++) {

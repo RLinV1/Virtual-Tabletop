@@ -14,6 +14,7 @@ import {
   EncounterLimitError,
   EncounterMapMissingError,
   type EncounterRecord,
+  type EncounterUpdate,
   type NewEncounterRecord,
   type CreaturePatch,
   type DiceFaceRecord,
@@ -31,7 +32,9 @@ export class MemoryRoomStore implements RoomStore {
   private events = new Map<string, CommittedEvent[]>();
   private invites = new Map<string, string>();
   private credentials = new Map<string, CredentialRecord & { revokedAt?: string }>();
-  private rooms = new Map<string, { ownerGmId: string | null; name: string; createdAt: string }>();
+  private rooms = new Map<string, {
+    ownerGmId: string | null; name: string; createdAt: string; temporary: boolean; editsEncounterId: string | null;
+  }>();
   private gms = new Map<string, string>();
   private assets = new Map<string, LibraryAssetRecord>();
   private creatures = new Map<string, NewCreatureRecord>();
@@ -56,6 +59,8 @@ export class MemoryRoomStore implements RoomStore {
       ownerGmId: options.ownerGmId ?? null,
       name: options.name ?? "",
       createdAt: new Date().toISOString(),
+      temporary: options.temporary ?? false,
+      editsEncounterId: options.editsEncounterId ?? null,
     });
   }
 
@@ -174,6 +179,24 @@ export class MemoryRoomStore implements RoomStore {
     return { uploadKeys };
   }
 
+  async isTemporaryRoom(roomId: string) {
+    return this.rooms.get(roomId)?.temporary ?? false;
+  }
+
+  async findEditSession(roomId: string, ownerGmId: string) {
+    const room = this.rooms.get(roomId);
+    return room?.temporary && room.ownerGmId === ownerGmId ? { editsEncounterId: room.editsEncounterId } : null;
+  }
+
+  async setEditsEncounter(roomId: string, encounterId: string) {
+    const room = this.rooms.get(roomId);
+    if (room) room.editsEncounterId = encounterId;
+  }
+
+  async listTemporaryRoomsBefore(at: string) {
+    return [...this.rooms.entries()].filter(([, room]) => room.temporary && room.createdAt < at).map(([id]) => id);
+  }
+
   async registerGm(tokenHash: string) {
     const existing = this.gms.get(tokenHash);
     if (existing) return existing;
@@ -187,12 +210,12 @@ export class MemoryRoomStore implements RoomStore {
   }
 
   async listOwnedRooms(ownerGmId: string): Promise<GmRoomSummary[]> {
-    return this.summarize([...this.rooms.entries()].filter(([, room]) => room.ownerGmId === ownerGmId));
+    return this.summarize([...this.rooms.entries()].filter(([, room]) => room.ownerGmId === ownerGmId && !room.temporary));
   }
 
   async summarizeRooms(roomIds: string[]) {
     const wanted = new Set(roomIds);
-    return this.summarize([...this.rooms.entries()].filter(([id]) => wanted.has(id)));
+    return this.summarize([...this.rooms.entries()].filter(([id, room]) => wanted.has(id) && !room.temporary));
   }
 
   private summarize(rooms: [string, { name: string; createdAt: string }][]): GmRoomSummary[] {
@@ -563,7 +586,7 @@ export class MemoryRoomStore implements RoomStore {
   async listEncounters(ownerGmId: string) {
     return [...this.encounters.values()]
       .filter((e) => e.ownerGmId === ownerGmId)
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       .map((e) => this.withMap(e));
   }
 
@@ -586,6 +609,14 @@ export class MemoryRoomStore implements RoomStore {
     return this.withMap(encounter);
   }
 
+  async updateEncounter(id: string, ownerGmId: string, change: EncounterUpdate) {
+    const encounter = this.encounters.get(id);
+    if (!encounter || encounter.ownerGmId !== ownerGmId) return null;
+    const next = { ...encounter, name: change.name, data: structuredClone(change.data), updatedAt: change.updatedAt };
+    this.encounters.set(id, next);
+    return this.withMap(next);
+  }
+
   async renameEncounter(id: string, ownerGmId: string, name: string, at: string) {
     const encounter = this.encounters.get(id);
     if (!encounter || encounter.ownerGmId !== ownerGmId) return null;
@@ -597,6 +628,8 @@ export class MemoryRoomStore implements RoomStore {
   async deleteEncounter(id: string, ownerGmId: string) {
     const encounter = this.encounters.get(id);
     if (!encounter || encounter.ownerGmId !== ownerGmId) return false;
+    // As Postgres's ON DELETE SET NULL: a temporary room editing it saves as a new template.
+    for (const room of this.rooms.values()) if (room.editsEncounterId === id) room.editsEncounterId = null;
     return this.encounters.delete(id);
   }
 

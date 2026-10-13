@@ -220,8 +220,8 @@ for (const [label, store] of stores) {
       const gm = await s().registerGm(randomUUID());
       const map = asset(gm);
       await s().createAsset(map);
-      const older = encounter(gm, map.id, { name: "Older", createdAt: "2026-10-01T00:00:00.000Z" });
-      const newer = encounter(gm, map.id, { name: "Newer", createdAt: "2026-10-02T00:00:00.000Z" });
+      const older = encounter(gm, map.id, { name: "Older", createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-01T00:00:00.000Z" });
+      const newer = encounter(gm, map.id, { name: "Newer", createdAt: "2026-10-02T00:00:00.000Z", updatedAt: "2026-10-02T00:00:00.000Z" });
       await s().createEncounter(older, 50);
       await s().createEncounter(newer, 50);
       expect((await s().listEncounters(gm)).map((x) => x.name)).toEqual(["Newer", "Older"]);
@@ -229,6 +229,62 @@ for (const [label, store] of stores) {
       expect(await s().deleteEncounter(newer.id, gm)).toBe(true);
       expect(await s().deleteEncounter(newer.id, gm)).toBe(false);
       expect((await s().listEncounters(gm)).map((x) => x.name)).toEqual(["Renamed"]);
+    });
+
+    it("updates a template's name and board in place, most recently saved first (ADR 0033)", async () => {
+      const [gm, other] = [await s().registerGm(randomUUID()), await s().registerGm(randomUUID())];
+      const map = asset(gm);
+      await s().createAsset(map);
+      const first = encounter(gm, map.id, { name: "First", createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-01T00:00:00.000Z" });
+      const second = encounter(gm, map.id, { name: "Second", createdAt: "2026-10-02T00:00:00.000Z", updatedAt: "2026-10-02T00:00:00.000Z" });
+      await s().createEncounter(first, 50);
+      await s().createEncounter(second, 50);
+      const fog = [{ shape: "rect" as const, points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }] }];
+      const change = { name: "First, edited", data: { ...first.data, fog }, updatedAt: "2026-10-03T00:00:00.000Z" };
+      expect(await s().updateEncounter(first.id, other, change)).toBeNull();
+      const updated = await s().updateEncounter(first.id, gm, change);
+      expect(updated).toMatchObject({
+        id: first.id, name: "First, edited", mapAssetId: map.id, mapName: map.name, version: first.version,
+        createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-03T00:00:00.000Z",
+      });
+      expect(updated?.data.fog).toHaveLength(1);
+      expect((await s().listEncounters(gm)).map((x) => x.name)).toEqual(["First, edited", "Second"]);
+      expect(await s().updateEncounter(randomUUID(), gm, change)).toBeNull();
+    });
+
+    it("keeps temporary editing rooms private, off room lists and findable for the sweep (ADR 0033)", async () => {
+      const [gm, other] = [await s().registerGm(randomUUID()), await s().registerGm(randomUUID())];
+      const map = asset(gm);
+      await s().createAsset(map);
+      const e = encounter(gm, map.id);
+      await s().createEncounter(e, 50);
+      const [normal, editing, fresh] = [randomUUID(), randomUUID(), randomUUID()];
+      await s().createRoom(normal, randomUUID().slice(0, 8), { ownerGmId: gm, name: "Table" });
+      await s().createRoom(editing, randomUUID().slice(0, 8), { ownerGmId: gm, name: "Edit", temporary: true, editsEncounterId: e.id });
+      await s().createRoom(fresh, randomUUID().slice(0, 8), { ownerGmId: gm, name: "New", temporary: true });
+
+      expect((await s().listOwnedRooms(gm)).map((r) => r.id)).toEqual([normal]);
+      expect((await s().summarizeRooms([normal, editing, fresh])).map((r) => r.id)).toEqual([normal]);
+      expect(await s().isTemporaryRoom(editing)).toBe(true);
+      expect(await s().isTemporaryRoom(normal)).toBe(false);
+
+      expect(await s().findEditSession(editing, gm)).toEqual({ editsEncounterId: e.id });
+      expect(await s().findEditSession(fresh, gm)).toEqual({ editsEncounterId: null });
+      expect(await s().findEditSession(editing, other)).toBeNull();
+      expect(await s().findEditSession(normal, gm)).toBeNull();
+      await s().setEditsEncounter(fresh, e.id);
+      expect(await s().findEditSession(fresh, gm)).toEqual({ editsEncounterId: e.id });
+
+      const later = new Date(Date.now() + 60_000).toISOString();
+      const stale = await s().listTemporaryRoomsBefore(later);
+      expect(stale).toEqual(expect.arrayContaining([editing, fresh]));
+      expect(stale).not.toContain(normal);
+      expect(await s().listTemporaryRoomsBefore("2000-01-01T00:00:00.000Z")).toEqual([]);
+
+      // Deleting the template leaves the room saving as a new one, as ON DELETE SET NULL does.
+      await s().deleteEncounter(e.id, gm);
+      expect(await s().findEditSession(editing, gm)).toEqual({ editsEncounterId: null });
+      for (const id of [normal, editing, fresh]) await s().deleteRoom(id);
     });
 
     it("holds an owner to the template limit even when saves arrive together (encounter-templates, FR-GM-13)", async () => {

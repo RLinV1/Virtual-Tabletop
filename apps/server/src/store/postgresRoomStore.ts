@@ -24,6 +24,7 @@ import {
   EncounterLimitError,
   EncounterMapMissingError,
   type EncounterRecord,
+  type EncounterUpdate,
   type NewEncounterRecord,
   type CreaturePatch,
   type DiceFaceRecord,
@@ -72,7 +73,10 @@ export class PostgresRoomStore implements RoomStore {
 
   async createRoom(roomId: string, inviteCode: string, options: NewRoomOptions = {}) {
     await this.prisma.room.create({
-      data: { id: roomId, inviteCode, ownerGmId: options.ownerGmId ?? null, name: options.name ?? null },
+      data: {
+        id: roomId, inviteCode, ownerGmId: options.ownerGmId ?? null, name: options.name ?? null,
+        temporary: options.temporary ?? false, editsEncounterId: options.editsEncounterId ?? null,
+      },
     });
   }
 
@@ -251,6 +255,26 @@ export class PostgresRoomStore implements RoomStore {
     return deleted;
   }
 
+  async isTemporaryRoom(roomId: string) {
+    if (!UUID.test(roomId)) return false;
+    return (await this.prisma.room.count({ where: { id: roomId, temporary: true } })) === 1;
+  }
+
+  async findEditSession(roomId: string, ownerGmId: string) {
+    if (!UUID.test(roomId)) return null;
+    const room = await this.prisma.room.findFirst({ where: { id: roomId, ownerGmId, temporary: true }, select: { editsEncounterId: true } });
+    return room ? { editsEncounterId: room.editsEncounterId } : null;
+  }
+
+  async setEditsEncounter(roomId: string, encounterId: string) {
+    await this.prisma.room.updateMany({ where: { id: roomId, temporary: true }, data: { editsEncounterId: encounterId } });
+  }
+
+  async listTemporaryRoomsBefore(at: string) {
+    const rooms = await this.prisma.room.findMany({ where: { temporary: true, createdAt: { lt: new Date(at) } }, select: { id: true } });
+    return rooms.map((r) => r.id);
+  }
+
   async registerGm(tokenHash: string) {
     const row = await this.prisma.gmIdentity.upsert({
       where: { tokenHash },
@@ -267,12 +291,12 @@ export class PostgresRoomStore implements RoomStore {
   }
 
   async listOwnedRooms(ownerGmId: string): Promise<GmRoomSummary[]> {
-    return this.summarize({ ownerGmId });
+    return this.summarize({ ownerGmId, temporary: false });
   }
 
   async summarizeRooms(roomIds: string[]) {
     const ids = roomIds.filter((id) => UUID.test(id));
-    return ids.length ? this.summarize({ id: { in: ids } }) : [];
+    return ids.length ? this.summarize({ id: { in: ids }, temporary: false }) : [];
   }
 
   private async summarize(where: Prisma.RoomWhereInput): Promise<GmRoomSummary[]> {
@@ -487,7 +511,7 @@ export class PostgresRoomStore implements RoomStore {
 
   async listEncounters(ownerGmId: string) {
     const rows = await this.prisma.encounterTemplate.findMany({
-      where: { ownerGmId }, orderBy: { createdAt: "desc" }, include: WITH_MAP,
+      where: { ownerGmId }, orderBy: { updatedAt: "desc" }, include: WITH_MAP,
     });
     return rows.map(toEncounterRecord);
   }
@@ -527,6 +551,15 @@ export class PostgresRoomStore implements RoomStore {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === PRISMA_FOREIGN_KEY_VIOLATION) throw new EncounterMapMissingError();
       throw err;
     }
+  }
+
+  async updateEncounter(id: string, ownerGmId: string, change: EncounterUpdate) {
+    if (!UUID.test(id)) return null;
+    const { count } = await this.prisma.encounterTemplate.updateMany({
+      where: { id, ownerGmId },
+      data: { name: change.name, data: change.data as unknown as Prisma.InputJsonValue, updatedAt: new Date(change.updatedAt) },
+    });
+    return count === 1 ? this.findEncounter(id, ownerGmId) : null;
   }
 
   async renameEncounter(id: string, ownerGmId: string, name: string, at: string) {

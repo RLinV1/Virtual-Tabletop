@@ -74,4 +74,16 @@ export interface RoomStore extends LibraryStore, GridDetectionStore, IdentitySto
    * this has committed, or null when there was no such room.
    */
   deleteRoom(roomId: string): Promise<{ uploadKeys: string[] } | null>;
+
+  /** True for a temporary encounter-editing room (ADR 0033), which nobody may join. */
+  isTemporaryRoom(roomId: string): Promise<boolean>;
+  /**
+   * One of this owner's temporary editing rooms and the template it saves to (ADR 0033); null
+   * for a normal room, another owner's, or none, so the three read the same.
+   */
+  findEditSession(roomId: string, ownerGmId: string): Promise<{ editsEncounterId: string | null } | null>;
+  /** Points a temporary room at the template its first save created. */
+  setEditsEncounter(roomId: string, encounterId: string): Promise<void>;
+  /** Temporary rooms opened before `at`, for the sweep that deletes ones left behind. */
+  listTemporaryRoomsBefore(at: string): Promise<string[]>;
 }

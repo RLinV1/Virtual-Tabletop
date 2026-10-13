@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { emptyRoomState, type EncounterSummary } from "@vtt/shared";
@@ -9,7 +10,8 @@ const connection = { command: async () => ({ ok: true }) } as unknown as RoomCon
 const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
 
 const template = (overrides: Partial<EncounterSummary> = {}): EncounterSummary => ({
-  id: "t1", name: "Goblin ambush", mapName: "Cave", tokenCount: 3, fogCount: 1, createdAt: "2026-10-06T00:00:00.000Z", ...overrides,
+  id: "t1", name: "Goblin ambush", mapName: "Cave", mapAssetId: "a1", tokenCount: 3, fogCount: 1,
+  createdAt: "2026-10-06T00:00:00.000Z", updatedAt: "2026-10-06T00:00:00.000Z", ...overrides,
 });
 
 describe("the GM's Encounter templates section (encounter-templates, FR-GM-13)", () => {
