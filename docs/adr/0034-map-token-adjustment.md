@@ -24,7 +24,7 @@ Replacement defaults to scaling token centers independently by new/old width and
 
 Replacement `recenter` visits tokens in stable string ID order, searching outward from valid central positions with the same bounded square-ring pattern as multi-token placement, avoiding prior footprints. Twenty rings bound candidate work. Crowding or exhaustion falls back to a valid central position, permitting overlap. Individual oversize still rejects.
 
-Emit one composite `MapSet` through the existing append/reduce/broadcast pipeline. Reduction copies recorded map, grid, and positions; it never runs geometry. The post-reduction fog concealment pass includes the adjusted token IDs so unowned tokens entering fog permanently conceal historical attack sides. Fog and templates retain their coordinates and visibility rules.
+Emit one composite `MapSet` through the existing append/reduce/broadcast pipeline. Reduction copies recorded map, grid, and positions; it never runs geometry. The post-reduction fog concealment pass includes the adjusted token IDs so unowned tokens entering fog permanently conceal historical attack sides. Different-image replacement clears walls/fog with recorded composite changes as detailed in ADR 0035; templates retain their coordinates and visibility rules.
 
 ### Guarded exact undo
 

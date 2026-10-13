@@ -154,7 +154,7 @@ describe("map command, reduction and visibility (KAN-66, FR-GM-15, FR-GM-23)", (
   it("records one complete event with unchanged effective grid and an empty array", () => {
     expect(run(baseRoom(), gm, { type: "scene.setMap", map: newMap }).events).toEqual([{
       type: "MapSet", map: newMap, previous: null,
-      gridChange: { grid: DEFAULT_GRID, previous: DEFAULT_GRID }, tokenChanges: [],
+      gridChange: { grid: DEFAULT_GRID, previous: DEFAULT_GRID }, tokenChanges: [], wallChange: { walls: [], previous: [] }, fogChange: { fog: [], previous: [] },
     }]);
   });
 
@@ -167,6 +167,7 @@ describe("map command, reduction and visibility (KAN-66, FR-GM-15, FR-GM-23)", (
     const applied = run(state, gm, { type: "scene.setMap", map: newMap, grid: nextGrid });
     expect(applied.events).toEqual([{
       type: "MapSet", map: newMap, previous: oldMap, gridChange: { grid: nextGrid, previous: grid },
+      wallChange: { walls: [], previous: [] }, fogChange: { fog: [], previous: [] },
       tokenChanges: expect.arrayContaining([
         { tokenId: a.id, from: { x: 241, y: 161 }, to: { x: 120.5, y: 80.5 } },
         { tokenId: b.id, from: { x: 750, y: 550 }, to: { x: 375, y: 275 } },
@@ -225,7 +226,7 @@ describe("map command, reduction and visibility (KAN-66, FR-GM-15, FR-GM-23)", (
     expect(filterEventForViewer(legacy, baseRoom(), alice)).toEqual({ kind: "event", committed: { event: legacy.event, seq: 8, at: "now", actorId: gm.id } });
   });
 
-  it("retains fog and templates and permanently conceals attack sides moved into fog", () => {
+  it("retains fog on same-image changes and permanently conceals attack sides moved into fog", () => {
     const initial = run(baseRoom(), gm, { type: "scene.setMap", map: oldMap, grid }).state;
     const hero = place(initial, "Hero", { x: 800, y: 600 });
     const foe = place(hero.state, "Foe", { x: 240, y: 160 });
@@ -234,7 +235,7 @@ describe("map command, reduction and visibility (KAN-66, FR-GM-15, FR-GM-23)", (
     state = run(state, gm, { type: "fog.add", region: { shape: "rect", from: { x: 100, y: 60 }, to: { x: 150, y: 110 } } }).state;
     state = run(state, bob, { type: "template.place", shape: "circle", origin: { x: 120, y: 80 }, toward: { x: 120, y: 80 }, size: 10 }).state;
     const before = state;
-    const applied = run(state, gm, { type: "scene.setMap", map: newMap });
+    const applied = run(state, gm, { type: "scene.setMap", map: { ...newMap, url: oldMap.url } });
     expect(applied.state.fog).toEqual(before.fog);
     expect(applied.state.templates).toEqual(before.templates);
     expect(applied.state.rolls.at(-1)?.attack?.target?.hidden).toBe(true);

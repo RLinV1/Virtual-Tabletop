@@ -24,3 +24,5 @@ export * from "./gamePresets";
 
 export * from "./replay";
 export * from "./portals";
+
+export * from "./uvtt";

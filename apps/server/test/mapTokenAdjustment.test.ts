@@ -67,10 +67,11 @@ function privateResult(client: TestClient, from: number, secret: string) {
 describe("atomic map adjustment across the wire (KAN-66, FR-GM-02, FR-GM-23, FR-REC-02)", () => {
   it("delivers one GM event and viewer-specific player snapshots, then one exact inverse with append-only history", async () => {
     const { gm, alice, bob, hero, secret, foe, ally } = await setup();
+    const resized = { ...map, url: oldMap.url };
     const before = gm.state;
     const log = await store.loadEvents(gm.state.roomId);
     const offsets = [gm.rawLog.length, alice.rawLog.length, bob.rawLog.length];
-    const ack = await ok(gm, { type: "scene.setMap", map });
+    const ack = await ok(gm, { type: "scene.setMap", map: resized });
     expect(ack.seq).toBe(log.length + 1);
     const commandId = actionId(gm);
     expect(undoableAction(gm.state.undo, commandId)).toBeDefined();
@@ -79,7 +80,7 @@ describe("atomic map adjustment across the wire (KAN-66, FR-GM-02, FR-GM-23, FR-
     expect(appended.slice(0, log.length)).toEqual(log);
     expect(appended.slice(log.length)).toHaveLength(1);
     expect(appended.at(-1)?.event).toMatchObject({
-      type: "MapSet", previous: oldMap, map, gridChange: { grid, previous: grid },
+      type: "MapSet", previous: oldMap, map: resized, gridChange: { grid, previous: grid },
       tokenChanges: expect.arrayContaining([{ tokenId: hero, from: { x: 241, y: 161 }, to: { x: 120.5, y: 80.5 } }]),
     });
     expect(DomainEvent.safeParse(appended.at(-1)?.event).success).toBe(true);
@@ -184,7 +185,7 @@ describe("atomic map adjustment across the wire (KAN-66, FR-GM-02, FR-GM-23, FR-
   it("protects raw resync/reconnect/reload snapshots and rebuilds map undo after persisted-log replay", async () => {
     const { gm, alice, bob, gmCreds, aliceCreds, bobCreds, secret, hero, foe } = await setup();
     const before = gm.state;
-    await ok(gm, { type: "scene.setMap", map });
+    await ok(gm, { type: "scene.setMap", map: { ...map, url: oldMap.url } });
     const commandId = actionId(gm);
     await Promise.all([alice, bob].map((c) => c.waitForSeq(gm.seq)));
     for (const client of [alice, bob]) {

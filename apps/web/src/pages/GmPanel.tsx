@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
-import { inactiveLabel, pendingDepartures, undoableAction, type Command, type MapTokenPolicy, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
+import { sameValue, inactiveLabel, pendingDepartures, undoableAction, type Command, type MapTokenPolicy, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
 import { api } from "../net/api";
 import { libraryAssetId } from "../net/builtinAssets";
 import { useAccount } from "../account/accountStore";
@@ -9,7 +9,7 @@ import { Modal } from "../ui/Modal";
 import { CheckpointsPanel } from "../panels/CheckpointsPanel";
 import { EncounterPanel } from "../panels/EncounterPanel";
 import { PanelSection } from "../ui/PanelSection";
-import { withGridSuggestion, type GridDraft } from "./gridDraft";
+import { parseGridDraft, withGridSuggestion, type GridDraft } from "./gridDraft";
 import { GridForm } from "./GridForm";
 import { HudLayout } from "./mapEditor/HudLayout";
 import { LibraryPicker } from "./LibraryPicker";
@@ -18,7 +18,7 @@ import { FogSetup } from "./mapEditor/FogSetup";
 import { WallSetup } from "./mapEditor/WallSetup";
 import { draftConnection } from "./mapEditor/draftConnection";
 import { draftDirty, draftFrom, planDraftSave, type MapDraft } from "./mapEditor/mapDraft";
-import { adjustedMessage, offersTokenPolicy, prepCommand, prepDirty, startPrep, TOKEN_POLICY_CHOICES, type MapPrep } from "./mapPrep";
+import { adjustedMessage, offersTokenPolicy, prepCommand, prepDirty, startPrep, startUvttPrep, TOKEN_POLICY_CHOICES, type MapPrep } from "./mapPrep";
 
 interface Props {
   connection: RoomConnection;
@@ -61,6 +61,7 @@ export function GmPanel({
         hasLibrary={hasLibrary}
         onError={setError}
         onSetMap={(command, report) => runWith(report)(connection.command(command))}
+        onImport={(importId, revision, tokenPolicy, report) => runWith(report)(connection.command({ type: "scene.importUVTT", importId, revision, ...(tokenPolicy ? { tokenPolicy } : {}) }))}
         onGridClose={onGridDraftCancel}
         mapUrl={state.scene.map?.url ?? null}
         map={state.scene.map}
@@ -162,6 +163,7 @@ function MapSection(props: {
   currentGrid: GridSpec;
   hasLibrary: boolean;
   onSetMap: (command: Extract<Command, { type: "scene.setMap" }>, report: (message: string | null) => void) => Promise<boolean>;
+  onImport: (id: string, revision: number, policy: MapTokenPolicy | undefined, report: (message: string | null) => void) => Promise<boolean>;
   onError: (message: string | null) => void;
   onGridClose: () => void;
   mapUrl: string | null;
@@ -187,6 +189,7 @@ function MapSection(props: {
   const [prep, setPrep] = useState<MapPrep | null>(null);
   const [prepError, setPrepError] = useState<string | null>(null);
   const [applyingMap, setApplyingMap] = useState(false);
+  const [exporting, setExporting] = useState(false);
   /** What to do with existing tokens (KAN-67); only asked when a map and tokens are there to move. */
   const [policy, setPolicy] = useState<MapTokenPolicy>("scale");
   /** The map just applied with tokens present, to find its Undo entry and the count it moved. */
@@ -194,6 +197,8 @@ function MapSection(props: {
   const [undoError, setUndoError] = useState<string | null>(null);
   const askPolicy = offersTokenPolicy(props.room);
   const uploadRef = useRef<HTMLInputElement>(null);
+  const emptyUploadRef = useRef<HTMLInputElement>(null);
+  const editMapRef = useRef<HTMLButtonElement>(null);
   /** Bumped when a library map is picked, so an upload still in flight can't replace that draft. */
   const prepGeneration = useRef(0);
   /** Asking "Discard changes?" before throwing away an edited draft. */
@@ -263,8 +268,24 @@ function MapSection(props: {
     setDraft(draftFrom(props.room));
     setSaveError(null);
   };
+  const importSession = useMemo(() => ({ id: prep?.uvtt?.id, open: editorOpen }), [prep?.uvtt?.id, editorOpen]);
+  const activeImportSession = useRef(importSession); activeImportSession.current = importSession;
+  const importEdits = useMemo(() => draftConnection(
+    props.connection,
+    (change) => setPrep((current) => {
+      if (!current?.uvtt || activeImportSession.current !== importSession) return current;
+      const next = change({ mapUrl: current.map.url, walls: current.walls ?? {}, fog: {} });
+      return { ...current, walls: next.walls };
+    }),
+    async () => { throw new Error("UVTT geometry is already supplied."); },
+    prep?.map.url ?? "", { width: prep?.map.width ?? 0, height: prep?.map.height ?? 0 },
+    () => activeImportSession.current === importSession && importSession.open,
+  ), [props.connection, prep?.map.url, prep?.map.width, prep?.map.height, importSession]);
+  const importedState: RoomState | null = prep?.uvtt ? { ...props.room, scene: { ...props.room.scene, map: prep.map, grid: parseGridDraft(prep.draft, prep.map) ?? prep.initial }, walls: prep.walls ?? {}, fog: {} } : null;
   const discardPrep = () => {
     setConfirmDiscard(false);
+    prepGeneration.current++;
+    if (prep?.uvtt) void api.uvtt.discard(props.roomId, props.token, prep.uvtt.id).catch(() => {});
     setPrep(null);
     setPrepError(null);
   };
@@ -285,20 +306,40 @@ function MapSection(props: {
   };
   const applyPrep = async () => {
     if (!prep || applyingMap) return;
-    const command = prepCommand(prep, askPolicy ? policy : undefined);
-    if (!command) return setPrepError("Fix the grid before applying the map.");
-    setApplyingMap(true);
+    const grid = parseGridDraft(prep.draft, prep.map);
+    if (!grid) return setPrepError("Fix the grid before applying the map.");
+    setApplyingMap(true); setPrepError(null);
     try {
-      // One command: the map and its grid reach the table together (ADR 0004). Walls come next.
-      if (await props.onSetMap(command, setPrepError)) {
-        setUndoError(null);
-        setChangedMapUrl(askPolicy ? command.map.url : null);
-        discardPrep();
-        setStep("walls");
+      let applied = false;
+      if (prep.uvtt) {
+        let revision = prep.uvtt.revision;
+        const walls = Object.values(prep.walls ?? {}).map(({ id: _id, ...wall }) => wall);
+        // Avoid revising an unchanged draft on retry: a successful Apply may have lost its ack.
+        if (!sameValue(grid, prep.validated?.grid) || !sameValue(walls, prep.validated?.walls)) {
+          const saved = await api.uvtt.revise(props.roomId, props.token, prep.uvtt.id, { revision, grid, walls });
+          revision = saved.revision;
+          setPrep((now) => now?.uvtt?.id === saved.id ? { ...now, uvtt: { ...now.uvtt, revision }, walls: Object.fromEntries(saved.walls.map((w, i) => [`draft:${i}`, { ...w, id: `draft:${i}` }])), validated: { grid: saved.grid, walls: saved.walls } } : now);
+        }
+        applied = await props.onImport(prep.uvtt.id, revision, askPolicy ? policy : undefined, setPrepError);
+      } else {
+        const command = prepCommand(prep, askPolicy ? policy : undefined);
+        if (command) applied = await props.onSetMap(command, setPrepError);
       }
-    } finally {
-      setApplyingMap(false);
-    }
+      if (applied) { setChangedMapUrl(askPolicy ? prep.map.url : null); setUndoError(null); discardPrep(); setStep("walls"); }
+    } catch (err) {
+      setPrepError(err instanceof Error ? err.message : "Could not apply the map. Your draft has been kept.");
+    } finally { setApplyingMap(false); }
+  };
+  const exportMap = async () => {
+    setExporting(true); setPrepError(null);
+    try {
+      const blob = await api.uvtt.export(props.roomId, props.token);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a"); link.href = url; link.download = "map.uvtt";
+      document.body.append(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) { setPrepError(err instanceof Error ? err.message : "Export failed."); }
+    finally { setExporting(false); }
   };
   // A grid being edited belongs to the map it was edited for.
   const previousMap = useRef(props.mapUrl);
@@ -311,9 +352,16 @@ function MapSection(props: {
 
   async function onChange(file: File | undefined) {
     if (!file) return;
+    if (/\.(?:uvtt|dd2vtt|df2vtt)$/i.test(file.name)) { setEditorOpen(true); if (!prep) setStep("map"); }
     setBusy(true);
     const generation = ++prepGeneration.current;
     try {
+      if (/\.(?:uvtt|dd2vtt|df2vtt)$/i.test(file.name)) {
+        const result = await api.uvtt.prepare(props.roomId, props.token, file);
+        if (generation !== prepGeneration.current) { await api.uvtt.discard(props.roomId, props.token, result.id); return; }
+        if (prep?.uvtt) void api.uvtt.discard(props.roomId, props.token, prep.uvtt.id).catch(() => {});
+        setPrep(startUvttPrep(result)); setPrepError(null); setStep("grid"); setEditorOpen(true); return;
+      }
       // Read the size first: a map upload carries it so the server can analyze it (grid-detection).
       const { width, height } = await imageSize(file);
       const { url } = await api.upload(file, props.token, { width, height });
@@ -321,6 +369,7 @@ function MapSection(props: {
       if (generation !== prepGeneration.current) return;
       // Nothing is sent yet: the upload becomes a private draft (KAN-59).
       props.onError(null);
+      if (prep?.uvtt) void api.uvtt.discard(props.roomId, props.token, prep.uvtt.id).catch(() => {});
       setPrep(startPrep({ url, width, height }, undefined, props.currentGrid));
       setStep("grid");
       // An upload from the Manage tab opens the editor to line up its grid.
@@ -361,7 +410,8 @@ function MapSection(props: {
             : "No map yet."}
         </p>
         {props.map ? (
-          <button type="button" data-tour="gm-grid" onClick={() => {
+          <button ref={editMapRef} type="button" data-tour="gm-grid" onClick={(e) => {
+            e.currentTarget.focus();
             setStep("grid");
             setEditorOpen(true);
           }}>
@@ -372,9 +422,10 @@ function MapSection(props: {
             <label className="upload-button">
               <span>{busy ? "Uploading…" : "Upload map"}</span>
               <input
+                ref={emptyUploadRef}
                 type="file"
                 className="sr-only"
-                accept="image/png,image/jpeg,image/webp"
+                accept="image/png,image/jpeg,image/webp,.uvtt,.dd2vtt,.df2vtt"
                 disabled={busy}
                 aria-label="Upload battle map"
                 onChange={(e) => {
@@ -397,6 +448,7 @@ function MapSection(props: {
         title="Edit map"
         className="map-editor"
         onClose={requestClose}
+        onAfterClose={() => (editMapRef.current ?? emptyUploadRef.current)?.focus()}
         headerContent={(
           <nav className="map-editor-steps" role="tablist" aria-label="Map setup steps">
             {STEPS.map(({ key, label }) => (
@@ -426,6 +478,7 @@ function MapSection(props: {
         )}
       >
         <div className="map-editor-shell">
+          {prep?.uvtt && prep.uvtt.diagnostics.length > 0 && <details className="uvtt-diagnostics"><summary>{prep.uvtt.diagnostics.length} import warnings</summary><ul>{prep.uvtt.diagnostics.map((issue, i) => <li key={i}>{issue.path}: {issue.message}</li>)}</ul></details>}
           <div className="map-editor-body" role="tabpanel">
             {step === "map" && (
               <div className="map-editor-split">
@@ -441,7 +494,7 @@ function MapSection(props: {
                       ref={uploadRef}
                       type="file"
                       className="sr-only"
-                      accept="image/png,image/jpeg,image/webp"
+                      accept="image/png,image/jpeg,image/webp,.uvtt,.dd2vtt,.df2vtt"
                       disabled={busy}
                       aria-label="Upload battle map"
                       onChange={(e) => {
@@ -451,6 +504,9 @@ function MapSection(props: {
                       }}
                     />
                   </label>
+                  <button type="button" className="secondary" disabled={!props.map || exporting} onClick={() => void exportMap()}>{exporting ? "Exporting…" : "Export applied map (UVTT)"}</button>
+                  <p className="muted small-print">UVTT files: up to 40 MiB. Preview and edit geometry in Walls before Apply.</p>
+                  {Object.values(props.room.walls).some((w) => w.portal) && <p className="muted small-print">Export preserves open/closed state. UVTT does not carry door/window identity or locks.</p>}
                   {props.hasLibrary && (
                     <button type="button" className="secondary" disabled={busy} onClick={() => setPicking(true)}>
                       From library
@@ -484,7 +540,7 @@ function MapSection(props: {
                   key={prep.map.url}
                   roomId={props.roomId}
                   token={props.token}
-                  directMap={!prep.map.assetId}
+                  directMap={!prep.uvtt && !prep.map.assetId}
                   grid={prep.initial}
                   map={prep.map}
                   draft={prep.draft}
@@ -522,9 +578,10 @@ function MapSection(props: {
             ) : (
               <p className="map-editor-empty">Choose a map in the Map step first.</p>
             ))}
-            {step === "walls" && (prep
-              ? <p className="map-editor-empty">Apply the draft map in the Grid step first, then set up its walls here.</p>
-              : <Fragment key={`${editorGeneration}:${liveMapUrl}`}>{props.walls(draftEdits, draftState)}</Fragment>)}
+            {step === "walls" && (importedState ? <div className="map-editor-import">
+              <WallSetup key={prep?.uvtt?.id} connection={importEdits} state={importedState} token={props.token} allowDetection={false} initialMode="select" />
+              <div className="map-editor-import-apply"><button type="button" disabled={applyingMap} onClick={() => void applyPrep()}>{applyingMap ? "Applying map…" : "Apply map"}</button>{prepError && <p role="alert" className="error">{prepError}</p>}</div>
+            </div> : prep ? <p className="map-editor-empty">Apply this map before setting up its walls.</p> : props.walls(draftEdits, draftState))}
             {step === "fog" && (prep
               ? <p className="map-editor-empty">Apply the draft map in the Grid step first, then set up its fog here.</p>
               : <Fragment key={`${editorGeneration}:${liveMapUrl}`}>{props.fog(draftEdits, draftState)}</Fragment>)}

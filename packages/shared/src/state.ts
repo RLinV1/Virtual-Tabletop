@@ -186,12 +186,21 @@ export type Portal = z.infer<typeof Portal>;
  * coordinates (invariant 8). Tokens can't stand across one; players can't move through one.
  * Plain walls are GM-only; players receive the portals they can see (ADR 0030).
  */
+export const UvttPortal = z.object({
+  position: Point.optional(), rotation: z.number().finite().optional(),
+  closed: z.boolean().optional(), freestanding: z.boolean().optional(),
+}).strict();
+export type UvttPortal = z.infer<typeof UvttPortal>;
+
 export const Wall = z.object({
   id: Id,
   a: Point,
   b: Point,
   /** Set when the wall is a door or window (FR-GM-18, ADR 0030). Absent: a plain wall. */
   portal: Portal.optional(),
+  /** Imported generic portal metadata; never part of a player projection (ADR 0035). */
+  uvttPortal: UvttPortal.optional(),
+  source: z.enum(["line_of_sight", "objects_line_of_sight"]).optional(),
 });
 export type Wall = z.infer<typeof Wall>;
 

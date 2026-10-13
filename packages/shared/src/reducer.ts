@@ -31,7 +31,7 @@ export function reduce(state: RoomState, event: DomainEvent, meta?: EventMeta): 
   const history = event.type === "CheckpointRestored" || event.type === "EncounterApplied"
     ? { ...state, undo: state.undo.filter((e) => e.events.length > 0 && e.events.every((ev) => ev.type === "RollRuled")) }
     : event.type === "MapSet" && event.map?.url !== event.previous?.url
-      ? { ...state, undo: state.undo.filter((e) => !e.events.some((ev) => ev.type === "WallsAdded" || ev.type === "WallsRemoved" || ev.type === "PortalChanged")) }
+      ? { ...state, undo: state.undo.filter((e) => !e.events.some((ev) => ev.type === "WallsAdded" || ev.type === "WallsRemoved" || ev.type === "PortalChanged" || ev.type === "WallUpdated")) }
       : state;
   return { ...next, undo: recordUndo(history, event, { ...meta, commandId: meta.commandId }) };
 }
@@ -108,7 +108,9 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
         const token = required(tokens[change.tokenId], event);
         tokens[token.id] = { ...token, position: change.to };
       }
-      return { ...state, scene: { ...state.scene, map: event.map, grid: event.gridChange?.grid ?? state.scene.grid }, tokens };
+      return { ...state, scene: { ...state.scene, map: event.map, grid: event.gridChange?.grid ?? state.scene.grid },
+        ...(event.wallChange ? { walls: Object.fromEntries(event.wallChange.walls.map((w) => [w.id, w])) } : {}),
+        ...(event.fogChange ? { fog: Object.fromEntries(event.fogChange.fog.map((f) => [f.id, f])) } : {}), tokens };
     }
 
     case "GridSet":
@@ -272,6 +274,10 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
       const { [event.region.id]: _removed, ...rest } = state.fog;
       return { ...state, fog: rest };
     }
+
+    case "WallUpdated":
+      required(state.walls[event.wall.id], event);
+      return { ...state, walls: { ...state.walls, [event.wall.id]: event.wall } };
 
     case "WallsAdded": {
       const walls = { ...state.walls };

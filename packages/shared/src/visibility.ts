@@ -79,7 +79,7 @@ export function filterStateForViewer(state: RoomState, viewer: Participant): Roo
   // Undo is GM-only, and its entries name hidden tokens and their old values (ADR 0013).
   // Plain walls are GM-only: inside fog they would draw rooms the players haven't seen (ADR 0029).
   // Portals outside fog stay, so players can see and use them (ADR 0030).
-  const walls = Object.fromEntries(Object.entries(state.walls).filter(([, w]) => !portalConcealedFrom(state.fog, w, viewer)));
+  const walls = Object.fromEntries(Object.entries(state.walls).filter(([, w]) => !portalConcealedFrom(state.fog, w, viewer)).map(([id, w]) => [id, { id: w.id, a: w.a, b: w.b, portal: w.portal }]));
   // Groups are the GM's organisation and would say which group a hidden token is in (KAN-82, ADR 0026).
   return { ...state, tokens, rolls, initiative, templates, walls, undo: [], checkpoints: [], groups: {}, tokenGroups: {} };
 }
@@ -118,6 +118,8 @@ export function filterEventForViewer(
   switch (e.type) {
     // Plain walls are GM-only geometry (ADR 0029): players learn only that a seq happened. A
     // portal they can see appears or vanishes, which a snapshot does without the plain walls (ADR 0030).
+    case "WallUpdated":
+      return !portalConcealedFrom(before.fog, e.previous, viewer) || !portalConcealedFrom(before.fog, e.wall, viewer) ? { kind: "resync" } : redacted;
     case "WallsAdded":
     case "WallsRemoved":
       return e.walls.some((w) => !portalConcealedFrom(before.fog, w, viewer)) ? { kind: "resync" } : redacted;
@@ -213,7 +215,7 @@ export function filterEventForViewer(
     case "MapSet":
       // Nested changes contain hidden IDs and prior positions. Only the filtered result
       // reaches players, including inverse first-map removal and empty adjustments (ADR 0034).
-      return e.tokenChanges !== undefined ? { kind: "resync" } : pass;
+      return e.tokenChanges !== undefined || e.wallChange !== undefined || e.fogChange !== undefined ? { kind: "resync" } : pass;
     case "EncounterApplied":
       // Both boards hold hidden tokens, fog and owners; a filtered snapshot carries the rest (ADR 0024).
       return { kind: "resync" };

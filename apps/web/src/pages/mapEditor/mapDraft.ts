@@ -1,6 +1,6 @@
 import {
   MAX_WALLS_PER_ADD, MAX_WALLS_PER_REMOVE,
-  polygonArea, wallsFitMap,
+  polygonArea, wallsFitMap, removePortalOverlaps, sameValue,
   type CommandInput, type FogRegion, type Point, type Portal, type RoomState, type Wall,
 } from "@vtt/shared";
 
@@ -87,12 +87,15 @@ export function planDraftSave(room: Pick<RoomState, "scene" | "walls" | "fog">, 
     const removed = roomWalls.filter((w) => !retainedWallIds.has(w.id)).map((w) => w.id);
     for (const wallIds of chunks(removed, MAX_WALLS_PER_REMOVE)) commands.push({ type: "wall.remove", wallIds });
   }
-  const added = draftWalls.filter((w) => !wallMatches.has(w.id)).map((w) => ({ a: w.a, b: w.b, ...(w.portal && { portal: w.portal }) }));
+  const added = draftWalls.filter((w) => !wallMatches.has(w.id)).map(({ id: _id, ...wall }) => wall);
   for (const walls of chunks(added, MAX_WALLS_PER_ADD)) commands.push({ type: "wall.add", walls });
   for (const w of draftWalls) {
     const roomWall = wallMatches.get(w.id);
-    if (!roomWall || samePortal(roomWall.portal, w.portal)) continue;
-    commands.push({ type: "portal.set", wallId: roomWall.id, portal: w.portal ?? null });
+    if (!roomWall) continue;
+    const { portal: _roomPortal, ...roomGeometry } = roomWall;
+    const { portal: _draftPortal, ...draftGeometry } = { ...w, id: roomWall.id };
+    if (!sameValue(roomGeometry, draftGeometry)) commands.push({ type: "wall.update", wall: { ...w, id: roomWall.id } });
+    else if (!samePortal(roomWall.portal, w.portal)) commands.push({ type: "portal.set", wallId: roomWall.id, portal: w.portal ?? null });
   }
 
   // Fog goes in one command so a full room can take a replacement and a refusal changes nothing (ADR 0032).
@@ -123,9 +126,10 @@ const fogPoints = (region: FogAdd): Point[] => region.shape === "rect"
 
 /** Why the server would refuse this wall or fog addition on a map of this size, or null: the draft only holds what Save can send. */
 export function draftCommandProblem(command: CommandInput, map: { width: number; height: number }): string | null {
-  if (command.type === "wall.add") {
-    if (command.walls.some((w) => w.a.x === w.b.x && w.a.y === w.b.y)) return "A wall needs two different ends.";
-    if (!wallsFitMap(command.walls, map)) return "Walls must lie on the map.";
+  if (command.type === "wall.add" || command.type === "wall.update") {
+    const walls = command.type === "wall.add" ? command.walls : [command.wall];
+    if (walls.some((w) => w.a.x === w.b.x && w.a.y === w.b.y)) return "A wall needs two different ends.";
+    if (!wallsFitMap(walls, map)) return "Walls must lie on the map.";
   }
   if (command.type === "fog.add" && Math.abs(polygonArea(fogPoints(command.region))) < 1) return "A fog region needs some area.";
   return null;
@@ -139,12 +143,15 @@ export function applyToDraft(draft: MapDraft, command: CommandInput, newId: () =
   switch (command.type) {
     case "wall.add": {
       const walls = { ...draft.walls };
-      for (const { a, b, portal } of command.walls) {
+      for (const wall of command.walls) {
         const id = newId();
-        walls[id] = { id, a, b, ...(portal && { portal }) };
+        walls[id] = { ...wall, id };
       }
-      return { ...draft, walls };
+      return normalizedDraft({ ...draft, walls }, newId);
     }
+    case "wall.update":
+      if (!Object.hasOwn(draft.walls, command.wall.id)) return draft;
+      return normalizedDraft({ ...draft, walls: { ...draft.walls, [command.wall.id]: command.wall } }, newId);
     case "portal.set": {
       const wall = draft.walls[command.wallId];
       if (!wall) return draft;
@@ -194,5 +201,15 @@ export function withDetectedWalls(draft: MapDraft, detected: readonly { a: Point
     const id = retained?.id ?? newId();
     walls[id] = retained ?? { id, a, b };
   }
+  return { ...draft, walls };
+}
+
+/** Keep a portal opening clear in every private edit; split solids get new draft identities. */
+function normalizedDraft(draft: MapDraft, newId: () => string): MapDraft {
+  const walls = Object.fromEntries(removePortalOverlaps(Object.values(draft.walls)).map((wall) => {
+    const previous = draft.walls[wall.id];
+    const id = previous && sameValue(previous, wall) ? wall.id : newId();
+    return [id, { ...wall, id }];
+  }));
   return { ...draft, walls };
 }

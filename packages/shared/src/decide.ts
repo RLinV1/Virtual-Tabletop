@@ -1,3 +1,4 @@
+import { hasPortalBounds, removePortalOverlaps, validateUvttDraft, type PreparedUvttScene } from "./uvtt";
 import type { Command, DepartureAction } from "./commands";
 import { presetOf, tableForPreset } from "./gamePresets";
 import { MIN_HP } from "./conditions";
@@ -9,7 +10,7 @@ import { canRenderGrid } from "./gridRenderLimit";
 import { adjustMapTokens } from "./mapTokenAdjustment";
 import type { SessionEndReason } from "./protocol";
 import { blocksMovement } from "./portals";
-import { inverseOf, undoableAction, undoConflict } from "./undo";
+import { inverseOf, sameValue, undoableAction, undoConflict } from "./undo";
 import { concealedFrom, fogConcealsSide, isInFog, portalConcealedFrom, templateConcealedFrom } from "./visibility";
 import { wallsFitMap, type DetectedWallsResponse } from "./wallDetection";
 import { MAX_GROUP_NAME, MAX_GROUPS, MAX_AREA_TEMPLATES, MAX_LINE_WIDTH_CELLS, MAX_CHECKPOINT_NAME, MAX_FOG_REGIONS, MAX_PLAYERS_PER_ROOM, MAX_WALLS, tableOf, type AreaTemplate, type DiceLookOnTable, type Initiative, type Participant, type Portal, type RoomState, type TableState, type Token, type Wall } from "./state";
@@ -21,6 +22,7 @@ export type Decision =
   | { ok: false; code: RejectionCode; message: string };
 
 export interface DecideContext {
+  preparedUvtt?: PreparedUvttScene;
   newId: () => string;
   /**
    * Float in [0, 1). Injected rather than taken from `Math.random` so `decide` stays
@@ -107,11 +109,6 @@ function removeAllWalls(state: RoomState): DomainEvent[] {
   return walls.length > 0 ? [{ type: "WallsRemoved", walls }] : [];
 }
 
-/** Every fog region, each removed with its full value so undo can restore it (invariant 6). */
-function removeAllFog(state: RoomState): DomainEvent[] {
-  return Object.values(state.fog).map((region) => ({ type: "FogRemoved", region }));
-}
-
 /** Whether two portal values (null: a plain wall) are the same. */
 const samePortal = (a: Portal | null, b: Portal | null) => a?.kind === b?.kind && a?.state === b?.state;
 
@@ -179,9 +176,26 @@ export function decide(
         previous: state.scene.map,
         gridChange: { grid, previous: state.scene.grid },
         tokenChanges: adjustment.changes,
-      },
-        ...(command.map.url !== state.scene.map?.url ? [...removeAllWalls(state), ...removeAllFog(state)] : []),
-      );
+        ...(command.map.url !== state.scene.map?.url ? { wallChange: { walls: [], previous: wallsOf(state) }, fogChange: { fog: [], previous: Object.values(state.fog) } } : {}),
+      });
+    }
+
+    case "scene.importUVTT": {
+      if (!can.administer(actor)) return forbidden();
+      const prep = ctx.preparedUvtt;
+      if (!prep) return reject("not_found", "This preparation has expired or the server restarted. Re-import the file.");
+      const { baseline, map, grid } = prep;
+      if (!sameValue(state.scene.map, baseline.map) || !sameValue(state.scene.grid, baseline.grid) || !sameValue(state.walls, baseline.walls) || !sameValue(state.fog, baseline.fog)) {
+        return reject("invalid", "The applied map, grid, walls or fog changed while editing. Re-import against the current scene; your draft has been kept.");
+      }
+      try { validateUvttDraft(grid, prep.walls, map); } catch { return reject("invalid", "The prepared grid or geometry is invalid."); }
+      const adjustment = adjustMapTokens(Object.values(state.tokens), state.scene.map, map, state.scene.grid, grid, command.tokenPolicy);
+      if (!adjustment.ok) return reject("invalid", "A token cannot fit the imported map. Use a larger image, smaller grid or smaller token.");
+      return accept({ type: "MapSet", map, previous: state.scene.map,
+        gridChange: { grid, previous: state.scene.grid }, tokenChanges: adjustment.changes,
+        fogChange: { fog: [], previous: Object.values(state.fog) },
+        wallChange: { walls: prep.walls.map((w) => ({ ...w, id: ctx.newId() })), previous: wallsOf(state) },
+      });
     }
 
     case "scene.setGrid":
@@ -692,17 +706,45 @@ export function decide(
       if (!map) return reject("invalid", "Set a map before drawing walls.");
       if (command.walls.some((w) => w.a.x === w.b.x && w.a.y === w.b.y)) return reject("invalid", "A wall needs two different ends.");
       if (!wallsFitMap(command.walls, map)) return reject("invalid", "Walls must lie on the map.");
-      if (Object.keys(state.walls).length + command.walls.length > MAX_WALLS) {
+      const walls = removePortalOverlaps([...command.walls, ...wallsOf(state).filter((w) => hasPortalBounds(w))]).filter((w) => !("id" in w));
+      if (Object.keys(state.walls).length + walls.length > MAX_WALLS) {
         return reject("invalid", `A room can hold at most ${MAX_WALLS} walls. Remove some first.`);
       }
-      return accept({ type: "WallsAdded", walls: command.walls.map((w) => ({ id: ctx.newId(), a: w.a, b: w.b, ...(w.portal && { portal: w.portal }) })) });
+      return walls.length ? accept({ type: "WallsAdded", walls: walls.map((w) => ({ ...w, id: ctx.newId() })) }) : accept();
+    }
+
+    case "wall.update": {
+      if (!can.administer(actor)) return forbidden();
+      const previous = Object.hasOwn(state.walls, command.wall.id) ? state.walls[command.wall.id] : undefined;
+      if (!previous) return notFound("wall");
+      const map = state.scene.map;
+      if (!map || !wallsFitMap([command.wall], map)) return reject("invalid", "Walls must lie on the map.");
+      if (command.wall.a.x === command.wall.b.x && command.wall.a.y === command.wall.b.y) return reject("invalid", "A wall needs two different ends.");
+      const portals = wallsOf(state).filter((w) => w.id !== command.wall.id && hasPortalBounds(w));
+      if (hasPortalBounds(command.wall)) portals.push(command.wall);
+      const removed: Wall[] = [], added: Wall[] = [];
+      for (const wall of wallsOf(state)) {
+        if (wall.id === command.wall.id || hasPortalBounds(wall)) continue;
+        const parts = removePortalOverlaps([wall, ...portals]).filter((w) => !hasPortalBounds(w));
+        if (!sameValue(parts, [wall])) {
+          removed.push(wall); added.push(...parts.map((w) => ({ ...w, id: ctx.newId() })));
+        }
+      }
+      // A moved solid wall also cannot duplicate a portal's gap.
+      if (!hasPortalBounds(command.wall) && !sameValue(removePortalOverlaps([command.wall, ...portals]).filter((w) => !hasPortalBounds(w)), [command.wall])) {
+        return reject("invalid", "That wall overlaps a portal. Draw separate wall segments around the portal bounds.");
+      }
+      if (Object.keys(state.walls).length - removed.length + added.length > MAX_WALLS) return reject("invalid", `Portal normalization would exceed ${MAX_WALLS} walls.`);
+      return accept({ type: "WallUpdated", wall: command.wall, previous },
+        ...(removed.length ? [{ type: "WallsRemoved" as const, walls: removed }] : []),
+        ...(added.length ? [{ type: "WallsAdded" as const, walls: added }] : []));
     }
 
     case "wall.remove": {
       if (!can.administer(actor)) return forbidden();
       const walls: Wall[] = [];
       for (const id of new Set(command.wallIds)) {
-        const wall = state.walls[id];
+        const wall = Object.hasOwn(state.walls, id) ? state.walls[id] : undefined;
         if (!wall) return notFound("wall");
         walls.push(wall);
       }
@@ -715,7 +757,7 @@ export function decide(
 
     case "portal.set": {
       if (!can.administer(actor)) return forbidden();
-      const wall = state.walls[command.wallId];
+      const wall = Object.hasOwn(state.walls, command.wallId) ? state.walls[command.wallId] : undefined;
       if (!wall) return notFound("wall");
       const from = wall.portal ?? null;
       if (samePortal(from, command.portal)) return reject("invalid", "That wall is already like that.");
@@ -725,7 +767,7 @@ export function decide(
     case "portal.setState": {
       // Players may only open and close; refused before any lookup, so it says nothing (ADR 0030).
       if (command.state === "locked" && !can.administer(actor)) return forbidden();
-      const wall = state.walls[command.wallId];
+      const wall = Object.hasOwn(state.walls, command.wallId) ? state.walls[command.wallId] : undefined;
       // A plain wall, a missing one and a portal under fog read the same to a player.
       if (!wall?.portal || portalConcealedFrom(state.fog, wall, actor)) return notFound("portal");
       const from = wall.portal;

@@ -48,6 +48,7 @@ describe("tokens stay in a cell when the grid changes (KAN-74, FR-TAC-02)", () =
     expect(events).toEqual([{
       type: "MapSet", map: { url: "/uploads/keep.png", width: 1400, height: 1000 }, previous: null,
       gridChange: { grid: smaller, previous: DEFAULT_GRID },
+      wallChange: { walls: [], previous: [] }, fogChange: { fog: [], previous: [] },
       tokenChanges: [{ tokenId: t.id, from: { x: 105, y: 105 }, to: { x: 106, y: 116 } }],
     }]);
   });

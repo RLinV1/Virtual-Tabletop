@@ -136,6 +136,7 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
     case "TemplateRemoved": return `${actorName} removed a ${templateLabel(event.template)}${event.template.gmOnly ? " (GM only)" : ""}`;
     case "FogAdded": return `${actorName} added a fog ${fogLabel(event.region.shape)}`;
     case "FogRemoved": return `${actorName} removed a fog ${fogLabel(event.region.shape)}`;
+    case "WallUpdated": return `${actorName} edited a ${event.wall.portal ? "portal" : "wall"}`;
     case "WallsAdded": return `${actorName} added ${wallCount(event.walls.length)}`;
     case "WallsRemoved": return `${actorName} removed ${wallCount(event.walls.length)}`;
     case "PortalChanged": return `${actorName} ${describePortalChange(event.from, event.to).past}`;
