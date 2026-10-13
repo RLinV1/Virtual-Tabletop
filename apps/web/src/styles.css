@@ -470,8 +470,6 @@ button.color-swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--panel), 0
 @media (max-width: 420px) { .color-wheel { flex-direction: column; align-items: stretch; } .color-wheel-disc { align-self: center; } }
 .grid-form input { width: 100%; }
 .grid-field { min-width: 0; }
-.grid-nudges { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.2rem; margin-top: 0.25rem; }
-.grid-nudges button { min-width: 0; padding: 0.25rem 0; }
 .grid-confidence, .grid-message, .grid-actions { grid-column: 1 / -1; }
 .grid-suggestion { grid-column: 1 / -1; border: 1px solid var(--line, #72777f); padding: 0.75rem; border-radius: 0.4rem; }
 .grid-suggestion p { margin: 0 0 0.5rem; }
@@ -2311,7 +2309,7 @@ dialog.modal.map-editor {
 .map-editor-unsaved .map-editor-draft { margin-left: 0; }
 .map-editor-save-error { font-size: var(--fs-sm); }
 .map-editor-body { flex: 1; min-height: 0; overflow: auto; }
-.map-editor-split { height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 17rem; grid-template-rows: minmax(0, 1fr); gap: var(--space-2); }
+.map-editor-split { height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) var(--hud-width, 17rem); grid-template-rows: minmax(0, 1fr); gap: var(--space-2); }
 .map-editor-stage {
   min-height: 0; display: flex; align-items: center; justify-content: center;
   background: var(--raised); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
@@ -2323,13 +2321,49 @@ dialog.modal.map-editor {
 }
 .map-editor-heading { margin: 0; font-size: var(--fs-md); }
 .map-editor-empty { margin: var(--space-4) auto; max-width: 32rem; text-align: center; color: var(--muted); }
-/* The Grid step fills the editor, and the map takes every row the controls leave free. */
-.map-editor-grid { height: 100%; }
-.map-editor-grid, .map-editor-grid .grid-editor, .map-editor-grid .map-grid-preview { display: flex; flex-direction: column; }
-.map-editor-grid .grid-editor, .map-editor-grid .map-grid-preview { flex: 1; min-height: 0; }
+/* The Grid step is laid out like Walls and Fog: the map on the left, its controls in a side panel. */
+.map-editor-grid { height: 100%; min-height: 0; }
+.map-editor-grid .grid-editor {
+  height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) var(--hud-width, 17rem);
+  grid-template-rows: minmax(0, 1fr) auto; gap: var(--space-2); align-items: stretch;
+}
+.map-editor-grid .map-grid-preview { grid-column: 1; grid-row: 1 / span 2; height: 100%; min-height: 0; }
 .map-editor-grid .map-grid-canvas { flex: 1; height: auto; min-height: 20rem; }
-.map-editor-grid .grid-editor-footer { flex-direction: row; flex-wrap: wrap; align-items: center; }
-.map-editor-grid .grid-editor-footer .grid-actions { margin-left: auto; }
+.map-editor-grid .grid-advanced, .map-editor-grid .grid-editor-footer {
+  grid-column: 2; padding: var(--space-3); background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.map-editor-grid .grid-advanced { grid-row: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.map-editor-grid .grid-advanced *, .map-editor-grid .grid-editor-footer * { min-width: 0; }
+/* The panel can be narrow: the colour picker stacks and its swatches wrap, so nothing scrolls sideways. */
+.map-editor-grid .color-wheel { flex-direction: column; align-items: stretch; }
+.map-editor-grid .color-wheel-disc { align-self: center; }
+.map-editor-grid .color-wheel-swatches { flex-wrap: wrap; }
+.map-editor-grid .grid-editor-footer { overflow-x: hidden; }
+.map-editor-grid .grid-scale input { width: 100%; flex: 1 1 4rem; }
+/* A folded panel: Walls and Fog hide it; Grid hides the Advanced fields and keeps Apply in reach. */
+.hud-layout { position: relative; }
+.hud-layout[data-hud-collapsed="true"] > .map-editor-hud, .hud-layout[data-hud-collapsed="true"] .grid-advanced { display: none; }
+.hud-layout[data-hud-collapsed="true"].map-editor-grid .grid-editor { grid-template-columns: minmax(0, 1fr) 17rem; }
+.hud-handle {
+  position: absolute; top: 0; bottom: 0; z-index: 3; width: 10px; cursor: col-resize; touch-action: none;
+  right: calc(var(--hud-width, 17rem) - 1px); display: flex; align-items: center; justify-content: center;
+}
+.hud-layout[data-hud-collapsed="true"] > .hud-handle { cursor: default; right: 0; }
+.hud-handle:hover, .hud-handle:focus-visible { background: var(--accent-soft); outline: none; }
+.hud-fold {
+  width: 22px; min-width: 0; height: 44px; min-height: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--raised); color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--radius); cursor: pointer;
+}
+.hud-layout[data-hud-collapsed="true"] .hud-fold { position: relative; left: -6px; }
+.map-editor-grid .grid-form { grid-template-columns: 1fr; }
+.map-editor-grid .grid-editor-footer { grid-row: 2; position: static; }
+.map-editor-grid .grid-editor-footer .grid-actions { justify-content: stretch; }
+.map-editor-grid .grid-editor-footer .grid-actions button { flex: 1; }
+@media (max-width: 760px), (orientation: portrait) {
+  .map-editor-grid .grid-editor { grid-template-columns: 1fr; grid-template-rows: auto; height: auto; }
+  .map-editor-grid .map-grid-preview { grid-row: auto; height: auto; }
+  .map-editor-grid .grid-advanced, .map-editor-grid .grid-editor-footer { grid-column: 1; grid-row: auto; }
+}
 .map-editor-modes { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
 .map-editor-mode { display: inline-flex; align-items: center; justify-content: flex-start; gap: var(--space-2); min-height: 44px; padding: 0.35rem 0.6rem; }
 .map-editor-portal { gap: var(--space-2); }
@@ -2354,6 +2388,13 @@ dialog.modal.map-editor {
 .map-editor button, .map-editor select, .map-editor .upload-button,
 .map-editor input:not([type="checkbox"]):not([type="radio"]):not(.sr-only) { min-height: 44px; }
 .wall-canvas-zoom button, .map-editor .map-grid-toolbar button { min-width: 44px; }
+/* Zoom controls sit on the map, so they get a solid, bright face to stay visible on any art. */
+.wall-canvas-zoom button, .map-grid-zoom button {
+  background: var(--raised); color: var(--text); border: 1px solid var(--text);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6); font-weight: 600;
+}
+.wall-canvas-zoom button:hover:not(:disabled), .map-grid-zoom button:hover:not(:disabled) { background: var(--accent); border-color: var(--accent-ink); }
+.wall-canvas-zoom button:disabled, .map-grid-zoom button:disabled { opacity: 0.45; box-shadow: none; }
 /* The editor body is the scroller here, with no padding below, so the grid footer sticks at its edge. */
 .map-editor .grid-editor-footer { bottom: 0; }
 /* Narrow or portrait screens stack the canvas above the HUD. The canvas keeps most of the height;

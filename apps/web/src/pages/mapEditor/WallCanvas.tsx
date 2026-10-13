@@ -15,8 +15,8 @@ export type CanvasMode = WallMode;
 
 /**
  * The Walls step's canvas (map-editor D3): the map with its walls in board coordinates
- * (invariant 8). Draw chains walls, Erase removes the wall under the pointer, Door / window picks
- * the wall to make a door or window (ADR 0030), and Detect like this sends the clicked point. Detected walls waiting to be applied are drawn as candidates, and
+ * (invariant 8). Draw chains walls, Erase removes the wall under the pointer, Door picks
+ * the wall to make a door or window (ADR 0030), and Pick sends the clicked point. Detected walls waiting to be applied are drawn as candidates, and
  * Erase toggles one off (or back on) instead of touching the room's walls.
  */
 export function WallCanvas({ map, grid, walls, candidates, erased, mode, onAdd, onRemove, onPortal, onToggleCandidate, onSample, busy }: {

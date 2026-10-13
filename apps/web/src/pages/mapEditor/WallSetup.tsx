@@ -8,12 +8,13 @@ import {
 import { api } from "../../net/api";
 import { useRoomSnapshot, type RoomConnection } from "../../net/roomConnection";
 import { WallCanvas, type CanvasMode } from "./WallCanvas";
+import { HudLayout } from "./HudLayout";
 
 const MODES: { key: CanvasMode; label: string; icon: typeof Eraser; needsDetection?: boolean }[] = [
   { key: "draw", label: "Draw", icon: LineSegments },
   { key: "erase", label: "Erase", icon: Eraser },
-  { key: "portal", label: "Door / window", icon: Door },
-  { key: "sample", label: "Detect like this", icon: Eyedropper, needsDetection: true },
+  { key: "portal", label: "Door", icon: Door },
+  { key: "sample", label: "Pick", icon: Eyedropper, needsDetection: true },
 ];
 
 /** What the Door / window tool turns a clicked wall into (ADR 0030). "wall" makes it plain again. */
@@ -189,7 +190,7 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
   const unavailableReason = availability && !availability.available ? availability.reason ?? "Wall detection is unavailable." : null;
 
   return (
-    <div className="map-editor-split">
+    <HudLayout className="map-editor-split">
       <WallCanvas
         map={map}
         grid={state.scene.grid}
@@ -325,7 +326,7 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
         )}
         {message && <p className={message.error ? "error" : "muted"} role={message.error ? "alert" : "status"}>{message.text}</p>}
       </aside>
-    </div>
+    </HudLayout>
   );
 }
 

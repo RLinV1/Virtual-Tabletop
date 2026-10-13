@@ -11,6 +11,7 @@ import { EncounterPanel } from "../panels/EncounterPanel";
 import { PanelSection } from "../ui/PanelSection";
 import { withGridSuggestion, type GridDraft } from "./gridDraft";
 import { GridForm } from "./GridForm";
+import { HudLayout } from "./mapEditor/HudLayout";
 import { LibraryPicker } from "./LibraryPicker";
 import { useGridDetection } from "./useGridDetection";
 import { FogSetup } from "./mapEditor/FogSetup";
@@ -452,7 +453,7 @@ function MapSection(props: {
               </div>
             )}
             {step === "grid" && (prep ? (
-              <div className="map-editor-grid">
+              <HudLayout className="map-editor-grid">
                 <RoomGridEditor
                   key={prep.map.url}
                   roomId={props.roomId}
@@ -471,9 +472,9 @@ function MapSection(props: {
                   busyLabel="Applying map…"
                   allowUnchanged
                 />
-              </div>
+              </HudLayout>
             ) : props.map ? (
-              <div className="map-editor-grid">{props.grid(() => props.onGridClose())}</div>
+              <HudLayout className="map-editor-grid">{props.grid(() => props.onGridClose())}</HudLayout>
             ) : (
               <p className="map-editor-empty">Choose a map in the Map step first.</p>
             ))}

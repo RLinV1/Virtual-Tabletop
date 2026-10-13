@@ -23,12 +23,22 @@ services:
       POSTGRES_PASSWORD: vtt
       POSTGRES_DB: vtt
     ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vtt -d vtt"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
     volumes:
       - pgdata:/var/lib/postgresql/data
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
     ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
     volumes:
       - redisdata:/data
   # S3-compatible object storage (SeaweedFS). The S3 API is on 8333; the app creates its bucket.
@@ -36,6 +46,11 @@ services:
     image: chrislusf/seaweedfs:latest
     command: ["server", "-s3", "-dir=/data"]
     ports: ["${S3_PORT:-8333}:8333"]
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 8333"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
     volumes:
       - s3data:/data
   vision:
@@ -54,13 +69,15 @@ services:
       REDIS_URL: redis://redis:6379
       OPENCV_IO_MAX_IMAGE_PIXELS: 40000000
     depends_on: [redis]
-  # The app server: applies the Prisma migrations, then serves the API and the sockets.
+  # The app server: applies the Prisma migrations, then serves the API and the sockets. No
+  # `tsx watch`: the code is baked into the image, and watch mode would hang instead of exiting
+  # (and being restarted) when a dependency is not ready.
   server:
     build: .
     # Dependencies can still be starting after their containers are "up" (SeaweedFS, Postgres),
     # and the server exits when one is not ready; retry until they are.
     restart: unless-stopped
-    command: ["sh", "-c", "npm run prisma:migrate --workspace=@vtt/server && npm run dev --workspace=@vtt/server"]
+    command: ["sh", "-c", "npm run prisma:migrate --workspace=@vtt/server && npm exec --workspace=@vtt/server -- tsx src/index.ts"]
     environment:
       DATABASE_URL: postgres://vtt:vtt@postgres:5432/vtt
       REDIS_URL: redis://redis:6379
@@ -68,7 +85,11 @@ services:
       # Dev only: signs in as t@gmail.com / password with no sign-up (never set in production).
       SEED_DEV_ACCOUNT: "1"
     ports: ["3001:3001"]
-    depends_on: [postgres, redis, s3]
+    # The server exits on start if one of these is not ready, so wait until each is healthy.
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      s3: { condition: service_healthy }
   web:
     build: .
     restart: unless-stopped

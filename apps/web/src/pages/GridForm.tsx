@@ -79,19 +79,6 @@ export function GridForm({
     lineOpacity: draft.lineOpacity,
   };
 
-  const nudgedValue = (key: "cellSize" | "offsetX" | "offsetY", delta: number): string | null => {
-    if (draft[key].trim() === "") return null;
-    const current = Number(draft[key]);
-    if (!Number.isFinite(current)) return null;
-    if (key === "cellSize") {
-      const next = current + delta;
-      return next > 0 && next <= 2000 ? String(next) : null;
-    }
-    const size = Number(draft.cellSize);
-    if (draft.cellSize.trim() === "" || !Number.isFinite(size) || size <= 0 || size > 2000) return null;
-    return String(((current + delta) % size + size) % size);
-  };
-
   const field = (key: "cellSize" | "offsetX" | "offsetY", label: string) => (
     <div className="grid-field" key={key}>
       <label>
@@ -111,26 +98,6 @@ export function GridForm({
           }}
         />
       </label>
-      <div className="grid-nudges" role="group" aria-label={`${label} nudges`}>
-        {[-5, -1, 1, 5].map((delta) => {
-          const next = nudgedValue(key, delta);
-          return (
-            <button
-              key={delta}
-              type="button"
-              className="secondary small"
-              disabled={applying || next === null}
-              aria-label={`${label}: ${delta > 0 ? "increase" : "decrease"} by ${Math.abs(delta)} pixels`}
-              onClick={() => { if (next !== null) {
-                setGeometryRevision((current) => current + 1);
-                onChange({ ...draft, [key]: next });
-              } }}
-            >
-              {delta > 0 ? `+${delta}` : `−${Math.abs(delta)}`}
-            </button>
-          );
-        })}
-      </div>
     </div>
   );
 
