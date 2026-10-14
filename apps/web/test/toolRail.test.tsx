@@ -9,18 +9,9 @@ const render = (isGm: boolean, active: BoardTool["kind"] = "select", options: To
   );
 
 describe("board Fog tool on the tool rail (FR-GM-17)", () => {
-  it("gives the GM a Fog button", () => {
-    expect(render(true)).toContain('title="Fog"');
-  });
-
-  it("never shows players a Fog button, not even a disabled one", () => {
+  it("keeps Fog off the rail for the GM and for players", () => {
+    expect(render(true)).not.toContain('title="Fog"');
     expect(render(false)).not.toContain('title="Fog"');
-  });
-
-  it("offers Rectangle, Polygon and Reveal while the GM's Fog tool is active", () => {
-    const html = render(true, "fog");
-    expect(html).toContain('aria-label="Fog options"');
-    for (const label of ["Fog rectangle", "Fog polygon", "Reveal (remove fog)"]) expect(html).toContain(label);
   });
 
   it("starts in Rectangle mode and keeps the chosen mode", () => {
