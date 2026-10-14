@@ -131,6 +131,7 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
     case "WallsRemoved": return `${actorName} removed ${wallCount(event.walls.length)}`;
     case "PortalChanged": return `${actorName} ${describePortalChange(event.from, event.to).past}`;
     case "CheckpointCreated": return `${actorName} saved checkpoint "${event.checkpoint.name}"`;
+    case "CheckpointDeleted": return `${actorName} deleted checkpoint "${event.checkpoint.name}"`;
     case "CheckpointRestored": return `${actorName} restored checkpoint "${event.name}"`;
     case "EncounterApplied": return `${actorName} applied encounter template "${event.name}"`;
     case "ActionUndone": {

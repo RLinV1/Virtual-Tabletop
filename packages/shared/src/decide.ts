@@ -832,6 +832,13 @@ export function decide(
       return accept({ type: "CheckpointCreated", checkpoint: { id: ctx.newId(), name, seq: ctx.lastSeq } });
     }
 
+    case "checkpoint.delete": {
+      if (!can.administer(actor)) return forbidden();
+      const checkpoint = state.checkpoints.find((c) => c.id === command.checkpointId);
+      if (!checkpoint) return notFound("checkpoint");
+      return accept({ type: "CheckpointDeleted", checkpoint });
+    }
+
     case "encounter.apply": {
       if (!can.administer(actor)) return forbidden();
       // A template that is another account's reads exactly like one that does not exist.

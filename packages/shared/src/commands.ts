@@ -361,6 +361,11 @@ export const Command = z.discriminatedUnion("type", [
     type: z.literal("checkpoint.restore"),
     checkpointId: Id,
   }).strict(),
+  /** GM removes a checkpoint from the list; the board and history are untouched (FR-REC-02, ADR 0036). */
+  z.object({
+    type: z.literal("checkpoint.delete"),
+    checkpointId: Id,
+  }).strict(),
   /** GM replaces the board with one of their saved encounter templates (FR-GM-13, ADR 0024). */
   z.object({
     type: z.literal("encounter.apply"),

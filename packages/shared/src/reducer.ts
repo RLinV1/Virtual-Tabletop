@@ -254,6 +254,10 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
     case "CheckpointCreated":
       return { ...state, checkpoints: [...state.checkpoints, event.checkpoint].slice(-MAX_CHECKPOINTS) };
 
+    case "CheckpointDeleted":
+      required(state.checkpoints.find((c) => c.id === event.checkpoint.id), event);
+      return { ...state, checkpoints: state.checkpoints.filter((c) => c.id !== event.checkpoint.id) };
+
     case "CheckpointRestored":
       // Only the board changes: participants, rolls, chat and history stay (ADR 0019). A table
       // from before walls existed had none (ADR 0029).

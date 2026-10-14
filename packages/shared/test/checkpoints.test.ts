@@ -199,3 +199,45 @@ describe("undo across a restore (KAN-41, ADR 0019)", () => {
     expect(undoableAction(r.state.undo, r.log.at(-1)!.commandId!)).toBeTruthy();
   });
 });
+
+describe("deleting a checkpoint (ADR 0036, FR-REC-02)", () => {
+  it("lets only the GM delete, and refuses an unknown id", () => {
+    const r = furnished();
+    const id = r.state.checkpoints[0]!.id;
+    expect(r.attempt(alice, { type: "checkpoint.delete", checkpointId: id })).toMatchObject({ ok: false, code: "forbidden" });
+    expect(r.attempt(gm, { type: "checkpoint.delete", checkpointId: "nope" })).toMatchObject({ ok: false, code: "not_found" });
+  });
+
+  it("removes only that checkpoint, leaves the board, and carries the deleted entity", () => {
+    const r = furnished();
+    r.run(gm, { type: "checkpoint.create", name: "Later" });
+    const [start, later] = r.state.checkpoints as [RoomState["checkpoints"][number], RoomState["checkpoints"][number]];
+    const table = tableOf(r.state);
+    const [event] = r.run(gm, { type: "checkpoint.delete", checkpointId: start.id });
+    expect(event).toEqual({ type: "CheckpointDeleted", checkpoint: start });
+    expect(r.state.checkpoints).toEqual([later]);
+    expect(tableOf(r.state)).toEqual(table);
+    expect(formatActivity(r.log.at(-1)!.event, "Mara", r.state)).toBe('Mara deleted checkpoint "Start"');
+  });
+
+  it("still restores another checkpoint, and refuses the deleted one", () => {
+    const r = furnished();
+    const startTable = tableOf(r.state);
+    r.run(gm, { type: "checkpoint.create", name: "Later" });
+    r.run(gm, { type: "token.delete", tokenId: tokenNamed(r.state, "Goblin").id });
+    const [start, later] = r.state.checkpoints as [RoomState["checkpoints"][number], RoomState["checkpoints"][number]];
+    r.run(gm, { type: "checkpoint.delete", checkpointId: start.id });
+    expect(r.attempt(gm, { type: "checkpoint.restore", checkpointId: start.id })).toMatchObject({ ok: false, code: "not_found" });
+    r.run(gm, { type: "checkpoint.restore", checkpointId: later.id });
+    expect(tableOf(r.state)).toEqual(startTable);
+  });
+
+  it("is invisible to players: redacted event, no checkpoint id or name in their state", () => {
+    const r = furnished();
+    const id = r.state.checkpoints[0]!.id;
+    r.run(gm, { type: "checkpoint.delete", checkpointId: id });
+    const deleted = r.log.at(-1)!;
+    expect(filterEventForViewer(deleted, r.state, alice)).toMatchObject({ kind: "redacted" });
+    expect(JSON.stringify(filterStateForViewer(r.state, alice))).not.toContain(id);
+  });
+});

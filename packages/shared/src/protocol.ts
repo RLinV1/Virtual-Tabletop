@@ -5,7 +5,7 @@ import { Command, DEFAULT_TOKEN_COLOR } from "./commands";
 import { CommittedEvent } from "./events";
 import { GridSpec, Point } from "./geometry";
 import { TokenStats, type ConditionId } from "./conditions";
-import { AreaShape, Id, Participant, Token, type RoomState } from "./state";
+import { AreaShape, Id, Participant, TableState, Token, type RoomState } from "./state";
 import type { RejectionCode } from "./decide";
 import { RoomUploadPurpose } from "./gridDetection";
 import { MAX_ENCOUNTER_NAME } from "./encounters";
@@ -358,3 +358,10 @@ export interface EncounterSummary {
   updatedAt: string;
 }
 
+
+/** A checkpoint's saved board, for the GM to look at before restoring it (ADR 0036). Read-only: no seq, no event. */
+export const CheckpointPreviewResponse = z.object({
+  name: z.string(),
+  table: TableState,
+});
+export type CheckpointPreviewResponse = z.infer<typeof CheckpointPreviewResponse>;

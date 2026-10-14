@@ -214,6 +214,7 @@ export function filterEventForViewer(
       // GM-only: a player learns only that a seq passed (KAN-82, ADR 0026).
       return redacted;
     case "CheckpointCreated":
+    case "CheckpointDeleted":
       // Checkpoints are the GM's; a player learns only that a seq passed (ADR 0019).
       return redacted;
     case "CheckpointRestored":
