@@ -54,7 +54,8 @@ export function registerUvttRoutes(app: Express, deps: Deps) {
       attempts.sweep();
       const limit = attempts.hit(`${auth.roomId}:${auth.actorId}`);
       if (!limit.ok) { res.setHeader("Retry-After", limit.retryAfterSec); res.status(429).json({ error: "Too many import attempts. Try again in a minute." }); return; }
-      deps.preparations.assertCanCreate(auth.roomId, auth.actorId);
+      const ownerId = await deps.store.findRoomOwner(auth.roomId) ?? `participant:${auth.actorId}`;
+      deps.preparations.assertCanCreate(auth.roomId, auth.actorId, ownerId);
       const baseline = await auth.room.captureScene(auth.actorId);
       if (!baseline) { res.status(403).json({ error: "Your GM seat ended." }); return; }
       let rawPath: string | undefined;
@@ -83,7 +84,7 @@ export function registerUvttRoutes(app: Express, deps: Deps) {
         const preparation = deps.preparations.create(auth.roomId, auth.actorId, {
           map: { url, width: validated.width, height: validated.height }, grid: validated.grid,
           walls: validated.walls, diagnostics: validated.diagnostics,
-        }, baseline);
+        }, baseline, ownerId);
         retained = true;
         res.status(201).json(preparation);
       } catch (error) {

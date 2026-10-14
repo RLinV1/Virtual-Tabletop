@@ -212,6 +212,26 @@ describe("private atomic UVTT room import/export (KAN-43/44/49, FR-GM-06/07/12/2
     await prepared(creds.roomId, creds.guestToken);
     expect(validate).toHaveBeenCalledTimes(1); expect(put).toHaveBeenCalledTimes(1); expect(record).toHaveBeenCalledTimes(1);
   });
+  it("shares the owner's draft quota across distinct GM seats without blocking another owner", async () => {
+    let now = Date.now();
+    await server.close(); server = await startServer(store, { now: () => now });
+    const account = await server.signUp();
+    for (let i = 0; i < 10; i++) {
+      const creds = await server.createRoom("GM", { cookie: account.cookie });
+      await prepared(creds.roomId, creds.guestToken);
+      await prepared(creds.roomId, creds.guestToken);
+      now += 60_000;
+    }
+    const overflow = await server.createRoom("GM", { cookie: account.cookie });
+    const validate = vi.spyOn(UvttValidationPool.prototype, "validate");
+    const limited = await upload(overflow.roomId, overflow.guestToken);
+    expect(limited.status).toBe(422);
+    expect(await limited.json()).toMatchObject({ issues: [{ code: "preparation_limit" }] });
+    expect(validate).not.toHaveBeenCalled();
+    const other = await server.createRoom("Other owner");
+    await prepared(other.roomId, other.guestToken);
+    expect(validate).toHaveBeenCalledTimes(1);
+  }, 15_000);
   it("keeps the general JSON limit and supports large draft geometry within the dedicated limit", async () => {
     const creds = await server.createRoom(); const prep = await prepared(creds.roomId, creds.guestToken);
     const walls = Array.from({ length: 1500 }, (_, i) => ({ a: { x: i % 399, y: 0 }, b: { x: i % 399 + 1, y: 100 }, source: "objects_line_of_sight", uvttPortal: { position: { x: 20, y: 30 }, rotation: 1, closed: false, freestanding: true } }));

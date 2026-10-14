@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import { UvttError, removePortalOverlaps, validateUvttDraft, type PreparedUvttScene, type UvttBaseline, type UvttDraftEdit, type UvttPreparation } from "@vtt/shared";
 
 export const UVTT_PREPARATION_TTL = 30 * 60_000;
-interface Entry { roomId: string; actorId: string; expiresAt: number; view: UvttPreparation; baseline: UvttBaseline; leased: boolean; appliedSeq?: number | null }
+export const UVTT_MAX_OWNER_DRAFTS = 20;
+export const UVTT_MAX_DRAFTS = 100;
+interface Entry { roomId: string; actorId: string; ownerId: string; expiresAt: number; view: UvttPreparation; baseline: UvttBaseline; leased: boolean; appliedSeq?: number | null }
 export type UvttLease =
   | { ok: false; code: "not_found" | "invalid"; message: string }
   | { ok: true; scene: PreparedUvttScene; finish: (seq?: number | null) => void; appliedSeq?: undefined }
@@ -13,17 +15,18 @@ export class UvttPreparations {
   constructor(private now: () => number = Date.now) {}
   private sweep() { for (const [id, entry] of this.entries) if (!entry.leased && this.now() >= entry.expiresAt) this.entries.delete(id); }
   /** Checks capacity without removing drafts or reserving a slot. */
-  assertCanCreate(roomId: string, actorId: string) {
+  assertCanCreate(roomId: string, actorId: string, ownerId = actorId) {
     const now = this.now();
-    const active = [...this.entries.values()].filter((e) => e.leased || now < e.expiresAt);
-    const own = active.filter((e) => e.roomId === roomId && e.actorId === actorId && e.appliedSeq === undefined);
-    if (own.length >= 2 || active.length >= 20) throw new UvttError([{ code: "preparation_limit", path: "file", severity: "error", message: "Too many preparations. Discard an unused draft or wait for it to expire." }]);
+    const drafts = [...this.entries.values()].filter((e) => e.appliedSeq === undefined && (e.leased || now < e.expiresAt));
+    const own = drafts.filter((e) => e.roomId === roomId && e.actorId === actorId);
+    const owned = drafts.filter((e) => e.ownerId === ownerId);
+    if (own.length >= 2 || owned.length >= UVTT_MAX_OWNER_DRAFTS || drafts.length >= UVTT_MAX_DRAFTS) throw new UvttError([{ code: "preparation_limit", path: "file", severity: "error", message: "Too many preparations. Discard an unused draft or wait for it to expire." }]);
   }
-  create(roomId: string, actorId: string, data: Omit<UvttPreparation, "id" | "revision">, baseline: UvttBaseline) {
+  create(roomId: string, actorId: string, data: Omit<UvttPreparation, "id" | "revision">, baseline: UvttBaseline, ownerId = actorId) {
     this.sweep();
-    this.assertCanCreate(roomId, actorId);
+    this.assertCanCreate(roomId, actorId, ownerId);
     const view: UvttPreparation = { ...structuredClone(data), id: randomUUID(), revision: 1 };
-    this.entries.set(view.id, { roomId, actorId, expiresAt: this.now() + UVTT_PREPARATION_TTL, view, baseline: structuredClone(baseline), leased: false });
+    this.entries.set(view.id, { roomId, actorId, ownerId, expiresAt: this.now() + UVTT_PREPARATION_TTL, view, baseline: structuredClone(baseline), leased: false });
     return structuredClone(view);
   }
   private find(roomId: string, actorId: string, id: string) {

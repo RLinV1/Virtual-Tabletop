@@ -9,7 +9,7 @@ import { DEFAULT_GRID, MAX_UVTT_BYTES, MAX_UVTT_IMAGE_BYTES, serializeUvtt } fro
 import { animatedPng, animatedWebp } from "./uvttImageFixtures";
 import { validateUvttFile } from "../src/uvtt/validateFile";
 import { UvttValidationPool } from "../src/uvtt/validationPool";
-import { UVTT_PREPARATION_TTL, UvttPreparations } from "../src/uvtt/preparations";
+import { UVTT_MAX_DRAFTS, UVTT_PREPARATION_TTL, UvttPreparations } from "../src/uvtt/preparations";
 
 const folders: string[] = [];
 afterEach(async () => { await Promise.all(folders.splice(0).map((p) => rm(p, { recursive: true, force: true }))); });
@@ -140,11 +140,30 @@ describe("bounded private UVTT preparation lifecycle (FR-GM-07)", () => {
     now = UVTT_PREPARATION_TTL + 1;
     expect(store.lease("room", "gm", one.id, 2)).toMatchObject({ ok: false, code: "not_found" });
   });
-  it("enforces twenty per process", () => {
+  it("enforces the process draft cap across owners", () => {
     const store = new UvttPreparations();
-    for (let i = 0; i < 20; i++) store.create(`r${i}`, "gm", { map: { url: "/x", width: 2, height: 2 }, grid: DEFAULT_GRID, walls: [], diagnostics: [] }, { map: null, grid: DEFAULT_GRID, walls: {}, fog: {} });
+    for (let i = 0; i < UVTT_MAX_DRAFTS; i++) store.create(`r${i}`, `gm${i}`, { map: { url: "/x", width: 2, height: 2 }, grid: DEFAULT_GRID, walls: [], diagnostics: [] }, { map: null, grid: DEFAULT_GRID, walls: {}, fog: {} });
     expect(() => store.assertCanCreate("last", "gm")).toThrow(/Too many/);
     expect(() => store.create("last", "gm", { map: { url: "/x", width: 2, height: 2 }, grid: DEFAULT_GRID, walls: [], diagnostics: [] }, { map: null, grid: DEFAULT_GRID, walls: {}, fog: {} })).toThrow(/Too many/);
+  });
+  it("keeps applied receipts retryable without consuming draft capacity", () => {
+    const store = new UvttPreparations(() => 0);
+    const data = { map: { url: "/map.png", width: 400, height: 300 }, grid: DEFAULT_GRID, walls: [], diagnostics: [] };
+    const baseline = { map: null, grid: DEFAULT_GRID, walls: {}, fog: {} };
+    const receipts = Array.from({ length: UVTT_MAX_DRAFTS }, (_, i) => {
+      const prep = store.create("room", "gm", data, baseline);
+      const lease = store.lease("room", "gm", prep.id, 1);
+      if (!lease.ok || !lease.finish) throw new Error("no lease");
+      lease.finish(i === 0 ? null : i);
+      return prep;
+    });
+    expect(() => store.assertCanCreate("room", "gm")).not.toThrow();
+    store.create("room", "gm", data, baseline);
+    store.create("room", "gm", data, baseline);
+    expect(() => store.create("room", "gm", data, baseline)).toThrow(/Too many/);
+    for (const [i, prep] of receipts.entries()) {
+      expect(store.lease("room", "gm", prep.id, 1)).toEqual({ ok: true, appliedSeq: i === 0 ? null : i });
+    }
   });
   it("excludes expired drafts from capacity while keeping expired leases counted until release", () => {
     let now = 0; const store = new UvttPreparations(() => now);
