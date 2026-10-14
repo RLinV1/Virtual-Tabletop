@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TokenAttacks } from "./attackPresets";
 import { ConditionId, TokenStats } from "./conditions";
 import { DiceRoll, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
@@ -116,6 +117,13 @@ export const DomainEvent = z.discriminatedUnion("type", [
     tokenId: Id,
     conditions: z.array(ConditionId),
     previous: z.array(ConditionId),
+  }),
+  /** A token's named attacks were replaced (ADR 0034). Private to the GM and the token's owners. */
+  z.object({
+    type: z.literal("TokenAttacksSet"),
+    tokenId: Id,
+    attacks: TokenAttacks,
+    previous: TokenAttacks,
   }),
   z.object({
     type: z.literal("InitiativeStarted"),

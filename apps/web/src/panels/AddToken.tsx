@@ -1,6 +1,6 @@
 import { useId, useRef, useState } from "react";
 import { presetOf, type PresetFeatures } from "@vtt/shared";
-import { DEFAULT_TOKEN_COLOR, MAX_TOKENS_PER_CREATE, isActive, type AttackPreset, type ConditionId, type RoomState } from "@vtt/shared";
+import { DEFAULT_TOKEN_COLOR, isActive, type AttackPreset, type ConditionId, type LibraryCreature, type RoomState, type TokenStats } from "@vtt/shared";
 import type { TokenDraft } from "../board/placement";
 import { api } from "../net/api";
 import { useAccount } from "../account/accountStore";
@@ -12,14 +12,15 @@ import { Modal } from "../ui/Modal";
 import { TokenPreview } from "../ui/TokenPreview";
 import { ConditionPicker } from "./ConditionMarker";
 import { statsWithDefaults } from "./tokenDefaults";
+import { useAttackListEditor } from "./AttackListEditor";
 
 const TOKEN_COLORS = ["#c0392b", "#2980b9", "#27ae60", "#8e44ad", "#d35400", "#16a085"];
 
 /**
- * The GM's "Add token" button and its modal (room-sidebar-layout: GM setup forms open in
- * modals). Lives at the top of the Tokens section so every token control is in one place.
- * The form only describes the token; the GM then picks its square on the board, which
- * sends the `token.create` (place-token-on-board).
+ * The GM's New Token and Saved Creatures buttons and their modals (room-sidebar-layout: GM setup
+ * forms open in modals). They live at the top of the Tokens section so every token control is in
+ * one place. Neither creates anything: the GM then places on the board, one token per click, until
+ * done (token-placement-flow).
  */
 export function AddTokenButton({
   state,
@@ -32,6 +33,9 @@ export function AddTokenButton({
   onPlace: (draft: TokenDraft) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [creaturesOpen, setCreaturesOpen] = useState(false);
+  /** Saved Creatures' Hidden checkbox: unticked each time the dialog opens, so nothing stays hidden by surprise. */
+  const [creatureHidden, setCreatureHidden] = useState(false);
   /** Filled in and waiting for the dialog to finish closing, so the board takes focus after it. */
   const pending = useRef<TokenDraft | null>(null);
   // The library belongs to the signed-in account (ADR 0017); a signed-out GM uploads directly.
@@ -40,12 +44,19 @@ export function AddTokenButton({
 
   return (
     <>
-      <button type="button" data-tour="gm-add-token" onClick={() => setOpen(true)}>
-        Add token
-      </button>
+      <div className="row add-token-buttons" data-tour="gm-add-token">
+        <button type="button" onClick={() => setOpen(true)}>
+          New Token
+        </button>
+        {hasLibrary && (
+          <button type="button" onClick={() => { setCreatureHidden(false); setCreaturesOpen(true); }}>
+            Saved Creatures
+          </button>
+        )}
+      </div>
       <Modal
         open={open}
-        title="Add token"
+        title="New Token"
         onClose={() => setOpen(false)}
         onAfterClose={() => {
           const draft = pending.current;
@@ -66,6 +77,32 @@ export function AddTokenButton({
           }}
         />
       </Modal>
+      {hasLibrary && (
+        <Modal
+          open={creaturesOpen}
+          title="Saved Creatures"
+          onClose={() => setCreaturesOpen(false)}
+          onAfterClose={() => {
+            const draft = pending.current;
+            pending.current = null;
+            if (draft) onPlace(draft);
+          }}
+        >
+          <div className="stack">
+            {/* Chosen before anything is created, so an ambush never reaches players (token-placement-flow). */}
+            <label className="inline">
+              <input type="checkbox" checked={creatureHidden} onChange={(e) => setCreatureHidden(e.target.checked)} />
+              Hidden from players
+            </label>
+            <CreaturePicker
+              onPick={(creature) => {
+                pending.current = savedCreatureDraft(creature, creatureHidden, presetOf(state).features);
+                setCreaturesOpen(false);
+              }}
+            />
+          </div>
+        </Modal>
+      )}
     </>
   );
 }
@@ -100,7 +137,8 @@ function AddToken(props: {
   const [conditions, setConditions] = useState<ConditionId[]>([]);
   const conditionsLabelId = useId();
   const [attacks, setAttacks] = useState<AttackPreset[]>([]);
-  const [count, setCount] = useState("1");
+  // A creature fills these in; the GM can see and change them before placing (shared-token-attacks).
+  const attackList = useAttackListEditor({ attacks, onChange: setAttacks });
   const features = props.features;
   const [picking, setPicking] = useState(false);
   const [pickingCreature, setPickingCreature] = useState(false);
@@ -130,16 +168,10 @@ function AddToken(props: {
         className="stack"
         onSubmit={(e) => {
           e.preventDefault();
-          props.onAdd({
-            type: "token.create", name, hidden, ownerIds: ownerId ? [ownerId] : [],
-            size: Number(size), rotation: Number(rotation),
-            stats: features.armorClass ? defaults : { ...defaults, ac: null },
-            imageUrl: image?.url ?? null, assetId: image?.assetId ?? null,
-            color,
-            conditions: features.conditions ? conditions : [],
-            attacks: features.attacks ? attacks : [],
-            count: Number(count),
-          });
+          props.onAdd(tokenDraftFor({
+            name, hidden, ownerIds: ownerId ? [ownerId] : [], size: Number(size), rotation: Number(rotation),
+            stats: typedStats, image, color, conditions, attacks,
+          }, features));
         }}
       >
         {props.hasLibrary && (
@@ -164,11 +196,6 @@ function AddToken(props: {
           <span id="add-token-name-hint" className="muted">
             Duplicate names are numbered automatically, e.g. Goblin 2.
           </span>
-        </label>
-        {/* Several at once are one action: numbered, on the nearest free squares (KAN-70). */}
-        <label className="add-token-count">
-          How many
-          <input type="number" value={count} onChange={(e) => setCount(e.target.value)} required min="1" max={MAX_TOKENS_PER_CREATE} step="1" />
         </label>
         {/* Blank HP and AC fall back to the defaults shown as placeholders (token-stat-defaults). */}
         <div className="token-setup-grid token-setup-grid-3">
@@ -218,6 +245,7 @@ function AddToken(props: {
         </div>
         {/* Rarely changed from their defaults, so tucked away (token-stat-defaults). No position
             fields: the GM points at the square on the board next (place-token-on-board). */}
+        {features.attacks && attackList.section}
         <details className="add-token-advanced">
           <summary>Advanced settings</summary>
           <div className="stack">
@@ -246,6 +274,8 @@ function AddToken(props: {
         <button type="submit" disabled={uploading}>Choose a square</button>
         <p className="muted">Next, click the square on the map where it should go.</p>
       </form>
+      {/* The attack editor is a form of its own, so it can't be nested in this one. */}
+      {features.attacks && attackList.editor}
       {/* Its own modal, stacked over this one (native dialogs stack), so searching the
           library has room. Kept outside the form so its buttons can never submit it. */}
       {props.hasLibrary && (
@@ -282,6 +312,47 @@ function AddToken(props: {
       </Modal>
     </>
   );
+}
+
+/** A token's values as New Token's form or a saved creature gives them, before the preset's gating. */
+export interface TokenFields {
+  name: string;
+  hidden: boolean;
+  ownerIds: string[];
+  size: number;
+  rotation: number;
+  /** As typed or saved: blanks are filled by `statsWithDefaults` (token-stat-defaults). */
+  stats: TokenStats;
+  image: { url: string; assetId: string | null } | null;
+  color: string;
+  conditions: ConditionId[];
+  attacks: AttackPreset[];
+}
+
+/**
+ * The draft placing sends for each token: blank stats defaulted, and whatever the room's game preset
+ * turns off left out (KAN-63). New Token and Saved Creatures both go through here, so they can't drift.
+ * No count: placing repeats one token per click instead (token-placement-flow).
+ */
+export function tokenDraftFor(f: TokenFields, features: PresetFeatures): TokenDraft {
+  const stats = statsWithDefaults(f.stats);
+  return {
+    type: "token.create", name: f.name, hidden: f.hidden, ownerIds: f.ownerIds, size: f.size, rotation: f.rotation,
+    stats: features.armorClass ? stats : { ...stats, ac: null },
+    imageUrl: f.image?.url ?? null, assetId: f.image?.assetId ?? null,
+    color: f.color,
+    conditions: features.conditions ? f.conditions : [],
+    attacks: features.attacks ? f.attacks : [],
+  };
+}
+
+/** A saved creature placed straight from Saved Creatures: its values, no owner, Hidden as ticked. */
+export function savedCreatureDraft(creature: LibraryCreature, hidden: boolean, features: PresetFeatures): TokenDraft {
+  const values = creatureDraft(creature);
+  return tokenDraftFor({
+    name: values.name, hidden, ownerIds: [], size: values.size, rotation: 0, stats: values.stats,
+    image: values.image, color: values.color, conditions: values.conditions, attacks: values.attacks,
+  }, features);
 }
 
 const optionalNumber = (value: string) => value.trim() === "" ? null : Number(value);

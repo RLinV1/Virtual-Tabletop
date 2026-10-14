@@ -39,7 +39,7 @@ const STEPS: StepSpec[] = [
     target: "tools",
     title: "Board tools",
     body: {
-      gm: "Select moves tokens. Measure and Draw leave marks only you see. AoE places a spell area everyone sees, unless you tick GM only. Hold Alt to place off the grid. Drag the Eraser over marks and areas to remove them, anyone's areas included. Clear removes all of yours.",
+      gm: "Select moves tokens. Measure and Draw leave marks only you see. AoE places a spell area everyone sees, unless you tick GM only. Hold Alt to place off the grid. Drag the Eraser over marks and areas to remove them, anyone's areas included. Fog hides or reveals part of the map for players straight away. Clear removes all of yours.",
       player: "Select moves tokens. Measure and Draw leave marks only you see. AoE places a spell area everyone sees. Hold Alt to place off the grid. Drag the Eraser over your marks and areas to remove them, or Clear to remove them all.",
     },
   },
@@ -121,7 +121,7 @@ const STEPS: StepSpec[] = [
       player: "Every token you can see. Search, click one to find it on the map, and Edit your own to update HP and conditions.",
     },
   },
-  { target: "gm-add-token", title: "Add tokens", body: { gm: "Create tokens for characters and monsters, then click the square where each one goes. Pick who controls each one, or hide it until you reveal it." } },
+  { target: "gm-add-token", title: "Add tokens", body: { gm: "New Token creates a token for a character or monster; Saved Creatures puts one of your library creatures straight on the board, hidden if you tick it. Then click a square for each one you want, or use the arrow keys and Enter, and press Esc when you're done. Pick who controls a token in New Token, or hide it until you reveal it." } },
   {
     target: "dice",
     title: "Dice",

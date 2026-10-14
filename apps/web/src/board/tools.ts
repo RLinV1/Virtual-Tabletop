@@ -1,4 +1,4 @@
-import { pointInPolygon, snapTokenCenter, type AreaShape, type AreaTemplate, type FogRegion, type GridSpec, type Point, type Wall } from "@vtt/shared";
+import { pointInPolygon, snapTokenCenter, type AreaShape, type AreaTemplate, type Command, type FogRegion, type GridSpec, type Point, type Wall } from "@vtt/shared";
 
 export type { AreaShape };
 
@@ -26,8 +26,16 @@ export type BoardTool =
       gmOnly: boolean;
     }
   | { kind: "erase" }
+  /** GM only (FR-GM-17, ADR 0016): conceal a rectangle or polygon, or reveal (remove) a fogged region. */
+  | { kind: "fog"; mode: FogMode }
   /** Picking whom `attackerId` attacks (attack-targeting). Started from a token's Attack button, not the rail. */
   | { kind: "attack"; attackerId: string };
+
+/** What the Fog tool does: drag a rectangle, click out a polygon, or click a region to remove it. */
+export type FogMode = "rect" | "polygon" | "reveal";
+
+/** A fog region as the Fog tool sends it (FR-GM-17, ADR 0016). */
+export type FogDraft = Extract<Command, { type: "fog.add" }>["region"];
 
 /**
  * What the map editor's Walls step does (map-editor): chain walls, remove one, detect walls like a
@@ -89,6 +97,15 @@ export function fogRegionAt(fog: Record<string, FogRegion>, p: Point): FogRegion
   const regions = Object.values(fog);
   for (let i = regions.length - 1; i >= 0; i--) if (pointInPolygon(p, regions[i]!.points)) return regions[i]!;
   return null;
+}
+
+/** The corners of a fog draft, as `decide` will store them (a rectangle becomes four corners). */
+export function fogDraftPoints(region: FogDraft): Point[] {
+  if (region.shape === "polygon") return region.points;
+  const { from, to } = region;
+  const [x0, x1] = [Math.min(from.x, to.x), Math.max(from.x, to.x)];
+  const [y0, y1] = [Math.min(from.y, to.y), Math.max(from.y, to.y)];
+  return [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
 }
 
 /** Colours offered by the Draw tool. */

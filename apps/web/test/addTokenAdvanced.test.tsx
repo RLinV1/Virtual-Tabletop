@@ -14,7 +14,7 @@ const advanced = () => screen.getByText("Advanced settings").closest("details") 
 
 function open() {
   render(<AddTokenButton state={emptyRoomState("r1")} token="t" onPlace={() => {}} />);
-  fireEvent.click(screen.getByRole("button", { name: "Add token" }));
+  fireEvent.click(screen.getByRole("button", { name: "New Token" }));
 }
 
 beforeEach(() => {
