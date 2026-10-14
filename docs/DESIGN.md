@@ -16,6 +16,7 @@ This document covers architecture, stack, repository, and the running prototype.
 | [`adr/0028-grid-detection-http-contract.md`](adr/0028-grid-detection-http-contract.md) | Private HTTP contract for grid detection |
 | [`adr/0029-walls-and-wall-detection.md`](adr/0029-walls-and-wall-detection.md) | Walls as room state, BullMQ wall detection |
 | [`adr/0033-duplicate-at-position.md`](adr/0033-duplicate-at-position.md) | `token.duplicate` at a chosen square (proposed) |
+| [`adr/0034-shared-token-attacks.md`](adr/0034-shared-token-attacks.md) | Token attacks as room state, editable by owners (proposed) |
 
 ---
 

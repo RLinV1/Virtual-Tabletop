@@ -22,6 +22,7 @@ import { outcomeKey, pendingRulings } from "../panels/attackRoll";
 import { ActivityLog } from "../panels/ActivityLog";
 import type { AttackPick } from "../panels/AttackPanel";
 import { useEncounterReset } from "../panels/attackSession";
+import { clearLegacyAttackStorage } from "../panels/tokenAttacks";
 import { gridsEqual, parseGridDraft, toGridDraft, type GridDraft } from "./gridDraft";
 import { LeaveTable } from "../panels/LeaveTable";
 import { ResolveDepartureModal } from "../panels/ResolveDeparture";
@@ -89,6 +90,13 @@ export function RoomPage({ roomId }: { roomId: string }) {
   const [creds, setCreds] = useState(() => loadCredentials(roomId));
   const [resuming, setResuming] = useState<"idle" | "trying" | "failed">("idle");
   const connection = useMemo(() => (creds ? new RoomConnection(roomId, creds.guestToken) : null), [roomId, creds]);
+
+  // Attacks used to be kept in this browser; they are the token's now, so drop the old copies (ADR 0034).
+  useEffect(() => {
+    let storage: Storage | null = null;
+    try { storage = window.localStorage; } catch { /* blocked: nothing to clear */ }
+    clearLegacyAttackStorage(storage);
+  }, []);
 
   useEffect(() => {
     if (creds || account.status !== "signedIn" || resuming !== "idle") return;

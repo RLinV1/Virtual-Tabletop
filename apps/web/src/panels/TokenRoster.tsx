@@ -6,6 +6,7 @@ import {
   hpFraction,
   inactiveLabel,
   isActive,
+  type AttackPreset,
   type ConditionId,
   type Participant,
   type RoomState,
@@ -19,13 +20,13 @@ import { useAccount } from "../account/accountStore";
 import { libraryAssetId } from "../net/builtinAssets";
 import { LibraryPicker } from "../pages/LibraryPicker";
 import { CreatureForm } from "../pages/LibraryCreatures";
+import { useAttackListEditor } from "./AttackListEditor";
 import { creatureFromToken, type CreaturePrefill } from "../pages/creatureDraft";
 import { TokenPreview } from "../ui/TokenPreview";
 import { ConditionMarker, ConditionPicker } from "./ConditionMarker";
 import type { TokenDraft } from "../board/placement";
 import { AddTokenButton } from "./AddToken";
 import { Modal } from "../ui/Modal";
-import { browserTokenAttacks } from "./attackRoll";
 import { PanelSection } from "../ui/PanelSection";
 import { CollapseToggle, GroupHeading, NewGroupForm } from "./GroupHeading";
 import { groupedTokens } from "./tokenGroups";
@@ -305,6 +306,9 @@ export function TokenEditor({
   const [maxHp, setMaxHp] = useState(token.stats.maxHp?.toString() ?? "");
   const [ac, setAc] = useState(token.stats.ac?.toString() ?? "");
   const [conditions, setConditions] = useState<ConditionId[]>(token.conditions);
+  // Shared with everyone who may see them, saved with the rest of the form (ADR 0034).
+  const [attacks, setAttacks] = useState<AttackPreset[]>(token.attacks ?? []);
+  const attackList = useAttackListEditor({ attacks, onChange: setAttacks });
   const [ownerId, setOwnerId] = useState(token.ownerIds[0] ?? "");
   const [hidden, setHidden] = useState(token.hidden);
   const [groupId, setGroupId] = useState(savedGroupId ?? "");
@@ -316,7 +320,8 @@ export function TokenEditor({
     setCreatureStatus("");
     // Its art comes along only when it is the GM's own token art; an unreadable library means none.
     const ownArt = await api.library.list().catch(() => []);
-    setCreaturePrefill(creatureFromToken(token, ownArt, browserTokenAttacks(token)));
+    // The token's own attacks, as the GM and its owners see them (ADR 0034).
+    setCreaturePrefill(creatureFromToken(token, ownArt));
   };
   const [busy, setBusy] = useState(false);
 
@@ -335,6 +340,8 @@ export function TokenEditor({
   if (stats.hp !== token.stats.hp || stats.maxHp !== token.stats.maxHp || stats.ac !== token.stats.ac)
     changes.stats = stats;
   if (!sameConditions) changes.conditions = conditions;
+  // Only when changed here, so an unrelated Save never overwrites an owner's edit made meanwhile.
+  if (features.attacks && JSON.stringify(attacks) !== JSON.stringify(token.attacks ?? [])) changes.attacks = attacks;
   if (isGm && ownerId !== (token.ownerIds[0] ?? ""))
     changes.ownerIds = ownerId ? [ownerId] : [];
   if (isGm && hidden !== token.hidden) changes.hidden = hidden;
@@ -400,6 +407,8 @@ export function TokenEditor({
           <ConditionPicker value={conditions} onChange={setConditions} />
         </details>
       )}
+
+      {features.attacks && attackList.section}
 
       {isGm && (
         <details className="token-editor-section">
@@ -535,6 +544,7 @@ export function TokenEditor({
       )}
     </form>
     {/* Outside the editor's form: a form nested in a form would submit the editor instead. */}
+    {features.attacks && attackList.editor}
     {isGm && hasLibrary && (
       <Modal open={creaturePrefill !== null} title="Save as creature" onClose={() => setCreaturePrefill(null)}>
         {creaturePrefill && (

@@ -68,6 +68,8 @@ export const TokenUpdate = z.object({
   conditions: z.array(ConditionId).max(12).optional(),
   ownerIds: z.array(Id).optional(),
   hidden: z.boolean().optional(),
+  /** The token's named attacks, replacing the list; the GM or an owner may set them (ADR 0034). */
+  attacks: TokenAttacks.optional(),
 }).strict();
 export type TokenUpdate = z.infer<typeof TokenUpdate>;
 

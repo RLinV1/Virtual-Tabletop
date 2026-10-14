@@ -12,6 +12,7 @@ import { Modal } from "../ui/Modal";
 import { TokenPreview } from "../ui/TokenPreview";
 import { ConditionPicker } from "./ConditionMarker";
 import { statsWithDefaults } from "./tokenDefaults";
+import { useAttackListEditor } from "./AttackListEditor";
 
 const TOKEN_COLORS = ["#c0392b", "#2980b9", "#27ae60", "#8e44ad", "#d35400", "#16a085"];
 
@@ -136,6 +137,8 @@ function AddToken(props: {
   const [conditions, setConditions] = useState<ConditionId[]>([]);
   const conditionsLabelId = useId();
   const [attacks, setAttacks] = useState<AttackPreset[]>([]);
+  // A creature fills these in; the GM can see and change them before placing (shared-token-attacks).
+  const attackList = useAttackListEditor({ attacks, onChange: setAttacks });
   const features = props.features;
   const [picking, setPicking] = useState(false);
   const [pickingCreature, setPickingCreature] = useState(false);
@@ -242,6 +245,7 @@ function AddToken(props: {
         </div>
         {/* Rarely changed from their defaults, so tucked away (token-stat-defaults). No position
             fields: the GM points at the square on the board next (place-token-on-board). */}
+        {features.attacks && attackList.section}
         <details className="add-token-advanced">
           <summary>Advanced settings</summary>
           <div className="stack">
@@ -270,6 +274,8 @@ function AddToken(props: {
         <button type="submit" disabled={uploading}>Choose a square</button>
         <p className="muted">Next, click the square on the map where it should go.</p>
       </form>
+      {/* The attack editor is a form of its own, so it can't be nested in this one. */}
+      {features.attacks && attackList.editor}
       {/* Its own modal, stacked over this one (native dialogs stack), so searching the
           library has room. Kept outside the form so its buttons can never submit it. */}
       {props.hasLibrary && (

@@ -304,7 +304,7 @@ export function decide(
         changes.rotation !== undefined || changes.imageUrl !== undefined || changes.assetId !== undefined ||
         changes.ownerIds !== undefined || changes.hidden !== undefined;
       if (gmFields && !can.administer(actor)) return forbidden();
-      const off = presetRefusal(state, { conditions: (changes.conditions?.length ?? 0) > 0, ac: changes.stats?.ac ?? null });
+      const off = presetRefusal(state, { attacks: changes.attacks !== undefined, conditions: (changes.conditions?.length ?? 0) > 0, ac: changes.stats?.ac ?? null });
       if (off) return off;
       if (changes.name !== undefined && !changes.name.trim()) return reject("invalid", "Token name can't be blank.");
       if (changes.stats && changes.stats.hp !== null && changes.stats.maxHp !== null && changes.stats.hp > changes.stats.maxHp) {
@@ -363,6 +363,11 @@ export function decide(
         if (conditions.length !== token.conditions.length || conditions.some((c) => !token.conditions.includes(c))) {
           events.push({ type: "TokenConditionsSet", tokenId: token.id, conditions, previous: token.conditions });
         }
+      }
+      // Before any owner change, so a departing owner still receives it and a new one gets the
+      // attacks from the resync that ownership triggers (ADR 0034).
+      if (changes.attacks && JSON.stringify(changes.attacks) !== JSON.stringify(token.attacks ?? [])) {
+        events.push({ type: "TokenAttacksSet", tokenId: token.id, attacks: changes.attacks, previous: token.attacks ?? [] });
       }
       if (changes.ownerIds) {
         const ownerIds = [...new Set(changes.ownerIds)];
