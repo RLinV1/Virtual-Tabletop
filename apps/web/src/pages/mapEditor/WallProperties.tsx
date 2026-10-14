@@ -1,13 +1,23 @@
 import { useState } from "react";
-import { Wall, type MapImage } from "@vtt/shared";
+import { Wall, type MapImage, type Point, type UvttPortal } from "@vtt/shared";
+
+/** Coordinates may be incomplete while editing; saved walls still require complete points. */
+type WallDraft = Omit<Wall, "uvttPortal"> & { uvttPortal?: Omit<UvttPortal, "position"> & { position?: Partial<Point> } };
 
 /** Full-value geometry form shared by private draft and applied wall editors. */
 export function WallProperties({ wall, map, onSave, disabled = false }: { wall: Wall; map: MapImage; onSave: (wall: Wall) => Promise<void> | void; disabled?: boolean }) {
-  const [value, setValue] = useState(wall);
+  const [value, setValue] = useState<WallDraft>(wall);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const point = (end: "a" | "b", axis: "x" | "y", number: number) => setValue((v) => ({ ...v, [end]: { ...v[end], [axis]: number } }));
-  const portalPoint = (axis: "x" | "y", number: number) => setValue((v) => ({ ...v, uvttPortal: { ...v.uvttPortal, position: { ...(v.uvttPortal?.position ?? { x: 0, y: 0 }), [axis]: number } } }));
+  const portalPoint = (axis: "x" | "y", number: number | undefined) => setValue((v) => {
+    if (number !== undefined) return { ...v, uvttPortal: { ...v.uvttPortal, position: { ...(v.uvttPortal?.position ?? { x: 0, y: 0 }), [axis]: number } } };
+    const position = { ...v.uvttPortal?.position };
+    delete position[axis];
+    const uvttPortal = { ...v.uvttPortal };
+    if (Object.keys(position).length) uvttPortal.position = position; else delete uvttPortal.position;
+    return { ...v, uvttPortal };
+  });
   return <form className="stack" aria-label="Geometry properties" onSubmit={(e) => {
     e.preventDefault();
     const parsed = Wall.safeParse(value);
@@ -47,10 +57,17 @@ export function WallProperties({ wall, map, onSave, disabled = false }: { wall: 
       {!value.portal && <label><input type="checkbox" checked={value.uvttPortal.closed !== false} onChange={(e) => setValue((v) => ({ ...v, uvttPortal: { ...v.uvttPortal, closed: e.target.checked } }))} /> Closed (blocks movement)</label>}
       <label><input type="checkbox" checked={value.uvttPortal.freestanding ?? false} onChange={(e) => setValue((v) => ({ ...v, uvttPortal: { ...v.uvttPortal, freestanding: e.target.checked } }))} /> Freestanding</label>
       {(["x", "y"] as const).map((axis) => <label className="stack" key={axis}>Portal position {axis.toUpperCase()}
-        <input type="number" step="any" value={value.uvttPortal?.position?.[axis] ?? ""} onChange={(e) => portalPoint(axis, e.target.valueAsNumber)} />
+        <input type="number" step="any" value={value.uvttPortal?.position?.[axis] ?? ""} onChange={(e) => portalPoint(axis, e.target.value === "" ? undefined : e.target.valueAsNumber)} />
       </label>)}
       <label className="stack">Rotation (radians)
-        <input type="number" step="any" value={value.uvttPortal.rotation ?? ""} onChange={(e) => setValue((v) => ({ ...v, uvttPortal: { ...v.uvttPortal, rotation: e.target.valueAsNumber } }))} />
+        <input type="number" step="any" value={value.uvttPortal.rotation ?? ""} onChange={(e) => {
+          const rotation = e.target.value === "" ? undefined : e.target.valueAsNumber;
+          setValue((v) => {
+            const uvttPortal = { ...v.uvttPortal };
+            if (rotation === undefined) delete uvttPortal.rotation; else uvttPortal.rotation = rotation;
+            return { ...v, uvttPortal };
+          });
+        }} />
       </label>
       <p className="muted small-print">Import does not infer a door or window. Designated portals follow the table’s existing visibility and player controls.</p>
     </>}

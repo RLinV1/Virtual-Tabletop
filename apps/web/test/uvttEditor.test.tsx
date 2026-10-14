@@ -104,6 +104,37 @@ describe("private UVTT editor (FR-GM-06/07/09/12)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save geometry" }));
     expect(save.mock.calls[0]?.[0].uvttPortal).toEqual({});
   });
+  it("omits a cleared optional rotation without changing other portal metadata", () => {
+    const save = vi.fn();
+    render(<WallProperties map={preparation.map} wall={{ ...preparation.walls[0]!, id: "p" }} onSave={save} />);
+    fireEvent.change(screen.getByLabelText("Rotation (radians)"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save geometry" }));
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(save.mock.calls[0]?.[0].uvttPortal).toStrictEqual({ position: { x: 40, y: 60 }, closed: true, freestanding: true });
+  });
+  it.each([["X", "Y", "60"], ["Y", "X", "40"]])("omits a cleared position in %s/%s order and rejects incomplete coordinates", (first, second, remaining) => {
+    const save = vi.fn();
+    render(<WallProperties map={preparation.map} wall={{ ...preparation.walls[0]!, id: "p" }} onSave={save} />);
+    fireEvent.change(screen.getByLabelText(`Portal position ${first}`), { target: { value: "" } });
+    expect(screen.getByLabelText(`Portal position ${second}`)).toHaveProperty("value", remaining);
+    fireEvent.click(screen.getByRole("button", { name: "Save geometry" }));
+    expect(save).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText(`Portal position ${second}`), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save geometry" }));
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(save.mock.calls[0]?.[0].uvttPortal).toStrictEqual({ rotation: 1.3, closed: true, freestanding: true });
+  });
+  it("preserves numeric portal edits including zero and negative coordinates", () => {
+    const save = vi.fn();
+    render(<WallProperties map={preparation.map} wall={{ id: "p", a: { x: 1, y: 1 }, b: { x: 2, y: 2 }, uvttPortal: { closed: true, freestanding: true } }} onSave={save} />);
+    fireEvent.change(screen.getByLabelText("Portal position X"), { target: { value: "0" } });
+    expect(screen.getByLabelText("Portal position Y")).toHaveProperty("value", "0");
+    fireEvent.change(screen.getByLabelText("Portal position Y"), { target: { value: "-25.5" } });
+    fireEvent.change(screen.getByLabelText("Rotation (radians)"), { target: { value: "0" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save geometry" }));
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(save.mock.calls[0]?.[0].uvttPortal).toStrictEqual({ position: { x: 0, y: -25.5 }, rotation: 0, closed: true, freestanding: true });
+  });
   it.each(["success", "rejection", "exception"] as const)("prevents duplicate map Undo, clears retry errors and handles %s", async (outcome) => {
     const state = room();
     state.scene.map = { ...state.scene.map!, width: 1600, height: 1200 };
