@@ -389,6 +389,18 @@ export class LiveRoom {
   }
 
   /**
+   * A checkpoint's saved board for the GM to look at before restoring (ADR 0036): the table a
+   * restore would produce, from the same replay. A read: nothing is committed or sequenced.
+   * Null when the checkpoint is unknown (or deleted), or its log won't replay.
+   */
+  async previewCheckpoint(checkpointId: string): Promise<{ name: string; table: TableState } | null> {
+    const checkpoint = this.state.checkpoints.find((c) => c.id === checkpointId);
+    if (!checkpoint) return null;
+    const table = (await this.checkpointTables())(checkpointId);
+    return table ? { name: checkpoint.name, table } : null;
+  }
+
+  /**
    * Rebuilds a checkpoint's board by replaying the log up to its seq (ADR 0019). Runs inside the
    * room's queue, so nothing commits between the replay and the decision. A log that won't
    * replay makes the checkpoint unavailable rather than failing the whole command.
