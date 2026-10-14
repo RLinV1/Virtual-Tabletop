@@ -195,6 +195,7 @@ function MapSection(props: {
   /** The map just applied with tokens present, to find its Undo entry and the count it moved. */
   const [changedMapUrl, setChangedMapUrl] = useState<string | null>(null);
   const [undoError, setUndoError] = useState<string | null>(null);
+  const [undoPending, setUndoPending] = useState(false);
   const askPolicy = offersTokenPolicy(props.room);
   const uploadRef = useRef<HTMLInputElement>(null);
   const emptyUploadRef = useRef<HTMLInputElement>(null);
@@ -613,12 +614,18 @@ function MapSection(props: {
         return (
           <div className="row" role="status">
             <span>{message}</span>
-            <button type="button" className="small secondary" onClick={async () => {
-              const result = await props.connection.command({ type: "history.undo", commandId: entry.commandId });
-              if (result.ok) setChangedMapUrl(null);
-              else setUndoError(result.message);
+            <button type="button" className="small secondary" disabled={undoPending} onClick={async () => {
+              if (undoPending) return;
+              setUndoError(null); setUndoPending(true);
+              try {
+                const result = await props.connection.command({ type: "history.undo", commandId: entry.commandId });
+                if (result.ok) setChangedMapUrl(null);
+                else setUndoError(result.message);
+              } catch (err) {
+                setUndoError(err instanceof Error ? err.message : "Could not undo the map change. Try again.");
+              } finally { setUndoPending(false); }
             }}>
-              Undo
+              {undoPending ? "Undoing…" : "Undo"}
             </button>
             {undoError && <span role="alert" className="error">{undoError}</span>}
           </div>

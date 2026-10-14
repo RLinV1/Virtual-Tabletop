@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_GRID, EMPTY_STATS, type UvttPreparation } from "@vtt/shared";
+import { DEFAULT_GRID, EMPTY_STATS, reduce, type RoomState, type UvttPreparation } from "@vtt/shared";
 import { api } from "../src/net/api";
+import type { CommandResult } from "../src/net/roomConnection";
 import { GmPanel } from "../src/pages/GmPanel";
 import { toGridDraft } from "../src/pages/gridDraft";
 import { WallProperties } from "../src/pages/mapEditor/WallProperties";
@@ -25,9 +26,10 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 function mount(state = room()) {
   const fake = fakeConnection();
-  render(<GmPanel connection={fake.connection} state={state} token={TOKEN} gridDraft={toGridDraft(state.scene.grid)} hasGridDraft={false}
-    onGridDraftChange={() => {}} onGridDraftCancel={() => {}} onGridApply={async () => true} gridApplying={false} gridError={null} onReviewDeparture={() => {}} />);
-  return fake;
+  const panel = (next: RoomState) => <GmPanel connection={fake.connection} state={next} token={TOKEN} gridDraft={toGridDraft(next.scene.grid)} hasGridDraft={false}
+    onGridDraftChange={() => {}} onGridDraftCancel={() => {}} onGridApply={async () => true} gridApplying={false} gridError={null} onReviewDeparture={() => {}} />;
+  const view = render(panel(state));
+  return { ...fake, rerender: (next: RoomState) => view.rerender(panel(next)) };
 }
 async function importFile() {
   fireEvent.click(screen.getByRole("button", { name: "Edit map" }));
@@ -101,5 +103,46 @@ describe("private UVTT editor (FR-GM-06/07/09/12)", () => {
     render(<WallProperties map={preparation.map} wall={{ id: "p", a: { x: 1, y: 1 }, b: { x: 2, y: 2 }, uvttPortal: {} }} onSave={save} />);
     fireEvent.click(screen.getByRole("button", { name: "Save geometry" }));
     expect(save.mock.calls[0]?.[0].uvttPortal).toEqual({});
+  });
+  it.each(["success", "rejection", "exception"] as const)("prevents duplicate map Undo, clears retry errors and handles %s", async (outcome) => {
+    const state = room();
+    state.scene.map = { ...state.scene.map!, width: 1600, height: 1200 };
+    state.tokens.hero = { id: "hero", name: "Hero", position: { x: 100, y: 100 }, size: 1, rotation: 0, color: "#ffffff", imageUrl: null, assetId: null, ownerIds: [], hidden: false, stats: EMPTY_STATS, conditions: [] };
+    const fake = mount(state); await importFile();
+    fireEvent.click(screen.getByRole("button", { name: "Apply map" }));
+    await waitFor(() => expect(fake.commands).toHaveLength(1));
+    fake.rerender(reduce(state, { type: "MapSet", map: preparation.map, previous: state.scene.map,
+      gridChange: { grid: preparation.grid, previous: state.scene.grid },
+      tokenChanges: [{ tokenId: "hero", from: state.tokens.hero.position, to: { x: 50, y: 50 } }],
+    }, { commandId: "import-action", actorId: "gm" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    const send = vi.mocked(fake.connection.command);
+    send.mockResolvedValueOnce({ ok: false, code: "invalid", message: "Earlier undo failed." });
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    await screen.findByText("Earlier undo failed.");
+    let resolve!: (result: CommandResult) => void;
+    let reject!: (error: Error) => void;
+    const pending = new Promise<CommandResult>((done, fail) => { resolve = done; reject = fail; });
+    send.mockReturnValueOnce(pending);
+    const undo = screen.getByRole("button", { name: "Undo" }) as HTMLButtonElement;
+    fireEvent.click(undo);
+    expect(undo.disabled).toBe(true);
+    expect(screen.queryByText("Earlier undo failed.")).toBeNull();
+    fireEvent.click(undo);
+    expect(send.mock.calls.filter(([command]) => command.type === "history.undo")).toEqual([
+      [{ type: "history.undo", commandId: "import-action" }], [{ type: "history.undo", commandId: "import-action" }],
+    ]);
+    await act(async () => {
+      if (outcome === "success") resolve({ ok: true, seq: 4 });
+      else if (outcome === "rejection") resolve({ ok: false, code: "invalid", message: "Current undo failed." });
+      else reject(new Error("Current undo failed."));
+    });
+    if (outcome !== "success") {
+      expect(screen.getByText("Current undo failed.")).toBeTruthy();
+      expect(undo.disabled).toBe(false);
+      send.mockResolvedValueOnce({ ok: true, seq: 5 });
+      fireEvent.click(undo);
+    }
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^Undo/ })).toBeNull());
   });
 });
