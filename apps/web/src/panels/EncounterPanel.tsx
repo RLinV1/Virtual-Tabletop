@@ -73,11 +73,11 @@ export function EncounterPanel({ connection, state }: { connection: RoomConnecti
         }}
       >
         <label className="checkpoint-name">
-          <span className="sr-only">Template name</span>
+          <span className="sr-only">Encounter name</span>
           <input
             value={name}
             maxLength={MAX_ENCOUNTER_NAME}
-            placeholder="Goblin ambush"
+            placeholder="Encounter name"
             onChange={(e) => setName(e.target.value)}
             disabled={busy}
           />

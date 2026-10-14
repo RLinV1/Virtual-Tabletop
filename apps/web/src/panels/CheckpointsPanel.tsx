@@ -62,7 +62,7 @@ export function CheckpointsPanel({ connection, state }: { connection: RoomConnec
           <input
             value={name}
             maxLength={MAX_CHECKPOINT_NAME}
-            placeholder="Before the ambush"
+            placeholder="Checkpoint name"
             onChange={(e) => setName(e.target.value)}
             disabled={busy}
           />
