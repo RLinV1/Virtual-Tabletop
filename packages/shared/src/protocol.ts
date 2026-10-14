@@ -306,16 +306,41 @@ export interface LibraryCreature {
   createdAt: string;
 }
 
+const EncounterName = z.string().trim().min(1).max(MAX_ENCOUNTER_NAME);
+
 /** Save a room's board as an encounter template (FR-GM-13, ADR 0024). The board is read on the server. */
-export const SaveEncounterRequest = z.object({
-  roomId: z.uuid(),
-  name: z.string().trim().min(1).max(MAX_ENCOUNTER_NAME),
-});
+export const SaveEncounterRequest = z.object({ roomId: z.uuid(), name: EncounterName });
 export type SaveEncounterRequest = z.infer<typeof SaveEncounterRequest>;
 
-export const RenameEncounterRequest = z.object({
-  name: z.string().trim().min(1).max(MAX_ENCOUNTER_NAME),
-});
+/** Rebuild a template from a room the GM owns, keeping its id and name (ADR 0033). */
+export const ReplaceEncounterFromRoomRequest = z.object({ roomId: z.uuid() });
+export type ReplaceEncounterFromRoomRequest = z.infer<typeof ReplaceEncounterFromRoomRequest>;
+
+/**
+ * Open a template, or a new one on a library map, in a temporary room only its GM can enter
+ * (ADR 0033). `guestToken` is the browser's credential for the room, as for any room it creates.
+ */
+export const StartEncounterEditRequest = z.union([
+  z.object({ templateId: z.uuid(), guestToken: z.string().min(16).max(256) }).strict(),
+  z.object({ mapAssetId: z.uuid(), guestToken: z.string().min(16).max(256) }).strict(),
+]);
+export type StartEncounterEditRequest = z.infer<typeof StartEncounterEditRequest>;
+
+export type StartEncounterEditResponse = RoomCredentials;
+
+/** What a temporary editing room is editing; `templateId` is null until a new template is first saved. */
+export interface EncounterEditSession {
+  roomId: string;
+  templateId: string | null;
+  templateName: string | null;
+  mapAssetId: string | null;
+}
+
+/** Save a temporary room's board to its template. `name` is needed only on a new template's first save. */
+export const SaveEncounterEditRequest = z.object({ name: EncounterName.optional() });
+export type SaveEncounterEditRequest = z.infer<typeof SaveEncounterEditRequest>;
+
+export const RenameEncounterRequest = z.object({ name: EncounterName });
 export type RenameEncounterRequest = z.infer<typeof RenameEncounterRequest>;
 
 /** One of the GM's encounter templates, as the library lists it. The board data stays on the server. */
@@ -324,7 +349,12 @@ export interface EncounterSummary {
   name: string;
   /** The library map's name, or null when that map has since been deleted. */
   mapName: string | null;
+  /** The library map's id, or null when that map has since been deleted. */
+  mapAssetId: string | null;
   tokenCount: number;
   fogCount: number;
   createdAt: string;
+  /** When the template was last saved; the library lists newest first. */
+  updatedAt: string;
 }
+

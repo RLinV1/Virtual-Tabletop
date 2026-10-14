@@ -1,9 +1,9 @@
-# ADR 0035 — UVTT scenes, portal metadata and atomic geometry
+# ADR 0037 — UVTT scenes, portal metadata and atomic geometry
 
 **Status:** Proposed — Raymond Lin review required by CLAUDE.md
 **Owner:** Real-Time Architecture (Raymond Lin)
 **Implements:** KAN-43/44/49, FR-GM-06/07/12
-**Extends:** proposed ADR 0034 map-token-adjustment; accepted ADR 0028 grid-detection, 0029 walls, 0030 portals, 0032 fog; proposed ADR 0031 editor context
+**Extends:** proposed ADR 0036 map-token-adjustment; accepted ADR 0028 grid-detection, 0029 walls, 0030 portals, 0032 fog; proposed ADR 0031 editor context
 
 ## Context
 
@@ -29,4 +29,4 @@ Export captures a filtered immutable GM snapshot in the queue before private ima
 
 No new database migration; geometry stays in events/table snapshots. Preparations expire or disappear on restart. Web and server deploy together; rollback needs a compatible event reader. Strict validation and bounded workers constrain CPU/memory. Larger composite geometry travels only server-to-GM; inbound Socket.IO stays at 64 KiB.
 
-Review specifically: optional legacy event fields; full-value wall undo guards; lease/receipt lifecycle under append failure; snapshot/player filtering; generic portal movement semantics. PR #94/#99 are merged at main ec9aa66; the current KAN-66/KAN-67 prerequisite b7a8ba1 (#86) remains open. Both this ADR and the renumbered ADR 0034 remain Proposed. Use the existing private mapDraft/draftConnection and preserve detection result IDs, command context guards, portal behavior and fog.replace. Dynamic LoS and KAN-83 remain separate.
+Review specifically: optional legacy event fields; full-value wall undo guards; lease/receipt lifecycle under append failure; snapshot/player filtering; generic portal movement semantics. PR #94/#99 are merged at main ec9aa66; the current KAN-66/KAN-67 prerequisite b7a8ba1 (#86) remains open. Both this ADR and the renumbered ADR 0036 remain Proposed. Use the existing private mapDraft/draftConnection and preserve detection result IDs, command context guards, portal behavior and fog.replace. Dynamic LoS and KAN-83 remain separate.

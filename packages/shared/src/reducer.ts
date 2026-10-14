@@ -161,6 +161,11 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
       return { ...state, tokens: { ...state.tokens, [t.id]: { ...t, conditions: event.conditions } } };
     }
 
+    case "TokenAttacksSet": {
+      const t = required(state.tokens[event.tokenId], event);
+      return { ...state, tokens: { ...state.tokens, [t.id]: { ...t, attacks: event.attacks } } };
+    }
+
     case "InitiativeStarted": {
       // Each score is saved on its token, so it outlives the encounter.
       const scores = event.scores ?? [];

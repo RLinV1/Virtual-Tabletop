@@ -2,6 +2,7 @@
 
 **Status:** Accepted — reviewed by the Real-Time Architecture owner (Raymond), 2026-10-06 · **Amends:** `docs/adr/0004-asset-library.md`, `docs/adr/0019-checkpoints.md`
 **Owner:** Real-Time Architecture (Raymond) · **Changes:** `openspec/changes/kan-50-encounter-templates` · **Ticket:** KAN-50 (FR-GM-13)
+**Amended by:** `docs/adr/0033-encounter-template-editor.md` (editing in temporary rooms, replace from a room)
 
 ## Context
 

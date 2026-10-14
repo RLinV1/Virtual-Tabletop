@@ -6,13 +6,13 @@ import {
   hpFraction,
   inactiveLabel,
   isActive,
+  type AttackPreset,
   type ConditionId,
   type Participant,
   type RoomState,
   type Token,
   type TokenGroup,
   type TokenUpdate,
-  MAX_TOKENS_PER_CREATE,
 } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { api } from "../net/api";
@@ -20,13 +20,13 @@ import { useAccount } from "../account/accountStore";
 import { libraryAssetId } from "../net/builtinAssets";
 import { LibraryPicker } from "../pages/LibraryPicker";
 import { CreatureForm } from "../pages/LibraryCreatures";
+import { useAttackListEditor } from "./AttackListEditor";
 import { creatureFromToken, type CreaturePrefill } from "../pages/creatureDraft";
 import { TokenPreview } from "../ui/TokenPreview";
 import { ConditionMarker, ConditionPicker } from "./ConditionMarker";
 import type { TokenDraft } from "../board/placement";
 import { AddTokenButton } from "./AddToken";
 import { Modal } from "../ui/Modal";
-import { browserTokenAttacks } from "./attackRoll";
 import { PanelSection } from "../ui/PanelSection";
 import { CollapseToggle, GroupHeading, NewGroupForm } from "./GroupHeading";
 import { groupedTokens } from "./tokenGroups";
@@ -49,6 +49,7 @@ export function TokenRoster({
   token: guestToken,
   onFocusToken,
   onPlaceToken,
+  onDuplicateToken,
 }: {
   connection: RoomConnection;
   state: RoomState;
@@ -56,8 +57,10 @@ export function TokenRoster({
   /** Room credential, for the GM's token image uploads. */
   token: string;
   onFocusToken: (tokenId: string) => void;
-  /** GM: pick the square for a token filled in by Add token (place-token-on-board). */
+  /** GM: place a token filled in by New Token or Saved Creatures, once per click (token-placement-flow). */
   onPlaceToken: (draft: TokenDraft) => void;
+  /** GM: place copies of a token, once per click (token-placement-flow, ADR 0033). */
+  onDuplicateToken: (tokenId: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -165,8 +168,10 @@ export function TokenRoster({
               if (groupId !== undefined && !(await send({ type: "group.assign", groupId, tokenIds: [editing.id] }))) return;
               setEditingId(null);
             }}
-            onDuplicate={async (count) => {
-              if (await send({ type: "token.duplicate", tokenId: editing.id, count })) setEditingId(null);
+            onDuplicate={() => {
+              // The board places each copy where the GM clicks, until they're done (ADR 0033).
+              onDuplicateToken(editing.id);
+              setEditingId(null);
             }}
             onDelete={async () => {
               if (await send({ type: "token.delete", tokenId: editing.id })) setEditingId(null);
@@ -284,8 +289,8 @@ export function TokenEditor({
   /** `groupId` is undefined when the group did not change. */
   onSave: (changes: TokenUpdate, groupId?: string | null) => Promise<void>;
   onDelete: () => void;
-  /** GM: copy this token `count` times beside it (KAN-82). */
-  onDuplicate?: (count: number) => Promise<void>;
+  /** GM: start placing copies of this token on the board (KAN-82, token-placement-flow). */
+  onDuplicate?: () => void;
 }) {
   const [hp, setHp] = useState(token.stats.hp?.toString() ?? "");
   const [name, setName] = useState(token.name);
@@ -301,10 +306,12 @@ export function TokenEditor({
   const [maxHp, setMaxHp] = useState(token.stats.maxHp?.toString() ?? "");
   const [ac, setAc] = useState(token.stats.ac?.toString() ?? "");
   const [conditions, setConditions] = useState<ConditionId[]>(token.conditions);
+  // Shared with everyone who may see them, saved with the rest of the form (ADR 0034).
+  const [attacks, setAttacks] = useState<AttackPreset[]>(token.attacks ?? []);
+  const attackList = useAttackListEditor({ attacks, onChange: setAttacks });
   const [ownerId, setOwnerId] = useState(token.ownerIds[0] ?? "");
   const [hidden, setHidden] = useState(token.hidden);
   const [groupId, setGroupId] = useState(savedGroupId ?? "");
-  const [copies, setCopies] = useState("1");
   const [confirming, setConfirming] = useState<"save" | "delete" | null>(null);
   /** Save as creature (KAN-70): the token as it is now, as a new library creature's starting values. */
   const [creaturePrefill, setCreaturePrefill] = useState<CreaturePrefill | null>(null);
@@ -313,7 +320,8 @@ export function TokenEditor({
     setCreatureStatus("");
     // Its art comes along only when it is the GM's own token art; an unreadable library means none.
     const ownArt = await api.library.list().catch(() => []);
-    setCreaturePrefill(creatureFromToken(token, ownArt, browserTokenAttacks(token)));
+    // The token's own attacks, as the GM and its owners see them (ADR 0034).
+    setCreaturePrefill(creatureFromToken(token, ownArt));
   };
   const [busy, setBusy] = useState(false);
 
@@ -332,13 +340,13 @@ export function TokenEditor({
   if (stats.hp !== token.stats.hp || stats.maxHp !== token.stats.maxHp || stats.ac !== token.stats.ac)
     changes.stats = stats;
   if (!sameConditions) changes.conditions = conditions;
+  // Only when changed here, so an unrelated Save never overwrites an owner's edit made meanwhile.
+  if (features.attacks && JSON.stringify(attacks) !== JSON.stringify(token.attacks ?? [])) changes.attacks = attacks;
   if (isGm && ownerId !== (token.ownerIds[0] ?? ""))
     changes.ownerIds = ownerId ? [ownerId] : [];
   if (isGm && hidden !== token.hidden) changes.hidden = hidden;
   const groupChanged = isGm && groupId !== (savedGroupId ?? "");
   const hasChanges = Object.keys(changes).length > 0 || groupChanged;
-  const copyCount = Number(copies);
-  const validCopies = Number.isInteger(copyCount) && copyCount >= 1 && copyCount <= MAX_TOKENS_PER_CREATE;
 
   const save = async () => {
     setBusy(true);
@@ -400,6 +408,8 @@ export function TokenEditor({
         </details>
       )}
 
+      {features.attacks && attackList.section}
+
       {isGm && (
         <details className="token-editor-section">
           <summary>
@@ -444,23 +454,10 @@ export function TokenEditor({
 
       {isGm && onDuplicate && (
         <div className="row token-duplicate">
-          <label>
-            Copies
-            <input type="number" inputMode="numeric" value={copies} onChange={(e) => setCopies(e.target.value)}
-              min="1" max={MAX_TOKENS_PER_CREATE} step="1" aria-describedby="duplicate-hint" />
-          </label>
-          <button type="button" className="secondary" disabled={busy || !validCopies} onClick={async () => {
-            // Busy while the command is in flight, so a double click can't send it twice.
-            setBusy(true);
-            try {
-              await onDuplicate(copyCount);
-            } finally {
-              setBusy(false);
-            }
-          }}>
+          <button type="button" className="secondary" disabled={busy} aria-describedby="duplicate-hint" onClick={onDuplicate}>
             Duplicate
           </button>
-          <span id="duplicate-hint" className="muted small-print">Same stats, conditions, owner and visibility, beside this token.</span>
+          <span id="duplicate-hint" className="muted small-print">Same stats, conditions, owner and visibility. Click squares on the board to place copies.</span>
         </div>
       )}
 
@@ -547,6 +544,7 @@ export function TokenEditor({
       )}
     </form>
     {/* Outside the editor's form: a form nested in a form would submit the editor instead. */}
+    {features.attacks && attackList.editor}
     {isGm && hasLibrary && (
       <Modal open={creaturePrefill !== null} title="Save as creature" onClose={() => setCreaturePrefill(null)}>
         {creaturePrefill && (

@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { tableOf, type EncounterSummary, type GmRoomSummary, type LibraryAsset, type LibraryUsageResponse, type Token } from "@vtt/shared";
+import {
+  tableOf, type EncounterSummary, type GmRoomSummary, type LibraryAsset, type LibraryUsageResponse, type Token,
+} from "@vtt/shared";
 import { startServer, viewFor, type TestClient } from "./helpers";
 
 let server: Awaited<ReturnType<typeof startServer>>;
@@ -62,6 +64,12 @@ async function prepared() {
   return { cookie, map, creds, gm, alice };
 }
 
+/** The library owner id behind a signed-in cookie, for reading templates straight from the store. */
+async function ownerOf(cookie: string) {
+  const me = (await (await gmFetch(cookie, "/api/auth/me")).json()) as { account: { id: string } };
+  return (await server.store.findUserById(me.account.id))!.ownerId;
+}
+
 const save = (cookie: string, roomId: string, name = "Goblin ambush") =>
   gmFetch(cookie, "/api/library/encounters", { method: "POST", body: { roomId, name } });
 const list = async (cookie: string) => (await (await gmFetch(cookie, "/api/library/encounters")).json()) as EncounterSummary[];
@@ -73,7 +81,8 @@ describe("save a room's board as a template (FR-GM-13)", () => {
     expect(res.status).toBe(201);
     const saved = (await res.json()) as EncounterSummary;
     expect(saved).toMatchObject({ name: "Goblin ambush", mapName: map.name, tokenCount: 3, fogCount: 1 });
-    expect(JSON.stringify(saved)).not.toMatch(/ownerGmId|Orc|assetId/);
+    expect(JSON.stringify(saved)).not.toMatch(/ownerGmId|Orc|"data"/);
+    expect(saved.mapAssetId).toBe(map.id);
     expect(await list(cookie)).toEqual([saved]);
 
     const renamed = await gmFetch(cookie, `/api/library/encounters/${saved.id}`, { method: "PATCH", body: { name: "Ambush v2" } });
@@ -87,8 +96,7 @@ describe("save a room's board as a template (FR-GM-13)", () => {
     const { cookie, map, creds, gm } = await prepared();
     await ok(gm.command({ type: "scene.setMap", map: { url: map.url, width: map.width * 3, height: map.height * 3, assetId: map.id } }));
     const saved = (await (await save(cookie, creds.roomId)).json()) as EncounterSummary;
-    const owner = (await server.store.findUserById(((await (await gmFetch(cookie, "/api/auth/me")).json()) as { account: { id: string } }).account.id))!.ownerId;
-    expect((await server.store.findEncounter(saved.id, owner))!.data.map).toMatchObject({ width: map.width, height: map.height });
+    expect((await server.store.findEncounter(saved.id, await ownerOf(cookie)))!.data.map).toMatchObject({ width: map.width, height: map.height });
   });
 
   it("refuses a room the caller does not own, and anyone signed out", async () => {
@@ -264,5 +272,44 @@ describe("encounter templates over the wire (FR-GM-13)", () => {
       type: "rejected", code: "invalid", message: expect.stringContaining("deleted"),
     });
     expect(tableOf(gm.state)).toEqual(before);
+  });
+});
+
+describe("replace a template from a room (FR-GM-13, ADR 0033)", () => {
+  const replace = (cookie: string, id: string, roomId: string) =>
+    gmFetch(cookie, `/api/library/encounters/${id}/from-room`, { method: "PUT", body: { roomId } });
+
+  it("rebuilds the template from the room, keeping its id and name, and saves no walls", async () => {
+    const { cookie, creds, gm } = await prepared();
+    const saved = (await (await save(cookie, creds.roomId)).json()) as EncounterSummary;
+    await ok(gm.command({ type: "token.create", name: "Ogre", position: { x: 245, y: 105 } }));
+    await ok(gm.command({ type: "wall.add", walls: [{ a: { x: 0, y: 0 }, b: { x: 100, y: 0 } }] }));
+    const res = await replace(cookie, saved.id, creds.roomId);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ id: saved.id, name: "Goblin ambush", tokenCount: 4, createdAt: saved.createdAt });
+    expect(await list(cookie)).toHaveLength(1);
+    const read = (await server.store.findEncounter(saved.id, await ownerOf(cookie)))!;
+    expect(read.data.tokens.map((t) => t.name).sort()).toEqual(["Goblin", "Ogre", "Orc", "Rogue"]);
+    expect(JSON.stringify(read.data)).not.toMatch(/walls|ownerIds/);
+  });
+
+  it("refuses a room on a different map with 409 and changes nothing", async () => {
+    const { cookie, creds, gm } = await prepared();
+    const saved = (await (await save(cookie, creds.roomId)).json()) as EncounterSummary;
+    const other = await upload(cookie, "map", "Other");
+    await ok(gm.command({ type: "scene.setMap", map: { url: other.url, width: other.width, height: other.height, assetId: other.id } }));
+    const res = await replace(cookie, saved.id, creds.roomId);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: expect.stringContaining("new template") });
+    expect((await list(cookie))[0]).toMatchObject({ tokenCount: 3, updatedAt: saved.updatedAt });
+  });
+
+  it("answers 404 for another GM's template or room", async () => {
+    const { cookie, creds } = await prepared();
+    const saved = (await (await save(cookie, creds.roomId)).json()) as EncounterSummary;
+    const stranger = await prepared();
+    expect((await replace(stranger.cookie, saved.id, stranger.creds.roomId)).status).toBe(404);
+    expect((await replace(cookie, saved.id, stranger.creds.roomId)).status).toBe(404);
+    expect((await replace(cookie, crypto.randomUUID(), creds.roomId)).status).toBe(404);
   });
 });

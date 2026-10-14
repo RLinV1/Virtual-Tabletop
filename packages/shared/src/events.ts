@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TokenAttacks } from "./attackPresets";
 import { ConditionId, TokenStats } from "./conditions";
 import { DiceRoll, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
@@ -49,11 +50,11 @@ export const DomainEvent = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("MapSet"),
-    /** Null only in an inverse restoring the state before first-map placement (ADR 0034). */
+    /** Null only in an inverse restoring the state before first-map placement (ADR 0036). */
     map: MapImage.nullable(),
     previous: MapImage.nullable(),
     /**
-     * Always present on new map actions (ADR 0034); optional for historical events. One object,
+     * Always present on new map actions (ADR 0036); optional for historical events. One object,
      * not two optional fields, so the contract cannot express a grid change without the
      * grid it replaced (invariant 6).
      */
@@ -121,6 +122,13 @@ export const DomainEvent = z.discriminatedUnion("type", [
     tokenId: Id,
     conditions: z.array(ConditionId),
     previous: z.array(ConditionId),
+  }),
+  /** A token's named attacks were replaced (ADR 0034). Private to the GM and the token's owners. */
+  z.object({
+    type: z.literal("TokenAttacksSet"),
+    tokenId: Id,
+    attacks: TokenAttacks,
+    previous: TokenAttacks,
   }),
   z.object({
     type: z.literal("InitiativeStarted"),

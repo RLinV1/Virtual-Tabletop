@@ -2,7 +2,7 @@
 
 ## Context
 
-See proposal.md for scope. Main ec9aa66 includes merged wall PR #94, typed portals (ADR 0030), editor drafts (ADR 0031), atomic fog replacement (ADR 0032), and editor/board improvements in #99. Integrate the latest KAN-66/KAN-67 branch b7a8ba1 first; it is still not merged into main. Allocate ADR 0034 to map-token adjustment and ADR 0035 to UVTT because 0028/0029 and 0031 are occupied and PR #100 claims 0033. Review approvals remain external gates.
+See proposal.md for scope. The initial integration combined main ec9aa66 (wall PR #94, typed portals, private editor drafts, atomic fog replacement, and #99) with KAN-66/KAN-67 b7a8ba1. The current branch also reconciles main 37441e4, preserving shared token attacks, chat mentions, encounter editing, editor step prompts, and fog/grid improvements. ADRs 0036 (map-token adjustment) and 0037 (UVTT) replace our earlier numbers 0034/0035, now occupied on main by shared token attacks and chat mentions. Review approvals remain external gates.
 
 ## Goals / Non-Goals
 
@@ -33,4 +33,4 @@ Portal endpoint edits normalize collinear solid overlap both in private draft va
 
 ## Migration Plan
 
-No new database migration beyond the prerequisite wall/account/encounter migrations. Validate OpenSpec strictly and run lint, typecheck, tests including benchmark, build and health smoke. Review ADR 0035 with Raymond Lin alongside the reconciled proposed ADR 0034 and editor context ADR 0031, preserving accepted 0028/0029/0030/0032. PR #94 is merged; #86 remains the prerequisite. Verify memory/disk plus Postgres and the current S3/SeaweedFS storage configuration. Do not rewrite event history during rollback.
+No new database migration beyond the prerequisite wall/account/encounter migrations. Validate OpenSpec strictly and run lint, typecheck, tests including benchmark, build and health smoke. Review ADR 0037 with Raymond Lin alongside the reconciled proposed ADR 0036 and editor context ADR 0031, preserving accepted 0028/0029/0030/0032. PR #94 is merged; #86 remains the prerequisite. Verify memory/disk plus Postgres and the current S3/SeaweedFS storage configuration. Do not rewrite event history during rollback.

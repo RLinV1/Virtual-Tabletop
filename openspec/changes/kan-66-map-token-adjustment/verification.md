@@ -42,6 +42,6 @@ Manual checklist:
 
 ## Review and specification dependency
 
-Raymond Lin's Real-Time Architecture review has **not been requested or received**. Task 4.3 remains unchecked. [ADR 0034](../../../docs/adr/0034-map-token-adjustment.md) records the contract change and requires web/server deployment together after review. No production deployment, specification sync, or archival was performed.
+Raymond Lin's Real-Time Architecture review has **not been requested or received**. Task 4.3 remains unchecked. [ADR 0036](../../../docs/adr/0036-map-token-adjustment.md) records the contract change and requires web/server deployment together after review. No production deployment, specification sync, or archival was performed.
 
 Separately, `openspec validate undo-reversible-actions --strict --json` still fails because `room-activity-log/spec.md` modifies **Readable attributed actions** while omitting the existing **Attack roll** scenario. That completed, unrelated change was preserved. Reconcile its missing scenario before later specification consolidation or archival; this KAN-66 change passes its own strict validation.

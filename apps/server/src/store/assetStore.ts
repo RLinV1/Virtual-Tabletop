@@ -95,6 +95,9 @@ export class S3AssetStore implements AssetStore {
       ...(opts.attempts !== undefined && { maxAttempts: opts.attempts }),
       // Path-style addressing: the bucket is in the path, not the subdomain.
       forcePathStyle: true,
+      // The SDK adds a trailing checksum to streamed uploads by default, which SeaweedFS rejects as
+      // InvalidAccessKeyId; ask for one only where an operation requires it. AWS S3 keeps the default.
+      ...(!isAwsEndpoint(opts.endpoint) && { requestChecksumCalculation: "WHEN_REQUIRED" as const }),
       credentials: {
         accessKeyId: opts.accessKeyId ?? "vtt",
         secretAccessKey: opts.secretAccessKey ?? "vttvttvtt",
@@ -184,6 +187,15 @@ type Connect = (opts: Parameters<typeof S3AssetStore.connect>[0]) => Promise<Ass
  * `S3_ENDPOINT` when set; otherwise, outside production, the compose object store if it answers
  * within a second; local disk only when neither applies. Production never falls back.
  */
+/** Whether an S3 endpoint is AWS itself, which accepts the SDK's default upload checksums. */
+export function isAwsEndpoint(endpoint: string): boolean {
+  try {
+    return /(^|\.)amazonaws\.com(\.cn)?$/.test(new URL(endpoint).hostname);
+  } catch {
+    return false;
+  }
+}
+
 export async function createAssetStore(
   uploadDir: string,
   env: NodeJS.ProcessEnv = process.env,

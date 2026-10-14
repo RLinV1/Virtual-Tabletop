@@ -93,6 +93,8 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
     case "TokenStatsSet": return `${actorName} updated ${tokenName(event.tokenId)}'s stats: HP ${event.stats.hp ?? "unset"}/${event.stats.maxHp ?? "unset"}, AC ${event.stats.ac ?? "unset"}`;
     case "TokenImageSet": return `${actorName} ${event.imageUrl ? "changed" : "removed"} ${tokenName(event.tokenId)}'s image`;
     case "TokenConditionsSet": return `${actorName} set ${tokenName(event.tokenId)}'s conditions to ${event.conditions.length ? event.conditions.join(", ") : "none"}`;
+    // The log is the GM's alone (room-activity-log), so it may name the attacks (ADR 0034).
+    case "TokenAttacksSet": return `${actorName} set ${tokenName(event.tokenId)}'s attacks to ${event.attacks.length ? event.attacks.map((a) => a.name).join(", ") : "none"}`;
     case "InitiativeStarted": return `${actorName} started initiative: ${event.initiative.order.map(tokenName).join(", ") || "no tokens"}`;
     case "InitiativeAdvanced": return `${actorName} advanced to round ${event.initiative.round}, ${tokenName(event.initiative.order[event.initiative.activeIndex] ?? "")}'s turn`;
     case "InitiativeEnded": return `${actorName} ended initiative`;

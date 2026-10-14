@@ -10,7 +10,7 @@ Remote heads were refreshed before integration and confirmed unchanged after ver
 - KAN-66/KAN-67 `b7a8ba1314dd6b7fe8b5030e2acd835792e57834` (#86): atomic map/grid/token application, exact Undo, token-policy choices and adjustment confirmation. #97 merged into this prerequisite branch; #86 remains open against main.
 - The previous UVTT implementation is preserved at `55c616c` on `backup/uvtt-before-main-20261013`. Its five feature milestones remain in history. Integration first reconciles the prerequisite onto current main (`f33198d`), then brings those milestones forward with the contract/editor adjustments below.
 
-ADR 0034 replaces the prerequisite's colliding number 0031. ADR 0035 replaces UVTT's colliding number 0028. Main already uses 0028/0029 for grid/walls and 0031 for editor context; pending PR #100 claims 0033. ADRs 0034/0035 remain Proposed. Preserve accepted ADRs 0028/0029/0030/0032 and coordinate the still-Proposed editor-context ADR 0031 with Raymond Lin.
+The initial integration renumbered the prerequisite's ADR 0031 to 0034 and UVTT's ADR 0028 to 0035. After reconciling main 37441e4, these are ADRs 0036/0037 because main now uses 0034/0035 for shared token attacks and chat mentions. Both remain Proposed. Preserve accepted ADRs 0028/0029/0030/0032 and coordinate the still-Proposed editor-context ADR 0031 with Raymond Lin.
 
 ## Reconciled behavior
 
@@ -90,10 +90,36 @@ Application storage now uses S3AssetStore/S3_* and SeaweedFS in compose. UVTT_S3
 
 ## External gates
 
-- Merge the reconciled KAN-66/KAN-67 prerequisite (#86) and obtain Raymond Lin's review of ADRs 0034/0035, including composite fog/geometry, portal projections and Postgres precision. Coordinate ADR 0031's outstanding review. No approval is asserted here.
+- Merge the reconciled KAN-66/KAN-67 prerequisite (#86) and obtain Raymond Lin's review of ADRs 0036/0037, including composite fog/geometry, portal projections and Postgres precision. Coordinate ADR 0031's outstanding review. No approval is asserted here.
 - Independently qualify fixture provenance/artwork redistribution, expected geometry and exporter application versions; see `apps/server/test/fixtures/uvtt/README.md`. Acquire a clean complete Arkenforge export: the original author-linked tavern has consecutive duplicate object-LoS points and correctly remains a rejection fixture. Dungeondraft passes; synthetic files supplement it.
 - Run representative exports in Foundry, Roll20 and Fantasy Grounds and record versions. Source inspection does not establish application compatibility; UVTT closed semantics vary across consumers.
 
 Deploy web/server together after review and qualification. No new database migration or event-history rewrite is introduced. Rollback needs a reader for the persisted contract. Dynamic LoS and persistent scenes remain separate work.
 
 The preserved 2026-10-10 baseline at 55c616c passed 1470 TypeScript tests, 18 Python tests and six browser workflows, including Postgres/MinIO; those earlier totals are not substituted for the fresh results above.
+
+## Main merge verification (2026-10-14)
+
+Merged main `37441e4b42c1885a4ed93d4a35771e0ffcf7f3df` into the feature branch from `9e0c6fb`; the original head is preserved at `backup/uvtt-before-main-20261014`. The untracked user Dungeondraft export is unchanged (SHA-256 `31f1dbff6106c990891fca2f7d64d20fac813a66299a3870b9e6782115f59afe`).
+
+Resolved the GM panel, styles, shared exports/imports, and undo conflicts. Shared attacks and chat mentions retain main's behavior. UVTT preparations stay private across Map/Grid/Walls; Fog uses the new Apply/Discard prompt. Failed Apply retains the prompt and draft; successful Apply finishes the requested step. Editor closing returns focus to its opener. Main's keyed live wall/fog editors and fixed-map encounter features remain. Regression coverage includes private geometry step changes, rejected/retried Apply through the prompt, focus return, and map undo preserving later shared attack edits.
+
+Renumbered our ADRs to 0036 (map-token adjustment) and 0037 (UVTT); main owns 0034/0035 for shared token attacks/chat mentions. References and the design index are updated. Architecture approvals and the external gates above remain outstanding; #86 is still open.
+
+Fresh checks on Node **22.23.2**, matching CI's Node 22 major:
+
+- Prisma client regenerated for main's existing `0013_temporary_rooms` migration; UVTT introduces no additional migration.
+- Lint, typecheck, build and strict OpenSpec validation for KAN-43/44/49, KAN-66 and KAN-67 passed.
+- Full `npm test`: **1,772 passed** (675 shared, 442 server, 653 web, 2 latency tests); **38 service-dependent tests skipped**. Postgres/S3/Redis persistence and browser/consumer checks were not rerun for this merge; their earlier evidence remains separately recorded above.
+- Latency: 300/300 messages for both clients, p95 117.4 ms (GM) and 118.1 ms (player), below 150 ms.
+- Isolated in-memory/local-disk server on a temporary loopback port returned HTTP 200 and `{ "ok": true }`; server and temporary directory were cleaned up.
+- No unresolved index entries or conflict markers; the resolution diff against main passes `git diff --check`.
+
+The host default Node 26.9.0 initially failed four unchanged main tests because its experimental global `localStorage` interferes with jsdom. All pass with Node 22; no test or application workaround was added. To reproduce using the installed runtime without changing the user's default:
+
+```bash
+fnm exec --using 22.23.2 -- npm run lint
+fnm exec --using 22.23.2 -- npm run typecheck
+fnm exec --using 22.23.2 -- npm test
+fnm exec --using 22.23.2 -- npm run build
+```

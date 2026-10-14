@@ -9,6 +9,7 @@ import {
   type DiceLookView,
   type DiceLooksResponse,
   type DieName,
+  type EncounterEditSession,
   type EncounterSummary,
   type GridSpec,
   GridDetectionStatus,
@@ -23,10 +24,13 @@ import {
   type LibraryUsageResponse,
   type MeResponse,
   type MyRoomsResponse,
+  type SaveEncounterEditRequest,
   type SaveEncounterRequest,
   type SeatResponse,
   type SignInRequest,
   type SignUpRequest,
+  type StartEncounterEditRequest,
+  type StartEncounterEditResponse,
   type UpdateCreatureRequest,
 } from "@vtt/shared";
 import type {
@@ -389,6 +393,18 @@ export const api = {
         accountRequest<EncounterSummary>(`/api/library/encounters/${encodeURIComponent(id)}`, { method: "PATCH", ...jsonBody({ name }) }),
       remove: (id: string) =>
         accountRequest<void>(`/api/library/encounters/${encodeURIComponent(id)}`, { method: "DELETE" }),
+      /** Rebuilds a template from a room the GM owns, keeping its id and name (ADR 0033). */
+      replaceFromRoom: (id: string, roomId: string) =>
+        accountRequest<EncounterSummary>(`/api/library/encounters/${encodeURIComponent(id)}/from-room`, { method: "PUT", ...jsonBody({ roomId }) }),
+    },
+
+    /** Editing a template in a temporary room only this GM can enter (ADR 0033). Leaving is `rooms.remove`. */
+    encounterEdits: {
+      start: (req: StartEncounterEditRequest) =>
+        accountRequest<StartEncounterEditResponse>("/api/library/encounter-edits", { method: "POST", ...jsonBody(req) }),
+      get: (roomId: string) => accountRequest<EncounterEditSession>(`/api/library/encounter-edits/${encodeURIComponent(roomId)}`),
+      save: (roomId: string, req: SaveEncounterEditRequest = {}) =>
+        accountRequest<EncounterSummary>(`/api/library/encounter-edits/${encodeURIComponent(roomId)}/save`, { method: "POST", ...jsonBody(req) }),
     },
 
     /** Dice looks saved to the account (dice-looks, ADR 0017 O3). */

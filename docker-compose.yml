@@ -59,6 +59,12 @@ services:
       PORT: 8000
       OPENCV_IO_MAX_IMAGE_PIXELS: 40000000
     ports: ["127.0.0.1:8000:8000"]
+    # No GET route to probe, so ready means the port accepts connections.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8000), 2)"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
   # BullMQ consumer for wall detection (FR-GM-11, ADR 0029). Same image; no ports: it only
   # talks to Redis, taking jobs from the app server and returning walls and a preview.
   vision-walls:
@@ -82,6 +88,8 @@ services:
       DATABASE_URL: postgres://vtt:vtt@postgres:5432/vtt
       REDIS_URL: redis://redis:6379
       S3_ENDPOINT: http://s3:8333
+      # The vision service is its own container; the default 127.0.0.1:8000 is this container.
+      VISION_URL: http://vision:8000
       # Dev only: signs in as t@gmail.com / password with no sign-up (never set in production).
       SEED_DEV_ACCOUNT: "1"
     ports: ["3001:3001"]
@@ -90,6 +98,7 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       s3: { condition: service_healthy }
+      vision: { condition: service_healthy }
   web:
     build: .
     restart: unless-stopped

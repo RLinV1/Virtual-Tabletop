@@ -49,7 +49,7 @@ A section in the Play tab of `RoomPanel`. It lists messages oldest first with th
 - **Deploy web and server together.** An older reducer's `assertNever` throws on the new event and the client would resync in a loop, as with every earlier event addition.
 - **Rollback.** Rolling the code back after chat has been used would leave `ChatMessageSent` rows an older reducer cannot read; those rooms would need the rows handled by hand.
 - **Spam.** The length cap and the 200-message state cap bound memory. Each connection may send at most 10 chat messages per 10 seconds (checked in `ws/socket.ts` before the command reaches the room queue, refused as `invalid`), which bounds how fast one seat can grow the event log. A participant with several tabs gets that allowance per tab; a per-participant limit across connections is a follow-up.
-- **Not covered.** Whispers or GM-only messages (they would need visibility filters), dice in chat, edit or delete, reactions, markdown and links.
+- **Not covered.** Whispers or GM-only messages (they would need visibility filters), dice in chat, edit or delete, reactions, markdown and links. Mentions of other participants are added by ADR 0035.
 
 ## Alternatives considered
 

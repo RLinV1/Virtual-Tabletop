@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_GRID, EMPTY_STATS, reduce, type RoomState, type UvttPreparation } from "@vtt/shared";
 import { api } from "../src/net/api";
@@ -32,8 +32,7 @@ function mount(state = room()) {
   return { ...fake, rerender: (next: RoomState) => view.rerender(panel(next)) };
 }
 async function importFile() {
-  fireEvent.click(screen.getByRole("button", { name: "Edit map" }));
-  fireEvent.click(screen.getByRole("tab", { name: /· Map$/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Change Map" }));
   fireEvent.change(screen.getByLabelText("Upload battle map"), { target: { files: [new File(["json"], "map.dd2vtt")] } });
   await screen.findByText(/Draft map: only you see it/);
 }
@@ -81,6 +80,42 @@ describe("private UVTT editor (FR-GM-06/07/09/12)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     const discard = await screen.findByRole("button", { name: "Discard" }); fireEvent.click(discard);
     await waitFor(() => expect(api.uvtt.discard).toHaveBeenCalledWith("r1", TOKEN, "opaque"));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Change Map" })));
+  });
+  it("switches between Grid and Walls with edited UVTT geometry without applying it", async () => {
+    const fake = mount(); await importFile();
+    fireEvent.click(screen.getByRole("tab", { name: /· Walls$/ }));
+    fireEvent.change(screen.getByLabelText("Selected geometry"), { target: { value: "draft:0" } });
+    fireEvent.click(screen.getByLabelText("Closed (blocks movement)"));
+    fireEvent.click(screen.getByRole("button", { name: "Save geometry" }));
+    fireEvent.click(screen.getByRole("tab", { name: /· Grid$/ }));
+    expect(screen.getByRole("tab", { name: /· Grid$/ }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(screen.getByRole("tab", { name: /· Walls$/ }));
+    fireEvent.change(screen.getByLabelText("Selected geometry"), { target: { value: "draft:0" } });
+    expect(screen.getByLabelText("Closed (blocks movement)")).toHaveProperty("checked", false);
+    expect(screen.queryByRole("dialog", { name: "Apply this map?" })).toBeNull();
+    expect(fake.commands).toEqual([]);
+  });
+  it("retains a rejected import in the step-switch prompt and enters Fog only after successful Apply", async () => {
+    const fake = mount(); await importFile();
+    const send = vi.mocked(fake.connection.command);
+    send.mockResolvedValueOnce({ ok: false, code: "invalid", message: "Import refused. Draft kept." }).mockResolvedValue({ ok: true, seq: 3 });
+    const revise = vi.spyOn(api.uvtt, "revise");
+    fireEvent.click(screen.getByRole("tab", { name: /· Fog$/ }));
+    const prompt = screen.getByRole("dialog", { name: "Apply this map?" });
+    expect(send).not.toHaveBeenCalled();
+    fireEvent.click(within(prompt).getByRole("button", { name: "Apply map" }));
+    expect(await within(prompt).findByRole("alert")).toHaveProperty("textContent", "Import refused. Draft kept.");
+    expect(screen.getByRole("tab", { name: /· Grid$/ }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText(/Draft map: only you see it/)).toBeTruthy();
+    fireEvent.click(within(prompt).getByRole("button", { name: "Apply map" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: /· Fog$/ }).getAttribute("aria-selected")).toBe("true"));
+    expect(screen.queryByRole("dialog", { name: "Apply this map?" })).toBeNull();
+    expect(send.mock.calls).toEqual([
+      [{ type: "scene.importUVTT", importId: "opaque", revision: 1 }],
+      [{ type: "scene.importUVTT", importId: "opaque", revision: 1 }],
+    ]);
+    expect(revise).not.toHaveBeenCalled();
   });
   it("uses KAN-67 token policy on import and explicitly designates a window while retaining metadata", async () => {
     const state = room();
