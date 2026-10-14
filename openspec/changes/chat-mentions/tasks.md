@@ -1,6 +1,6 @@
 ## 1. ADR
 
-- [x] 1.1 Write `docs/adr/0034-chat-mentions.md` (Status: Proposed, needs Real-Time Architecture review; Amends ADR 0015). Record:
+- [x] 1.1 Write `docs/adr/0035-chat-mentions.md` (Status: Proposed, needs Real-Time Architecture review; Amends ADR 0015). Record:
   - the optional `ChatMessage.mentions` / `ChatMention { participantId, displayName }` and `MAX_CHAT_MENTIONS`;
   - that the server derives mentions from the text with the matching rules, while `chat.send` stays `{ text }` and strict;
   - public visibility;
@@ -82,4 +82,4 @@
   - the GM's player preview shows the list disabled.
 
   Keep a verification log of each step.
-- [x] 5.2 Run the `visibility-auditor` and `sync-reviewer` agents and a security review on the diff, fix the findings, and request review of ADR 0034 from the Real-Time Architecture owner. Verify no open findings remain, and the PR title references the change (`feat(chat): mentions (chat-mentions)`).
+- [x] 5.2 Run the `visibility-auditor` and `sync-reviewer` agents and a security review on the diff, fix the findings, and request review of ADR 0035 from the Real-Time Architecture owner. Verify no open findings remain, and the PR title references the change (`feat(chat): mentions (chat-mentions)`).

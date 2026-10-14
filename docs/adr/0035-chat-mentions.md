@@ -1,4 +1,4 @@
-# ADR 0034: Chat mentions
+# ADR 0035: Chat mentions
 
 **Status:** Proposed - needs review by the Real-Time Architecture owner · **Amends:** `docs/adr/0015-room-chat.md` (`ChatMessage` gains `mentions`)
 **Owner:** Real-Time Architecture (Raymond) · **Changes:** `openspec/changes/chat-mentions`

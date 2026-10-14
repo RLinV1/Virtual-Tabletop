@@ -276,7 +276,7 @@ describe("chat mention visibility and activity log (chat-mentions)", () => {
   });
   it("relies on players already having every participant: their filtered state keeps the list whole", () => {
     // Mentions carry participant ids. If players ever get a filtered participant list, the
-    // mentions in `chat` must be filtered with it (ADR 0034).
+    // mentions in `chat` must be filtered with it (ADR 0035).
     let state = reduce(baseRoom(), { type: "ParticipantJoined", participant: { id: "p-cal", role: "player", displayName: "Cal", left: true } });
     state = reduce(state, event, { at: AT });
     expect(filterStateForViewer(state, bob).participants).toEqual(state.participants);

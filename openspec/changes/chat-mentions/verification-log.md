@@ -102,3 +102,11 @@ Merged `main` (`dbae5fc`, PRs up to #100) into `feat/chat-mentions` and renumber
 | M9 | Console and server logs | No server errors. The only console 403 came from a manual `/invite` fetch made during setup without the GM header. |
 
 **Cleanup:** stopped both servers, restored `.claude/launch.json`, and deleted the scratchpad credentials and player tokens.
+
+## Second merge of main (2026-10-14)
+
+Merged `main` again (`a000982`, PRs #101 and #103) with no conflicts. Main's new `0034-shared-token-attacks.md` took 0034, so this change's ADR moved to **0035**. Only the lines this change added were renumbered (found with `git blame`); Antonio's "ADR 0034" references to shared token attacks were left as they are. Added the ADR to the index in `docs/DESIGN.md`.
+
+| Step | Result |
+| --- | --- |
+| `npm run lint`, `npm run typecheck`, `npm test` | All pass: shared 591, server 398 (35 skipped), web 624, bench 2. |

@@ -806,7 +806,7 @@ export function decide(
           senderId: actor.id,
           senderName: actor.displayName,
           text: command.text,
-          // Absent rather than empty, so a plain message keeps the shape it always had (ADR 0034).
+          // Absent rather than empty, so a plain message keeps the shape it always had (ADR 0035).
           ...(mentions.length > 0 && { mentions }),
         },
       });
@@ -921,7 +921,7 @@ function checkOwners(state: RoomState, ownerIds: string[]): Decision | null {
 
 
 /**
- * Who a chat message mentions (ADR 0034): the room's active participants named after a boundary
+ * Who a chat message mentions (ADR 0035): the room's active participants named after a boundary
  * `@`, each once, in order of first mention, at most MAX_CHAT_MENTIONS (a room filled before the
  * player cap can hold more). The sender is a candidate too, so the longest-name rule sees their
  * name ("@Sir Lancelot" from Sir Lancelot doesn't tag "Sir"), and is then dropped.
