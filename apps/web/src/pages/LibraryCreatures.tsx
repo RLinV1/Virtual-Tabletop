@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { CreatureFields, DEFAULT_TOKEN_COLOR, MAX_TOKEN_ATTACKS, MIN_HP, creatureHpValid, type AttackPreset, type ConditionId, type LibraryCreature } from "@vtt/shared";
+import { CreatureFields, DEFAULT_TOKEN_COLOR, MAX_TOKEN_ATTACKS, MIN_HP, conditionSpec, creatureHpValid, type AttackPreset, type ConditionId, type LibraryCreature } from "@vtt/shared";
 import { PresetEditor } from "../panels/AttackPanel";
 import { presetSummary } from "../panels/attackRoll";
 import { ConditionPicker } from "../panels/ConditionMarker";
@@ -100,6 +100,8 @@ export function CreatureForm(props: {
     from?.imageAssetId && from.imageUrl ? { assetId: from.imageAssetId, url: from.imageUrl, label: creature ? "Current art" : "Token's art" } : null,
   );
   const [picking, setPicking] = useState(false);
+  /** Advanced settings: open when it starts with a value in it; only ever opened automatically, never closed. */
+  const [advancedOpen, setAdvancedOpen] = useState(from?.hp != null || (from?.conditions.length ?? 0) > 0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -118,6 +120,9 @@ export function CreatureForm(props: {
     ? "Starting HP cannot exceed Max HP."
     : FIELD_HINTS[String(parsed.error.issues[0]?.path[0])] ?? "Check the values above.";
   const touched = creature !== null || name !== "";
+  // A hint about Starting HP must not point at a closed section: open it before this render paints.
+  const hpHinted = touched && !parsed.success && parsed.error.issues[0]?.path[0] === "hp";
+  if (hpHinted && !advancedOpen) setAdvancedOpen(true);
 
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -143,20 +148,10 @@ export function CreatureForm(props: {
           <input value={name} onChange={(e) => setName(e.target.value)} required maxLength={60} autoFocus aria-describedby="creature-name-hint" />
           <span id="creature-name-hint" className="muted">Players see this name on the creature's tokens.</span>
         </label>
-        <div className="token-setup-grid">
+        <div className="token-setup-grid token-setup-grid-3">
           <label>Size (cells)<input type="number" value={size} onChange={(e) => setSize(e.target.value)} required min="0.25" max="10" step="any" /></label>
-          <label>Starting HP<input type="number" value={hp} onChange={(e) => setHp(e.target.value)} min={MIN_HP} max="9999" step="1" /></label>
           <label>Max HP<input type="number" value={maxHp} onChange={(e) => setMaxHp(e.target.value)} min="1" max="9999" step="1" /></label>
           <label>AC<input type="number" value={ac} onChange={(e) => setAc(e.target.value)} min="0" max="99" step="1" /></label>
-        </div>
-        <p className="muted small-print">Leave Starting HP blank to start at Max HP.</p>
-        <label className="creature-color">
-          Colour without art
-          <input type="color" value={color} onInput={(e) => setColor(e.currentTarget.value)} onChange={(e) => setColor(e.target.value)} />
-        </label>
-        <div className="stack">
-          <span className="field-label">Starts with</span>
-          <ConditionPicker value={conditions} onChange={setConditions} />
         </div>
         <div className="stack" role="group" aria-label="Creature attacks">
           <span className="field-label">Attacks</span>
@@ -167,7 +162,6 @@ export function CreatureForm(props: {
             </div>
           ))}
           <button type="button" className="secondary" disabled={attacks.length >= MAX_TOKEN_ATTACKS} onClick={() => setEditingAttack("new")}>Add attack</button>
-          <p className="muted small-print">Named to-hit and damage rolls are copied to each placed token.</p>
         </div>
         <div className="stack token-image-field">
           <span className="field-label">Image</span>
@@ -180,10 +174,29 @@ export function CreatureForm(props: {
           ) : (
             <div className="row creature-image-choose">
               <button type="button" className="secondary" onClick={() => setPicking(true)}>Choose token art</button>
-              <span className="muted">Without art it shows as a colour disc.</span>
             </div>
           )}
         </div>
+        {/* Rarely changed, so tucked away as in Add Token; open whenever it holds a value or the HP hint
+            (creature-form-advanced-settings). */}
+        <details className="add-token-advanced" open={advancedOpen} onToggle={(e) => setAdvancedOpen(e.currentTarget.open)}>
+          <summary>Advanced settings</summary>
+          <div className="stack">
+            <label>
+              Starting HP
+              <input type="number" value={hp} onChange={(e) => setHp(e.target.value)} min={MIN_HP} max="9999" step="1" />
+              <span className="muted small-print">Leave Starting HP blank to start at Max HP.</span>
+            </label>
+            <label className="creature-color">
+              Colour without art
+              <input type="color" value={color} onInput={(e) => setColor(e.currentTarget.value)} onChange={(e) => setColor(e.target.value)} />
+            </label>
+            <details className="add-token-conditions" open={conditions.length > 0}>
+              <summary>Starting conditions{conditions.length > 0 ? `: ${conditions.map((c) => conditionSpec(c).label).join(", ")}` : ""}</summary>
+              <ConditionPicker value={conditions} onChange={setConditions} />
+            </details>
+          </div>
+        </details>
         {touched && hint && <p className="error" role="alert">{hint}</p>}
         {error && <p className="error" role="alert">{error}</p>}
         <div className="row modal-actions">
