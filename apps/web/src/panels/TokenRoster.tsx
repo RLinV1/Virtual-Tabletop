@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState, type DragEvent, type ReactNode } from "react";
 import { presetOf, type PresetFeatures } from "@vtt/shared";
 import { Trash } from "@phosphor-icons/react";
 import {
@@ -30,6 +30,7 @@ import { Modal } from "../ui/Modal";
 import { PanelSection } from "../ui/PanelSection";
 import { CollapseToggle, GroupHeading, NewGroupForm } from "./GroupHeading";
 import { groupedTokens } from "./tokenGroups";
+import { GroupMoveMenu } from "./GroupMoveMenu";
 
 /**
  * Focusable token roster (FR-GM-24), showing stats and conditions (FR-TAC-07/08).
@@ -50,6 +51,8 @@ export function TokenRoster({
   onFocusToken,
   onPlaceToken,
   onDuplicateToken,
+  editingTokenId,
+  onEditToken,
 }: {
   connection: RoomConnection;
   state: RoomState;
@@ -61,9 +64,11 @@ export function TokenRoster({
   onPlaceToken: (draft: TokenDraft) => void;
   /** GM: place copies of a token, once per click (token-placement-flow, ADR 0033). */
   onDuplicateToken: (tokenId: string) => void;
+  /** The token whose editor is open. The room page owns it, so the board's token card can open it too. */
+  editingTokenId: string | null;
+  onEditToken: (tokenId: string | null) => void;
 }) {
   const [query, setQuery] = useState("");
-  const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** Group ids the GM collapsed; "" is the Ungrouped section (KAN-82). */
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
@@ -73,11 +78,59 @@ export function TokenRoster({
     return next;
   });
   const isGm = you.role === "gm";
-  const editing = editingId ? state.tokens[editingId] : undefined;
+  const editing = editingTokenId ? state.tokens[editingTokenId] : undefined;
   const send = async (command: Parameters<RoomConnection["command"]>[0]) => {
     const r = await connection.command(command);
     setError(r.ok ? null : r.message);
     return r.ok;
+  };
+
+  /** The token being dragged by its grip, and the section under it ("" is Ungrouped) (roster-group-move). */
+  const [dragging, setDragging] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  /** After a move from the menu: where focus goes once the token's row has moved. */
+  const [refocus, setRefocus] = useState<{ tokenId: string; groupId: string | null } | null>(null);
+  const groups = Object.values(state.groups);
+  const groupOf = (tokenId: string) => state.tokenGroups[tokenId] ?? null;
+
+  /** One token into a group, or out of any with null: one undoable action, as the editor's Group field. */
+  const moveToGroup = async (tokenId: string, groupId: string | null) => {
+    if (groupOf(tokenId) === groupId) return false;
+    return send({ type: "group.assign", groupId, tokenIds: [tokenId] });
+  };
+
+  // The row is rebuilt in its new section, so its grip lost focus; give it back, or to the
+  // section's heading when that section is collapsed.
+  useEffect(() => {
+    if (!refocus || (state.tokenGroups[refocus.tokenId] ?? null) !== refocus.groupId) return;
+    setRefocus(null);
+    const handle = document.querySelector<HTMLElement>(`[data-move-handle="${refocus.tokenId}"]`);
+    const heading = document.querySelector<HTMLElement>(`[data-group-section="${refocus.groupId ?? ""}"] .group-toggle`);
+    (handle ?? heading)?.focus();
+  }, [refocus, state.tokenGroups]);
+
+  /** Drag-and-drop handlers for one group's section, heading and list together. */
+  const dropZone = (groupId: string | null) => {
+    const key = groupId ?? "";
+    return {
+      "data-group-section": key,
+      onDragOver: (e: DragEvent<HTMLElement>) => {
+        if (!dragging) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        if (dropTarget !== key) setDropTarget(key);
+      },
+      onDragLeave: (e: DragEvent<HTMLElement>) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropTarget((t) => (t === key ? null : t));
+      },
+      onDrop: (e: DragEvent<HTMLElement>) => {
+        e.preventDefault();
+        const tokenId = dragging;
+        setDragging(null);
+        setDropTarget(null);
+        if (tokenId) void moveToGroup(tokenId, groupId);
+      },
+    };
   };
 
   const tokens = Object.values(state.tokens)
@@ -94,8 +147,25 @@ export function TokenRoster({
       onFocus={() => onFocusToken(token.id)}
       onEdit={() => {
         setError(null);
-        setEditingId(token.id);
+        onEditToken(token.id);
       }}
+      // The board places each copy where the GM clicks, until they're done (ADR 0033).
+      onDuplicate={isGm ? () => onDuplicateToken(token.id) : undefined}
+      handle={isGm && groups.length > 0 ? (
+        <GroupMoveMenu
+          token={token}
+          groups={groups}
+          groupId={groupOf(token.id)}
+          onMove={async (groupId) => {
+            if (await moveToGroup(token.id, groupId)) setRefocus({ tokenId: token.id, groupId });
+          }}
+          onDragStart={() => setDragging(token.id)}
+          onDragEnd={() => {
+            setDragging(null);
+            setDropTarget(null);
+          }}
+        />
+      ) : undefined}
     />
   );
 
@@ -117,8 +187,10 @@ export function TokenRoster({
         // The GM's roster is grouped (KAN-82); players never receive groups, so theirs is one list.
         <>
           {groupedTokens(state, tokens).map(({ group, tokens: members }) =>
-            group || members.length > 0 || tokens.length === 0 ? (
-              <section key={group?.id ?? "ungrouped"} className="roster-group" aria-label={group?.name ?? "Ungrouped tokens"}>
+            // An empty Ungrouped appears while dragging, so a token can be dropped out of its group.
+            group || members.length > 0 || tokens.length === 0 || dragging ? (
+              <section key={group?.id ?? "ungrouped"} {...dropZone(group?.id ?? null)}
+                className={dropTarget === (group?.id ?? "") ? "roster-group drop-target" : "roster-group"} aria-label={group?.name ?? "Ungrouped tokens"}>
                 {group ? (
                   <GroupHeading group={group} tokens={members} connection={connection} onError={setError}
                     collapsed={collapsed.has(group.id)} onToggle={() => toggle(group.id)} />
@@ -129,7 +201,7 @@ export function TokenRoster({
                   </div>
                 )}
                 {collapsed.has(group?.id ?? "") ? null : members.length === 0 ? (
-                  <p className="muted">{group ? "No tokens in this group yet. Use Edit on a token to add it." : query ? "No tokens match." : "No tokens yet."}</p>
+                  <p className="muted">{group ? "No tokens in this group yet. Drag a token here by its grip, or use its Move menu." : query ? "No tokens match." : "No tokens yet."}</p>
                 ) : (
                   <ul className="plain roster">
                     {members.map((token) => row(token))}
@@ -150,7 +222,7 @@ export function TokenRoster({
       {error && !editing && <p role="alert" className="error">{error}</p>}
       {isGm && <AddTokenButton state={state} token={guestToken} onPlace={onPlaceToken} />}
 
-      <Modal open={!!editing} title={editing ? `Edit ${editing.name}` : "Edit token"} onClose={() => setEditingId(null)}>
+      <Modal open={!!editing} title={editing ? `Edit ${editing.name}` : "Edit token"} onClose={() => onEditToken(null)}>
         {editing && (
           <TokenEditor
             key={editing.id}
@@ -166,15 +238,15 @@ export function TokenRoster({
             onSave={async (changes, groupId) => {
               if (Object.keys(changes).length > 0 && !(await send({ type: "token.configure", tokenId: editing.id, changes }))) return;
               if (groupId !== undefined && !(await send({ type: "group.assign", groupId, tokenIds: [editing.id] }))) return;
-              setEditingId(null);
+              onEditToken(null);
             }}
             onDuplicate={() => {
               // The board places each copy where the GM clicks, until they're done (ADR 0033).
               onDuplicateToken(editing.id);
-              setEditingId(null);
+              onEditToken(null);
             }}
             onDelete={async () => {
-              if (await send({ type: "token.delete", tokenId: editing.id })) setEditingId(null);
+              if (await send({ type: "token.delete", tokenId: editing.id })) onEditToken(null);
             }}
           />
         )}
@@ -189,20 +261,27 @@ function RosterRow({
   isActive,
   onFocus,
   onEdit,
+  onDuplicate,
+  handle,
 }: {
   token: Token;
   you: Participant;
   isActive: boolean;
   onFocus: () => void;
   onEdit: () => void;
+  /** GM only (token-card-actions). */
+  onDuplicate?: () => void;
+  /** GM only, when the room has groups: the grip that moves the token to another group (roster-group-move). */
+  handle?: ReactNode;
 }) {
   // Same rule the server enforces; this only decides whether to draw the controls.
-  const editable = can.moveToken(you, token);
+  const editable = can.editToken(you, token);
   const fraction = hpFraction(token.stats);
 
   return (
     <li className={isActive ? "roster-row active" : "roster-row"}>
       <div className="roster-main">
+        {handle}
         <button type="button" className="roster-focus" onClick={onFocus}>
           <span className="swatch" style={{ background: token.color }} aria-hidden />
           <span className="token-name">{token.name}</span>
@@ -219,6 +298,11 @@ function RosterRow({
         {editable && (
           <button type="button" className="link small" onClick={onEdit} aria-label={`Edit ${token.name}`}>
             Edit
+          </button>
+        )}
+        {onDuplicate && (
+          <button type="button" className="link small" onClick={onDuplicate} aria-label={`Duplicate ${token.name}`}>
+            Duplicate
           </button>
         )}
       </div>

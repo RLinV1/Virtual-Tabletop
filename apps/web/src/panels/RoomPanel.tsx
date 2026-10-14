@@ -166,6 +166,9 @@ interface Props {
   onPlaceToken: (draft: TokenDraft) => void;
   /** GM: place copies of a token, once per click (token-placement-flow, ADR 0033). */
   onDuplicateToken: (tokenId: string) => void;
+  /** The token whose editor is open in the Tokens tab, and how to open or close it (token-card-actions). */
+  editingTokenId: string | null;
+  onEditToken: (tokenId: string | null) => void;
   /** True on narrow screens, where the tab buttons sit above the panel instead of in the top bar. */
   compact: boolean;
   /** The GM is previewing as a player (gm-view-as-player): the panels' controls do nothing. */
@@ -185,7 +188,7 @@ interface Props {
  * (Play, Tokens, Dice) from the GM's setup (Manage), instead of one long column.
  */
 export function RoomPanel({
-  connection, state, you, token, onFocusToken, onPlaceToken, onDuplicateToken,
+  connection, state, you, token, onFocusToken, onPlaceToken, onDuplicateToken, editingTokenId, onEditToken,
   attackPick, onAttackPick, attackReset, rollThrow, onPickOnBoard, onShowPing, diceBoard, attackVisibility, onAttackVisibility,
   gridDraft, hasGridDraft, onGridDraftChange, onGridDraftCancel, onGridApply, gridApplying, gridError,
   compact, tab, onTab, onReviewDeparture, tabBadges, readOnly, features: roomFeatures = FULL_ROOM,
@@ -226,7 +229,7 @@ export function RoomPanel({
       </>
     ),
     tokens: (
-      <TokenRoster connection={connection} state={state} you={you} token={token} onFocusToken={onFocusToken} onPlaceToken={onPlaceToken} onDuplicateToken={onDuplicateToken} />
+      <TokenRoster connection={connection} state={state} you={you} token={token} onFocusToken={onFocusToken} onPlaceToken={onPlaceToken} onDuplicateToken={onDuplicateToken} editingTokenId={editingTokenId} onEditToken={onEditToken} />
     ),
     dice: <DicePanel connection={connection} state={state} isGm={isGm} rollThrow={rollThrow} board={diceBoard} />,
     gm: isGm ? (
