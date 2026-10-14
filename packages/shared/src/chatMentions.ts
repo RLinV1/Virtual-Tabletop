@@ -17,7 +17,7 @@ const WORD_END = /[\p{L}\p{N}\p{M}]$/u;
 const WORD_START = /^[\p{L}\p{N}\p{M}]/u;
 
 /**
- * Every mention of `candidates` in `text`, in order (ADR 0023). A mention is an `@` at the start
+ * Every mention of `candidates` in `text`, in order (ADR 0034). A mention is an `@` at the start
  * of the text or after anything that is not a letter, digit or combining mark, followed by a
  * candidate's name, compared ignoring case (`foldName`) and not followed by a letter, digit or
  * combining mark. When several names match at one `@` the longest wins, ties broken by id, so the
@@ -52,7 +52,7 @@ export function findMentions(text: string, candidates: readonly ChatMention[]): 
 
 /**
  * `text` split into plain and mention segments for drawing, using the names the message recorded
- * (ADR 0023). `sender` is matched too and left plain, as `decide` did: when Sir Lancelot writes
+ * (ADR 0034). `sender` is matched too and left plain, as `decide` did: when Sir Lancelot writes
  * "@Sir Lancelot", the "@Sir" inside it is not a mention of Sir. Mention segments keep the text
  * exactly as written, so joining every segment gives back `text`. A message with no recorded
  * mentions is one plain segment, whatever it says.

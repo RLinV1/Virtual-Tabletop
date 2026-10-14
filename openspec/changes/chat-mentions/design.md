@@ -106,9 +106,9 @@ The board's Escape handlers already ignore events from text fields (`isTyping`),
 - **Badge counts.** A new exported `unreadMentionCount(chat, seenId, viewerId)` sits beside `unreadCount` and uses the same "after the newest seen id" logic. It counts messages whose `mentions` include the viewer and whose `senderId` is not the viewer.
 - **Badge display.** When that count is above zero, the badge gets a `mention` modifier (an `@` glyph and an accent colour from the theme tokens). The launcher's `aria-label` becomes "Chat, 3 unread, 1 mentions you". Opening the popup already sets `seenId` to the newest message, which clears both counts.
 
-### 8. ADR 0023 amends ADR 0015
+### 8. ADR 0034 amends ADR 0015
 
-`docs/adr/0023-chat-mentions.md` (Proposed) records:
+`docs/adr/0034-chat-mentions.md` (Proposed) records:
 - the optional `ChatMessage.mentions` and `ChatMention`;
 - the server-derived rule and its matching rules;
 - the unchanged strict `chat.send`;
@@ -129,7 +129,7 @@ It needs sign-off from the Real-Time Architecture owner before the schema change
 
 ## Migration Plan
 
-1. Land ADR 0023 (Proposed) and get Real-Time Architecture review.
+1. Land ADR 0034 (Proposed) and get Real-Time Architecture review.
 2. Ship the shared contract, server and web changes together, as usual. The order is not critical:
    - An older web client keeps `mentions` in state without reading it and shows plain text.
    - An older server never emits `mentions`.

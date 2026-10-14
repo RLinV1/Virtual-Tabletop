@@ -12,7 +12,7 @@ Room chat (KAN-75, ADR 0015) is one public stream. When a player wants one perso
   - **Highlighting:** mentions show as highlighted names in each message. A mention of you is highlighted more strongly, and a message that mentions you is marked.
   - **Mention badge:** the closed chat button shows that a mention of you is waiting, separately from the ordinary unread count, and says so in its accessible name.
 - **Visibility unchanged.** Mentions are public, like the rest of chat. The ids and display names belong to participants every viewer already receives. They are not whispers.
-- **Contract change.** This adds a field to an existing shared schema, so it is recorded in a new ADR (`docs/adr/0023-chat-mentions.md`) for review by the Real-Time Architecture owner.
+- **Contract change.** This adds a field to an existing shared schema, so it is recorded in a new ADR (`docs/adr/0034-chat-mentions.md`) for review by the Real-Time Architecture owner.
 
 ## Non-goals
 
@@ -42,6 +42,6 @@ Room chat (KAN-75, ADR 0015) is one public stream. When a player wants one perso
   - Tests in `packages/shared/test/chatMentions.test.ts`.
 - **`apps/server`:** no pipeline, socket or rate-limit change. Wire test added to `apps/server/test/chat.test.ts`.
 - **`apps/web`:** `panels/ChatPanel.tsx` (autocomplete combobox, mention rendering, mention badge), `styles.css` (mention styles), and tests next to `apps/web/test/chatUnread.test.ts`.
-- **Docs:** `docs/adr/0023-chat-mentions.md`, which amends ADR 0015.
+- **Docs:** `docs/adr/0034-chat-mentions.md`, which amends ADR 0015.
 - **Compatibility:** additive and optional. Old logs replay with no mentions. An older web client keeps the extra field without reading it (`RoomConnection` does not re-parse events) and shows plain text, so the server can deploy before or after the web client.
 - **Dependency:** builds on the `room-chat` change, whose tasks are all done but which is not yet archived. Archive `room-chat` before or together with this change.
