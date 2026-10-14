@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode, type WheelEvent } from "react";
-import type { GridSpec, MapImage, Point } from "@vtt/shared";
+import { gridLineStyle, type GridSpec, type MapImage, type Point } from "@vtt/shared";
 
 /** A press that moves further than this is a drag, not a click. */
 const CLICK_SLOP_PX = 4;
@@ -164,6 +164,8 @@ export function MapCanvas({
   };
 
   const px = 1 / scale;
+  /** The grid as the board draws it, so Walls and Fog show the colour set in the Grid step. */
+  const lineStyle = gridLineStyle(grid);
   const gridLines = useMemo(() => {
     const lines: { x1: number; y1: number; x2: number; y2: number }[] = [];
     if (grid.cellSize * scale < 6) return lines;
@@ -195,7 +197,7 @@ export function MapCanvas({
         onContextMenu={(e) => e.preventDefault()}
       >
         <image href={map.url} x={0} y={0} width={map.width} height={map.height} preserveAspectRatio="none" />
-        <g stroke="#ffffff" strokeOpacity={0.18} strokeWidth={px}>
+        <g stroke={lineStyle.color} strokeOpacity={lineStyle.opacity} strokeWidth={lineStyle.width}>
           {gridLines.map((l, i) => <line key={i} {...l} />)}
         </g>
         {children({ scale, px })}

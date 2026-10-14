@@ -5,7 +5,7 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../src/app";
-import { DEV_S3_ENDPOINT, LocalDiskAssetStore, createAssetStore, type AssetStore } from "../src/store/assetStore";
+import { DEV_S3_ENDPOINT, LocalDiskAssetStore, createAssetStore, isAwsEndpoint, type AssetStore } from "../src/store/assetStore";
 import { MemoryRoomStore } from "../src/store/memoryRoomStore";
 import { listenForFetch } from "./helpers";
 
@@ -129,5 +129,17 @@ describe("serving uploads while object storage is in use (upload-storage)", () =
     } finally {
       await app.close();
     }
+  });
+});
+
+describe("upload checksums by endpoint (s3-upload-checksum-compat)", () => {
+  it("keeps the SDK's default checksums only for AWS S3 endpoints", () => {
+    expect(isAwsEndpoint("https://s3.amazonaws.com")).toBe(true);
+    expect(isAwsEndpoint("https://s3.us-east-2.amazonaws.com")).toBe(true);
+    expect(isAwsEndpoint("https://s3.cn-north-1.amazonaws.com.cn")).toBe(true);
+    expect(isAwsEndpoint("http://s3:8333")).toBe(false);
+    expect(isAwsEndpoint(DEV_S3_ENDPOINT)).toBe(false);
+    expect(isAwsEndpoint("https://amazonaws.com.evil.example")).toBe(false);
+    expect(isAwsEndpoint("not a url")).toBe(false);
   });
 });
