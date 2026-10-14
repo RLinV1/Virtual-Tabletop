@@ -115,7 +115,12 @@ describe("bounded private UVTT preparation lifecycle (FR-GM-07)", () => {
     const data = { map: { url: "/uploads/map.png", width: 400, height: 300 }, grid: DEFAULT_GRID, walls: [], diagnostics: [] };
     const baseline = { map: null, grid: DEFAULT_GRID, walls: {}, fog: {} };
     const one = store.create("room", "gm", data, baseline);
+    expect(() => store.assertCanCreate("room", "gm")).not.toThrow();
+    expect(() => store.assertCanCreate("room", "gm")).not.toThrow();
     store.create("room", "gm", data, baseline);
+    expect(() => store.assertCanCreate("room", "gm")).toThrow(/Too many/);
+    expect(() => store.assertCanCreate("room", "other-gm")).not.toThrow();
+    expect(() => store.assertCanCreate("other-room", "gm")).not.toThrow();
     expect(() => store.create("room", "gm", data, baseline)).toThrow(/Too many/);
     expect(store.lease("other", "gm", one.id, 1)).toMatchObject({ ok: false, code: "not_found" });
     expect(store.lease("room", "player", one.id, 1)).toMatchObject({ ok: false });
@@ -128,6 +133,7 @@ describe("bounded private UVTT preparation lifecycle (FR-GM-07)", () => {
     const retry = store.lease("room", "gm", one.id, 2);
     if (!retry.ok || !retry.finish) throw new Error("no retry");
     retry.finish(42);
+    expect(() => store.assertCanCreate("room", "gm")).not.toThrow();
     expect(store.lease("room", "gm", one.id, 2)).toMatchObject({ ok: true, appliedSeq: 42 });
     store.discard("room", "gm", one.id); // successful receipt survives UI cleanup
     expect(store.lease("room", "gm", one.id, 2)).toMatchObject({ appliedSeq: 42 });
@@ -137,7 +143,25 @@ describe("bounded private UVTT preparation lifecycle (FR-GM-07)", () => {
   it("enforces twenty per process", () => {
     const store = new UvttPreparations();
     for (let i = 0; i < 20; i++) store.create(`r${i}`, "gm", { map: { url: "/x", width: 2, height: 2 }, grid: DEFAULT_GRID, walls: [], diagnostics: [] }, { map: null, grid: DEFAULT_GRID, walls: {}, fog: {} });
+    expect(() => store.assertCanCreate("last", "gm")).toThrow(/Too many/);
     expect(() => store.create("last", "gm", { map: { url: "/x", width: 2, height: 2 }, grid: DEFAULT_GRID, walls: [], diagnostics: [] }, { map: null, grid: DEFAULT_GRID, walls: {}, fog: {} })).toThrow(/Too many/);
+  });
+  it("excludes expired drafts from capacity while keeping expired leases counted until release", () => {
+    let now = 0; const store = new UvttPreparations(() => now);
+    const data = { map: { url: "/map.png", width: 400, height: 300 }, grid: DEFAULT_GRID, walls: [], diagnostics: [] };
+    const baseline = { map: null, grid: DEFAULT_GRID, walls: {}, fog: {} };
+    const first = store.create("room", "gm", data, baseline);
+    store.create("room", "gm", data, baseline);
+    const lease = store.lease("room", "gm", first.id, 1);
+    if (!lease.ok || !lease.finish) throw new Error("no lease");
+    now = UVTT_PREPARATION_TTL;
+    expect(() => store.assertCanCreate("room", "gm")).not.toThrow();
+    store.create("room", "gm", data, baseline);
+    expect(() => store.assertCanCreate("room", "gm")).toThrow(/Too many/);
+    expect(() => store.create("room", "gm", data, baseline)).toThrow(/Too many/);
+    lease.finish();
+    expect(() => store.assertCanCreate("room", "gm")).not.toThrow();
+    expect(() => store.create("room", "gm", data, baseline)).not.toThrow();
   });
   it("revalidates edited portal bounds, removes duplicate blocking geometry and retains exact metadata", () => {
     const store = new UvttPreparations();

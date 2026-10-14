@@ -3,6 +3,8 @@ import sharp from "sharp";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_GRID, UvttPreparation, replayTo, type CommandInput } from "@vtt/shared";
 import { MemoryRoomStore } from "../src/store/memoryRoomStore";
+import { LocalDiskAssetStore } from "../src/store/assetStore";
+import { UvttValidationPool } from "../src/uvtt/validationPool";
 import { startServer, type TestClient, viewFor } from "./helpers";
 
 let store: MemoryRoomStore;
@@ -185,6 +187,30 @@ describe("private atomic UVTT room import/export (KAN-43/44/49, FR-GM-06/07/12/2
     await store.deleteSession((await store.findCredential((await import("../src/domain/credentials")).hashToken(creds.guestToken)))!.sessionHash!);
     const res = await fetch(url(creds.roomId), { method: "POST", headers: { authorization: `Bearer ${creds.guestToken}`, "content-type": "multipart/form-data; boundary=invalid" }, body: "not multipart" });
     expect(res.status).toBe(403);
+  });
+  it("rejects full preparation capacity before multipart parsing, validation or storage and accepts after discard", async () => {
+    const creds = await server.createRoom();
+    const first = await prepared(creds.roomId, creds.guestToken);
+    await prepared(creds.roomId, creds.guestToken);
+    const validate = vi.spyOn(UvttValidationPool.prototype, "validate");
+    const put = vi.spyOn(LocalDiskAssetStore.prototype, "put");
+    const record = vi.spyOn(store, "recordRoomUpload");
+    const files = await readdir(server.uploadDir);
+    const events = await store.loadEvents(creds.roomId);
+    const expected = { error: "Too many preparations. Discard an unused draft or wait for it to expire.", issues: [
+      { code: "preparation_limit", path: "file", severity: "error", message: "Too many preparations. Discard an unused draft or wait for it to expire." },
+    ] };
+    const limited = await upload(creds.roomId, creds.guestToken);
+    expect(limited.status).toBe(422); expect(await limited.json()).toEqual(expected);
+    expect(validate).not.toHaveBeenCalled(); expect(put).not.toHaveBeenCalled(); expect(record).not.toHaveBeenCalled();
+    const malformed = await fetch(url(creds.roomId), { method: "POST", headers: {
+      authorization: `Bearer ${creds.guestToken}`, "content-type": "multipart/form-data; boundary=invalid",
+    }, body: "not multipart" });
+    expect(malformed.status).toBe(422); expect(await malformed.json()).toEqual(expected);
+    expect(await readdir(server.uploadDir)).toEqual(files); expect(await store.loadEvents(creds.roomId)).toEqual(events);
+    expect((await fetch(url(creds.roomId, `imports/${first.id}`), { method: "DELETE", headers: { authorization: `Bearer ${creds.guestToken}` } })).status).toBe(204);
+    await prepared(creds.roomId, creds.guestToken);
+    expect(validate).toHaveBeenCalledTimes(1); expect(put).toHaveBeenCalledTimes(1); expect(record).toHaveBeenCalledTimes(1);
   });
   it("keeps the general JSON limit and supports large draft geometry within the dedicated limit", async () => {
     const creds = await server.createRoom(); const prep = await prepared(creds.roomId, creds.guestToken);

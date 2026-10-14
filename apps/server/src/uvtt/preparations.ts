@@ -12,10 +12,16 @@ export class UvttPreparations {
   private entries = new Map<string, Entry>();
   constructor(private now: () => number = Date.now) {}
   private sweep() { for (const [id, entry] of this.entries) if (!entry.leased && this.now() >= entry.expiresAt) this.entries.delete(id); }
+  /** Checks capacity without removing drafts or reserving a slot. */
+  assertCanCreate(roomId: string, actorId: string) {
+    const now = this.now();
+    const active = [...this.entries.values()].filter((e) => e.leased || now < e.expiresAt);
+    const own = active.filter((e) => e.roomId === roomId && e.actorId === actorId && e.appliedSeq === undefined);
+    if (own.length >= 2 || active.length >= 20) throw new UvttError([{ code: "preparation_limit", path: "file", severity: "error", message: "Too many preparations. Discard an unused draft or wait for it to expire." }]);
+  }
   create(roomId: string, actorId: string, data: Omit<UvttPreparation, "id" | "revision">, baseline: UvttBaseline) {
     this.sweep();
-    const own = [...this.entries.values()].filter((e) => e.roomId === roomId && e.actorId === actorId && e.appliedSeq === undefined);
-    if (own.length >= 2 || this.entries.size >= 20) throw new UvttError([{ code: "preparation_limit", path: "file", severity: "error", message: "Too many preparations. Discard an unused draft or wait for it to expire." }]);
+    this.assertCanCreate(roomId, actorId);
     const view: UvttPreparation = { ...structuredClone(data), id: randomUUID(), revision: 1 };
     this.entries.set(view.id, { roomId, actorId, expiresAt: this.now() + UVTT_PREPARATION_TTL, view, baseline: structuredClone(baseline), leased: false });
     return structuredClone(view);
