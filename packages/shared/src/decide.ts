@@ -1,3 +1,4 @@
+import { findMentions } from "./chatMentions";
 import type { Command, DepartureAction } from "./commands";
 import { presetOf, tableForPreset } from "./gamePresets";
 import { MIN_HP } from "./conditions";
@@ -6,12 +7,13 @@ import type { DomainEvent } from "./events";
 import { encounterTable, type ResolvedEncounter } from "./encounters";
 import { footprintCrossesWall, isSnapped, pathCrossesWall, polygonArea, resizedTokenCenter, snapTokenCenter, spreadPositions, type GridSpec, type Point } from "./geometry";
 import { canRenderGrid } from "./gridRenderLimit";
+import { normalizeName } from "./names";
 import type { SessionEndReason } from "./protocol";
 import { blocksMovement } from "./portals";
 import { inverseOf, undoableAction, undoConflict } from "./undo";
 import { concealedFrom, fogConcealsSide, isInFog, portalConcealedFrom, templateConcealedFrom } from "./visibility";
 import { wallsFitMap, type DetectedWallsResponse } from "./wallDetection";
-import { MAX_GROUP_NAME, MAX_GROUPS, MAX_AREA_TEMPLATES, MAX_LINE_WIDTH_CELLS, MAX_CHECKPOINT_NAME, MAX_FOG_REGIONS, MAX_PLAYERS_PER_ROOM, MAX_WALLS, tableOf, type AreaTemplate, type DiceLookOnTable, type Initiative, type Participant, type Portal, type RoomState, type TableState, type Token, type Wall } from "./state";
+import { MAX_GROUP_NAME, MAX_GROUPS, MAX_AREA_TEMPLATES, MAX_LINE_WIDTH_CELLS, MAX_CHECKPOINT_NAME, MAX_CHAT_MENTIONS, MAX_FOG_REGIONS, MAX_PLAYERS_PER_ROOM, MAX_WALLS, tableOf, type AreaTemplate, type ChatMention, type DiceLookOnTable, type Initiative, type Participant, type Portal, type RoomState, type TableState, type Token, type Wall } from "./state";
 
 export type RejectionCode = "forbidden" | "not_found" | "invalid";
 
@@ -796,9 +798,17 @@ export function decide(
       // Any active participant may talk. The socket layer already refuses ended seats; this is the authority.
       if (!isActive(actor)) return forbidden();
       // The sender comes from the actor, never from the payload (the command is strict) (ADR 0015).
+      const mentions = chatMentions(state, actor, command.text);
       return accept({
         type: "ChatMessageSent",
-        message: { id: ctx.newId(), senderId: actor.id, senderName: actor.displayName, text: command.text },
+        message: {
+          id: ctx.newId(),
+          senderId: actor.id,
+          senderName: actor.displayName,
+          text: command.text,
+          // Absent rather than empty, so a plain message keeps the shape it always had (ADR 0035).
+          ...(mentions.length > 0 && { mentions }),
+        },
       });
     }
 
@@ -910,8 +920,27 @@ function checkOwners(state: RoomState, ownerIds: string[]): Decision | null {
 }
 
 
-/** Comparison key for names: "raymond", "Raymond " and "RAYMOND" are one name (KAN-61, KAN-62). */
-export const normalizeName = (name: string) => name.normalize("NFC").trim().toLocaleLowerCase("en-US");
+/**
+ * Who a chat message mentions (ADR 0035): the room's active participants named after a boundary
+ * `@`, each once, in order of first mention, at most MAX_CHAT_MENTIONS (a room filled before the
+ * player cap can hold more). The sender is a candidate too, so the longest-name rule sees their
+ * name ("@Sir Lancelot" from Sir Lancelot doesn't tag "Sir"), and is then dropped.
+ */
+function chatMentions(state: RoomState, actor: Participant, text: string): ChatMention[] {
+  const candidates = Object.values(state.participants)
+    .filter(isActive)
+    .map((p) => ({ participantId: p.id, displayName: p.displayName }));
+  const mentions: ChatMention[] = [];
+  for (const { participantId, displayName } of findMentions(text, candidates)) {
+    if (participantId === actor.id || mentions.some((m) => m.participantId === participantId)) continue;
+    mentions.push({ participantId, displayName });
+    if (mentions.length === MAX_CHAT_MENTIONS) break;
+  }
+  return mentions;
+}
+
+// Lives in its own module so `chatMentions` can share it without importing `decide`.
+export { normalizeName };
 /** Display names compare the same way as every other name. Kept for KAN-61 callers. */
 export const normalizeDisplayName = normalizeName;
 

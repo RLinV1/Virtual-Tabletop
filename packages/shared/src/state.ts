@@ -258,10 +258,26 @@ export const CHAT_LOG_LIMIT = 200;
 /** Longest chat message, in characters after trimming (KAN-75). */
 export const MAX_CHAT_LENGTH = 500;
 
+/** Most participants one chat message can mention: every active participant (ADR 0035). */
+export const MAX_CHAT_MENTIONS = MAX_PLAYERS_PER_ROOM + 1;
+
+/**
+ * A participant mentioned in a chat message (ADR 0035). `displayName` is their name at send time,
+ * like `senderName`: it is what the text says after the `@`, so the client can find it to
+ * highlight even after a rename. The id is what keeps pointing at the right person.
+ */
+export const ChatMention = z.object({
+  participantId: Id,
+  displayName: z.string().min(1).max(40),
+});
+export type ChatMention = z.infer<typeof ChatMention>;
+
 /**
  * One chat message (KAN-75, ADR 0015). `senderName` is the name at send time, so the line reads
  * correctly after a rename. `at` is the committed time, stamped by `reduce` from event metadata
- * (it cannot read a clock); null when the event was reduced without it.
+ * (it cannot read a clock); null when the event was reduced without it. `mentions` is set by
+ * `decide` from the text, each participant once, and is absent when nobody is mentioned, so
+ * older messages and events parse unchanged (ADR 0035).
  */
 export const ChatMessage = z.object({
   id: Id,
@@ -269,6 +285,7 @@ export const ChatMessage = z.object({
   senderName: z.string().min(1).max(40),
   text: z.string().min(1).max(MAX_CHAT_LENGTH),
   at: z.string().nullable(),
+  mentions: z.array(ChatMention).min(1).max(MAX_CHAT_MENTIONS).optional(),
 });
 export type ChatMessage = z.infer<typeof ChatMessage>;
 

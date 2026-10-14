@@ -157,6 +157,8 @@ label.inline { flex-direction: row; align-items: center; gap: 0.35rem; color: va
 @media (max-width: 960px) {
   .room-topbar { grid-template-columns: minmax(0, 1fr) auto; row-gap: var(--space-1); }
   .topbar-end { grid-column: 1 / -1; flex-wrap: wrap; }
+  /* The people now sit at the right edge: open their list leftward so it stays on screen. */
+  .topbar-center .popover { left: auto; right: 0; }
 }
 .room-title {
   margin: 0; font-size: var(--fs-md); font-weight: 700;
@@ -278,11 +280,14 @@ a.tool-button { text-decoration: none; }
 .room-menu { display: flex; flex-direction: column; gap: var(--space-1); }
 .room-menu .tool-button { justify-content: flex-start; white-space: nowrap; }
 .participant-list li {
-  display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3);
-  padding: 0.3rem 0; font-size: var(--fs-md);
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+  min-height: 2.5rem; padding: 0.3rem 0; font-size: var(--fs-md);
 }
+/* Sized to its rows, not the avatar button it hangs from, so actions never wrap and every row is one line. */
+.participant-list { width: max-content; max-width: 100%; }
 .participant-list li + li { border-top: 1px solid var(--border); }
-.participant-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.participant-list li > button { flex: none; white-space: nowrap; }
+.participant-name { min-width: 0; max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .participant-list .participant-away .participant-name { color: var(--muted); }
 .participant-seats { margin-bottom: var(--space-1); padding-bottom: var(--space-2); border-bottom: 1px solid var(--border); }
 
@@ -581,6 +586,24 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 .chat-meta { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; }
 .chat-meta time { font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
 .chat-text { overflow-wrap: anywhere; }
+/* Mentions (chat-mentions): every mention is bold and tinted; yours is a filled rust tag, and a
+   line that mentions you says so in words and gets a rust edge, never colour alone. */
+.chat-mention { color: var(--focus); font-weight: 600; }
+.chat-mention.you { color: var(--accent-ink); background: var(--accent); border-radius: 3px; padding: 0 0.2em; }
+.chat-message.mentions-you { background: var(--accent-soft); border-color: var(--accent); border-left: 3px solid var(--accent); }
+.chat-mentions-you { font-size: var(--fs-xs); font-weight: 600; color: var(--focus); }
+/* Rust like the launcher, so a ring of the page colour keeps the badge's edge visible on it. */
+.chat-badge.mention { background: var(--accent); color: var(--accent-ink); box-shadow: 0 0 0 2px var(--bg); }
+.chat-mention-list {
+  display: flex; flex-direction: column; gap: 0.1rem; max-height: 12rem; overflow-y: auto; flex: none;
+  padding: var(--space-1); background: var(--raised); border: 1px solid var(--border-strong); border-radius: var(--radius);
+}
+.chat-mention-option {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); min-height: 36px;
+  padding: 0 var(--space-2); border-radius: var(--radius); font-size: var(--fs-sm); cursor: pointer;
+}
+.chat-mention-option.active { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.chat-mention-option .muted { font-size: var(--fs-xs); }
 
 .roll-log { display: flex; flex-direction: column; max-height: 13rem; overflow-y: auto; }
 /* A roll as a card: total in a box with its dice beneath, then the expression and roller. */

@@ -75,7 +75,9 @@ export function filterStateForViewer(state: RoomState, viewer: Participant): Roo
     Object.entries(state.templates).filter(([, t]) => !templateConcealedFrom(state.fog, t, viewer)),
   );
   // Fog regions stay: they are the mask the player's board draws, and name nothing (ADR 0016).
-  // Chat is public, so `chat` stays as it is in the spread below (ADR 0015).
+  // Chat is public, so `chat` stays as it is in the spread below (ADR 0015). So are its mentions:
+  // ids and public display names of participants every viewer already has in `participants`. If
+  // `participants` is ever filtered for players, filter `chat[].mentions` with it (ADR 0035).
   // Undo is GM-only, and its entries name hidden tokens and their old values (ADR 0013).
   // Plain walls are GM-only: inside fog they would draw rooms the players haven't seen (ADR 0029).
   // Portals outside fog stay, so players can see and use them (ADR 0030).
@@ -225,7 +227,8 @@ export function filterEventForViewer(
       // delivered whatever they may see (ADR 0013).
       return redacted;
     case "ChatMessageSent":
-      // Chat is public to the whole room; it names no hidden token or roll (ADR 0015).
+      // Chat is public to the whole room; it names no hidden token or roll (ADR 0015). Mentions
+      // carry only the ids and public display names of participants every viewer already has (ADR 0035).
       return pass;
     case "RoomCreated":
     case "ParticipantJoined":
