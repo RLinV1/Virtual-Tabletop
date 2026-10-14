@@ -146,6 +146,8 @@ export class MemoryRoomStore implements RoomStore {
     return this.rooms.get(roomId)?.ownerGmId;
   }
 
+  async hasRoomUpload(roomId: string, objectKey: string) { return this.uploads.get(roomId)?.has(objectKey) ?? false; }
+
   async recordRoomUpload(roomId: string, objectKey: string, purpose: RoomUploadPurpose = "token", width?: number, height?: number) {
     if (!this.events.has(roomId)) throw new Error(`No room ${roomId}`);
     const keys = this.uploads.get(roomId) ?? new Set<string>();

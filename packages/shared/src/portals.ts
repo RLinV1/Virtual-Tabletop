@@ -7,7 +7,7 @@ import type { Portal, PortalState, Wall } from "./state";
  */
 
 /** Whether a wall stops tokens: a plain wall, or a closed or locked portal. Open portals don't. */
-export const blocksMovement = (wall: Pick<Wall, "portal">): boolean => wall.portal?.state !== "open";
+export const blocksMovement = (wall: Pick<Wall, "portal" | "uvttPortal">): boolean => wall.portal ? wall.portal.state !== "open" : wall.uvttPortal?.closed !== false;
 
 /** The point fog is tested at for a portal, as a token's centre is (ADR 0016). */
 export const wallMidpoint = (wall: Pick<Wall, "a" | "b">): Point => ({ x: (wall.a.x + wall.b.x) / 2, y: (wall.a.y + wall.b.y) / 2 });

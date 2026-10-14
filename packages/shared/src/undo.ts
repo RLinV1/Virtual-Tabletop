@@ -20,6 +20,7 @@ import { MAX_FOG_REGIONS, MAX_GROUPS, MAX_WALLS, tableOf, type RoomState, type T
 export const UNDO_HISTORY_LIMIT = 20;
 
 export const REVERSIBLE_EVENT_TYPES = [
+  "MapSet",
   "TokenMoved",
   "TokenHiddenSet",
   "TokenConditionsSet",
@@ -32,6 +33,7 @@ export const REVERSIBLE_EVENT_TYPES = [
   "WallsAdded",
   "WallsRemoved",
   "PortalChanged",
+  "WallUpdated",
   "CheckpointRestored",
   "EncounterApplied",
   // KAN-82, ADR 0026.
@@ -43,7 +45,16 @@ export const REVERSIBLE_EVENT_TYPES = [
   "TokensGrouped",
 ] as const;
 
-export type ReversibleEvent = Extract<DomainEvent, { type: (typeof REVERSIBLE_EVENT_TYPES)[number] }>;
+type MapSetEvent = Extract<DomainEvent, { type: "MapSet" }>;
+type CompleteMapSet = MapSetEvent & {
+  gridChange: NonNullable<MapSetEvent["gridChange"]>;
+  tokenChanges: NonNullable<MapSetEvent["tokenChanges"]>;
+};
+export type ReversibleEvent =
+  | Exclude<Extract<DomainEvent, { type: (typeof REVERSIBLE_EVENT_TYPES)[number] }>, MapSetEvent>
+  | CompleteMapSet;
+
+
 
 export interface UndoEntry {
   /** The action's `commandId` (or `seq:<n>` for an event from before undo existed). */
@@ -79,6 +90,7 @@ export interface EventMeta {
 
 /** Whether an event type can take part in an undoable action. */
 export function isReversible(event: DomainEvent): event is ReversibleEvent {
+  if (event.type === "MapSet") return event.gridChange !== undefined && event.tokenChanges !== undefined;
   return (REVERSIBLE_EVENT_TYPES as readonly string[]).includes(event.type);
 }
 
@@ -130,6 +142,15 @@ function withLabels(
   event: ReversibleEvent,
 ): Pick<UndoEntry, "tokenNames" | "rollLabels"> {
   const { tokenNames, rollLabels } = labels;
+  if (event.type === "MapSet") {
+    const names = { ...tokenNames };
+    for (const change of event.tokenChanges) {
+      const token = state.tokens[change.tokenId];
+      if (token) names[token.id] = token.name;
+    }
+    return { tokenNames: names, rollLabels };
+  }
+
   if (event.type === "TokenCreated") return { tokenNames: { ...tokenNames, [event.token.id]: event.token.name }, rollLabels };
   if (event.type === "TokensGrouped") {
     const names = Object.fromEntries(event.changes.flatMap(({ tokenId }) => {
@@ -210,6 +231,16 @@ type SingleInverse = Exclude<ReversibleEvent, { type: "TokenCreated" | "Initiati
 /** The single compensating event for the reversible types that need only one. */
 function inverseOfOne(event: SingleInverse): DomainEvent {
   switch (event.type) {
+    case "MapSet":
+      return {
+        type: "MapSet",
+        map: event.previous,
+        previous: event.map,
+        gridChange: { grid: event.gridChange.previous, previous: event.gridChange.grid },
+        tokenChanges: event.tokenChanges.map((change) => ({ tokenId: change.tokenId, from: change.to, to: change.from })),
+        ...(event.wallChange ? { wallChange: { walls: event.wallChange.previous, previous: event.wallChange.walls } } : {}),
+        ...(event.fogChange ? { fogChange: { fog: event.fogChange.previous, previous: event.fogChange.fog } } : {}),
+      };
     case "TokenMoved":
       return { type: "TokenMoved", tokenId: event.tokenId, from: event.to, to: event.from };
     case "TokenHiddenSet":
@@ -232,6 +263,8 @@ function inverseOfOne(event: SingleInverse): DomainEvent {
       return { type: "WallsRemoved", walls: event.walls };
     case "WallsRemoved":
       return { type: "WallsAdded", walls: event.walls };
+    case "WallUpdated":
+      return { type: "WallUpdated", wall: event.previous, previous: event.wall };
     case "PortalChanged":
       return { type: "PortalChanged", wallId: event.wallId, from: event.to, to: event.from };
     case "CheckpointRestored":
@@ -259,6 +292,20 @@ export function undoConflict(state: RoomState, entry: UndoEntry): string | null 
     : e.type === "FogRemoved" ? n + 1 : n, 0);
   if (fogAfter > MAX_FOG_REGIONS) return `Can't undo: the room would hold more than ${MAX_FOG_REGIONS} fog regions.`;
   for (const event of entry.events) {
+    if (event.type === "MapSet") {
+      if (!sameValue(state.scene.map, event.map)) return "Can't undo: the map has changed since.";
+      if (!sameValue(state.scene.grid, event.gridChange.grid)) return "Can't undo: the grid has changed since.";
+      if (event.wallChange && !sameValue(state.walls, Object.fromEntries(event.wallChange.walls.map((w) => [w.id, w])))) return "Can't undo: the walls or portals have changed since.";
+      if (event.fogChange && !sameValue(state.fog, Object.fromEntries(event.fogChange.fog.map((f) => [f.id, f])))) return "Can't undo: the fog has changed since.";
+      for (const change of event.tokenChanges) {
+        const token = state.tokens[change.tokenId];
+        const name = token?.name ?? entry.tokenNames[change.tokenId] ?? "That token";
+        if (!token) return `Can't undo: ${name} no longer exists.`;
+        if (token.position.x !== change.to.x || token.position.y !== change.to.y) return `Can't undo: ${name} has changed since.`;
+      }
+      continue;
+    }
+
     if (isGroupEvent(event)) {
       const conflict = groupUndoConflict(state, event);
       if (conflict) return conflict;
@@ -295,6 +342,10 @@ export function undoConflict(state: RoomState, entry: UndoEntry): string | null 
     }
     if (event.type === "WallsRemoved") {
       if (event.walls.some((w) => state.walls[w.id])) return "Can't undo: those walls are already back.";
+      continue;
+    }
+    if (event.type === "WallUpdated") {
+      if (!sameValue(state.walls[event.wall.id], event.wall)) return "Can't undo: that wall or portal has changed since.";
       continue;
     }
     if (event.type === "PortalChanged") {
@@ -430,7 +481,7 @@ function groupUndoConflict(state: RoomState, event: GroupEvent): string | null {
 
 
 /** Deep equality for plain data, ignoring object key order. */
-function sameValue(a: unknown, b: unknown): boolean {
+export function sameValue(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
   if (Array.isArray(a) !== Array.isArray(b)) return false;
@@ -464,6 +515,12 @@ export function describeUndo(entry: UndoEntry, tokens: RoomState["tokens"]): { v
   }
   const first = entry.events[0];
   if (!first) return { verb: "last action", noun: "an action" };
+  if (first.type === "MapSet") {
+    const count = first.tokenChanges.length;
+    const positions = count ? ` and ${count} token position${count === 1 ? "" : "s"}` : "";
+    const action = first.map ? first.previous ? "map replacement" : "map placement" : "map removal";
+    return { verb: `${action}${positions}`, noun: `the ${action}${positions}` };
+  }
   if (first.type === "CheckpointRestored") {
     return { verb: `restore of "${first.name}"`, noun: `restoring checkpoint "${first.name}"` };
   }
@@ -480,6 +537,7 @@ export function describeUndo(entry: UndoEntry, tokens: RoomState["tokens"]): { v
     const what = `${first.walls.length} ${first.walls.length === 1 ? "wall" : "walls"}`;
     return { verb: `removal of ${what}`, noun: `removing ${what}` };
   }
+  if (first.type === "WallUpdated") return { verb: "wall or portal edit", noun: "editing a wall or portal" };
   if (first.type === "PortalChanged") {
     const words = describePortalChange(first.from, first.to);
     return { verb: words.verb, noun: words.gerund };

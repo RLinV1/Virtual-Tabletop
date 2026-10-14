@@ -2,6 +2,7 @@ export * from "./conditions";
 export * from "./attackPresets";
 export * from "./dice";
 export * from "./geometry";
+export * from "./mapTokenAdjustment";
 export * from "./gridRenderLimit";
 export * from "./gridDetection";
 export * from "./wallDetection";
@@ -23,4 +24,6 @@ export * from "./gamePresets";
 
 export * from "./replay";
 export * from "./portals";
+
+export * from "./uvtt";
 export * from "./chatMentions";

@@ -1,3 +1,6 @@
+import { registerUvttRoutes } from "./http/uvttRoutes";
+import { UvttPreparations } from "./uvtt/preparations";
+import { UvttValidationPool } from "./uvtt/validationPool";
 import { createServer, type Server as HttpServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -105,7 +108,12 @@ export async function buildApp({
     },
     builtinImageDir,
   );
-  const registry = new RoomRegistry(store, { detectedWalls: (roomId, mapUrl) => walls.detectedWalls(roomId, mapUrl) });
+  const preparations = new UvttPreparations(now);
+  const pool = new UvttValidationPool();
+  const registry = new RoomRegistry(store, {
+    detectedWalls: (roomId, mapUrl) => walls.detectedWalls(roomId, mapUrl),
+    uvttLease: (roomId, actorId, id, revision) => preparations.lease(roomId, actorId, id, revision),
+  });
   const sessions = new Sessions(store, { secure: cookieSecure }, now);
   const limits = accountLimits(now);
   // Ending a session ends the seats bound to it; close their open connections (ADR 0017 M4).
@@ -127,9 +135,10 @@ export async function buildApp({
   const stopTemporaryRoomSweep = setInterval(() => void sweepTemporaryRooms(), 60 * 60_000);
   stopTemporaryRoomSweep.unref();
 
-  app.use(express.json({ limit: "64kb" }));
   app.use(attachAccount(sessions));
   app.use(requireSameOrigin(sessions, clientOrigin.split(",").map((o) => o.trim())));
+  registerUvttRoutes(app, { store, registry, sessions, assets: assetStore, preparations, pool, uploadDir, builtinImageDir, now });
+  app.use(express.json({ limit: "64kb" }));
   // Uploaded pictures are drawn on other people's screens (dice looks, ADR 0018): never let a
   // browser second-guess their type into something that runs.
   app.use("/uploads", (_req, res, next) => {
@@ -195,6 +204,7 @@ export async function buildApp({
       clearInterval(stopTemporaryRoomSweep);
       await detection.close();
       await walls.close();
+      await pool.close();
       await new Promise<void>((resolve, reject) => {
         io.close((err) => (err ? reject(err) : resolve()));
       });

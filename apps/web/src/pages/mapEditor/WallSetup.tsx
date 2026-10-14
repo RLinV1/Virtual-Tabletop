@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Door, Eraser, Eyedropper, LineSegments } from "@phosphor-icons/react";
+import { Cursor, Door, Eraser, Eyedropper, LineSegments } from "@phosphor-icons/react";
 import {
   MIN_LENGTH_MAX, SAMPLE_TOLERANCE_DEFAULT, SAMPLE_TOLERANCE_MAX, SAMPLE_TOLERANCE_MIN,
   STRICTNESS_DEFAULT, STRICTNESS_MAX, STRICTNESS_MIN,
@@ -7,10 +7,12 @@ import {
 } from "@vtt/shared";
 import { api } from "../../net/api";
 import { useRoomSnapshot, type RoomConnection } from "../../net/roomConnection";
+import { WallProperties } from "./WallProperties";
 import { WallCanvas, type CanvasMode } from "./WallCanvas";
 import { HudLayout } from "./HudLayout";
 
 const MODES: { key: CanvasMode; label: string; icon: typeof Eraser; needsDetection?: boolean }[] = [
+  { key: "select", label: "Select", icon: Cursor },
   { key: "draw", label: "Draw", icon: LineSegments },
   { key: "erase", label: "Erase", icon: Eraser },
   { key: "portal", label: "Door", icon: Door },
@@ -30,6 +32,7 @@ const PORTAL_STATES: { key: PortalState; label: string }[] = [
 ];
 
 const HINTS: Record<CanvasMode, string> = {
+  select: "Select geometry on the map, or choose it below, to edit its endpoints and metadata.",
   draw: "Click to start a wall, click again to end it. Alt places freely; Esc stops.",
   erase: "Click a wall to remove it, or a blue detected wall to leave it out.",
   portal: "Pick a type, then click walls.",
@@ -41,11 +44,12 @@ const HINTS: Record<CanvasMode, string> = {
  * tools, automatic detection, its preview, and Apply and Clear. Detection controls are greyed out
  * with the reason when the server can't detect walls; drawing and erasing always work.
  */
-export function WallSetup({ connection, state, token }: { connection: RoomConnection; state: RoomState; token: string }) {
+export function WallSetup({ connection, state, token, allowDetection = true, initialMode = "draw" }: { connection: RoomConnection; state: RoomState; token: string; allowDetection?: boolean; initialMode?: CanvasMode }) {
   const map = state.scene.map;
   const mapUrl = map?.url ?? "";
   const wallCount = Object.keys(state.walls).length;
-  const [mode, setMode] = useState<CanvasMode>("draw");
+  const [mode, setMode] = useState<CanvasMode>(initialMode);
+  const [selected, setSelected] = useState<string>("");
   const [portalKind, setPortalKind] = useState<PortalKind | "wall">("door");
   const [portalState, setPortalState] = useState<PortalState>("closed");
   const [availability, setAvailability] = useState<WallDetectionAvailability | null>(null);
@@ -65,19 +69,20 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
   // Counts the changes to `detection` made by a notice or a Detect click, so a slower status fetch never overwrites them.
   const detectionChanges = useRef(0);
   const status = detection.mapUrl === mapUrl ? detection.status : null;
-  const canDetect = availability?.available === true;
+  const canDetect = allowDetection && availability?.available === true;
 
   useEffect(() => {
+    if (!allowDetection) { setAvailability({ available: false, reason: "UVTT already supplies geometry. Edit it here before Apply map." }); return; }
     const abort = new AbortController();
     api.walls.availability(abort.signal)
       .then(setAvailability)
       .catch(() => { if (!abort.signal.aborted) setAvailability({ available: false, reason: "Couldn't reach the server." }); });
     return () => abort.abort();
-  }, []);
+  }, [allowDetection]);
 
   // The latest analysis of this map, then every change the server announces for it.
   useEffect(() => {
-    if (!mapUrl) return;
+    if (!mapUrl || !allowDetection) return;
     const abort = new AbortController();
     const started = detectionChanges.current;
     api.walls.status(state.roomId, token, mapUrl, abort.signal)
@@ -91,7 +96,7 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
       if (next.status === "failed") setMessage({ text: next.message, error: true });
     });
     return () => { abort.abort(); stop(); };
-  }, [connection, state.roomId, token, mapUrl, snapshots]);
+  }, [connection, state.roomId, token, mapUrl, snapshots, allowDetection]);
 
   // The rendered preview, once a result is in. Fetched as a blob: it needs the GM's credential.
   const done = status?.status === "done";
@@ -202,6 +207,8 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
         onAdd={(a, b) => void run({ type: "wall.add", walls: [{ a, b }] })}
         onRemove={(wallId) => void run({ type: "wall.remove", wallIds: [wallId] })}
         onPortal={markPortal}
+        onSelect={setSelected}
+        selected={selected}
         onToggleCandidate={toggleCandidate}
         onSample={(at) => void detect(at)}
       />
@@ -235,6 +242,16 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
             </div>
           )}
           <p className="muted small-print">{HINTS[mode]}</p>
+          <label className="stack">Selected geometry
+            <select value={state.walls[selected] ? selected : ""} onChange={(e) => setSelected(e.target.value)}>
+              <option value="">Select a wall or portal</option>
+              {Object.values(state.walls).map((wall, i) => <option key={wall.id} value={wall.id}>{wall.portal || wall.uvttPortal ? "Portal" : "Wall"} {i + 1}</option>)}
+            </select>
+          </label>
+          {state.walls[selected] && <WallProperties key={JSON.stringify(state.walls[selected])} wall={state.walls[selected]!} map={map} disabled={busy} onSave={async (wall) => {
+            const result = await connection.command({ type: "wall.update", wall });
+            if (!result.ok) throw new Error(result.message);
+          }} />}
           {mode === "sample" && (
             <label className="stack">
               <span className="small-print">Colour range: {tolerance}</span>

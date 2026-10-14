@@ -18,6 +18,8 @@ This document covers architecture, stack, repository, and the running prototype.
 | [`adr/0033-duplicate-at-position.md`](adr/0033-duplicate-at-position.md) | `token.duplicate` at a chosen square (proposed) |
 | [`adr/0034-shared-token-attacks.md`](adr/0034-shared-token-attacks.md) | Token attacks as room state, editable by owners (proposed) |
 | [`adr/0035-chat-mentions.md`](adr/0035-chat-mentions.md) | `@` mentions recorded on chat messages (proposed) |
+| [`adr/0036-map-token-adjustment.md`](adr/0036-map-token-adjustment.md) | Atomic map/grid/token application and guarded undo (proposed) |
+| [`adr/0037-uvtt-scenes-and-portals.md`](adr/0037-uvtt-scenes-and-portals.md) | Private UVTT preparation, portal metadata and export (proposed) |
 
 ---
 

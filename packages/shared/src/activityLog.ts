@@ -71,7 +71,18 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
       return actorName === participantName(event.participantId)
         ? `${actorName} ${event.look ? "changed their dice look" : "went back to classic dice"}`
         : `${actorName} put ${participantName(event.participantId)}'s dice back to classic`;
-    case "MapSet": return `${actorName} ${event.previous ? "replaced" : "set"} the map${event.gridChange ? " and grid" : ""}`;
+    case "MapSet": {
+      const count = event.tokenChanges?.length;
+      if (event.map) {
+        const positions = count === undefined ? "" : `, adjusting ${count} token${count === 1 ? "" : "s"}`;
+        return `${actorName} ${event.previous ? "replaced" : "set"} the map${event.gridChange ? " and grid" : ""}${positions}`;
+      }
+      const restored = [
+        ...(event.gridChange ? ["the grid"] : []),
+        ...(count === undefined ? [] : [`${count} token position${count === 1 ? "" : "s"}`]),
+      ];
+      return `${actorName} removed the map${restored.length ? `, restoring ${restored.join(" and ")}` : ""}`;
+    }
     case "GridSet": return `${actorName} updated the grid`;
     case "TokenCreated": return `${actorName} created ${event.token.name}${event.token.hidden ? " (hidden)" : ""}`;
     case "TokenMoved": return `${actorName} moved ${tokenName(event.tokenId)} from ${formatPoint(event.from)} to ${formatPoint(event.to)}`;
@@ -127,6 +138,7 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
     case "TemplateRemoved": return `${actorName} removed a ${templateLabel(event.template)}${event.template.gmOnly ? " (GM only)" : ""}`;
     case "FogAdded": return `${actorName} added a fog ${fogLabel(event.region.shape)}`;
     case "FogRemoved": return `${actorName} removed a fog ${fogLabel(event.region.shape)}`;
+    case "WallUpdated": return `${actorName} edited a ${event.wall.portal ? "portal" : "wall"}`;
     case "WallsAdded": return `${actorName} added ${wallCount(event.walls.length)}`;
     case "WallsRemoved": return `${actorName} removed ${wallCount(event.walls.length)}`;
     case "PortalChanged": return `${actorName} ${describePortalChange(event.from, event.to).past}`;

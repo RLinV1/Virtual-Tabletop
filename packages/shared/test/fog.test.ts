@@ -370,6 +370,7 @@ describe("a new map clears the fog (FR-GM-17, ADR 0029)", () => {
 
     const other = act(state, gm, { type: "scene.setMap", map: { ...MAP_A, url: "/uploads/b.png" } });
     expect(other.state.fog).toEqual({});
-    expect(other.events.filter((e) => e.type === "FogRemoved")).toEqual(regions.map((region) => ({ type: "FogRemoved", region })));
+    expect(other.events).toHaveLength(1);
+    expect(other.events[0]).toMatchObject({ type: "MapSet", fogChange: { fog: [], previous: regions } });
   });
 });
