@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LibraryCreature } from "@vtt/shared";
 import { api } from "../src/net/api";
@@ -7,6 +7,7 @@ import type { CreaturePrefill } from "../src/pages/creatureDraft";
 import { CreatureForm } from "../src/pages/LibraryCreatures";
 
 const advanced = () => screen.getByText("Advanced settings").closest("details") as HTMLDetailsElement;
+const startingConditions = () => screen.getByRole("group", { name: "Starting conditions" });
 const startingHp = () => screen.getByLabelText(/^Starting HP/) as HTMLInputElement;
 const type = (label: string | RegExp, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
 
@@ -27,6 +28,9 @@ describe("creature form advanced settings (library-creatures)", () => {
     expect(advanced().open).toBe(false);
     expect(advanced().contains(startingHp())).toBe(true);
     expect(advanced().contains(screen.getByLabelText("Colour without art"))).toBe(true);
+    // The conditions open and close with Advanced settings: no section of their own.
+    expect(advanced().contains(startingConditions())).toBe(true);
+    expect(advanced().querySelector("details")).toBeNull();
     expect(document.body.textContent).not.toContain("colour disc");
     expect(document.body.textContent).not.toContain("copied to each placed token");
   });
@@ -38,8 +42,9 @@ describe("creature form advanced settings (library-creatures)", () => {
     });
     expect(advanced().open).toBe(true);
     expect(startingHp().value).toBe("30");
-    const conditions = screen.getByText("Starting conditions: Prone").closest("details") as HTMLDetailsElement;
-    expect(conditions.open).toBe(true);
+    expect(advanced().contains(startingConditions())).toBe(true);
+    expect((within(startingConditions()).getByRole("checkbox", { name: /Prone/ }) as HTMLInputElement).checked).toBe(true);
+    expect(advanced().querySelector("details")).toBeNull();
 
     fireEvent.change(startingHp(), { target: { value: "" } });
     expect(advanced().open).toBe(true);

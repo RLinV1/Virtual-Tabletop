@@ -1,5 +1,5 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { CreatureFields, DEFAULT_TOKEN_COLOR, MAX_TOKEN_ATTACKS, MIN_HP, conditionSpec, creatureHpValid, type AttackPreset, type ConditionId, type LibraryCreature } from "@vtt/shared";
+import { useEffect, useId, useState, type FormEvent } from "react";
+import { CreatureFields, DEFAULT_TOKEN_COLOR, MAX_TOKEN_ATTACKS, MIN_HP, creatureHpValid, type AttackPreset, type ConditionId, type LibraryCreature } from "@vtt/shared";
 import { PresetEditor } from "../panels/AttackPanel";
 import { presetSummary } from "../panels/attackRoll";
 import { ConditionPicker } from "../panels/ConditionMarker";
@@ -100,6 +100,7 @@ export function CreatureForm(props: {
     from?.imageAssetId && from.imageUrl ? { assetId: from.imageAssetId, url: from.imageUrl, label: creature ? "Current art" : "Token's art" } : null,
   );
   const [picking, setPicking] = useState(false);
+  const conditionsLabelId = useId();
   /** Advanced settings: open when it starts with a value in it; only ever opened automatically, never closed. */
   const [advancedOpen, setAdvancedOpen] = useState(from?.hp != null || (from?.conditions.length ?? 0) > 0);
   const [saving, setSaving] = useState(false);
@@ -191,10 +192,10 @@ export function CreatureForm(props: {
               Colour without art
               <input type="color" value={color} onInput={(e) => setColor(e.currentTarget.value)} onChange={(e) => setColor(e.target.value)} />
             </label>
-            <details className="add-token-conditions" open={conditions.length > 0}>
-              <summary>Starting conditions{conditions.length > 0 ? `: ${conditions.map((c) => conditionSpec(c).label).join(", ")}` : ""}</summary>
+            <div className="stack" role="group" aria-labelledby={conditionsLabelId}>
+              <span id={conditionsLabelId} className="field-label">Starting conditions</span>
               <ConditionPicker value={conditions} onChange={setConditions} />
-            </details>
+            </div>
           </div>
         </details>
         {touched && hint && <p className="error" role="alert">{hint}</p>}

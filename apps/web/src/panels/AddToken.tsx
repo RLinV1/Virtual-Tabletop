@@ -1,6 +1,6 @@
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { presetOf, type PresetFeatures } from "@vtt/shared";
-import { DEFAULT_TOKEN_COLOR, MAX_TOKENS_PER_CREATE, conditionSpec, isActive, type AttackPreset, type ConditionId, type RoomState } from "@vtt/shared";
+import { DEFAULT_TOKEN_COLOR, MAX_TOKENS_PER_CREATE, isActive, type AttackPreset, type ConditionId, type RoomState } from "@vtt/shared";
 import type { TokenDraft } from "../board/placement";
 import { api } from "../net/api";
 import { useAccount } from "../account/accountStore";
@@ -98,6 +98,7 @@ function AddToken(props: {
   /** Starts with the next palette colour, editable or replaced by a creature (KAN-70). */
   const [color, setColor] = useState(props.defaultColor);
   const [conditions, setConditions] = useState<ConditionId[]>([]);
+  const conditionsLabelId = useId();
   const [attacks, setAttacks] = useState<AttackPreset[]>([]);
   const [count, setCount] = useState("1");
   const features = props.features;
@@ -226,10 +227,10 @@ function AddToken(props: {
             </label>
             {/* A creature fills these in; the GM can change them before placing (KAN-70). */}
             {features.conditions && (
-              <details className="add-token-conditions" open={conditions.length > 0}>
-                <summary>Starting conditions{conditions.length > 0 ? `: ${conditions.map((c) => conditionSpec(c).label).join(", ")}` : ""}</summary>
+              <div className="stack" role="group" aria-labelledby={conditionsLabelId}>
+                <span id={conditionsLabelId} className="field-label">Starting conditions</span>
                 <ConditionPicker value={conditions} onChange={setConditions} />
-              </details>
+              </div>
             )}
             <div className="token-setup-grid">
               <label>Size (cells)<input type="number" value={size} onChange={(e) => setSize(e.target.value)} required min="0.25" max="10" step="any" /></label>
