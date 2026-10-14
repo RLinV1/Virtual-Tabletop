@@ -3,7 +3,7 @@ import { TokenAttacks } from "./attackPresets";
 import { ConditionId, EMPTY_STATS, TokenStats } from "./conditions";
 import { AttackKind, DiceVisibility, MAX_ATTACK_LABEL, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
-import { AreaShape, Id, MapImage, MAX_CHAT_LENGTH, MAX_FOG_POINTS, MAX_FOG_REGIONS, MAX_WALLS, Portal, PortalState } from "./state";
+import { AreaColor, AreaShape, Id, MapImage, MAX_CHAT_LENGTH, MAX_FOG_POINTS, MAX_FOG_REGIONS, MAX_WALLS, Portal, PortalState } from "./state";
 
 /** Most walls one `wall.remove` names (ADR 0029), keeping the command under the socket limit. */
 export const MAX_WALLS_PER_REMOVE = 500;
@@ -236,6 +236,8 @@ export const Command = z.discriminatedUnion("type", [
     size: z.number().positive().max(1000),
     /** A line's width in grid units; one cell when left out (KAN-35). */
     width: z.number().positive().max(1000).optional(),
+    /** One of the fixed area colours (ADR 0035); anything else fails to parse. */
+    color: AreaColor.optional(),
     gmOnly: z.boolean().default(false),
   }),
   /** Remove a placed template. Its owner or the GM. */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_GRID, type GridSpec, type Point } from "@vtt/shared";
-import { areaOrigin, areaShape, areaSizeFromDrag, fogDraftPoints, fogRegionAt, hitMark, measure, snapToCellCenter, snapToIntersection, sweepPoints, type Mark } from "../src/board/tools";
+import { AREA_SHADES, areaColorValue, areaOrigin, areaShape, areaSizeFromDrag, fogDraftPoints, fogRegionAt, hitMark, measure, snapToCellCenter, snapToIntersection, sweepPoints, type Mark } from "../src/board/tools";
 
 const grid: GridSpec = DEFAULT_GRID; // 70 px cells, 5 ft per cell
 const offsetGrid: GridSpec = { ...DEFAULT_GRID, offsetX: 10, offsetY: 20 };
@@ -71,15 +71,24 @@ describe("board tools (KAN-69, FR-TAC-03/04/06)", () => {
       expect((left!.x + right!.x) / 2).toBeCloseTo(140);
     });
 
-    it("starts a box at the origin and extends it toward the aim, its size as the side", () => {
+    it("centres a box on its origin, its size as the side (ADR 0035)", () => {
       const shape = areaShape("box", origin, { x: 400, y: 140 }, 10, grid);
       if (shape.kind !== "polygon") throw new Error("expected a polygon");
       const xs = shape.points.map((p) => p.x);
       const ys = shape.points.map((p) => p.y);
-      expect(Math.min(...xs)).toBeCloseTo(140);
-      expect(Math.max(...xs)).toBeCloseTo(280);
+      expect(Math.min(...xs)).toBeCloseTo(70);
+      expect(Math.max(...xs)).toBeCloseTo(210);
       expect(Math.min(...ys)).toBeCloseTo(70);
       expect(Math.max(...ys)).toBeCloseTo(210);
+    });
+
+    it("covers exactly the cell whose centre a 5 ft box is placed on", () => {
+      const shape = areaShape("box", cell(2, 3), { x: cell(2, 3).x + 1, y: cell(2, 3).y }, 5, grid);
+      if (shape.kind !== "polygon") throw new Error("expected a polygon");
+      const xs = shape.points.map((p) => p.x);
+      const ys = shape.points.map((p) => p.y);
+      expect([Math.min(...xs), Math.max(...xs)].map((v) => Math.round(v))).toEqual([140, 210]);
+      expect([Math.min(...ys), Math.max(...ys)].map((v) => Math.round(v))).toEqual([210, 280]);
     });
 
     it("turns a box to face the aim", () => {
@@ -125,6 +134,11 @@ describe("board tools (KAN-69, FR-TAC-03/04/06)", () => {
 
     it("uses the exact length when placed freely", () => {
       expect(areaSizeFromDrag(origin, { x: 140 + 105, y: 140 }, grid, true)).toBe(7.5);
+    });
+
+    it("doubles the drag for a box, which is centred, so the pointer is on its far edge (ADR 0035)", () => {
+      expect(areaSizeFromDrag(cell(2, 2), { x: cell(2, 2).x + 1.5 * 70, y: cell(2, 2).y }, grid, false, "box")).toBe(15);
+      expect(areaSizeFromDrag(cell(2, 2), { x: cell(2, 2).x + 1.5 * 70, y: cell(2, 2).y }, grid, false, "cone")).toBe(10);
     });
   });
 
@@ -228,5 +242,20 @@ describe("line templates (KAN-35, FR-TAC-06)", () => {
     const xs = shape.points.map((p) => Math.round(p.x));
     expect(Math.max(...xs) - Math.min(...xs)).toBe(140);
     expect(Math.max(...shape.points.map((p) => Math.round(p.y)))).toBe(420);
+  });
+
+  describe("area colours (ADR 0035)", () => {
+    it("has a shade for every colour, and draws an area without one orange", () => {
+      for (const [name, shade] of Object.entries(AREA_SHADES)) expect(areaColorValue(name as keyof typeof AREA_SHADES)).toBe(shade);
+      expect(areaColorValue(undefined)).toBe(AREA_SHADES.orange);
+    });
+  });
+
+  describe("eraser on a centred box", () => {
+    it("hits a box inside its centred outline, and not where its old near-side outline reached", () => {
+      const box: Mark = { kind: "area", shape: "box", size: 10, origin: { x: 140, y: 140 }, toward: { x: 400, y: 140 }, free: true };
+      expect(hitMark(box, { x: 80, y: 140 }, 2, grid)).toBe(true);
+      expect(hitMark(box, { x: 260, y: 140 }, 2, grid)).toBe(false);
+    });
   });
 });

@@ -2,6 +2,7 @@
 
 **Status:** Proposed — needs review by the Real-Time Architecture owner · **Amends:** `docs/adr/0007-shared-area-templates.md`
 **Owner:** Real-Time Architecture (Raymond) · **Changes:** `openspec/changes/kan-35-aoe-line-and-aim` · **Ticket:** KAN-35 (FR-TAC-06)
+**Amended by:** `docs/adr/0035-area-color-and-square-centre.md` (a box's origin is now its centre)
 
 ## Context
 

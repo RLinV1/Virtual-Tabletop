@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AreaTemplate,
+  EphemeralPayload,
   formatActivity,
   filterEventForViewer,
   filterStateForViewer,
@@ -121,5 +122,48 @@ describe("line templates (KAN-35, FR-TAC-06)", () => {
     const line = (width?: number) => ({ id: "t", shape: "line" as const, origin: { x: 0, y: 0 }, toward: { x: 1, y: 0 }, size: 60, ownerId: alice.id, gmOnly: false, ...(width && { width }) });
     expect(formatActivity({ type: "TemplatePlaced", template: line() }, "Pat", state)).toBe("Pat placed a 60 ft line");
     expect(formatActivity({ type: "TemplatePlaced", template: line(10) }, "Pat", state)).toBe("Pat placed a 60 ft line, 10 ft wide");
+  });
+});
+
+describe("area colour (FR-TAC-06, ADR 0035)", () => {
+  const aim = (color: unknown) => ({
+    type: "templatePreview",
+    preview: { shape: "circle", origin: { x: 70, y: 70 }, toward: { x: 71, y: 70 }, size: 20, gmOnly: false, color },
+  });
+
+  it("keeps a placed template's colour in the event and the state, for everyone who sees it", () => {
+    const { state, events } = run(baseRoom(), alice, place({ color: "red" }));
+    const placed = events[0];
+    if (placed?.type !== "TemplatePlaced") throw new Error("expected TemplatePlaced");
+    expect(placed.template.color).toBe("red");
+    expect(state.templates[placed.template.id]?.color).toBe("red");
+    expect(filterStateForViewer(state, bob).templates[placed.template.id]?.color).toBe("red");
+  });
+
+  it("leaves the colour out when none was chosen", () => {
+    const { state } = run(baseRoom(), alice, place());
+    expect(Object.values(state.templates)[0]).not.toHaveProperty("color");
+  });
+
+  it("refuses a colour outside the fixed list, in a placement and in an aim", () => {
+    expect(() => attempt(baseRoom(), alice, place({ color: "white" as never }))).toThrow();
+    expect(() => attempt(baseRoom(), alice, place({ color: "#ff0000" as never }))).toThrow();
+    expect(EphemeralPayload.safeParse(aim("white")).success).toBe(false);
+    expect(EphemeralPayload.safeParse(aim("blue")).success).toBe(true);
+  });
+
+  it("still reduces a template placed before colours existed", () => {
+    const old = { id: "t-old", shape: "box" as const, origin: { x: 0, y: 0 }, toward: { x: 1, y: 0 }, size: 10, ownerId: alice.id, gmOnly: false };
+    expect(AreaTemplate.safeParse(old).success).toBe(true);
+    const state = reduce(baseRoom(), { type: "TemplatePlaced", template: old });
+    expect(state.templates["t-old"]).toEqual(old);
+  });
+
+  it("names the colour in the activity log", () => {
+    const state = baseRoom();
+    const circle = (color?: "red" | "orange") => ({ id: "t", shape: "circle" as const, origin: { x: 0, y: 0 }, toward: { x: 1, y: 0 }, size: 20, ownerId: alice.id, gmOnly: false, ...(color && { color }) });
+    expect(formatActivity({ type: "TemplatePlaced", template: circle("red") }, "Pat", state)).toBe("Pat placed a red 20 ft circle");
+    expect(formatActivity({ type: "TemplatePlaced", template: circle("orange") }, "Pat", state)).toBe("Pat placed an orange 20 ft circle");
+    expect(formatActivity({ type: "TemplatePlaced", template: circle() }, "Pat", state)).toBe("Pat placed a 20 ft circle");
   });
 });

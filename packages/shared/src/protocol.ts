@@ -5,7 +5,7 @@ import { Command, DEFAULT_TOKEN_COLOR } from "./commands";
 import { CommittedEvent } from "./events";
 import { GridSpec, Point } from "./geometry";
 import { TokenStats, type ConditionId } from "./conditions";
-import { AreaShape, Id, Participant, Token, type RoomState } from "./state";
+import { AreaColor, AreaShape, Id, Participant, Token, type RoomState } from "./state";
 import type { RejectionCode } from "./decide";
 import { RoomUploadPurpose } from "./gridDetection";
 import { MAX_ENCOUNTER_NAME } from "./encounters";
@@ -41,6 +41,8 @@ export const EphemeralPayload = z.discriminatedUnion("type", [
       toward: Point,
       size: z.number().positive().max(1000),
       width: z.number().positive().max(1000).optional(),
+      /** Shown while aiming (ADR 0035). */
+      color: AreaColor.optional(),
       gmOnly: z.boolean(),
     }).nullable(),
     /**

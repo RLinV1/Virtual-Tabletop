@@ -2239,6 +2239,10 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 }
 .tool-swatch[aria-pressed="true"] { outline: 2px solid var(--text); outline-offset: 2px; }
 .tool-size select { width: 100%; }
+.tool-stepper { display: flex; align-items: stretch; gap: 2px; }
+.tool-stepper input { width: 3.25rem; min-width: 0; text-align: center; -moz-appearance: textfield; }
+.tool-stepper input::-webkit-inner-spin-button, .tool-stepper input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.tool-stepper button { min-width: 2rem; padding: 0 var(--space-1); }
 
 @media (max-width: 640px) {
   .tool-button.rail-button { width: 2.5rem; min-height: 2.5rem; }

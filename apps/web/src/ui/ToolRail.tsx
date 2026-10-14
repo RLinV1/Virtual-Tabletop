@@ -1,18 +1,19 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { AreaColor, MAX_LINE_WIDTH_CELLS } from "@vtt/shared";
 import { isBoolean, usePersistentState } from "./usePersistentState";
 import { CaretDoubleLeft, CaretDoubleRight, Circle, CloudFog, Cursor, Eraser, Eye, LineSegment, PaintBrush, PencilSimple, Polygon, Ruler, Square, Target, Trash, Triangle } from "@phosphor-icons/react";
-import { AREA_SIZES, DRAW_COLORS, type AreaShape, type BoardTool, type DrawShape, type FogMode } from "../board/tools";
+import { AREA_SHADES, AREA_SIZES, DRAW_COLORS, type AreaShape, type BoardTool, type DrawShape, type FogMode } from "../board/tools";
 
 /** The options each tool remembers while another tool is active. */
 export interface ToolOptions {
   draw: { shape: DrawShape; color: number };
-  area: { shape: AreaShape; size: number; lineCells: 1 | 2; gmOnly: boolean };
+  area: { shape: AreaShape; size: number; lineCells: number; color: AreaColor; gmOnly: boolean };
   fog: { mode: FogMode };
 }
 
 export const DEFAULT_TOOL_OPTIONS: ToolOptions = {
   draw: { shape: "brush", color: DRAW_COLORS[0].value },
-  area: { shape: "circle", size: 20, lineCells: 1, gmOnly: false },
+  area: { shape: "circle", size: 20, lineCells: 1, color: "orange", gmOnly: false },
   fog: { mode: "rect" },
 };
 
@@ -58,6 +59,7 @@ export function toolFor(kind: ToolKind, options: ToolOptions): BoardTool {
 }
 
 const hex = (color: number) => `#${color.toString(16).padStart(6, "0")}`;
+const colorName = (color: string) => color[0]!.toUpperCase() + color.slice(1);
 
 /**
  * The board's tool rail (KAN-69): Select, Measure, Draw, Area, Eraser, the GM's Fog and Clear all,
@@ -176,18 +178,22 @@ export function ToolRail({
             </select>
           </label>
           {options.area.shape === "line" && (
-            <label className="tool-size">
-              <span className="sr-only">Line width</span>
-              <select
-                title="Line width"
-                value={options.area.lineCells}
-                onChange={(e) => onOptions({ ...options, area: { ...options.area, lineCells: Number(e.target.value) === 2 ? 2 : 1 } })}
-              >
-                <option value={1}>1 square wide</option>
-                <option value={2}>2 squares wide</option>
-              </select>
-            </label>
+            <LineWidthField value={options.area.lineCells} onChange={(lineCells) => onOptions({ ...options, area: { ...options.area, lineCells } })} />
           )}
+          <div className="tool-swatches" role="group" aria-label="Area colour">
+            {AreaColor.options.map((color) => (
+              <button
+                key={color}
+                type="button"
+                className="tool-swatch"
+                aria-label={colorName(color)}
+                aria-pressed={options.area.color === color}
+                title={colorName(color)}
+                style={{ background: hex(AREA_SHADES[color]) }}
+                onClick={() => onOptions({ ...options, area: { ...options.area, color } })}
+              />
+            ))}
+          </div>
           {isGm && (
             <label className="tool-check" title="Players won't see areas placed while this is on">
               <input
@@ -241,6 +247,48 @@ function Segmented<K extends string>({
           {item.icon}
         </button>
       ))}
+    </div>
+  );
+}
+
+/**
+ * A line's width in whole squares, 1 to MAX_LINE_WIDTH_CELLS (aoe-tool-refinements): type it, or
+ * step it with the buttons. What's typed is a draft until Enter or leaving the field, when it is
+ * rounded and kept in range; an empty or invalid entry goes back to the last width.
+ */
+export function LineWidthField({ value, onChange }: { value: number; onChange: (cells: number) => void }) {
+  // Only while typing; otherwise the field shows `value`, so the buttons never show a stale width.
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    if (draft === null) return;
+    setDraft(null);
+    const typed = Number(draft);
+    if (draft.trim() === "" || !Number.isFinite(typed)) return;
+    const cells = Math.min(MAX_LINE_WIDTH_CELLS, Math.max(1, Math.round(typed)));
+    if (cells !== value) onChange(cells);
+  };
+  return (
+    <div className="tool-stepper" role="group" aria-label="Line width in squares">
+      <button type="button" className="secondary" aria-label="Narrower" disabled={value <= 1} onClick={() => onChange(value - 1)}>−</button>
+      <input
+        type="number"
+        inputMode="numeric"
+        aria-label="Line width"
+        title="Line width in squares"
+        min={1}
+        max={MAX_LINE_WIDTH_CELLS}
+        step={1}
+        value={draft ?? String(value)}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commit();
+          }
+        }}
+      />
+      <button type="button" className="secondary" aria-label="Wider" disabled={value >= MAX_LINE_WIDTH_CELLS} onClick={() => onChange(value + 1)}>+</button>
     </div>
   );
 }
