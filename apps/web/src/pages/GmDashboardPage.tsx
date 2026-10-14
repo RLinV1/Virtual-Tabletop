@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { DEFAULT_PRESET_ID, GAME_PRESETS, presetOf } from "@vtt/shared";
 import type { EncounterSummary, GmRoomSummary, LegacySummary, MyRoomsResponse } from "@vtt/shared";
 import { AccountMenu } from "../account/AccountPages";
+import { useAccount } from "../account/accountStore";
 import { RequireAccount } from "../account/RequireAccount";
 import { Link } from "../Link";
 import { api, ApiError } from "../net/api";
@@ -71,8 +72,10 @@ function withoutRoom(state: RoomsState, id: string): RoomsState {
 
 /** Hosting needs the account, which the session cookie carries; the GM seat is kept on it too. */
 function CreateRoomCard() {
+  const account = useAccount();
   const [roomName, setRoomName] = useState("");
-  const [displayName, setDisplayName] = useState("");
+  /** Starts as the account's name, once; the GM may change it for this room (create-room-form-defaults). */
+  const [displayName, setDisplayName] = useState(() => (account.status === "signedIn" ? account.account.displayName : ""));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   /** The GM's saved encounters, offered as a starting board (encounter-templates, FR-GM-13). */
@@ -115,7 +118,6 @@ function CreateRoomCard() {
           onChange={(e) => setRoomName(e.target.value)}
           required
           maxLength={80}
-          placeholder="The Broken Span"
         />
       </label>
       <label>
@@ -125,7 +127,6 @@ function CreateRoomCard() {
           onChange={(e) => setDisplayName(e.target.value)}
           required
           maxLength={40}
-          placeholder="Your name"
         />
       </label>
       {/* Only a choice once there is more than one game (KAN-63). */}
