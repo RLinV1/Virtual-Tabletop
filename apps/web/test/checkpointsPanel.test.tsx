@@ -14,6 +14,7 @@ describe("the GM's Checkpoints section (KAN-41, FR-REC-02)", () => {
   it("offers a named save, and says when there is nothing to restore", () => {
     const html = render(emptyRoomState("r1"));
     expect(html).toContain("Checkpoint name");
+    expect(html).toContain('placeholder="Checkpoint name"');
     expect(html).toContain(`maxLength="60"`);
     expect(text(html)).toContain("No checkpoints yet.");
   });

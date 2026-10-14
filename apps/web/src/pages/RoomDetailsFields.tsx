@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { DEFAULT_PRESET_ID, GAME_PRESETS, type GamePresetId } from "@vtt/shared";
+import { useAccount } from "../account/accountStore";
 import { api } from "../net/api";
 import { newGuestToken, saveCredentials } from "../net/identity";
 
@@ -9,7 +11,16 @@ export interface RoomDetails {
   preset: GamePresetId;
 }
 
-export const emptyRoomDetails = (roomName = ""): RoomDetails => ({ roomName, displayName: "", preset: DEFAULT_PRESET_ID });
+export const emptyRoomDetails = (roomName = "", displayName = ""): RoomDetails => ({ roomName, displayName, preset: DEFAULT_PRESET_ID });
+
+/**
+ * The form's details, the GM's name starting as the account's, once; the GM may change it for this
+ * room (create-room-form-defaults).
+ */
+export function useRoomDetails() {
+  const account = useAccount();
+  return useState<RoomDetails>(() => emptyRoomDetails("", account.status === "signedIn" ? account.account.displayName : ""));
+}
 
 /** True when the details can be sent: a room name and a display name that aren't blank. */
 export const roomDetailsReady = (details: RoomDetails) => details.roomName.trim() !== "" && details.displayName.trim() !== "";
@@ -32,7 +43,6 @@ export function RoomDetailsFields({ value, onChange, disabled = false }: {
           onChange={(e) => onChange({ ...value, roomName: e.target.value })}
           required
           maxLength={80}
-          placeholder="The Broken Span"
           disabled={disabled}
         />
       </label>
@@ -43,7 +53,6 @@ export function RoomDetailsFields({ value, onChange, disabled = false }: {
           onChange={(e) => onChange({ ...value, displayName: e.target.value })}
           required
           maxLength={40}
-          placeholder="Your name"
           disabled={disabled}
         />
       </label>

@@ -4,7 +4,7 @@ import { api } from "../../net/api";
 import { forgetCredentials } from "../../net/identity";
 import { navigate } from "../../router";
 import { Modal } from "../../ui/Modal";
-import { createRoomWith, emptyRoomDetails, RoomDetailsFields, roomDetailsReady, type RoomDetails } from "../RoomDetailsFields";
+import { createRoomWith, RoomDetailsFields, roomDetailsReady, useRoomDetails } from "../RoomDetailsFields";
 
 type Prompt = null | "name" | "close" | "discard" | "openUnsaved" | "openRoom";
 
@@ -31,8 +31,8 @@ export function EncounterEditBar({ roomId, seq, onLeaving }: {
   const [error, setError] = useState<string | null>(null);
   /** Set when the name prompt was opened by Close's "Save", so naming then leaves. */
   const [pendingClose, setPendingClose] = useState(false);
-  /** Open in a room's details: the new room's name starts as the template's. */
-  const [details, setDetails] = useState<RoomDetails>(() => emptyRoomDetails());
+  /** Open in a room's details: the new room's name starts as the template's, the GM's as the account's. */
+  const [details, setDetails] = useRoomDetails();
 
   useEffect(() => {
     let live = true;

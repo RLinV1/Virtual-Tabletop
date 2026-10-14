@@ -11,7 +11,7 @@ import { ensureSeat } from "../net/seats";
 import { navigate } from "../router";
 import { Modal } from "../ui/Modal";
 import { formatRelative } from "../ui/formatRelative";
-import { createRoomWith, emptyRoomDetails, RoomDetailsFields, type RoomDetails } from "./RoomDetailsFields";
+import { createRoomWith, RoomDetailsFields, useRoomDetails } from "./RoomDetailsFields";
 
 /**
  * The signed-in person's place outside a room (gm-dashboard, room-membership): create a room,
@@ -73,7 +73,7 @@ function withoutRoom(state: RoomsState, id: string): RoomsState {
 
 /** Hosting needs the account, which the session cookie carries; the GM seat is kept on it too. */
 function CreateRoomCard() {
-  const [details, setDetails] = useState<RoomDetails>(() => emptyRoomDetails());
+  const [details, setDetails] = useRoomDetails();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   /** The GM's saved encounters, offered as a starting board (encounter-templates, FR-GM-13). */
