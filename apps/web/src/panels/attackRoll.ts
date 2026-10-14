@@ -1,5 +1,6 @@
 import { attackLabel, formatAttackParties, isInFog, MAX_ATTACK_LABEL, type AttackKind, type DiceRoll, type Point, type RoomState, type Token } from "@vtt/shared";
 import { measure } from "../board/tools";
+import { readStored, type KeyValueStorage } from "../ui/usePersistentState";
 
 /**
  * Pure helpers for the Attack section (attack-targeting). The server rolls whatever `NdX+M` it
@@ -171,6 +172,25 @@ function isPreset(v: unknown): v is AttackPreset {
 /** Stored named attacks by token id; anything malformed or from an older build is ignored. */
 export const isPresetRecord = (v: unknown): v is Record<string, AttackPreset[]> =>
   isRecord(v) && Object.values(v).every((list) => Array.isArray(list) && list.length <= MAX_PRESETS && list.every(isPreset));
+
+/** Local edits (including an empty list) win, then older saved attacks, then template copies. */
+export function presetsForToken(token: Pick<Token, "id" | "attacks">, stored: Record<string, AttackPreset[]>, legacy: Record<string, SavedAttack[]>): AttackPreset[] {
+  const older = legacy[token.id];
+  return stored[token.id] ?? (older ? migrateSaved(older) : token.attacks ?? []);
+}
+
+/** Read at the moment Save as creature is opened, so edits made in Attack are included. */
+export function readTokenAttacks(token: Pick<Token, "id" | "attacks">, storage: KeyValueStorage | null): AttackPreset[] {
+  return structuredClone(presetsForToken(token,
+    readStored(storage, "vtt.attack.presets", {}, isPresetRecord),
+    readStored(storage, "vtt.attack.saved", {}, isSavedRecord),
+  ));
+}
+
+export function browserTokenAttacks(token: Pick<Token, "id" | "attacks">): AttackPreset[] {
+  try { return readTokenAttacks(token, window.localStorage); }
+  catch { return structuredClone(token.attacks ?? []); }
+}
 
 const diceOf = ({ count, sides, modifier }: AttackDice): AttackDice => ({ count, sides, modifier });
 

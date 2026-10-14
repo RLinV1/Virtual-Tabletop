@@ -16,6 +16,7 @@ import {
   referencedAssetIds,
   type Command,
   type CommittedEvent,
+  type DetectedWallsResponse,
   type DiceLookOnTable,
   type DieName,
   type DomainEvent,
@@ -24,12 +25,14 @@ import {
   type Participant,
   type Point,
   type RejectionCode,
+  type ResolvedEncounter,
   type RoomState,
   type ServerMessage,
   type TableState,
   type SessionEndReason,
 } from "@vtt/shared";
 import type { RoomStore } from "../store/roomStore";
+import { resolveEncounter, type ResolveEncounterResult } from "./encounterTemplates";
 
 /**
  * Float in [0, 1) from the CSPRNG. A dice roll decides encounter outcomes, so it should not
@@ -39,6 +42,12 @@ const secureRandom = () => randomInt(0, 2 ** 31) / 2 ** 31;
 
 /** A checkpoint restore slower than this is logged: past it, ADR 0019 calls for a snapshot cache. */
 const RESTORE_SLOW_MS = 500;
+
+/** Server services a room consults while deciding, passed in so `decide` stays pure. */
+export interface RoomHooks {
+  /** The validated detected walls for this room's map (ADR 0029), or null. */
+  detectedWalls?: (roomId: string, mapUrl: string) => DetectedWallsResponse | null;
+}
 
 /** A connected socket bound to a participant. */
 export interface RoomClient {
@@ -90,6 +99,7 @@ export class LiveRoom {
     readonly roomId: string,
     private store: RoomStore,
     events: CommittedEvent[],
+    private hooks: RoomHooks = {},
   ) {
     // With each event's `commandId`, so the undo history is rebuilt too (ADR 0013).
     this.state = events.reduce(reduceCommitted, emptyRoomState(roomId));
@@ -97,8 +107,8 @@ export class LiveRoom {
   }
 
   /** Replays the room's log, then heals the derived projections: the asset index and removed players' credential locks. */
-  static async load(roomId: string, store: RoomStore) {
-    const room = new LiveRoom(roomId, store, await store.loadEvents(roomId));
+  static async load(roomId: string, store: RoomStore, hooks: RoomHooks = {}) {
+    const room = new LiveRoom(roomId, store, await store.loadEvents(roomId), hooks);
     // Heals an index left stale by a crash between append and projection (ADR 0004).
     await room.syncAssetRefs();
     // Same for the credential-row lock on removed participants (FR-GM-20). Idempotent.
@@ -131,15 +141,45 @@ export class LiveRoom {
     return this.state.participants[id];
   }
 
+  /** Server-only lookup for the current direct map's private analysis endpoint. */
+  currentMap() {
+    return this.state.scene.map;
+  }
+
+  /** The room's grid, so wall detection judges walls against its squares (ADR 0029). */
+  currentGrid() {
+    return this.state.scene.grid;
+  }
+
   /** Why this participant's seat ended, or null if they are still in the room (ADR 0006). */
   endReason(id: string): SessionEndReason | null {
     const p = this.state.participants[id];
     return p ? endReason(p) : null;
   }
 
+  /**
+   * Sends a message to the room's GM connections only: a wall analysis changed state (ADR 0029).
+   * Not room data and no seq (invariant 4); players never receive it.
+   */
+  notifyGm(message: ServerMessage) {
+    if (this.isClosed) return;
+    for (const client of this.clients) {
+      const viewer = this.state.participants[client.participantId];
+      if (viewer && viewer.role === "gm" && isActive(viewer)) client.send(message);
+    }
+  }
+
   /** The room's GM seat, for its owner resuming on another device (ADR 0017 M2). */
   gmParticipant(): Participant | undefined {
     return Object.values(this.state.participants).find((p) => p.role === "gm" && isActive(p));
+  }
+
+  /**
+   * The board as the GM sees it, hidden tokens included, for saving as an encounter template
+   * (ADR 0024). Callers must already have checked that the requester owns this room.
+   */
+  boardForOwner(): TableState {
+    return tableOf(this.state);
   }
 
   /** The participant, only while they are still in the room (ADR 0006). */
@@ -176,17 +216,37 @@ export class LiveRoom {
           return { ok: false, code: "invalid", message: "Couldn't read the room's history to restore that checkpoint. Try again." };
         }
       }
+      // An encounter template is read for the acting GM's own account before deciding (ADR 0024).
+      // A seat with no account, or a template that isn't theirs, reads as no template at all.
+      let encounterTemplate: ((templateId: string) => ResolvedEncounter | null) | undefined;
+      if (command.type === "encounter.apply" && can.administer(actor)) {
+        const found = await this.ownedEncounter(actorId, command.templateId);
+        if (found && !found.ok) return { ok: false, code: "invalid", message: found.message };
+        const encounter = found?.encounter ?? null;
+        encounterTemplate = (id) => (encounter && encounter.id === id ? encounter : null);
+      }
       const decision = decide(this.state, actor, command, {
         newId: randomUUID,
         random: secureRandom,
         ownedDiceLook,
         lastSeq: this.seq,
         checkpointTable,
+        encounterTemplate,
+        detectedWalls: command.type === "wall.applyDetected"
+          ? (mapUrl) => this.hooks.detectedWalls?.(this.roomId, mapUrl) ?? null
+          : undefined,
       });
       if (!decision.ok) return decision;
       const committed = await this.commit(actorId, decision.events);
       return { ok: true, seq: committed.at(-1)?.seq ?? null };
     });
+  }
+
+  /** The template as the account holding this participant's seat owns it, or null (ADR 0024). */
+  private async ownedEncounter(participantId: string, templateId: string): Promise<ResolveEncounterResult | null> {
+    const member = await this.store.findMemberByParticipant(this.roomId, participantId);
+    const user = member ? await this.store.findUserById(member.userId) : null;
+    return user ? resolveEncounter(this.store, user.ownerId, templateId) : null;
   }
 
   /**

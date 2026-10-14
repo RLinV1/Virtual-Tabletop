@@ -3,6 +3,8 @@
 **Status:** Proposed — needs review by the Real-Time Architecture owner · **Amends:** `docs/adr/0012-library-creatures.md`
 **Owner:** Real-Time Architecture (Raymond) · **Changes:** `openspec/changes/kan-70-creature-templates` · **Ticket:** KAN-70
 
+**Amended by:** `docs/adr/0023-creature-starting-hp.md` (optional starting HP, preserved when saving a placed token).
+
 ## Context
 
 Library creatures (ADR 0012) save a name, size, Max HP, AC and art, and Add Token copies them into an ordinary `token.create`. KAN-70 asks for the rest of a reusable monster: its disc colour, the conditions it starts with, placing several at once, and saving a token already on the board as a creature. ADR 0012 deliberately kept the room ignorant of creatures; that stays.

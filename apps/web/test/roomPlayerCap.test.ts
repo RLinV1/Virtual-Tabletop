@@ -12,6 +12,11 @@ describe("a full room on the join page (room-player-cap, FR-PL-01)", () => {
     expect(joinFailure(full)).toEqual({ message: "This room is full: it holds 32 players. Ask the GM for a seat.", nameIsCause: false });
   });
 
+  it("doesn't blame the name for too many joins from this address (security-hardening)", () => {
+    const limited = new ApiError("Too many joins from this address. Try again later.", 429, { retryAfterSec: 60 });
+    expect(joinFailure(limited)).toEqual({ message: "Too many joins from this address. Try again later.", nameIsCause: false });
+  });
+
   it("still marks the name for a name conflict and other refusals", () => {
     expect(joinFailure(new ApiError('The name "Kim" is already taken in this room. Choose another name.', 409))).toMatchObject({ nameIsCause: true });
     expect(joinFailure(new ApiError("Invite not found", 404))).toMatchObject({ nameIsCause: true });

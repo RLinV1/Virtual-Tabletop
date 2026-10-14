@@ -1,7 +1,8 @@
 import type { AttackSide, DiceRoll } from "./dice";
 import type { CommittedEvent } from "./events";
 import { pointInPolygon, type Point } from "./geometry";
-import type { AreaTemplate, Initiative, Participant, RoomState, Token } from "./state";
+import { wallMidpoint } from "./portals";
+import type { AreaTemplate, Initiative, Participant, RoomState, Token, Wall } from "./state";
 
 /** Whether a board point lies under any fog region (FR-GM-17, ADR 0016). */
 export function isInFog(fog: RoomState["fog"], point: Point): boolean {
@@ -41,6 +42,15 @@ export function templateConcealedFrom(fog: RoomState["fog"], template: AreaTempl
 }
 
 /**
+ * Whether `viewer` may not see `wall` (ADR 0030). Plain walls are GM-only (ADR 0029); a portal
+ * is concealed when its midpoint is under fog, as a token is by its centre.
+ */
+export function portalConcealedFrom(fog: RoomState["fog"], wall: Pick<Wall, "a" | "b" | "portal">, viewer: Participant): boolean {
+  if (viewer.role === "gm") return false;
+  return !wall.portal || isInFog(fog, wallMidpoint(wall));
+}
+
+/**
  * Player-safe state filtering (FR-GM-23).
  *
  * EVERY payload that carries room data to a client must go through one of these
@@ -52,7 +62,8 @@ export function filterStateForViewer(state: RoomState, viewer: Participant): Roo
   if (viewer.role === "gm") return state;
   // Hidden tokens, and tokens under fog the viewer doesn't own, are withheld (FR-GM-17).
   const tokens = Object.fromEntries(
-    Object.entries(state.tokens).filter(([, t]) => !concealedFrom(state.fog, t, viewer)),
+    Object.entries(state.tokens).filter(([, t]) => !concealedFrom(state.fog, t, viewer))
+      .map(([id, token]) => [id, tokenForViewer(token, viewer)]),
   );
   // GM-only rolls never reach a player, not even as a redacted placeholder (FR-GM-22).
   const rolls = state.rolls.filter((r) => r.visibility === "public").map((r) => hideAttackSides(r, state, tokens));
@@ -68,7 +79,11 @@ export function filterStateForViewer(state: RoomState, viewer: Participant): Roo
   // ids and public display names of participants every viewer already has in `participants`. If
   // `participants` is ever filtered for players, filter `chat[].mentions` with it (ADR 0034).
   // Undo is GM-only, and its entries name hidden tokens and their old values (ADR 0013).
-  return { ...state, tokens, rolls, initiative, templates, undo: [], checkpoints: [] };
+  // Plain walls are GM-only: inside fog they would draw rooms the players haven't seen (ADR 0029).
+  // Portals outside fog stay, so players can see and use them (ADR 0030).
+  const walls = Object.fromEntries(Object.entries(state.walls).filter(([, w]) => !portalConcealedFrom(state.fog, w, viewer)));
+  // Groups are the GM's organisation and would say which group a hidden token is in (KAN-82, ADR 0026).
+  return { ...state, tokens, rolls, initiative, templates, walls, undo: [], checkpoints: [], groups: {}, tokenGroups: {} };
 }
 
 export type FilteredEvent =
@@ -103,10 +118,26 @@ export function filterEventForViewer(
     wasConcealed !== isConcealed ? { kind: "resync" } : isConcealed ? redacted : pass;
 
   switch (e.type) {
+    // Plain walls are GM-only geometry (ADR 0029): players learn only that a seq happened. A
+    // portal they can see appears or vanishes, which a snapshot does without the plain walls (ADR 0030).
+    case "WallsAdded":
+    case "WallsRemoved":
+      return e.walls.some((w) => !portalConcealedFrom(before.fog, w, viewer)) ? { kind: "resync" } : redacted;
+    case "PortalChanged": {
+      // Seen before and after: a state change the player's copy can apply. Otherwise the wall's
+      // geometry must arrive or leave with it, so resync (ADR 0030).
+      const wall = before.walls[e.wallId];
+      if (!wall) return redacted;
+      return byVisibility(
+        portalConcealedFrom(before.fog, { ...wall, portal: e.from ?? undefined }, viewer),
+        portalConcealedFrom(before.fog, { ...wall, portal: e.to ?? undefined }, viewer),
+      );
+    }
     case "TokenCreated":
-      return concealedFrom(before.fog, e.token, viewer) ? redacted : pass;
     case "TokenDeleted":
-      return concealedFrom(before.fog, e.token, viewer) ? redacted : pass;
+      return concealedFrom(before.fog, e.token, viewer) ? redacted : {
+        kind: "event", committed: { ...withoutCommandId, event: { ...e, token: tokenForViewer(e.token, viewer) } },
+      };
     case "TokenMoved": {
       // Moving into or out of fog changes what the viewer may see (ADR 0016).
       const token = before.tokens[e.tokenId];
@@ -117,6 +148,8 @@ export function filterEventForViewer(
       // Gaining or losing a token under fog reveals or withdraws it for that player (ADR 0016).
       const token = before.tokens[e.tokenId];
       if (!token) return redacted;
+      // Ownership also determines whether the copied named attacks are available.
+      if (token.attacks?.length && token.ownerIds.includes(viewer.id) !== e.ownerIds.includes(viewer.id)) return { kind: "resync" };
       return byVisibility(concealedFrom(before.fog, token, viewer), concealedFrom(before.fog, { ...token, ownerIds: e.ownerIds }, viewer));
     }
     case "TokenAppearanceSet":
@@ -146,6 +179,7 @@ export function filterEventForViewer(
     }
     case "InitiativeStarted":
     case "InitiativeAdvanced":
+    case "InitiativeStartUndone":
       // The order may name hidden tokens, so the player gets a filtered snapshot instead
       // of the raw event — same reasoning as a reveal.
       return { kind: "resync" };
@@ -166,11 +200,20 @@ export function filterEventForViewer(
     case "TokenHiddenSet":
       // A reveal must deliver the whole token; a hide must remove it. A snapshot does both.
       return { kind: "resync" };
+    case "GroupCreated":
+    case "GroupRenamed":
+    case "GroupDeleted":
+    case "TokensGrouped":
+      // GM-only: a player learns only that a seq passed (KAN-82, ADR 0026).
+      return redacted;
     case "CheckpointCreated":
       // Checkpoints are the GM's; a player learns only that a seq passed (ADR 0019).
       return redacted;
     case "CheckpointRestored":
       // Both tables hold hidden tokens and GM-only areas; a filtered snapshot carries the rest.
+      return { kind: "resync" };
+    case "EncounterApplied":
+      // Both boards hold hidden tokens, fog and owners; a filtered snapshot carries the rest (ADR 0024).
       return { kind: "resync" };
     case "ActionUndone":
       // Players have no undo or activity log; the compensating events before it already
@@ -192,6 +235,13 @@ export function filterEventForViewer(
       // dice look is pictures the whole table sees on that person's rolls, and names no account (ADR 0018).
       return pass;
   }
+}
+
+/** Named attacks are private to the GM and the token's owners, including on deletion/undo. */
+function tokenForViewer(token: Token, viewer: Participant): Token {
+  if (viewer.role === "gm" || token.ownerIds.includes(viewer.id)) return token;
+  const { attacks: _attacks, ...visible } = token;
+  return visible;
 }
 
 /**

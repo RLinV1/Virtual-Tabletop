@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { DEFAULT_TOKEN_COLOR, type CommittedEvent, type DieName, type GmRoomSummary, type GridSpec, type LegacySummary } from "@vtt/shared";
+import type { RoomUploadPurpose } from "@vtt/shared";
+import { DETECTION_STALE_MS, type DetectionOutcome, type DetectionRecord, type DetectionTarget } from "./gridDetectionStore";
+import { DEFAULT_TOKEN_COLOR, presetFromLog, type CommittedEvent, type DieName, type GmRoomSummary, type GridSpec, type LegacySummary } from "@vtt/shared";
 import {
   EmailTakenError,
   type EndedSessions,
@@ -9,6 +11,11 @@ import {
 } from "./identityStore";
 import {
   CreatureImageMissingError,
+  EncounterLimitError,
+  EncounterMapMissingError,
+  type EncounterRecord,
+  type EncounterUpdate,
+  type NewEncounterRecord,
   type CreaturePatch,
   type DiceFaceRecord,
   type DiceLookRecord,
@@ -25,14 +32,19 @@ export class MemoryRoomStore implements RoomStore {
   private events = new Map<string, CommittedEvent[]>();
   private invites = new Map<string, string>();
   private credentials = new Map<string, CredentialRecord & { revokedAt?: string }>();
-  private rooms = new Map<string, { ownerGmId: string | null; name: string; createdAt: string }>();
+  private rooms = new Map<string, {
+    ownerGmId: string | null; name: string; createdAt: string; temporary: boolean; editsEncounterId: string | null;
+  }>();
   private gms = new Map<string, string>();
   private assets = new Map<string, LibraryAssetRecord>();
   private creatures = new Map<string, NewCreatureRecord>();
+  private encounters = new Map<string, NewEncounterRecord>();
   /** roomId -> asset ids its current state references. */
   private refs = new Map<string, Set<string>>();
   /** roomId -> object keys uploaded from inside it (ADR 0009). */
   private uploads = new Map<string, Set<string>>();
+  private roomDetections = new Map<string, DetectionRecord>();
+  private roomDetectionUpdatedAt = new Map<string, number>();
   private users = new Map<string, UserRecord>();
   private sessions = new Map<string, SessionRecord>();
   /** `${roomId}/${participantId}` -> the account holding that seat (ADR 0017 M1). */
@@ -47,6 +59,8 @@ export class MemoryRoomStore implements RoomStore {
       ownerGmId: options.ownerGmId ?? null,
       name: options.name ?? "",
       createdAt: new Date().toISOString(),
+      temporary: options.temporary ?? false,
+      editsEncounterId: options.editsEncounterId ?? null,
     });
   }
 
@@ -132,11 +146,19 @@ export class MemoryRoomStore implements RoomStore {
     return this.rooms.get(roomId)?.ownerGmId;
   }
 
-  async recordRoomUpload(roomId: string, objectKey: string) {
+  async recordRoomUpload(roomId: string, objectKey: string, purpose: RoomUploadPurpose = "token", width?: number, height?: number) {
     if (!this.events.has(roomId)) throw new Error(`No room ${roomId}`);
     const keys = this.uploads.get(roomId) ?? new Set<string>();
     keys.add(objectKey);
     this.uploads.set(roomId, keys);
+    if (purpose === "map" && width && height) {
+      const key = `${roomId}:${objectKey}`;
+      this.roomDetections.set(key, {
+        target: { scope: "room", roomId, objectKey }, objectKey, width, height,
+        status: "queued", attempt: 1, candidate: null,
+      });
+      this.roomDetectionUpdatedAt.set(key, Date.now());
+    }
   }
 
   /** Drops every map entry for the room. Nothing here can fail halfway, so it is atomic. */
@@ -147,10 +169,37 @@ export class MemoryRoomStore implements RoomStore {
     this.rooms.delete(roomId);
     this.refs.delete(roomId);
     this.uploads.delete(roomId);
+    for (const key of uploadKeys) {
+      this.roomDetections.delete(`${roomId}:${key}`);
+      this.roomDetectionUpdatedAt.delete(`${roomId}:${key}`);
+    }
     for (const [code, id] of this.invites) if (id === roomId) this.invites.delete(code);
     for (const [hash, row] of this.credentials) if (row.roomId === roomId) this.credentials.delete(hash);
     for (const [key, member] of this.members) if (member.roomId === roomId) this.members.delete(key);
     return { uploadKeys };
+  }
+
+  async isTemporaryRoom(roomId: string) {
+    return this.rooms.get(roomId)?.temporary ?? false;
+  }
+
+  async findEditSession(roomId: string, ownerGmId: string) {
+    const room = this.rooms.get(roomId);
+    return room?.temporary && room.ownerGmId === ownerGmId ? { editsEncounterId: room.editsEncounterId } : null;
+  }
+
+  async createEncounterForEditRoom(roomId: string, encounter: NewEncounterRecord, maxPerOwner: number) {
+    // No await between the link check, the insert and the link, so this is atomic on the one event loop.
+    const room = this.rooms.get(roomId);
+    if (!room?.temporary || room.ownerGmId !== encounter.ownerGmId) return null;
+    if (room.editsEncounterId) return { linkedTo: room.editsEncounterId };
+    const created = this.insertEncounter(encounter, maxPerOwner);
+    room.editsEncounterId = created.id;
+    return { created };
+  }
+
+  async listTemporaryRoomsBefore(at: string) {
+    return [...this.rooms.entries()].filter(([, room]) => room.temporary && room.createdAt < at).map(([id]) => id);
   }
 
   async registerGm(tokenHash: string) {
@@ -166,12 +215,12 @@ export class MemoryRoomStore implements RoomStore {
   }
 
   async listOwnedRooms(ownerGmId: string): Promise<GmRoomSummary[]> {
-    return this.summarize([...this.rooms.entries()].filter(([, room]) => room.ownerGmId === ownerGmId));
+    return this.summarize([...this.rooms.entries()].filter(([, room]) => room.ownerGmId === ownerGmId && !room.temporary));
   }
 
   async summarizeRooms(roomIds: string[]) {
     const wanted = new Set(roomIds);
-    return this.summarize([...this.rooms.entries()].filter(([id]) => wanted.has(id)));
+    return this.summarize([...this.rooms.entries()].filter(([id, room]) => wanted.has(id) && !room.temporary));
   }
 
   private summarize(rooms: [string, { name: string; createdAt: string }][]): GmRoomSummary[] {
@@ -179,13 +228,90 @@ export class MemoryRoomStore implements RoomStore {
       .map(([id, room]) => ({
         id,
         name: room.name,
+        preset: presetFromLog(this.events.get(id)?.[0]?.event),
         lastActiveAt: this.events.get(id)?.at(-1)?.at ?? room.createdAt,
       }))
       .sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt));
   }
 
   async createAsset(asset: LibraryAssetRecord) {
-    this.assets.set(asset.id, structuredClone(asset));
+    this.assets.set(asset.id, structuredClone({
+      ...asset,
+      ...(asset.detectionStatus && !asset.detectionUpdatedAt && { detectionUpdatedAt: new Date().toISOString() }),
+    }));
+  }
+
+  async findDetection(target: DetectionTarget): Promise<DetectionRecord | null> {
+    return this.readDetection(target);
+  }
+
+  private readDetection(target: DetectionTarget): DetectionRecord | null {
+    if (target.scope === "room") return structuredClone(this.roomDetections.get(`${target.roomId}:${target.objectKey}`) ?? null);
+    const asset = this.assets.get(target.id);
+    if (!asset || asset.kind !== "map" || !asset.detectionStatus) return null;
+    return {
+      target, objectKey: asset.objectKey, width: asset.width, height: asset.height,
+      status: asset.detectionStatus, attempt: asset.detectionAttempt ?? 0,
+      candidate: structuredClone(asset.detectionResult ?? null),
+    };
+  }
+
+  async markDetectionRunning(target: DetectionTarget, attempt: number) {
+    const row = this.readDetection(target);
+    if (!row || row.status !== "queued" || row.attempt !== attempt) return false;
+    this.setDetection(target, { ...row, status: "running" });
+    return true;
+  }
+
+  async finishDetection(target: DetectionTarget, attempt: number, outcome: DetectionOutcome) {
+    const row = this.readDetection(target);
+    if (!row || row.status !== "running" || row.attempt !== attempt) return false;
+    this.setDetection(target, { ...row, status: outcome.status, candidate: outcome.status === "suggested" ? outcome.candidate : null });
+    return true;
+  }
+
+  async retryDetection(target: DetectionTarget) {
+    const row = this.readDetection(target);
+    if (!row || row.status !== "error") return null;
+    const attempt = row.attempt + 1;
+    this.setDetection(target, { ...row, status: "queued", attempt, candidate: null });
+    return attempt;
+  }
+
+  async recoverDetections() {
+    const jobs: Array<{ target: DetectionTarget; attempt: number }> = [];
+    const rows: DetectionRecord[] = [...this.roomDetections.values()];
+    for (const asset of this.assets.values()) {
+      if (asset.kind === "map" && asset.detectionStatus) {
+        rows.push(this.readDetection({ scope: "library", id: asset.id })!);
+      }
+    }
+    for (const row of rows) {
+      if (row.status === "running") {
+        const updatedAt = row.target.scope === "room"
+          ? this.roomDetectionUpdatedAt.get(`${row.target.roomId}:${row.target.objectKey}`)
+          : Date.parse(this.assets.get(row.target.id)?.detectionUpdatedAt ?? "");
+        if (updatedAt !== undefined && updatedAt >= Date.now() - DETECTION_STALE_MS) continue;
+        const next = { ...row, status: "queued" as const, attempt: row.attempt + 1 };
+        this.setDetection(row.target, next);
+        jobs.push({ target: row.target, attempt: next.attempt });
+      } else if (row.status === "queued") jobs.push({ target: row.target, attempt: row.attempt });
+    }
+    return jobs;
+  }
+
+  private setDetection(target: DetectionTarget, row: DetectionRecord) {
+    if (target.scope === "room") {
+      const key = `${target.roomId}:${target.objectKey}`;
+      this.roomDetections.set(key, structuredClone(row));
+      this.roomDetectionUpdatedAt.set(key, Date.now());
+    } else {
+      const asset = this.assets.get(target.id);
+      if (asset) this.assets.set(target.id, {
+        ...asset, detectionStatus: row.status, detectionAttempt: row.attempt,
+        detectionResult: row.candidate, detectionUpdatedAt: new Date().toISOString(),
+      });
+    }
   }
 
   async listAssets(ownerGmId: string) {
@@ -215,6 +341,7 @@ export class MemoryRoomStore implements RoomStore {
     for (const ids of this.refs.values()) ids.delete(id);
     // As `ON DELETE SET NULL` does in Postgres: the creatures stay, without their image.
     for (const creature of this.creatures.values()) if (creature.imageAssetId === id) creature.imageAssetId = null;
+    for (const encounter of this.encounters.values()) if (encounter.mapAssetId === id) encounter.mapAssetId = null;
     return asset;
   }
 
@@ -459,6 +586,74 @@ export class MemoryRoomStore implements RoomStore {
     return Object.values(look.faces).map((f) => f.objectKey);
   }
 
+  // ---------- Encounter templates (ADR 0024) ----------
+
+  async listEncounters(ownerGmId: string) {
+    return [...this.encounters.values()]
+      .filter((e) => e.ownerGmId === ownerGmId)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .map((e) => this.withMap(e));
+  }
+
+  async findEncounter(id: string, ownerGmId: string) {
+    const encounter = this.encounters.get(id);
+    return encounter && encounter.ownerGmId === ownerGmId ? this.withMap(encounter) : null;
+  }
+
+  async countEncounters(ownerGmId: string) {
+    return [...this.encounters.values()].filter((e) => e.ownerGmId === ownerGmId).length;
+  }
+
+  async createEncounter(encounter: NewEncounterRecord, maxPerOwner: number) {
+    return this.insertEncounter(encounter, maxPerOwner);
+  }
+
+  /** Synchronous, so callers can make it part of a larger atomic step. */
+  private insertEncounter(encounter: NewEncounterRecord, maxPerOwner: number) {
+    if ([...this.encounters.values()].filter((e) => e.ownerGmId === encounter.ownerGmId).length >= maxPerOwner) {
+      throw new EncounterLimitError(maxPerOwner);
+    }
+    if (encounter.mapAssetId !== null && !this.assets.has(encounter.mapAssetId)) throw new EncounterMapMissingError();
+    this.encounters.set(encounter.id, structuredClone(encounter));
+    return this.withMap(encounter);
+  }
+
+  async updateEncounter(id: string, ownerGmId: string, change: EncounterUpdate) {
+    const encounter = this.encounters.get(id);
+    if (!encounter || encounter.ownerGmId !== ownerGmId) return null;
+    const next = { ...encounter, name: change.name, data: structuredClone(change.data), updatedAt: change.updatedAt };
+    this.encounters.set(id, next);
+    return this.withMap(next);
+  }
+
+  async renameEncounter(id: string, ownerGmId: string, name: string, at: string) {
+    const encounter = this.encounters.get(id);
+    if (!encounter || encounter.ownerGmId !== ownerGmId) return null;
+    const next = { ...encounter, name, updatedAt: at };
+    this.encounters.set(id, next);
+    return this.withMap(next);
+  }
+
+  async deleteEncounter(id: string, ownerGmId: string) {
+    const encounter = this.encounters.get(id);
+    if (!encounter || encounter.ownerGmId !== ownerGmId) return false;
+    // As Postgres's ON DELETE SET NULL: a temporary room editing it saves as a new template.
+    for (const room of this.rooms.values()) if (room.editsEncounterId === id) room.editsEncounterId = null;
+    return this.encounters.delete(id);
+  }
+
+  async encountersUsingMap(assetId: string, ownerGmId: string) {
+    return [...this.encounters.values()]
+      .filter((e) => e.mapAssetId === assetId && e.ownerGmId === ownerGmId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((e) => ({ id: e.id, name: e.name }));
+  }
+
+  private withMap(encounter: NewEncounterRecord): EncounterRecord {
+    const map = encounter.mapAssetId ? this.assets.get(encounter.mapAssetId) : undefined;
+    return { ...structuredClone(encounter), mapName: map?.name ?? null, mapUrl: map?.url ?? null };
+  }
+
   /** The foreign key Postgres enforces on `image_asset_id`. */
   private requireImage(assetId: string | null) {
     if (assetId !== null && !this.assets.has(assetId)) throw new CreatureImageMissingError();
@@ -468,6 +663,8 @@ export class MemoryRoomStore implements RoomStore {
     const image = creature.imageAssetId ? this.assets.get(creature.imageAssetId) : undefined;
     return {
       ...structuredClone(creature),
+      hp: creature.hp ?? null,
+      attacks: structuredClone(creature.attacks ?? []),
       color: creature.color ?? DEFAULT_TOKEN_COLOR,
       conditions: creature.conditions ?? [],
       imageUrl: image?.url ?? null,

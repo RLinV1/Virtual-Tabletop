@@ -15,20 +15,47 @@ import {
   type RoomState,
   type ServerMessage,
 } from "@vtt/shared";
-import { buildApp } from "../src/app";
+import { buildApp, type App } from "../src/app";
+import type { Detector, GridDetectionDispatcher } from "../src/domain/gridDetection";
+import type { WallJobQueue } from "../src/domain/wallDetection";
 import { MemoryRoomStore } from "../src/store/memoryRoomStore";
 
 /**
- * `store` lets a test start a second server on the same data, i.e. simulate a restart. `now`
- * replaces the clock that sessions and rate limits read.
+ * Ports `fetch` refuses to connect to (the Fetch standard's "bad ports"), at or above 1024, the
+ * lowest port Windows hands out for port 0. Linux starts its random ports above all of them.
  */
-export async function startServer(store: MemoryRoomStore = new MemoryRoomStore(), opts: { now?: () => number } = {}) {
+const FETCH_BAD_PORTS = new Set([1719, 1720, 1723, 2049, 3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080]);
+
+/**
+ * Listens on a random local port that `fetch` will connect to, and returns the server's base URL.
+ * Plain port 0 sometimes lands on a bad port on Windows, failing a test with "fetch failed: bad port".
+ */
+export async function listenForFetch(app: App): Promise<string> {
+  for (;;) {
+    await app.listen({ port: 0, host: "127.0.0.1" });
+    const addr = app.server.address();
+    if (!addr || typeof addr === "string") throw new Error("no address");
+    if (!FETCH_BAD_PORTS.has(addr.port)) return `http://127.0.0.1:${addr.port}`;
+    await new Promise<void>((resolve, reject) => app.server.close((err) => (err ? reject(err) : resolve())));
+  }
+}
+
+/**
+ * `store` lets a test start a second server on the same data, i.e. simulate a restart. `now`
+ * replaces the clock that sessions and rate limits read. `detector` and `dispatcher` stand in for
+ * the vision service and its job queue; `wallQueue` for the wall-detection queue (none by default, so
+ * a REDIS_URL in the environment never reaches tests).
+ */
+export async function startServer(
+  store: MemoryRoomStore = new MemoryRoomStore(),
+  opts: { now?: () => number; detector?: Detector; dispatcher?: GridDetectionDispatcher; wallQueue?: WallJobQueue | null } = {},
+) {
   const uploadDir = await mkdtemp(path.join(tmpdir(), "vtt-uploads-"));
-  const app = await buildApp({ store, uploadDir, clientOrigin: "*", now: opts.now });
-  await app.listen({ port: 0, host: "127.0.0.1" });
-  const addr = app.server.address();
-  if (!addr || typeof addr === "string") throw new Error("no address");
-  const base = `http://127.0.0.1:${addr.port}`;
+  const app = await buildApp({
+    store, uploadDir, clientOrigin: "*", now: opts.now, detector: opts.detector, dispatcher: opts.dispatcher,
+    wallQueue: opts.wallQueue ?? null,
+  });
+  const base = await listenForFetch(app);
 
   const post = async <T>(url: string, body: unknown): Promise<T> => {
     const res = await fetch(base + url, {

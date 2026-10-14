@@ -1,38 +1,61 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { unlink } from "node:fs/promises";
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import {
   ALREADY_MEMBER,
   CreateRoomRequest,
+  DirectUploadFields,
+  GridDetectionStatus,
+  WallDetectionRequest,
+  type DetectedWallsResponse,
   JoinRoomRequest,
   HistoryQuery,
   ROOM_FULL,
   HistoryResponse,
+  ReplayPointsResponse,
+  ReplayResponse,
+  replayFrom,
+  replayPoints,
   activityHistory,
+  DEFAULT_PRESET_ID,
   type CreateRoomResponse,
   type InviteResponse,
   type JoinRoomResponse,
+  type ResolvedEncounter,
   type UploadResponse,
 } from "@vtt/shared";
 import { hashToken, newInviteCode } from "../domain/credentials";
+import { resolveEncounter } from "../domain/encounterTemplates";
+import type { RoomLifecycle } from "../domain/roomLifecycle";
 import type { AssetStore } from "../store/assetStore";
 import type { RoomRegistry } from "../domain/roomRegistry";
 import type { RoomStore } from "../store/roomStore";
 import { requireAccount, signedIn } from "../identity/middleware";
+import { refused, type AccountLimits } from "../identity/routes";
 import { registerMembershipRoutes } from "../membership/routes";
 import { registerDiceLookRoutes } from "../ownership/diceLooks";
 import { registerLegacyRoutes } from "../ownership/legacy";
 import { resolveOwner } from "../ownership/resolveOwner";
 import { imageUploader } from "./imageUpload";
+import { registerEncounterEditRoutes } from "./encounterEdits";
+import { registerEncounterRoutes } from "./encounters";
 import { registerLibraryRoutes } from "./library";
+import { detectionWire } from "./library";
+import { enqueueDetection, type GridDetectionDispatcher } from "../domain/gridDetection";
+import type { DetectionTarget } from "../store/gridDetectionStore";
+import type { WallDetections } from "../domain/wallDetection";
 
 /** Registers the REST API: rooms, invite joins, uploads, the library and GM history. */
 export function registerRoutes(
   app: Express,
-  deps: { store: RoomStore; registry: RoomRegistry; uploadDir: string; assets: AssetStore },
+  deps: {
+    store: RoomStore; registry: RoomRegistry; uploadDir: string; assets: AssetStore; limits: AccountLimits;
+    detection: GridDetectionDispatcher; walls: WallDetections; rooms: RoomLifecycle;
+  },
 ) {
-  const { store, registry, uploadDir, assets } = deps;
+  const { store, registry, uploadDir, assets, limits, detection, walls, rooms } = deps;
 
   const receiveImage = imageUploader(uploadDir);
 
@@ -57,23 +80,24 @@ export function registerRoutes(
       if (!body.success) return res.status(400).json({ error: body.error.issues });
       if (!body.data.displayName.trim()) return res.status(400).json({ error: "Display name can't be blank." });
 
-      const roomId = randomUUID();
-      const inviteCode = newInviteCode();
-      const participantId = randomUUID();
+      // Resolved before anything is created, so a template that is gone leaves no half-made room (ADR 0024).
+      let encounter: ResolvedEncounter | null = null;
+      if (body.data.templateId) {
+        const found = await resolveEncounter(store, account.user.ownerId, body.data.templateId);
+        if (!found.ok) return res.status(found.reason === "missing" ? 404 : 409).json({ error: found.message });
+        encounter = found.encounter;
+      }
 
-      await store.createRoom(roomId, inviteCode, { ownerGmId: account.user.ownerId, name: body.data.roomName });
-      await store.saveCredential(hashToken(body.data.guestToken), {
-        roomId, participantId, sessionHash: account.session.tokenHash,
+      const { roomId, inviteCode, participantId } = await rooms.createRoomWithSeat({
+        ownerGmId: account.user.ownerId,
+        userId: account.user.id,
+        sessionHash: account.session.tokenHash,
+        guestToken: body.data.guestToken,
+        roomName: body.data.roomName,
+        displayName: body.data.displayName,
+        preset: body.data.preset ?? DEFAULT_PRESET_ID,
+        encounter,
       });
-      await store.putMember({ roomId, participantId, userId: account.user.id });
-      const room = await registry.get(roomId);
-      await room!.appendSystem(participantId, [
-        { type: "RoomCreated", name: body.data.roomName },
-        {
-          type: "ParticipantJoined",
-          participant: { id: participantId, role: "gm", displayName: body.data.displayName.trim() },
-        },
-      ]);
       const response: CreateRoomResponse = { roomId, inviteCode, participantId };
       return res.json(response);
     })().catch(internalError(req, res));
@@ -91,7 +115,12 @@ export function registerRoutes(
 
       const roomId = await store.findRoomByInvite(req.params.inviteCode);
       const room = roomId ? await registry.get(roomId) : null;
-      if (!roomId || !room || room.closed) return res.status(404).json({ error: "Invite not found" });
+      // A temporary encounter-editing room is its GM's alone (ADR 0033): its code reads as unknown.
+      if (!roomId || !room || room.closed || (await store.isTemporaryRoom(roomId))) return res.status(404).json({ error: "Invite not found" });
+      // Every attempt counts, accepted or not: each join and its leave are permanent events, and
+      // the player cap bounds seats held at once, not seats a room stores (security-hardening D2).
+      const limit = limits.joinsPerIpPerRoom.hit(`join:${roomId}:${req.ip}`);
+      if (refused(res, limit, "Too many joins from this address. Try again later.")) return;
 
       const account = signedIn(res);
       const participantId = randomUUID();
@@ -117,27 +146,151 @@ export function registerRoutes(
     })().catch(internalError(req, res));
   });
 
-  /** Image upload for maps/tokens. GM only (FR-GM-02). Stored in MinIO/S3 when configured. */
+  /** Image upload for maps/tokens. GM only (FR-GM-02). Stored in S3 when configured. */
   app.post("/api/uploads", (req, res) => {
     void (async () => {
       const actor = await authenticate(req);
       if (!actor || actor.participant.role !== "gm") return res.status(403).json({ error: "GM only" });
       const upload = await receiveImage(req, res);
       if (!upload.ok) return res.status(upload.status).json({ error: upload.error });
+      const fields = DirectUploadFields.safeParse(req.body);
+      if (!fields.success) {
+        await unlink(upload.file.path).catch(() => {});
+        return res.status(400).json({ error: fields.error.issues });
+      }
       const key = path.basename(upload.file.path);
       const url = await assets.put(upload.file.path, key, upload.file.mimetype);
       // So deleting the room removes the image too (ADR 0009). If the room was deleted
       // since the check above, recording fails: remove the object rather than orphan it.
       try {
-        await store.recordRoomUpload(actor.roomId, key);
+        await store.recordRoomUpload(actor.roomId, key, fields.data.purpose, fields.data.width, fields.data.height);
       } catch (err) {
         await assets.delete(key).catch((cleanupErr: unknown) => {
           console.error(`[vtt] could not delete upload ${key} after its room upload record failed`, cleanupErr);
         });
         throw err;
       }
+      if (fields.data.purpose === "map") {
+        await enqueueDetection(store, detection, { scope: "room", roomId: actor.roomId, objectKey: key }, 1);
+        // Walls too, while the GM lines up the grid; best-effort, like grid analysis (ADR 0029).
+        if (walls.available && fields.data.width && fields.data.height) {
+          await walls.start(actor.roomId, { url, width: fields.data.width, height: fields.data.height }, 0).catch((err: unknown) => {
+            console.error(`[vtt] could not queue wall detection for an upload in room ${actor.roomId}`, err);
+          });
+        }
+      }
       const response: UploadResponse = { url };
       return res.json(response);
+    })().catch(internalError(req, res));
+  });
+
+  /**
+   * A direct map upload of this room, applied or not, so the GM can read its analysis while lining up
+   * the grid. The analysis row is keyed by room, so another room's upload never resolves here.
+   */
+  const roomUploadTarget = (roomId: string, expectedUrl: string | undefined): DetectionTarget | null => {
+    if (!expectedUrl || !/^\/uploads\/[^/?#]+$/.test(expectedUrl)) return null;
+    return { scope: "room", roomId, objectKey: expectedUrl.slice("/uploads/".length) };
+  };
+
+  app.get("/api/rooms/:roomId/grid-detection", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void (async () => {
+      if (!(await isRoomGm(req, req.params.roomId))) return res.status(403).json({ error: "GM only" });
+      const target = roomUploadTarget(req.params.roomId, req.get("x-expected-map-url"));
+      const row = target ? await store.findDetection(target) : null;
+      if (!row) return res.status(404).json({ error: "No analysis for this map" });
+      return res.json(detectionWire(row));
+    })().catch(internalError(req, res));
+  });
+
+  app.post("/api/rooms/:roomId/grid-detection/retry", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void (async () => {
+      if (!(await isRoomGm(req, req.params.roomId))) return res.status(403).json({ error: "GM only" });
+      const target = roomUploadTarget(req.params.roomId, req.get("x-expected-map-url"));
+      if (!target || !(await store.findDetection(target))) return res.status(404).json({ error: "No analysis for this map" });
+      const attempt = await store.retryDetection(target);
+      if (!attempt) return res.status(409).json({ error: "Analysis is not in error" });
+      await enqueueDetection(store, detection, target, attempt);
+      const row = await store.findDetection(target);
+      return res.status(202).json(GridDetectionStatus.parse(detectionWire(row!)));
+    })().catch(internalError(req, res));
+  });
+
+  /**
+   * Wall detection for the room's map (FR-GM-11, ADR 0029). GM only. POST queues an analysis of the
+   * current map, judged against the room's grid; GET reads the latest status, or the rendered
+   * preview, of a map this room analyzed. Applying the walls is a room command, not a route.
+   */
+  const MapQuery = z.object({ map: z.string().min(1).max(2048) });
+
+  /** Whether wall detection can run (map-editor D4). Names no room, so it needs no credential. */
+  app.get("/api/wall-detection/availability", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void walls.availability().then((value) => res.json(value)).catch(internalError(req, res));
+  });
+
+  app.post("/api/rooms/:roomId/wall-detection", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void (async () => {
+      if (!(await isRoomGm(req, req.params.roomId))) return res.status(403).json({ error: "GM only" });
+      if (!walls.available) return res.status(503).json({ error: "Wall detection isn't set up on this server." });
+      const body = WallDetectionRequest.safeParse(req.body ?? {});
+      if (!body.success) return res.status(400).json({ error: "Invalid detection request" });
+      const room = await registry.get(req.params.roomId);
+      const map = room?.currentMap();
+      if (!room || !map) return res.status(404).json({ error: "Set a map first." });
+      // A sampled wall must be on the map: board coordinates are the map's pixels (invariant 8).
+      const { sample } = body.data;
+      if (sample && !(sample.x >= 0 && sample.y >= 0 && sample.x <= map.width && sample.y <= map.height)) {
+        return res.status(400).json({ error: "Click on the map to pick a wall." });
+      }
+      const started = await walls.start(room.roomId, map, room.currentGrid().cellSize, body.data);
+      if (started === "busy") return res.status(409).json({ error: "Walls are already being detected for this map." });
+      if (started === "unreadable") return res.status(422).json({ error: "This map's image can't be analyzed." });
+      if (started === "overloaded") return res.status(503).json({ error: "Wall detection is busy. Try again in a minute." });
+      if (started === "unavailable") return res.status(503).json({ error: "Wall detection is unavailable right now." });
+      return res.status(202).json(walls.status(room.roomId, map.url));
+    })().catch(internalError(req, res));
+  });
+
+  app.get("/api/rooms/:roomId/wall-detection", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void (async () => {
+      if (!(await isRoomGm(req, req.params.roomId))) return res.status(403).json({ error: "GM only" });
+      const query = MapQuery.safeParse(req.query);
+      if (!query.success) return res.status(400).json({ error: "Name the map" });
+      const status = walls.status(req.params.roomId, query.data.map);
+      if (!status) return res.status(404).json({ error: "No wall detection for that map" });
+      return res.json(status);
+    })().catch(internalError(req, res));
+  });
+
+  /** The detected segments themselves, for the GM to erase false ones on the preview before applying. */
+  app.get("/api/rooms/:roomId/wall-detection/walls", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void (async () => {
+      if (!(await isRoomGm(req, req.params.roomId))) return res.status(403).json({ error: "GM only" });
+      const query = MapQuery.safeParse(req.query);
+      if (!query.success) return res.status(400).json({ error: "Name the map" });
+      const detected = walls.detectedWalls(req.params.roomId, query.data.map);
+      if (!detected) return res.status(404).json({ error: "No wall detection for that map" });
+      const body: DetectedWallsResponse = detected;
+      return res.json(body);
+    })().catch(internalError(req, res));
+  });
+
+  app.get("/api/rooms/:roomId/wall-detection/preview", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void (async () => {
+      if (!(await isRoomGm(req, req.params.roomId))) return res.status(403).json({ error: "GM only" });
+      const query = MapQuery.safeParse(req.query);
+      if (!query.success) return res.status(400).json({ error: "Name the map" });
+      const result = walls.result(req.params.roomId, query.data.map);
+      if (!result) return res.status(404).json({ error: "No wall detection for that map" });
+      res.type(result.preview.contentType);
+      return res.send(Buffer.from(result.preview.data, "base64"));
     })().catch(internalError(req, res));
   });
 
@@ -181,27 +334,14 @@ export function registerRoutes(
       if (!owned) return res.status(404).json({ error: "Room not found" });
 
       // Close first, so nothing commits into a room that is going away and nobody is left in it.
-      await registry.close(roomId, "deleted");
-      let deleted;
-      try {
-        deleted = await store.deleteRoom(roomId);
-      } finally {
-        // On failure too: the next access reloads the room from the store instead of finding it closed.
-        registry.evict(roomId);
-      }
-      if (!deleted) return res.status(404).json({ error: "Room not found" });
-
-      // After the commit, and best-effort: the room is gone, and a stray object has a random name.
-      for (const key of deleted.uploadKeys) {
-        await assets.delete(key).catch((err: unknown) => {
-          console.error(`[vtt] could not delete upload ${key} of deleted room ${roomId}`, err);
-        });
-      }
+      if (!(await rooms.deleteRoomFully(roomId))) return res.status(404).json({ error: "Room not found" });
       return res.status(204).end();
     })().catch(internalError(req, res));
   });
 
-  registerLibraryRoutes(app, { store, uploadDir, assets });
+  registerLibraryRoutes(app, { store, uploadDir, assets, detection });
+  registerEncounterRoutes(app, { store, registry });
+  registerEncounterEditRoutes(app, { store, registry, rooms });
   registerLegacyRoutes(app, { store });
   registerDiceLookRoutes(app, { store, uploadDir, assets });
   registerMembershipRoutes(app, { store, registry });
@@ -221,6 +361,38 @@ export function registerRoutes(
       if (!query.success) return res.status(400).json({ error: "Invalid history query" });
       const events = await store.loadEvents(cred.roomId);
       return res.json(HistoryResponse.parse(activityHistory(cred.roomId, events, viewer, query.data)));
+    })().catch(internalError(req, res));
+  });
+
+  /**
+   * FR-PL-07: any participant still in the room may replay its history, filtered for them exactly
+   * as live sync filters it (ADR 0025). Read-only: nothing here touches the live room.
+   */
+  app.get("/api/rooms/:roomId/replay", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void (async () => {
+      const auth = await authenticate(req);
+      if (!auth || auth.roomId !== req.params.roomId) return res.status(403).json({ error: "Not in this room" });
+      const events = await store.loadEvents(auth.roomId);
+      return res.json(ReplayPointsResponse.parse({ points: replayPoints(events, auth.participant) }));
+    })().catch(internalError(req, res));
+  });
+
+  app.get("/api/rooms/:roomId/replay/:pointId", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void (async () => {
+      const auth = await authenticate(req);
+      if (!auth || auth.roomId !== req.params.roomId) return res.status(403).json({ error: "Not in this room" });
+      const started = performance.now();
+      const events = await store.loadEvents(auth.roomId);
+      // Only a point from the viewer's own list: known starting places, never an arbitrary seq.
+      const point = replayPoints(events, auth.participant).find((p) => p.id === req.params.pointId);
+      if (!point) return res.status(404).json({ error: "No such replay point" });
+      const replay = ReplayResponse.parse(replayFrom(auth.roomId, events, auth.participant, point));
+      const ms = performance.now() - started;
+      // Same cue as a slow checkpoint restore: time for a snapshot cache (ADR 0019).
+      if (ms > 500) console.warn(`[vtt] replay of room ${auth.roomId} took ${Math.round(ms)} ms (${events.length} events)`);
+      return res.json(replay);
     })().catch(internalError(req, res));
   });
 

@@ -162,6 +162,71 @@ describe("library creatures (library-creatures, FR-TAC-07)", () => {
 });
 
 describe("creature colour, conditions and adding several (KAN-70)", () => {
+  it("copies starting HP and all template values into a batch; editing/deleting the template leaves it alone", async () => {
+    const cookie = await newGm();
+    const art = await upload(cookie, "token", "Wounded goblin art");
+    const attacks = [{ name: "Scimitar", toHit: { count: 1, sides: 20, modifier: 4 }, damage: { count: 1, sides: 6, modifier: 2 } }];
+    const template = (await (await create(cookie, {
+      name: "Wounded goblin", hp: 3, maxHp: 7, ac: 15, size: 1.5,
+      color: "#2e7d32", conditions: ["prone"], attacks, imageAssetId: art.id,
+    })).json()) as LibraryCreature;
+    expect(template.hp).toBe(3);
+    expect(template.attacks).toEqual(attacks);
+    const creds = await server.createRoom("GM", { cookie });
+    const gm = await server.connect(creds);
+    const player = await server.connect(await server.join(creds.inviteCode, "Alice"));
+    clients.push(gm, player);
+    const ack = await gm.command({
+      type: "token.create", name: template.name, size: template.size,
+      position: { x: 35, y: 35 }, count: 3,
+      stats: { hp: template.hp ?? template.maxHp, maxHp: template.maxHp, ac: template.ac },
+      color: template.color, conditions: template.conditions,
+      attacks: template.attacks,
+      imageUrl: template.imageUrl, assetId: template.imageAssetId,
+    });
+    expect(ack.type).toBe("ack");
+    await player.waitForSeq(gm.seq);
+    const placed = structuredClone(gm.state.tokens);
+    expect(Object.values(placed).map((t) => t.name)).toEqual(["Wounded goblin", "Wounded goblin 2", "Wounded goblin 3"]);
+    for (const token of Object.values(placed)) expect(token).toMatchObject({
+      size: 1.5, stats: { hp: 3, maxHp: 7, ac: 15 }, color: "#2e7d32",
+      conditions: ["prone"], imageUrl: art.url, assetId: art.id,
+      attacks,
+    });
+    const playerTokens = Object.fromEntries(Object.entries(placed).map(([id, token]) => {
+      const { attacks: _attacks, ...visible } = token;
+      return [id, visible];
+    }));
+    expect(player.state.tokens).toEqual(playerTokens);
+    expect(player.rawLog.join("\n")).not.toContain("Scimitar");
+    expect(player.rawLog.join("\n")).not.toContain(template.id);
+    expect(player.rawLog.join("\n")).not.toMatch(/creatureId|templateId|ownerGmId/);
+
+    const edited = await gmFetch(cookie, `/api/library/creatures/${template.id}`, {
+      method: "PATCH", body: { hp: 0, maxHp: 9, color: "#2980b9", conditions: [], attacks: [] },
+    });
+    expect(await edited.json()).toMatchObject({ hp: 0, maxHp: 9, color: "#2980b9", conditions: [] });
+    expect(gm.state.tokens).toEqual(placed);
+    expect((await gmFetch(cookie, `/api/library/creatures/${template.id}`, { method: "DELETE" })).status).toBe(204);
+    expect(gm.state.tokens).toEqual(placed);
+    expect(player.state.tokens).toEqual(playerTokens);
+    expect(await list(cookie)).toEqual([]);
+  });
+
+  it("rejects invalid starting HP on create/update and keeps the saved value", async () => {
+    const gm = await newGm();
+    const c = (await (await create(gm, { name: "Goblin", hp: 0, maxHp: 7 })).json()) as LibraryCreature;
+    for (const hp of [-1000, 10000, 1.5, "3"]) {
+      expect((await create(gm, { name: "Bad", hp })).status).toBe(400);
+      expect((await gmFetch(gm, `/api/library/creatures/${c.id}`, { method: "PATCH", body: { hp } })).status).toBe(400);
+    }
+    expect(await list(gm)).toMatchObject([{ id: c.id, hp: 0, maxHp: 7 }]);
+    const patched = await gmFetch(gm, `/api/library/creatures/${c.id}`, { method: "PATCH", body: { ac: 12 } });
+    expect(await patched.json()).toMatchObject({ hp: 0, maxHp: 7, ac: 12 });
+    expect((await create(gm, { name: "Overfull", hp: 8, maxHp: 7 })).status).toBe(400);
+    expect((await gmFetch(gm, `/api/library/creatures/${c.id}`, { method: "PATCH", body: { hp: 8 } })).status).toBe(400);
+  });
+
   it("saves and edits a creature's colour and starting conditions", async () => {
     const gm = await newGm();
     const res = await create(gm, { name: "Goblin", color: "#2e7d32", conditions: ["prone"] });

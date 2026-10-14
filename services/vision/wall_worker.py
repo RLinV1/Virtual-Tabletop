@@ -1,0 +1,126 @@
+"""BullMQ consumer for wall detection (FR-GM-11, ADR 0029).
+
+The app server produces jobs on the `wall-detection` queue in the app's Redis; this process
+consumes them and returns `{walls, preview}` as the job's return value. The app server learns of
+completion from BullMQ's queue events, validates the result, and notifies the room's GM.
+
+Job data: `{ imageKey, width, height, cellSize, sample?, tolerance?, strictness?, minLength?, style? }`.
+`imageKey` names a raw Redis key, `vtt:wall-image:<sha256 hex>`, where the app server stored the image with an
+expiry; the job itself carries no image bytes (wall-job-transport). Only a key of that exact shape is read.
+`sample` is a point on a wall the GM clicked and `tolerance` its colour range in Lab units. `strictness` is
+the share of a run's edge that must follow an outline, `minLength` the shortest wall kept, in cells, and
+`style` is "bright" or "dark" to look for only light stone or dark ink walls, or "outlined" for inked outlines. The bytes were read by the app
+server from its own storage; this worker never fetches a URL, and holds no database or storage credentials.
+"""
+
+import asyncio
+import os
+import re
+import signal
+import time
+
+from bullmq import Worker
+import redis.asyncio as aioredis
+
+from walls import MAX_BYTES, SAMPLE_TOLERANCE, analyze
+
+QUEUE = "wall-detection"
+# The only keys a job may name: the app server's content-addressed image keys. Must match
+# WALL_IMAGE_KEY_PREFIX in apps/server/src/domain/wallDetection.ts.
+IMAGE_KEY = re.compile(r"vtt:wall-image:[0-9a-f]{64}")
+# The app server reads this key to know a worker is up (map-editor D4); it must match
+# WALL_WORKER_HEARTBEAT in apps/server/src/domain/wallDetection.ts.
+HEARTBEAT_KEY = "vtt:wall-worker:heartbeat"
+HEARTBEAT_EVERY_S = 10
+HEARTBEAT_TTL_S = 30
+# Must match the SAMPLE_TOLERANCE_*, STRICTNESS_* and MIN_LENGTH_MAX constants in packages/shared/src/wallDetection.ts.
+MIN_TOLERANCE = 10
+MAX_TOLERANCE = 60
+MIN_STRICTNESS = 0.2
+MAX_STRICTNESS = 0.6
+MAX_MIN_LENGTH = 6
+
+
+# Binary-safe client for reading images; set in main(). Tests pass `fetch` to `process` instead.
+_redis = None
+
+
+async def _fetch_image(key: str):
+    return await _redis.get(key) if _redis is not None else None
+
+
+async def process(job, _token=None, _signal=None, *, fetch=None) -> dict:
+    """One job. Raises on bad input, which BullMQ records as the job's failure.
+
+    BullMQ calls `process(job, token, signal)`; `fetch` is keyword-only so it can never take the signal."""
+    data = job.data or {}
+    key = data.get("imageKey")
+    if not isinstance(key, str) or not IMAGE_KEY.fullmatch(key):
+        raise ValueError("Invalid image")
+    image = await (fetch or _fetch_image)(key)
+    # Gone (expired or removed) or too big: fail the job; the app server tells the GM it could not be read.
+    if not image or len(image) > MAX_BYTES:
+        raise ValueError("Invalid image")
+    width, height = int(data.get("width", 0)), int(data.get("height", 0))
+    cell = float(data.get("cellSize") or 0)
+    if not 0 <= cell <= 2000:
+        raise ValueError("Invalid cell size")
+    sample = data.get("sample")
+    if sample is not None:
+        try:
+            sample = {"x": float(sample["x"]), "y": float(sample["y"])}
+        except (KeyError, TypeError, ValueError) as err:
+            raise ValueError("Invalid sample") from err
+    tolerance = data.get("tolerance", SAMPLE_TOLERANCE)
+    if isinstance(tolerance, bool) or not isinstance(tolerance, (int, float)) or not MIN_TOLERANCE <= tolerance <= MAX_TOLERANCE:
+        raise ValueError("Invalid tolerance")
+    strictness = data.get("strictness")
+    if strictness is not None and (isinstance(strictness, bool) or not isinstance(strictness, (int, float)) or not MIN_STRICTNESS <= strictness <= MAX_STRICTNESS):
+        raise ValueError("Invalid strictness")
+    min_length = data.get("minLength", 0)
+    if isinstance(min_length, bool) or not isinstance(min_length, (int, float)) or not 0 <= min_length <= MAX_MIN_LENGTH:
+        raise ValueError("Invalid minimum length")
+    style = data.get("style")
+    if style not in (None, "bright", "dark", "outlined"):
+        raise ValueError("Invalid wall style")
+    started = time.monotonic()
+    # OpenCV releases the GIL, so a thread keeps the worker's lock renewals running meanwhile.
+    result = await asyncio.to_thread(analyze, image, width, height, cell, sample, float(tolerance), None if strictness is None else float(strictness), float(min_length), style)
+    # Sizes and timings only: never image contents or results.
+    print(f"[vision] job {job.id}: {width}x{height}, {len(result['walls'])} walls in {time.monotonic() - started:.1f}s", flush=True)
+    return result
+
+
+async def main() -> None:
+    url = os.environ.get("REDIS_URL")
+    if not url:
+        raise SystemExit("REDIS_URL is required: the wall worker consumes a BullMQ queue")
+    concurrency = int(os.environ.get("WALL_WORKER_CONCURRENCY", "2"))
+    worker = Worker(QUEUE, process, {"connection": url, "concurrency": concurrency, "lockDuration": 60_000})
+    heartbeat = aioredis.from_url(url)
+    global _redis
+    _redis = heartbeat
+
+    async def beat():
+        while True:
+            try:
+                await heartbeat.set(HEARTBEAT_KEY, "1", ex=HEARTBEAT_TTL_S)
+            except Exception:  # Redis briefly away: the key expires and detection reads as unavailable.
+                pass
+            await asyncio.sleep(HEARTBEAT_EVERY_S)
+
+    beating = asyncio.create_task(beat())
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, stop.set)
+    print(f"[vision] wall worker consuming '{QUEUE}'", flush=True)
+    await stop.wait()
+    beating.cancel()
+    await heartbeat.delete(HEARTBEAT_KEY)
+    await heartbeat.aclose()
+    await worker.close()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

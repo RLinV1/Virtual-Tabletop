@@ -13,17 +13,45 @@ import type { RoomStore } from "../store/roomStore";
 
 const EPHEMERAL_PER_SECOND = 40;
 /**
- * Chat messages one connection may send per CHAT_WINDOW_MS (KAN-75). Each one is a permanent
+ * Chat messages one participant may send per CHAT_WINDOW_MS (KAN-75). Each one is a permanent
  * event row, so an unbounded loop would grow the log forever and hold the room's queue.
  */
 const CHAT_PER_WINDOW = 10;
 const CHAT_WINDOW_MS = 10_000;
 /**
- * Dice look changes one connection may make per minute (ADR 0018). Each is a permanent event,
+ * Dice look changes one participant may make per minute (ADR 0018). Each is a permanent event,
  * and nobody changes their dice ten times a minute on purpose.
  */
 const DICE_LOOKS_PER_WINDOW = 10;
 const DICE_LOOK_WINDOW_MS = 60_000;
+
+/**
+ * Recent send times for one limit, per participant in each loaded room, oldest first. Shared by all
+ * of a participant's connections, so a second tab doesn't get a second budget (security-hardening
+ * D3). Keyed by the room object, so the counters go when a deleted room is evicted.
+ */
+class SeatWindows {
+  private rooms = new WeakMap<LiveRoom, Map<string, number[]>>();
+
+  constructor(
+    private limit: number,
+    private windowMs: number,
+  ) {}
+
+  /** Counts one use at `now` and returns true, or returns false when the participant is at the limit. */
+  take(room: LiveRoom, participantId: string, now: number): boolean {
+    let seats = this.rooms.get(room);
+    if (!seats) this.rooms.set(room, (seats = new Map()));
+    const recent = (seats.get(participantId) ?? []).filter((t) => now - t < this.windowMs);
+    if (recent.length >= this.limit) {
+      seats.set(participantId, recent);
+      return false;
+    }
+    recent.push(now);
+    seats.set(participantId, recent);
+    return true;
+  }
+}
 
 /**
  * Socket.IO gateway (DESIGN.md §1, §2).
@@ -39,6 +67,9 @@ export function registerSocket(
   io: SocketIOServer,
   deps: { store: RoomStore; registry: RoomRegistry; sessions: Sessions; logger?: boolean },
 ) {
+  const chatWindows = new SeatWindows(CHAT_PER_WINDOW, CHAT_WINDOW_MS);
+  const diceLookWindows = new SeatWindows(DICE_LOOKS_PER_WINDOW, DICE_LOOK_WINDOW_MS);
+
   // Authenticate during the handshake so an unauthorized socket never reaches a room.
   io.use(async (socket, next) => {
     const auth = HandshakeAuth.safeParse(socket.handshake.auth);
@@ -97,10 +128,6 @@ export function registerSocket(
 
     let windowStart = Date.now();
     let ephemeralCount = 0;
-    /** Send times of this connection's recent chat messages, oldest first. */
-    let chatTimes: number[] = [];
-    /** Times of this connection's recent dice look changes, oldest first. */
-    let diceLookTimes: number[] = [];
 
     // Commands are handled one at a time so a socket's commands commit in the order sent.
     // Ephemeral messages skip that queue: a ping must not wait behind a command still
@@ -145,31 +172,22 @@ export function registerSocket(
 
       switch (msg.type) {
         case "command": {
-          if (msg.command.type === "chat.send") {
-            const now = Date.now();
-            chatTimes = chatTimes.filter((t) => now - t < CHAT_WINDOW_MS);
-            if (chatTimes.length >= CHAT_PER_WINDOW) {
-              return send({
-                type: "rejected",
-                clientCommandId: msg.clientCommandId,
-                code: "invalid",
-                message: "You're sending messages too fast. Wait a few seconds.",
-              });
-            }
-            chatTimes.push(now);
+          if (msg.command.type === "chat.send" && !chatWindows.take(room, participantId, Date.now())) {
+            return send({
+              type: "rejected",
+              clientCommandId: msg.clientCommandId,
+              code: "invalid",
+              message: "You're sending messages too fast. Wait a few seconds.",
+            });
           }
-          if (msg.command.type === "participant.setDiceLook" || msg.command.type === "participant.clearDiceLook") {
-            const now = Date.now();
-            diceLookTimes = diceLookTimes.filter((t) => now - t < DICE_LOOK_WINDOW_MS);
-            if (diceLookTimes.length >= DICE_LOOKS_PER_WINDOW) {
-              return send({
-                type: "rejected",
-                clientCommandId: msg.clientCommandId,
-                code: "invalid",
-                message: "You're changing dice too fast. Wait a minute.",
-              });
-            }
-            diceLookTimes.push(now);
+          const diceLookChange = msg.command.type === "participant.setDiceLook" || msg.command.type === "participant.clearDiceLook";
+          if (diceLookChange && !diceLookWindows.take(room, participantId, Date.now())) {
+            return send({
+              type: "rejected",
+              clientCommandId: msg.clientCommandId,
+              code: "invalid",
+              message: "You're changing dice too fast. Wait a minute.",
+            });
           }
           const result = await room.submit(participantId, msg.command);
           if (result.ok) send({ type: "ack", clientCommandId: msg.clientCommandId, seq: result.seq });

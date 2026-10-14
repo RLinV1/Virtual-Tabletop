@@ -24,7 +24,7 @@ A creature SHALL have a name of 1 to 60 characters, a size in grid cells greater
 - **THEN** it shows the standard token colour and no conditions, and places without error
 
 ### Requirement: Place a creature from Add Token
-In a room, the GM's Add Token form SHALL offer "From creature" when the GM has a library identity. It SHALL list the GM's creatures. Choosing one SHALL fill in the name, size, HP (set to the creature's Max HP), Max HP, AC, colour, conditions and image. The GM SHALL still choose the owner, whether the token is hidden, and how many to add (1 to 20, default 1). The GM MAY change any filled-in value, and then picks the square as for any new token. Each resulting token SHALL be created exactly as if the GM had typed those values, including the automatic numbering of duplicate names. When the image is library token art, the token SHALL record that art's asset id, and the room SHALL NOT record which creature was used.
+In a room, the GM's Add Token form SHALL offer "From creature" when the GM has a library identity. It SHALL list the GM's creatures. Choosing one SHALL fill in the name, size, starting HP (falling back to Max HP when blank/null), Max HP, AC, colour, conditions and image. The GM SHALL still choose the owner, whether the token is hidden, and how many to add (1 to 20, default 1). The GM MAY change any filled-in value, and then picks the square as for any new token. Each resulting token SHALL be created exactly as if the GM had typed those values, including the automatic numbering of duplicate names. When the image is library token art, the token SHALL record that art's asset id, and the room SHALL NOT record which creature was used.
 
 #### Scenario: Place a goblin
 - **WHEN** the GM chooses From creature → "Goblin" (Max HP 7, AC 15, size 1, green, Prone) and clicks a square
@@ -60,7 +60,29 @@ The GM SHALL be able to add between 1 and 20 copies of a token in one action, fr
 - **THEN** players receive nothing about any of the 3 tokens
 
 ### Requirement: Save a placed token as a creature
-The GM SHALL be able to save any token on the board as a new creature in their library. The creature form SHALL open prefilled with the token's name, size, Max HP, AC, colour and conditions, and with its image when that image is the GM's own library token art. Otherwise it opens with no image. Saving SHALL follow the creature entry rules. Saving MUST NOT change the token or the room.
+The GM SHALL be able to save any token on the board as a new creature in their library. The creature form SHALL open prefilled with the token's name, size, current HP, Max HP, AC, colour and conditions, and with its image when that image is the GM's own library token art. Otherwise it opens with no image. Saving SHALL follow the creature entry rules. Saving MUST NOT change the token or the room.
+
+### Requirement: Starting HP
+A creature MAY store starting HP using the existing TokenStats bounds (whole number -999 through 9999). Blank/null starting HP SHALL default to Max HP when placing; explicit zero and negative values MUST be preserved. Older creatures and create requests without HP SHALL keep the full-health default. Updating another field MUST NOT reset starting HP. Invalid HP MUST be rejected on create and update without changing stored values.
+
+#### Scenario: Reuse a wounded token
+- **WHEN** the GM saves an Ogre at HP 30 of 59 as a creature and later places three copies
+- **THEN** each copy has HP 30 of 59, and editing/deleting the creature leaves them unchanged
+
+### Requirement: Named template attacks
+The GM SHALL be able to create, edit and remove up to eight named attacks in a creature template. Each attack SHALL have a unique name (1–40 characters) and a to-hit roll, damage roll, or both, using the existing attack editor's dice limits. Saving a placed token as a creature SHALL include that browser's current named attacks, including removals. Placing the creature SHALL copy attacks into each token independently of the template. Copied attacks SHALL be available in the Attack panel to the GM and token owners, and SHALL be withheld from other players in snapshots and token events. Older creatures SHALL default to no attacks.
+
+#### Scenario: Reuse Greatclub
+- **WHEN** the GM saves a creature with Greatclub (1d20+6 to hit, 2d8+4 damage) and places it
+- **THEN** the placed token offers Greatclub in Attack, including after reload or on another signed-in device
+
+#### Scenario: Ownership changes
+- **WHEN** a player gains or loses ownership of a token with copied attacks
+- **THEN** their filtered snapshot gains or loses those attacks
+
+#### Scenario: Automatic batch placement
+- **WHEN** the GM chooses a count above one and Place all automatically
+- **THEN** the remaining copies are placed in one numbered command on neighbouring free squares; manual clicks may still place one copy at a time
 
 #### Scenario: Save an ogre built during play
 - **WHEN** the GM opens the token "Ogre" (size 2, Max HP 59, AC 11, brown, their own ogre art) and chooses Save as creature, then Save

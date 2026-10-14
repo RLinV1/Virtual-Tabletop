@@ -1,6 +1,6 @@
 import { CaretDown } from "@phosphor-icons/react";
 import { type CSSProperties, type FormEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
-import { GRID_LINE_WIDTHS, gridLineStyle, type GridSpec, type MapImage } from "@vtt/shared";
+import { GRID_LINE_WIDTHS, gridLineStyle, type GridDetectionStatus, type GridSpec, type MapImage } from "@vtt/shared";
 import { gridLines } from "../board/gridLines";
 import { DEFAULT_BOARD_SIZE, minimumGridCellSize, minimumGridCellSizeForDisplay } from "../board/gridRenderLimit";
 import { ColorWheel } from "../ui/ColorWheel";
@@ -11,7 +11,7 @@ const DEFAULT_PREVIEW_MAP = { ...DEFAULT_BOARD_SIZE, url: null };
 
 /**
  * Manual grid correction (FR-GM-04), shared by a room's Adjust grid and the library's
- * Edit grid. Automatic detection (FR-GM-03) will prefill these.
+ * Edit grid. Automatic detection (FR-GM-03) is an explicit draft action.
  */
 export function GridForm({
   grid,
@@ -23,10 +23,15 @@ export function GridForm({
   onApply,
   applying,
   error,
+  detection,
+  detectionError,
+  onUseSuggestion,
+  onRetryDetection,
   submitLabel = "Apply grid",
   busyLabel = "Applying…",
   cancelLabel = "Cancel",
   allowUnchanged = false,
+  advancedOpen = false,
   children,
 }: {
   grid: GridSpec;
@@ -39,11 +44,17 @@ export function GridForm({
   onApply: (grid: GridSpec) => Promise<void>;
   applying: boolean;
   error: string | null;
+  detection?: GridDetectionStatus | null;
+  detectionError?: string | null;
+  onUseSuggestion?: (candidate: Extract<GridDetectionStatus, { status: "suggested" }>["candidate"]) => void;
+  onRetryDetection?: () => void;
   submitLabel?: string;
   busyLabel?: string;
   cancelLabel?: string;
   /** An unconfigured map must be able to save an explicit grid equal to the defaults. */
   allowUnchanged?: boolean;
+  /** Shows the line and geometry fields always, under a plain heading, instead of behind "Advanced". */
+  advancedOpen?: boolean;
   /** Extra actions below the form, e.g. the room's "Save grid to library". */
   children?: ReactNode;
 }) {
@@ -71,19 +82,6 @@ export function GridForm({
     lineOpacity: draft.lineOpacity,
   };
 
-  const nudgedValue = (key: "cellSize" | "offsetX" | "offsetY", delta: number): string | null => {
-    if (draft[key].trim() === "") return null;
-    const current = Number(draft[key]);
-    if (!Number.isFinite(current)) return null;
-    if (key === "cellSize") {
-      const next = current + delta;
-      return next > 0 && next <= 2000 ? String(next) : null;
-    }
-    const size = Number(draft.cellSize);
-    if (draft.cellSize.trim() === "" || !Number.isFinite(size) || size <= 0 || size > 2000) return null;
-    return String(((current + delta) % size + size) % size);
-  };
-
   const field = (key: "cellSize" | "offsetX" | "offsetY", label: string) => (
     <div className="grid-field" key={key}>
       <label>
@@ -103,26 +101,6 @@ export function GridForm({
           }}
         />
       </label>
-      <div className="grid-nudges" role="group" aria-label={`${label} nudges`}>
-        {[-5, -1, 1, 5].map((delta) => {
-          const next = nudgedValue(key, delta);
-          return (
-            <button
-              key={delta}
-              type="button"
-              className="secondary small"
-              disabled={applying || next === null}
-              aria-label={`${label}: ${delta > 0 ? "increase" : "decrease"} by ${Math.abs(delta)} pixels`}
-              onClick={() => { if (next !== null) {
-                setGeometryRevision((current) => current + 1);
-                onChange({ ...draft, [key]: next });
-              } }}
-            >
-              {delta > 0 ? `+${delta}` : `−${Math.abs(delta)}`}
-            </button>
-          );
-        })}
-      </div>
     </div>
   );
 
@@ -148,12 +126,14 @@ export function GridForm({
         })}
       />
       <div className="grid-advanced">
-        <button type="button" className="grid-advanced-toggle" aria-expanded={advanced}
-          aria-controls={advancedId} onClick={() => setAdvanced((open) => !open)}>
-          <span className="grid-advanced-title">Advanced</span>
-          <CaretDown size={14} weight="bold" className="grid-advanced-caret" aria-hidden="true" />
-        </button>
-        <div id={advancedId} className="grid-advanced-body" hidden={!advanced}>
+        {advancedOpen ? <h3 className="map-editor-heading">Advanced</h3> : (
+          <button type="button" className="grid-advanced-toggle" aria-expanded={advanced}
+            aria-controls={advancedId} onClick={() => setAdvanced((open) => !open)}>
+            <span className="grid-advanced-title">Advanced</span>
+            <CaretDown size={14} weight="bold" className="grid-advanced-caret" aria-hidden="true" />
+          </button>
+        )}
+        <div id={advancedId} className="grid-advanced-body" hidden={!advancedOpen && !advanced}>
           <p id={previewHelpId} className="muted small-print" role="status" hidden={!liveGeometry}>
             Temporary preview values. Click the map or press Enter to confirm placement.
           </p>
@@ -180,6 +160,34 @@ export function GridForm({
             disabled={applying} value={draft.unitLabel}
             onChange={(e) => onChange({ ...draft, unitLabel: e.target.value })} />
         </div>
+        {detection && (
+          <div className="grid-suggestion" role="status">
+            {detection.status === "queued" && <p>Checking the map for a grid…</p>}
+            {detection.status === "running" && <p>Analyzing the map grid…</p>}
+            {detection.status === "no_grid" && <p>No reliable square grid found. You can align it manually.</p>}
+            {detection.status === "error" && (
+              <>
+                <p>Grid analysis failed. Manual alignment is available.</p>
+                {onRetryDetection && <button type="button" className="secondary small" onClick={onRetryDetection}>Try again</button>}
+              </>
+            )}
+            {detection.status === "suggested" && (
+              <>
+                <p>Automatic suggestion: {detection.candidate.cellSize}px cells, offsets {detection.candidate.offsetX}px / {detection.candidate.offsetY}px. Confidence: {Math.round(detection.candidate.confidence * 100)}%.</p>
+                {detection.candidate.confidence < 0.75 && <p className="grid-suggestion-warning">Low confidence. Check the grid against the map before saving.</p>}
+                {onUseSuggestion && (
+                  <button type="button" className="secondary small" disabled={applying} onClick={() => {
+                    setGeometryRevision((current) => current + 1);
+                    onUseSuggestion(detection.candidate);
+                  }}>
+                    Use suggestion
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        )}
+        {detectionError && <p className="error grid-message" role="alert">{detectionError}</p>}
         {hasDraft && !validDraft && (
           <p className="error grid-message" role="alert">
             {tooManyLines

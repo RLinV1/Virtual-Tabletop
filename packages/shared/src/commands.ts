@@ -1,8 +1,14 @@
 import { z } from "zod";
+import { TokenAttacks } from "./attackPresets";
 import { ConditionId, EMPTY_STATS, TokenStats } from "./conditions";
 import { AttackKind, DiceVisibility, MAX_ATTACK_LABEL, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
-import { AreaShape, Id, MapImage, MAX_CHAT_LENGTH, MAX_FOG_POINTS } from "./state";
+import { AreaShape, Id, MapImage, MAX_CHAT_LENGTH, MAX_FOG_POINTS, MAX_FOG_REGIONS, MAX_WALLS, Portal, PortalState } from "./state";
+
+/** Most walls one `wall.remove` names (ADR 0029), keeping the command under the socket limit. */
+export const MAX_WALLS_PER_REMOVE = 500;
+/** Most walls one `wall.add` draws (wall-editing). The Walls tool sends one per segment. */
+export const MAX_WALLS_PER_ADD = 50;
 
 /**
  * Commands are REQUESTS from a client. The server validates and authorizes them,
@@ -90,9 +96,36 @@ export const Command = z.discriminatedUnion("type", [
     hidden: z.boolean().default(false),
     /** Conditions the token starts with, e.g. from a creature (KAN-70). */
     conditions: z.array(ConditionId).max(12).default([]),
+    attacks: TokenAttacks.default([]),
     /** Place this many copies in one action, numbered and spread over free squares (KAN-70). */
     count: z.number().int().min(1).max(MAX_TOKENS_PER_CREATE).default(1),
   }),
+  /** GM copies a token, 1–20 times, onto the nearest free squares beside it (KAN-82). */
+  z.object({
+    type: z.literal("token.duplicate"),
+    tokenId: Id,
+    count: z.number().int().min(1).max(MAX_TOKENS_PER_CREATE).default(1),
+  }).strict(),
+  /** GM-only token groups (KAN-82, ADR 0026). */
+  z.object({
+    type: z.literal("group.create"),
+    name: z.string().max(200),
+  }).strict(),
+  z.object({
+    type: z.literal("group.rename"),
+    groupId: Id,
+    name: z.string().max(200),
+  }).strict(),
+  z.object({
+    type: z.literal("group.delete"),
+    groupId: Id,
+  }).strict(),
+  /** Puts tokens into a group, or takes them out of any group with `groupId: null`. */
+  z.object({
+    type: z.literal("group.assign"),
+    groupId: Id.nullable(),
+    tokenIds: z.array(Id).min(1).max(100),
+  }).strict(),
   z.object({
     type: z.literal("token.move"),
     tokenId: Id,
@@ -244,15 +277,73 @@ export const Command = z.discriminatedUnion("type", [
    */
   z.object({
     type: z.literal("fog.add"),
+    expectedMapUrl: z.string().min(1).max(2048).optional(),
     region: z.discriminatedUnion("shape", [
       z.object({ shape: z.literal("rect"), from: Point, to: Point }).strict(),
       z.object({ shape: z.literal("polygon"), points: z.array(Point).min(3).max(MAX_FOG_POINTS) }).strict(),
     ]),
   }).strict(),
+  /**
+   * GM swaps fog in one action (FR-GM-17, ADR 0032): removes the listed regions and adds the new
+   * ones together, so a full room can still take a replacement and a refusal changes nothing.
+   */
+  z.object({
+    type: z.literal("fog.replace"),
+    expectedMapUrl: z.string().min(1).max(2048).optional(),
+    removeIds: z.array(Id).max(MAX_FOG_REGIONS),
+    add: z.array(z.discriminatedUnion("shape", [
+      z.object({ shape: z.literal("rect"), from: Point, to: Point }).strict(),
+      z.object({ shape: z.literal("polygon"), points: z.array(Point).min(3).max(MAX_FOG_POINTS) }).strict(),
+    ])).max(MAX_FOG_REGIONS),
+  }).strict(),
   /** GM removes one fog region, revealing what it covered (FR-GM-17). */
   z.object({
     type: z.literal("fog.remove"),
+    expectedMapUrl: z.string().min(1).max(2048).optional(),
     regionId: Id,
+  }).strict(),
+  /**
+   * GM applies the walls detected for the room's current map (FR-GM-11, ADR 0029), replacing any
+   * walls already there. The segments come from the server's validated result, never the client.
+   */
+  z.object({
+    type: z.literal("wall.applyDetected"),
+    mapUrl: z.string().min(1).max(2048),
+    exclude: z.object({
+      resultId: z.string().min(1).max(128),
+      indices: z.array(z.number().int().min(0).max(MAX_WALLS - 1)).max(MAX_WALLS),
+    }).strict().optional(),
+  }).strict(),
+  /** GM draws walls by hand (wall-editing, ADR 0029). Board coordinates (invariant 8). */
+  z.object({
+    type: z.literal("wall.add"),
+    expectedMapUrl: z.string().min(1).max(2048).optional(),
+    /** `portal` lets the map editor's Save keep a door drawn in its draft (ADR 0030). */
+    walls: z.array(z.object({ a: Point, b: Point, portal: Portal.optional() }).strict()).min(1).max(MAX_WALLS_PER_ADD),
+  }).strict(),
+  /** GM removes chosen walls (ADR 0029). */
+  z.object({
+    type: z.literal("wall.remove"),
+    expectedMapUrl: z.string().min(1).max(2048).optional(),
+    wallIds: z.array(Id).min(1).max(MAX_WALLS_PER_REMOVE),
+  }).strict(),
+  /** GM removes every wall (ADR 0029). */
+  z.object({
+    type: z.literal("wall.clear"),
+    expectedMapUrl: z.string().min(1).max(2048).optional(),
+  }).strict(),
+  /** GM makes a wall a door or window, edits it, or (`null`) turns it back into a plain wall (FR-GM-09, ADR 0030). */
+  z.object({
+    type: z.literal("portal.set"),
+    expectedMapUrl: z.string().min(1).max(2048).optional(),
+    wallId: Id,
+    portal: Portal.nullable(),
+  }).strict(),
+  /** Opens, closes or locks a portal (FR-GM-18, ADR 0030). Players may only open or close one they can see. */
+  z.object({
+    type: z.literal("portal.setState"),
+    wallId: Id,
+    state: PortalState,
   }).strict(),
   /** GM saves the board as a named restore point (FR-REC-02, ADR 0019). */
   z.object({
@@ -263,6 +354,11 @@ export const Command = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("checkpoint.restore"),
     checkpointId: Id,
+  }).strict(),
+  /** GM replaces the board with one of their saved encounter templates (FR-GM-13, ADR 0024). */
+  z.object({
+    type: z.literal("encounter.apply"),
+    templateId: Id,
   }).strict(),
   /** GM reverses one recent action, picked from the activity log by its `commandId` (FR-REC-02, ADR 0013). */
   z.object({

@@ -1,13 +1,14 @@
-import { CornersOut, Eye, EyeSlash } from "@phosphor-icons/react";
+import { CornersOut } from "@phosphor-icons/react";
 import { Suspense, forwardRef, lazy, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
-import { DEFAULT_TOKEN_COLOR, EMPTY_STATS, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
+import { DEFAULT_TOKEN_COLOR, EMPTY_STATS, conditionSpec, presetOf, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { guardedConnection } from "../net/previewConnection";
 import { DEFAULT_TOOL_OPTIONS, ToolRail, toolFor, type ToolOptions } from "../ui/ToolRail";
-import { isBoolean, usePersistentState } from "../ui/usePersistentState";
+import { usePersistentState } from "../ui/usePersistentState";
+import { BoardFilters } from "./BoardFilters";
 import { canAnimateDice, type TrayRoll } from "../ui/Die3D";
 import { ThrownDice, type ActiveThrow } from "./ThrownDice";
-import { BoardView } from "./boardView";
+import { BoardView, type GmFogView } from "./boardView";
 import { MAX_ATTACK_EFFECTS, attackEffectFor, attackPlan, prefersReducedMotion, type AttackEffect } from "./effects";
 import type { OverlayEffect } from "./EffectsOverlay";
 import { boardDieSize, centreThrow, onMap, throwLanding, type BoardThrow, type BoardTransform } from "./diceThrow";
@@ -34,6 +35,8 @@ interface Props {
   landedRollId?: string | null;
   /** The viewer clicked the token `attackerId` attacks, in Pick on board (attack-targeting). */
   onPickTarget?: (attackerId: string, targetId: string) => void;
+  /** Only the Select tool: a template being edited (ADR 0033). */
+  selectOnly?: boolean;
 }
 
 /** What the roster and initiative list can ask the canvas to do (FR-GM-24). */
@@ -75,15 +78,10 @@ const HINTS: Record<BoardTool["kind"], string> = {
   area: "Drag to size and aim · click to place the chosen size · hold Alt to place freely · everyone at the table sees areas",
   erase: "Click or drag over your marks and areas to erase them · Esc to stop",
   attack: "Click the token to attack · Esc or right-click to cancel",
-  fog: "",
 };
 
-/** Fog hints by mode (FR-GM-17). Players never get the Fog tool. */
-const FOG_HINTS = {
-  rect: "Drag a rectangle to hide it from players · Esc to stop",
-  polygon: "Click corners · click the first corner or press Enter to close · Backspace removes a corner · Esc cancels",
-  reveal: "Click fog to remove it and show players what is under it · undo from the activity log",
-} as const;
+/** Only this browser remembers the GM's fog choice; "player" is an older saved value and counts as on. */
+const isGmFogView = (v: unknown): v is GmFogView => v === "tint" || v === "player" || v === "off";
 
 /** With GM only ticked, the areas are the GM's alone; saying "everyone sees them" would mislead. */
 const GM_ONLY_AREA_HINT = "Drag to size and aim · click to place the chosen size · GM only: players won't see these areas";
@@ -97,19 +95,35 @@ function isTyping(target: EventTarget | null) {
 }
 
 /** The PixiJS board plus its React toolbar and notices; Pixi objects stay inside `BoardView`. */
-export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, readOnly = false, toolbar, notices, overlay, landedRollId, onPickTarget }, ref) {
+export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, readOnly = false, toolbar, notices, overlay, landedRollId, onPickTarget, selectOnly = false }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<BoardView | null>(null);
   /** GM only: false shows everything through the fog (this browser remembers it). */
-  const [gmFog, setGmFog] = usePersistentState("vtt.ui.gmFog", true, isBoolean);
+  const [gmFog, setGmFog] = usePersistentState<GmFogView>("vtt.ui.gmFogView", "tint", isGmFogView);
+  /** GM only: whether this browser draws the walls. Players never receive them. */
+  const [showWalls, setShowWalls] = usePersistentState<boolean>("vtt.ui.gmShowWalls", true, (v): v is boolean => typeof v === "boolean");
+  /** GM only: whether this browser draws doors and windows. Players always see the ones they can reach. */
+  const [showPortals, setShowPortals] = usePersistentState<boolean>("vtt.ui.gmShowPortals", true, (v): v is boolean => typeof v === "boolean");
   const hasFog = Object.keys(state.fog).length > 0;
+  const hasPortals = Object.values(state.walls).some((wall) => wall.portal);
+  const hasWalls = Object.values(state.walls).some((wall) => !wall.portal);
   /** Strikes waiting for their thrown dice to land, by roll id, oldest first (KAN-76). */
   const waitingStrikes = useRef(new Map<string, { effect: AttackEffect; timer: number }>());
-  const latest = useRef({ state, you, gridPreview, onPickTarget, gmFog: true, readOnly: false });
-  latest.current = { state, you, gridPreview, onPickTarget, gmFog, readOnly };
+  const latest = useRef({ state, you, gridPreview, onPickTarget, gmFog: "tint" as GmFogView, showWalls: true, showPortals: true, readOnly: false });
+  latest.current = { state, you, gridPreview, onPickTarget, gmFog, showWalls, showPortals, readOnly };
   // Sends nothing while previewing as a player, whatever the board is asked to do. Stable for as
   // long as the connection is, so entering and leaving a preview never rebuilds the board view.
   const guarded = useMemo(() => guardedConnection(connection, () => latest.current.readOnly), [connection]);
+  /** The token the viewer clicked (not dragged); its details show beside the board. */
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  /** Why the server refused the last drag, e.g. a wall in the way (ADR 0029) or a locked door (ADR 0030); shown briefly. */
+  const [refusal, setRefusal] = useState<{ message: string; at: number } | null>(null);
+  useEffect(() => {
+    if (!refusal) return;
+    const timer = setTimeout(() => setRefusal(null), 4000);
+    return () => clearTimeout(timer);
+  }, [refusal]);
+  const selected = selectedId ? state.tokens[selectedId] ?? null : null;
   const [tool, setTool] = useState<BoardTool>({ kind: "select" });
   const [toolOptions, setToolOptions] = useState<ToolOptions>(DEFAULT_TOOL_OPTIONS);
   const toolRef = useRef(tool);
@@ -176,7 +190,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   );
 
   /** Create the token at `at`. One at a time: a second click while the first is in flight does nothing. */
-  const place = async (at: Point) => {
+  const place = async (at: Point, batch = false) => {
     const current = placingRef.current;
     if (!current || current.busy) return;
     placingRef.current = { ...current, busy: true };
@@ -184,12 +198,13 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     // Several tokens are placed one click each, so the GM chooses every square; the server
     // numbers the duplicates (KAN-62).
     const left = current.draft.count ?? 1;
-    const result = await guarded.command({ ...current.draft, count: 1, position: at });
+    // Automatic placement can put the whole remaining batch on nearby free squares in one action.
+    const result = await guarded.command({ ...current.draft, count: batch ? left : 1, position: at });
     // Keep the draft on a rejection, so the GM can read why and try another square.
     setPlacing((now) => {
       if (now?.draft !== current.draft) return now;
       if (!result.ok) return { ...now, busy: false, error: result.message };
-      return left > 1 ? { draft: { ...current.draft, count: left - 1 }, busy: false, error: null } : null;
+      return !batch && left > 1 ? { draft: { ...current.draft, count: left - 1 }, busy: false, error: null } : null;
     });
   };
   const placeRef = useRef(place);
@@ -199,7 +214,8 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     const view = new BoardView(hostRef.current!, {
       moveToken: async (tokenId, to) => {
         const result = await guarded.command({ type: "token.move", tokenId, to });
-        if (!result.ok) console.warn("Move rejected:", result.message);
+        // The token snaps back; say why, so a wall the player can't see isn't a mystery (ADR 0029).
+        if (!result.ok && result.code !== "offline") setRefusal({ message: result.message, at: Date.now() });
         return result.ok;
       },
       dragPreview: (tokenId, at) => guarded.preview(`drag:${tokenId}`, { type: "tokenDragPreview", tokenId, at }),
@@ -218,18 +234,20 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
         if (!result.ok) console.warn("Area removal rejected:", result.message);
         return result.ok;
       },
-      addFog: async (region) => {
-        const result = await guarded.command({ type: "fog.add", region });
-        if (!result.ok) console.warn("Fog rejected:", result.message);
-        return result.ok;
-      },
-      removeFog: async (regionId) => {
-        const result = await guarded.command({ type: "fog.remove", regionId });
-        if (!result.ok) console.warn("Fog removal rejected:", result.message);
-        return result.ok;
-      },
       placeToken: (at) => void placeRef.current(at),
+      selectToken: (tokenId) => setSelectedId(tokenId),
       cancelPlacement: () => setPlacing(null),
+      togglePortal: (wallId, lock) => {
+        const portal = latest.current.state.walls[wallId]?.portal;
+        if (!portal) return;
+        // Click opens a closed door and closes an open one; the GM's Shift-click locks and unlocks (ADR 0030).
+        const state = lock && latest.current.you.role === "gm"
+          ? (portal.state === "locked" ? "closed" : "locked")
+          : (portal.state === "open" ? "closed" : "open");
+        void guarded.command({ type: "portal.setState", wallId, state }).then((result) => {
+          if (!result.ok && result.code !== "offline") setRefusal({ message: result.message, at: Date.now() });
+        });
+      },
       pickTarget: (attackerId, targetId) => {
         endAttack();
         latest.current.onPickTarget?.(attackerId, targetId);
@@ -241,7 +259,9 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     view.init().then(() => {
       if (disposed) return view.destroy();
       viewRef.current = view;
-      view.setGmFogShown(latest.current.gmFog);
+      view.setGmFogView(latest.current.gmFog);
+      view.setShowWalls(latest.current.showWalls);
+      view.setShowPortals(latest.current.showPortals);
       view.setReadOnly(latest.current.readOnly);
       view.setGridPreview(latest.current.gridPreview);
       view.update(latest.current.state, latest.current.you);
@@ -320,7 +340,12 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   }, [readOnly]);
 
   useEffect(() => {
-    viewRef.current?.setGmFogShown(gmFog);
+    viewRef.current?.setShowWalls(showWalls);
+    viewRef.current?.setShowPortals(showPortals);
+  }, [showWalls, showPortals]);
+
+  useEffect(() => {
+    viewRef.current?.setGmFogView(gmFog);
   }, [gmFog, state.fog, connection]);
 
   useEffect(() => {
@@ -359,11 +384,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     if (tool.kind === "select") return;
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || isTyping(e.target) || document.querySelector("dialog[open]")) return;
-      // The Fog polygon takes Enter to close and Backspace to drop a corner; Escape abandons it first.
-      if (toolRef.current.kind === "fog" && e.key === "Enter" && viewRef.current?.closeFogPolygon()) return e.preventDefault();
-      if (toolRef.current.kind === "fog" && e.key === "Backspace" && viewRef.current?.undoFogPoint()) return e.preventDefault();
       if (e.key !== "Escape") return;
-      if (viewRef.current?.cancelFogPolygon()) return;
       if (toolRef.current.kind === "attack") endAttack();
       else setTool({ kind: "select" });
     };
@@ -443,16 +464,16 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
           <CornersOut size={16} aria-hidden="true" />
           Fit
         </button>
-        {you.role === "gm" && hasFog && (
-          <button
-            type="button"
-            className="tool-button"
-            onClick={() => setGmFog(!gmFog)}
-            title={gmFog ? "See everything: hide the fog tint on your view" : "Show the fog tint on your view again"}
-          >
-            {gmFog ? <Eye size={16} aria-hidden="true" /> : <EyeSlash size={16} aria-hidden="true" />}
-            {gmFog ? "Fog on" : "Fog off"}
-          </button>
+        {you.role === "gm" && (
+          <BoardFilters
+            value={{ fog: gmFog !== "off", walls: showWalls, portals: showPortals }}
+            available={{ fog: hasFog, walls: hasWalls, portals: hasPortals }}
+            onChange={(next) => {
+              setGmFog(next.fog ? "tint" : "off");
+              setShowWalls(next.walls);
+              setShowPortals(next.portals);
+            }}
+          />
         )}
       </div>
       {gridPreview && <p className="grid-preview-label" role="status">Preview · Not applied</p>}
@@ -471,10 +492,55 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
           setTool((current) => (current.kind === "attack" ? current : toolFor(current.kind, options)));
         }}
         onClear={() => viewRef.current?.clearMarks()}
+        selectOnly={selectOnly}
       />
       )}
       {overlay}
       {notices}
+      {refusal && <p key={refusal.at} className="board-refusal" role="alert">{refusal.message}</p>}
+      {selected && (
+        <aside className="token-card" aria-label={`${selected.name} details`}>
+          <div className="token-card-head">
+            <span className="token-card-swatch" style={{ background: selected.color }} aria-hidden="true" />
+            <strong>{selected.name}</strong>
+            <button type="button" className="secondary" onClick={() => setSelectedId(null)} aria-label="Close token details">×</button>
+          </div>
+          <dl>
+            <dt>HP</dt>
+            <dd>{selected.stats.hp === null ? "Not tracked" : selected.stats.maxHp === null ? selected.stats.hp : `${selected.stats.hp} / ${selected.stats.maxHp}`}</dd>
+            {selected.stats.ac !== null && (
+              <>
+                <dt>AC</dt>
+                <dd>{selected.stats.ac}</dd>
+              </>
+            )}
+            {presetOf(state).features.conditions && (
+              <>
+                <dt>Status</dt>
+                <dd>{selected.conditions.length ? selected.conditions.map((c) => conditionSpec(c).label).join(", ") : "None"}</dd>
+              </>
+            )}
+            {you.role === "gm" && (
+              <>
+                <dt>Owners</dt>
+                <dd>
+                  {selected.ownerIds.length
+                    ? selected.ownerIds.map((id) => state.participants[id]?.displayName ?? "Unknown").join(", ")
+                    : "GM only"}
+                </dd>
+                <dt>Visible</dt>
+                <dd>{selected.hidden ? "Hidden from players" : "Everyone"}</dd>
+                {selected.initiative != null && (
+                  <>
+                    <dt>Initiative</dt>
+                    <dd>{String(selected.initiative)}</dd>
+                  </>
+                )}
+              </>
+            )}
+          </dl>
+        </aside>
+      )}
       {placing && (
         <div className="placement-bar">
           <p aria-live="polite">
@@ -488,9 +554,9 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
               type="button"
               className="secondary"
               disabled={placing.busy}
-              onClick={() => void place(autoPlacementPoint(state, placing.draft.size ?? 1))}
+              onClick={() => void place(autoPlacementPoint(state, placing.draft.size ?? 1), true)}
             >
-              Place automatically
+              {(placing.draft.count ?? 1) > 1 ? "Place all automatically" : "Place automatically"}
             </button>
             <button type="button" className="secondary" disabled={placing.busy} onClick={() => setPlacing(null)}>
               Cancel
@@ -500,7 +566,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       )}
       {/* Announced when the tool changes; while placing, the placement bar already speaks. */}
       <p className="board-hint" aria-live={placing ? "off" : "polite"}>
-        {placing ? PLACING_HINT : tool.kind === "area" && tool.gmOnly ? GM_ONLY_AREA_HINT : tool.kind === "fog" ? FOG_HINTS[tool.mode] : HINTS[tool.kind]}
+        {placing ? PLACING_HINT : tool.kind === "area" && tool.gmOnly ? GM_ONLY_AREA_HINT : HINTS[tool.kind]}
       </p>
     </div>
   );

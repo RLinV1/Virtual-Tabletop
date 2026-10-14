@@ -1,15 +1,23 @@
 import { createServer, type Server as HttpServer } from "node:http";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import express, { type Express } from "express";
 import { Server as SocketIOServer } from "socket.io";
+import { roomLifecycle } from "./domain/roomLifecycle";
 import { RoomRegistry } from "./domain/roomRegistry";
+import { createGridDetectionDispatcher, type Detector, type GridDetectionDispatcher } from "./domain/gridDetection";
+import { bullmqWallQueue, WallDetections, type WallJobQueue } from "./domain/wallDetection";
 import { registerRoutes } from "./http/routes";
 import { attachAccount, requireSameOrigin } from "./identity/middleware";
 import { accountLimits, registerIdentityRoutes, type AccountLimits } from "./identity/routes";
 import { Sessions } from "./identity/sessions";
 import { LocalDiskAssetStore, type AssetStore } from "./store/assetStore";
+import { MemoryRoomStore } from "./store/memoryRoomStore";
 import type { RoomStore } from "./store/roomStore";
 import { registerSocket } from "./ws/socket";
+
+/** How long a temporary encounter-editing room may be left behind before the sweep deletes it (ADR 0033). */
+export const TEMPORARY_ROOM_LIFETIME_MS = 24 * 60 * 60_000;
 
 export interface AppOptions {
   store: RoomStore;
@@ -19,6 +27,20 @@ export interface AppOptions {
   logger?: boolean;
   /** Browser origin allowed to open a socket; Socket.IO enforces CORS itself. */
   clientOrigin?: string;
+  detector?: Detector;
+  dispatcher?: GridDetectionDispatcher;
+  redisUrl?: string;
+  visionUrl?: string;
+  /**
+   * The wall-detection queue (ADR 0029). Defaults to BullMQ on `redisUrl`, or none without Redis;
+   * tests pass a stand-in, or null for "unavailable".
+   */
+  wallQueue?: WallJobQueue | null;
+  /**
+   * The web app's built-in maps (`apps/web/public/img`), so wall detection can read them too.
+   * Defaults to that folder in this repository; null when the server runs without it.
+   */
+  builtinImageDir?: string | null;
   /**
    * Marks the session cookie `Secure` (ADR 0017 I1). Defaults to `COOKIE_SECURE`, else on in
    * production, so LAN phone testing over plain http still works in dev.
@@ -42,6 +64,8 @@ export interface App {
   limits: AccountLimits;
   /** The hourly sweep, on demand: ended sessions, then connections whose seat was deleted elsewhere. */
   sweep(): Promise<void>;
+  /** The hourly sweep of temporary encounter-editing rooms left behind (ADR 0033), on demand. */
+  sweepTemporaryRooms(): Promise<void>;
   listen(opts: { port: number; host: string }): Promise<void>;
   close(): Promise<void>;
 }
@@ -52,6 +76,12 @@ export async function buildApp({
   assets,
   logger = false,
   clientOrigin = process.env.CLIENT_ORIGIN ?? "http://localhost:5173",
+  detector,
+  dispatcher,
+  redisUrl = process.env.REDIS_URL,
+  visionUrl = process.env.VISION_URL,
+  wallQueue,
+  builtinImageDir = fileURLToPath(new URL("../../web/public/img/", import.meta.url)),
   cookieSecure = cookieSecureFromEnv(),
   now = Date.now,
 }: AppOptions): Promise<App> {
@@ -64,7 +94,18 @@ export async function buildApp({
     cors: { origin: clientOrigin },
     maxHttpBufferSize: 64 * 1024,
   });
-  const registry = new RoomRegistry(store);
+  const assetStore = assets ?? new LocalDiskAssetStore(uploadDir);
+  // Wall analysis results are suggestions held here; a room reads them only when its GM applies
+  // walls, and the GM hears of each finished job over their own socket (ADR 0029).
+  const walls = new WallDetections(
+    assetStore,
+    wallQueue === undefined ? (redisUrl ? bullmqWallQueue(redisUrl) : null) : wallQueue,
+    (roomId, mapUrl, status) => {
+      void registry.loaded(roomId).then((room) => room?.notifyGm({ type: "wallDetection", mapUrl, status }));
+    },
+    builtinImageDir,
+  );
+  const registry = new RoomRegistry(store, { detectedWalls: (roomId, mapUrl) => walls.detectedWalls(roomId, mapUrl) });
   const sessions = new Sessions(store, { secure: cookieSecure }, now);
   const limits = accountLimits(now);
   // Ending a session ends the seats bound to it; close their open connections (ADR 0017 M4).
@@ -73,6 +114,18 @@ export async function buildApp({
   const stopSweeping = sessions.startSweeping(closeDeletedSeats);
   const stopLimitSweep = setInterval(() => Object.values(limits).forEach((l) => l.sweep()), 60_000);
   stopLimitSweep.unref();
+  const rooms = roomLifecycle({ store, registry, assets: assetStore, walls });
+  // A temporary room is deleted when its GM leaves it; this catches the ones left open (ADR 0033).
+  const sweepTemporaryRooms = async () => {
+    const before = new Date(now() - TEMPORARY_ROOM_LIFETIME_MS).toISOString();
+    for (const roomId of await store.listTemporaryRoomsBefore(before)) {
+      await rooms.deleteRoomFully(roomId).catch((err: unknown) => {
+        console.error(`[vtt] could not delete temporary room ${roomId}`, err);
+      });
+    }
+  };
+  const stopTemporaryRoomSweep = setInterval(() => void sweepTemporaryRooms(), 60 * 60_000);
+  stopTemporaryRoomSweep.unref();
 
   app.use(express.json({ limit: "64kb" }));
   app.use(attachAccount(sessions));
@@ -83,9 +136,9 @@ export async function buildApp({
     res.setHeader("X-Content-Type-Options", "nosniff");
     next();
   });
-  // Objects in MinIO are streamed through here so their URLs stay origin-relative and
-  // work from any device. Anything MinIO does not have falls through to the disk folder,
-  // so images uploaded before a checkout started using MinIO still load (upload-storage).
+  // Objects in object storage are streamed through here so their URLs stay origin-relative and
+  // work from any device. Anything object storage does not have falls through to the disk folder,
+  // so images uploaded before a checkout started using object storage still load (upload-storage).
   if (assets?.read) {
     app.get("/uploads/:key", (req, res, next) => {
       void assets
@@ -109,8 +162,13 @@ export async function buildApp({
     });
   }
 
+  // Redis workers may run in any process. A memory store exists only in this process, so
+  // another worker could consume and discard its job without ever finding the row.
+  const detection = dispatcher ?? await createGridDetectionDispatcher(store, assetStore, {
+    detector, redisUrl: store instanceof MemoryRoomStore ? undefined : redisUrl, visionUrl,
+  });
   registerIdentityRoutes(app, { store, sessions, limits });
-  registerRoutes(app, { store, registry, uploadDir, assets: assets ?? new LocalDiskAssetStore(uploadDir) });
+  registerRoutes(app, { store, registry, uploadDir, assets: assetStore, limits, detection, walls, rooms });
   registerSocket(io, { store, registry, sessions, logger });
 
   return {
@@ -123,6 +181,7 @@ export async function buildApp({
       await sessions.sweep();
       await closeDeletedSeats();
     },
+    sweepTemporaryRooms,
     listen: ({ port, host }) =>
       new Promise((resolve, reject) => {
         server.once("error", reject);
@@ -130,10 +189,13 @@ export async function buildApp({
       }),
     // `io.close` also closes the HTTP server it was attached to, so closing it again
     // would raise ERR_SERVER_NOT_RUNNING.
-    close: () => {
+    close: async () => {
       stopSweeping();
       clearInterval(stopLimitSweep);
-      return new Promise((resolve, reject) => {
+      clearInterval(stopTemporaryRoomSweep);
+      await detection.close();
+      await walls.close();
+      await new Promise<void>((resolve, reject) => {
         io.close((err) => (err ? reject(err) : resolve()));
       });
     },
@@ -146,11 +208,28 @@ function cookieSecureFromEnv(): boolean {
   return value === "1" || value.toLowerCase() === "true";
 }
 
-/** `TRUST_PROXY`: a hop count ("1"), or "true" to trust every proxy. Unset leaves Express's default. */
-function trustProxyFromEnv(): number | boolean | undefined {
-  const value = process.env.TRUST_PROXY;
+/**
+ * `TRUST_PROXY`: a hop count ("1"), or "true" to trust every proxy. Unset leaves Express's default.
+ *
+ * "true" makes `req.ip` the left-most `X-Forwarded-For` entry, which the client writes itself, so
+ * anyone could pick a fresh address per request and walk past every per-address limit (sign-in,
+ * sign-up, invite joins). Production must name its hop count instead, and a value that is neither
+ * is refused rather than ignored (security-hardening D5).
+ */
+export function trustProxyFromEnv(env: NodeJS.ProcessEnv = process.env): number | boolean | undefined {
+  const value = env.TRUST_PROXY;
   if (!value) return undefined;
-  if (value === "true") return true;
+  const production = env.NODE_ENV === "production";
+  if (value === "true") {
+    if (production) {
+      throw new Error("TRUST_PROXY=true lets clients forge their address; set it to the number of proxies in front of the server, e.g. TRUST_PROXY=1");
+    }
+    console.warn("[vtt] TRUST_PROXY=true trusts X-Forwarded-For from anyone, so per-address rate limits can be bypassed. Use a hop count outside local testing.");
+    return true;
+  }
   const hops = Number(value);
-  return Number.isInteger(hops) && hops >= 0 ? hops : undefined;
+  if (Number.isInteger(hops) && hops >= 0) return hops;
+  if (production) throw new Error(`TRUST_PROXY must be a hop count such as 1, not "${value}"`);
+  console.warn(`[vtt] ignoring TRUST_PROXY="${value}": expected a hop count such as 1`);
+  return undefined;
 }

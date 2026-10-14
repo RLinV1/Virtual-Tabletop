@@ -1,10 +1,15 @@
 import { z } from "zod";
+import { GamePresetId } from "./gamePresets";
+import { TokenAttacks, type AttackPreset } from "./attackPresets";
 import { Command, DEFAULT_TOKEN_COLOR } from "./commands";
 import { CommittedEvent } from "./events";
 import { GridSpec, Point } from "./geometry";
 import { TokenStats, type ConditionId } from "./conditions";
 import { AreaShape, Id, Participant, Token, type RoomState } from "./state";
 import type { RejectionCode } from "./decide";
+import { RoomUploadPurpose } from "./gridDetection";
+import { MAX_ENCOUNTER_NAME } from "./encounters";
+import type { WallDetectionStatus } from "./wallDetection";
 
 /**
  * WebSocket wire protocol. One socket per client carries two logical channels:
@@ -99,6 +104,11 @@ export type ServerMessage =
   | { type: "ephemeral"; from: Id; payload: EphemeralPayload }
   /** Terminal: this seat has ended (ADR 0006). The server disconnects right after; do not reconnect. */
   | { type: "sessionEnded"; reason: SessionEndReason }
+  /**
+   * GM only: a wall analysis of `mapUrl` changed state (ADR 0029). Not room data and no seq
+   * (invariant 4); the GM fetches the result and preview over REST.
+   */
+  | { type: "wallDetection"; mapUrl: string; status: WallDetectionStatus }
   | { type: "error"; code: "unauthorized" | "bad_request" | "not_found"; message: string };
 
 /**
@@ -119,6 +129,10 @@ export const CreateRoomRequest = z.object({
   displayName: z.string().min(1).max(40),
   /** Browser-generated; the server stores only its SHA-256 (DESIGN.md §5). */
   guestToken: z.string().min(16).max(256),
+  /** Start the room from one of the signed-in GM's encounter templates (FR-GM-13, ADR 0024). */
+  templateId: z.uuid().optional(),
+  /** The game preset (KAN-63); Dungeons & Dragons when omitted. */
+  preset: GamePresetId.optional(),
   // `gmToken` was removed (ADR 0017): the signed-in account owns the room. zod strips unknown
   // keys, so an older client that still sends it parses unchanged.
 });
@@ -172,6 +186,8 @@ export type GmIdentifyRequest = z.infer<typeof GmIdentifyRequest>;
 export interface GmRoomSummary {
   id: string;
   name: string;
+  /** The room's game preset id (KAN-63). */
+  preset: string;
   /** ISO-8601 time of the room's most recent event. */
   lastActiveAt: string;
 }
@@ -193,6 +209,13 @@ export const LibraryUploadFields = z.object({
   height: Dimension,
 });
 export type LibraryUploadFields = z.infer<typeof LibraryUploadFields>;
+
+export const DirectUploadFields = z.object({
+  purpose: RoomUploadPurpose.default("token"),
+  width: Dimension.optional(),
+  height: Dimension.optional(),
+}).refine((data) => data.purpose !== "map" || (data.width !== undefined && data.height !== undefined),
+  { message: "Map uploads require image width and height" });
 
 export const LibraryPatchRequest = z
   .object({
@@ -220,6 +243,8 @@ export interface LibraryUsageResponse {
   rooms: { id: string; name: string }[];
   /** The GM's creatures that use this token art as their image (ADR 0012). */
   creatures: { id: string; name: string }[];
+  /** The GM's encounter templates whose map this is; they cannot be applied once it is deleted (ADR 0024). */
+  encounters: { id: string; name: string }[];
 }
 
 /**
@@ -229,6 +254,9 @@ export interface LibraryUsageResponse {
 export const CreatureFields = z.object({
   name: Token.shape.name.refine((name) => name.trim() !== "", { message: "Name can't be blank" }),
   size: Token.shape.size,
+  /** Starting HP; null/omitted preserves the legacy full-health default. */
+  hp: TokenStats.shape.hp,
+  attacks: TokenAttacks,
   maxHp: TokenStats.shape.maxHp,
   ac: TokenStats.shape.ac,
   /** The disc colour its tokens get when they have no image (KAN-70). */
@@ -241,6 +269,8 @@ export const CreatureFields = z.object({
 
 export const CreateCreatureRequest = CreatureFields.extend({
   size: Token.shape.size.default(1),
+  hp: TokenStats.shape.hp.default(null),
+  attacks: TokenAttacks.default([]),
   maxHp: TokenStats.shape.maxHp.default(null),
   ac: TokenStats.shape.ac.default(null),
   color: Token.shape.color.default(DEFAULT_TOKEN_COLOR),
@@ -248,6 +278,11 @@ export const CreateCreatureRequest = CreatureFields.extend({
   imageAssetId: z.uuid().nullable().default(null),
 });
 export type CreateCreatureRequest = z.infer<typeof CreateCreatureRequest>;
+
+/** A saved template must place as a valid token rather than fail on HP > Max HP. */
+export function creatureHpValid(creature: { hp: number | null; maxHp: number | null }): boolean {
+  return creature.hp === null || creature.maxHp === null || creature.hp <= creature.maxHp;
+}
 
 export const UpdateCreatureRequest = CreatureFields.partial().refine((p) => Object.keys(p).length > 0, {
   message: "Nothing to change",
@@ -258,6 +293,9 @@ export interface LibraryCreature {
   id: string;
   name: string;
   size: number;
+  /** Null or absent on older responses means start at Max HP. Zero is explicit. */
+  hp?: number | null;
+  attacks?: AttackPreset[];
   maxHp: number | null;
   ac: number | null;
   color: string;
@@ -267,3 +305,56 @@ export interface LibraryCreature {
   imageUrl: string | null;
   createdAt: string;
 }
+
+const EncounterName = z.string().trim().min(1).max(MAX_ENCOUNTER_NAME);
+
+/** Save a room's board as an encounter template (FR-GM-13, ADR 0024). The board is read on the server. */
+export const SaveEncounterRequest = z.object({ roomId: z.uuid(), name: EncounterName });
+export type SaveEncounterRequest = z.infer<typeof SaveEncounterRequest>;
+
+/** Rebuild a template from a room the GM owns, keeping its id and name (ADR 0033). */
+export const ReplaceEncounterFromRoomRequest = z.object({ roomId: z.uuid() });
+export type ReplaceEncounterFromRoomRequest = z.infer<typeof ReplaceEncounterFromRoomRequest>;
+
+/**
+ * Open a template, or a new one on a library map, in a temporary room only its GM can enter
+ * (ADR 0033). `guestToken` is the browser's credential for the room, as for any room it creates.
+ */
+export const StartEncounterEditRequest = z.union([
+  z.object({ templateId: z.uuid(), guestToken: z.string().min(16).max(256) }).strict(),
+  z.object({ mapAssetId: z.uuid(), guestToken: z.string().min(16).max(256) }).strict(),
+]);
+export type StartEncounterEditRequest = z.infer<typeof StartEncounterEditRequest>;
+
+export type StartEncounterEditResponse = RoomCredentials;
+
+/** What a temporary editing room is editing; `templateId` is null until a new template is first saved. */
+export interface EncounterEditSession {
+  roomId: string;
+  templateId: string | null;
+  templateName: string | null;
+  mapAssetId: string | null;
+}
+
+/** Save a temporary room's board to its template. `name` is needed only on a new template's first save. */
+export const SaveEncounterEditRequest = z.object({ name: EncounterName.optional() });
+export type SaveEncounterEditRequest = z.infer<typeof SaveEncounterEditRequest>;
+
+export const RenameEncounterRequest = z.object({ name: EncounterName });
+export type RenameEncounterRequest = z.infer<typeof RenameEncounterRequest>;
+
+/** One of the GM's encounter templates, as the library lists it. The board data stays on the server. */
+export interface EncounterSummary {
+  id: string;
+  name: string;
+  /** The library map's name, or null when that map has since been deleted. */
+  mapName: string | null;
+  /** The library map's id, or null when that map has since been deleted. */
+  mapAssetId: string | null;
+  tokenCount: number;
+  fogCount: number;
+  createdAt: string;
+  /** When the template was last saved; the library lists newest first. */
+  updatedAt: string;
+}
+

@@ -2,13 +2,16 @@ import {
   Prisma,
   PrismaClient,
   type DiceLook,
+  type EncounterTemplate,
   type LibraryAsset,
   type LibraryCreature,
   type Session,
   type User,
 } from "@prisma/client";
 import { randomUUID } from "node:crypto";
-import { ConditionId, DEFAULT_TOKEN_COLOR, type AssetKind, type CommittedEvent, type DieName, type DomainEvent, type GmRoomSummary, type GridSpec, type LegacySummary } from "@vtt/shared";
+import type { GridDetectionCandidate, RoomUploadPurpose } from "@vtt/shared";
+import { DETECTION_STALE_MS, type DetectionOutcome, type DetectionRecord, type DetectionTarget, type DetectionState } from "./gridDetectionStore";
+import { ConditionId, DEFAULT_TOKEN_COLOR, presetFromLog, TokenAttacks, type AssetKind, type CommittedEvent, type DieName, type DomainEvent, type GmRoomSummary, type GridSpec, type LegacySummary } from "@vtt/shared";
 import {
   EmailTakenError,
   type EndedSessions,
@@ -18,6 +21,11 @@ import {
 } from "./identityStore";
 import {
   CreatureImageMissingError,
+  EncounterLimitError,
+  EncounterMapMissingError,
+  type EncounterRecord,
+  type EncounterUpdate,
+  type NewEncounterRecord,
   type CreaturePatch,
   type DiceFaceRecord,
   type DiceLookRecord,
@@ -36,6 +44,8 @@ const PRISMA_UNIQUE_VIOLATION = "P2002";
 const PRISMA_FOREIGN_KEY_VIOLATION = "P2003";
 /** Joined so a creature carries its art's URL; null once the art is deleted (ON DELETE SET NULL). */
 const WITH_IMAGE = { image: { select: { url: true } } } as const;
+/** Joined so a template carries its map name and address; null once the map is deleted (ON DELETE SET NULL). */
+const WITH_MAP = { map: { select: { name: true, url: true } } } as const;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
@@ -63,7 +73,10 @@ export class PostgresRoomStore implements RoomStore {
 
   async createRoom(roomId: string, inviteCode: string, options: NewRoomOptions = {}) {
     await this.prisma.room.create({
-      data: { id: roomId, inviteCode, ownerGmId: options.ownerGmId ?? null, name: options.name ?? null },
+      data: {
+        id: roomId, inviteCode, ownerGmId: options.ownerGmId ?? null, name: options.name ?? null,
+        temporary: options.temporary ?? false, editsEncounterId: options.editsEncounterId ?? null,
+      },
     });
   }
 
@@ -199,10 +212,15 @@ export class PostgresRoomStore implements RoomStore {
     return room ? room.ownerGmId : undefined;
   }
 
-  async recordRoomUpload(roomId: string, objectKey: string) {
+  async recordRoomUpload(roomId: string, objectKey: string, purpose: RoomUploadPurpose = "token", width?: number, height?: number) {
     await this.prisma.roomUpload.upsert({
       where: { roomId_objectKey: { roomId, objectKey } },
-      create: { roomId, objectKey },
+      create: {
+        roomId, objectKey, purpose, width, height,
+        ...(purpose === "map" && {
+          detectionStatus: "queued", detectionAttempt: 1, detectionUpdatedAt: new Date(),
+        }),
+      },
       update: {},
     });
   }
@@ -237,6 +255,39 @@ export class PostgresRoomStore implements RoomStore {
     return deleted;
   }
 
+  async isTemporaryRoom(roomId: string) {
+    if (!UUID.test(roomId)) return false;
+    return (await this.prisma.room.count({ where: { id: roomId, temporary: true } })) === 1;
+  }
+
+  async findEditSession(roomId: string, ownerGmId: string) {
+    if (!UUID.test(roomId)) return null;
+    const room = await this.prisma.room.findFirst({ where: { id: roomId, ownerGmId, temporary: true }, select: { editsEncounterId: true } });
+    return room ? { editsEncounterId: room.editsEncounterId } : null;
+  }
+
+  async createEncounterForEditRoom(roomId: string, encounter: NewEncounterRecord, maxPerOwner: number) {
+    if (!UUID.test(roomId)) return null;
+    return this.withEncounterErrors(() => this.prisma.$transaction(async (tx) => {
+      // The room row lock makes a second save of this room wait, then see the first one's link.
+      // Lock order is the room, then the owner's template lock; nothing takes them the other way.
+      const [room] = await tx.$queryRaw<{ edits_encounter_id: string | null }[]>`
+        SELECT edits_encounter_id FROM rooms
+        WHERE id = ${roomId}::uuid AND owner_gm_id = ${encounter.ownerGmId}::uuid AND temporary
+        FOR UPDATE`;
+      if (!room) return null;
+      if (room.edits_encounter_id) return { linkedTo: room.edits_encounter_id };
+      const created = await insertEncounter(tx, encounter, maxPerOwner);
+      await tx.room.update({ where: { id: roomId }, data: { editsEncounterId: created.id } });
+      return { created: toEncounterRecord(created) };
+    }));
+  }
+
+  async listTemporaryRoomsBefore(at: string) {
+    const rooms = await this.prisma.room.findMany({ where: { temporary: true, createdAt: { lt: new Date(at) } }, select: { id: true } });
+    return rooms.map((r) => r.id);
+  }
+
   async registerGm(tokenHash: string) {
     const row = await this.prisma.gmIdentity.upsert({
       where: { tokenHash },
@@ -253,12 +304,12 @@ export class PostgresRoomStore implements RoomStore {
   }
 
   async listOwnedRooms(ownerGmId: string): Promise<GmRoomSummary[]> {
-    return this.summarize({ ownerGmId });
+    return this.summarize({ ownerGmId, temporary: false });
   }
 
   async summarizeRooms(roomIds: string[]) {
     const ids = roomIds.filter((id) => UUID.test(id));
-    return ids.length ? this.summarize({ id: { in: ids } }) : [];
+    return ids.length ? this.summarize({ id: { in: ids }, temporary: false }) : [];
   }
 
   private async summarize(where: Prisma.RoomWhereInput): Promise<GmRoomSummary[]> {
@@ -271,10 +322,16 @@ export class PostgresRoomStore implements RoomStore {
         events: { select: { createdAt: true }, orderBy: { seq: "desc" }, take: 1 },
       },
     });
+    // The preset is on each room's first event, RoomCreated (KAN-63).
+    const first = rooms.length
+      ? await this.prisma.event.findMany({ where: { roomId: { in: rooms.map((r) => r.id) }, seq: 1 }, select: { roomId: true, payload: true } })
+      : [];
+    const firstById = new Map(first.map((e) => [e.roomId, e.payload as unknown as DomainEvent]));
     return rooms
       .map((r) => ({
         id: r.id,
         name: r.name ?? "",
+        preset: presetFromLog(firstById.get(r.id)),
         lastActiveAt: (r.events[0]?.createdAt ?? r.createdAt).toISOString(),
       }))
       .sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt));
@@ -283,11 +340,102 @@ export class PostgresRoomStore implements RoomStore {
   async createAsset(asset: LibraryAssetRecord) {
     await this.prisma.libraryAsset.create({
       data: {
-        ...asset,
+        id: asset.id, ownerGmId: asset.ownerGmId, kind: asset.kind, objectKey: asset.objectKey,
+        url: asset.url, name: asset.name, width: asset.width, height: asset.height,
         grid: asset.grid ?? Prisma.DbNull,
+        detectionStatus: asset.detectionStatus ?? null,
+        detectionAttempt: asset.detectionAttempt ?? 0,
+        detectionResult: asset.detectionResult ? asset.detectionResult as Prisma.InputJsonValue : Prisma.DbNull,
+        detectionUpdatedAt: asset.detectionStatus ? new Date(asset.detectionUpdatedAt ?? Date.now()) : null,
         createdAt: new Date(asset.createdAt),
       },
     });
+  }
+
+  async findDetection(target: DetectionTarget): Promise<DetectionRecord | null> {
+    if (target.scope === "library") {
+      const row = await this.prisma.libraryAsset.findUnique({ where: { id: target.id } });
+      if (!row || row.kind !== "map" || !row.detectionStatus) return null;
+      return {
+        target, objectKey: row.objectKey, width: row.width, height: row.height,
+        status: row.detectionStatus as DetectionState, attempt: row.detectionAttempt,
+        candidate: (row.detectionResult as GridDetectionCandidate | null) ?? null,
+      };
+    }
+    const row = await this.prisma.roomUpload.findUnique({
+      where: { roomId_objectKey: { roomId: target.roomId, objectKey: target.objectKey } },
+    });
+    if (!row || row.purpose !== "map" || !row.detectionStatus || !row.width || !row.height) return null;
+    return {
+      target, objectKey: row.objectKey, width: row.width, height: row.height,
+      status: row.detectionStatus as DetectionState, attempt: row.detectionAttempt,
+      candidate: (row.detectionResult as GridDetectionCandidate | null) ?? null,
+    };
+  }
+
+  async markDetectionRunning(target: DetectionTarget, attempt: number) {
+    const where = { detectionStatus: "queued", detectionAttempt: attempt };
+    const data = { detectionStatus: "running", detectionUpdatedAt: new Date() };
+    const result = target.scope === "library"
+      ? await this.prisma.libraryAsset.updateMany({ where: { id: target.id, kind: "map", ...where }, data })
+      : await this.prisma.roomUpload.updateMany({ where: { roomId: target.roomId, objectKey: target.objectKey, purpose: "map", ...where }, data });
+    return result.count === 1;
+  }
+
+  async finishDetection(target: DetectionTarget, attempt: number, outcome: DetectionOutcome) {
+    const where = { detectionStatus: "running", detectionAttempt: attempt };
+    const data = {
+      detectionStatus: outcome.status,
+      detectionResult: outcome.status === "suggested" ? outcome.candidate as Prisma.InputJsonValue : Prisma.DbNull,
+      detectionUpdatedAt: new Date(),
+    };
+    const result = target.scope === "library"
+      ? await this.prisma.libraryAsset.updateMany({ where: { id: target.id, ...where }, data })
+      : await this.prisma.roomUpload.updateMany({ where: { roomId: target.roomId, objectKey: target.objectKey, ...where }, data });
+    return result.count === 1;
+  }
+
+  async retryDetection(target: DetectionTarget) {
+    const data = { detectionStatus: "queued", detectionAttempt: { increment: 1 }, detectionResult: Prisma.DbNull, detectionUpdatedAt: new Date() };
+    const result = target.scope === "library"
+      ? await this.prisma.libraryAsset.updateMany({ where: { id: target.id, detectionStatus: "error" }, data })
+      : await this.prisma.roomUpload.updateMany({ where: { roomId: target.roomId, objectKey: target.objectKey, detectionStatus: "error" }, data });
+    return result.count === 1 ? (await this.findDetection(target))!.attempt : null;
+  }
+
+  async recoverDetections() {
+    const stale = new Date(Date.now() - DETECTION_STALE_MS);
+    const pending: Array<{ target: DetectionTarget; attempt: number }> = [];
+    const library = await this.prisma.libraryAsset.findMany({
+      where: { kind: "map", OR: [{ detectionStatus: "queued" }, { detectionStatus: "running", detectionUpdatedAt: { lt: stale } }] },
+      select: { id: true, detectionStatus: true, detectionAttempt: true },
+    });
+    const rooms = await this.prisma.roomUpload.findMany({
+      where: { purpose: "map", OR: [{ detectionStatus: "queued" }, { detectionStatus: "running", detectionUpdatedAt: { lt: stale } }] },
+      select: { roomId: true, objectKey: true, detectionStatus: true, detectionAttempt: true },
+    });
+    for (const row of library) {
+      const target: DetectionTarget = { scope: "library", id: row.id };
+      const attempt = await this.recoverOne(target, row.detectionStatus, row.detectionAttempt, stale);
+      if (attempt) pending.push({ target, attempt });
+    }
+    for (const row of rooms) {
+      const target: DetectionTarget = { scope: "room", roomId: row.roomId, objectKey: row.objectKey };
+      const attempt = await this.recoverOne(target, row.detectionStatus, row.detectionAttempt, stale);
+      if (attempt) pending.push({ target, attempt });
+    }
+    return pending;
+  }
+
+  private async recoverOne(target: DetectionTarget, status: string | null, attempt: number, stale: Date) {
+    if (status === "queued") return attempt;
+    if (status !== "running") return null;
+    const where = { detectionStatus: "running", detectionAttempt: attempt, detectionUpdatedAt: { lt: stale } };
+    const data = { detectionStatus: "queued", detectionAttempt: { increment: 1 }, detectionUpdatedAt: new Date() };
+    const result = target.scope === "library"
+      ? await this.prisma.libraryAsset.updateMany({ where: { id: target.id, ...where }, data })
+      : await this.prisma.roomUpload.updateMany({ where: { roomId: target.roomId, objectKey: target.objectKey, ...where }, data });
+    return result.count === 1 ? attempt + 1 : null;
   }
 
   async listAssets(ownerGmId: string) {
@@ -370,6 +518,67 @@ export class PostgresRoomStore implements RoomStore {
   async deleteCreature(id: string, ownerGmId: string) {
     const { count } = await this.prisma.libraryCreature.deleteMany({ where: { id, ownerGmId } });
     return count === 1;
+  }
+
+  // ---------- Encounter templates (ADR 0024) ----------
+
+  async listEncounters(ownerGmId: string) {
+    const rows = await this.prisma.encounterTemplate.findMany({
+      where: { ownerGmId }, orderBy: { updatedAt: "desc" }, include: WITH_MAP,
+    });
+    return rows.map(toEncounterRecord);
+  }
+
+  async findEncounter(id: string, ownerGmId: string) {
+    // `encounter.apply` carries any string; a non-uuid reads as no template instead of a query error.
+    if (!UUID.test(id)) return null;
+    const row = await this.prisma.encounterTemplate.findFirst({ where: { id, ownerGmId }, include: WITH_MAP });
+    return row ? toEncounterRecord(row) : null;
+  }
+
+  countEncounters(ownerGmId: string) {
+    return this.prisma.encounterTemplate.count({ where: { ownerGmId } });
+  }
+
+  async createEncounter(encounter: NewEncounterRecord, maxPerOwner: number) {
+    return this.withEncounterErrors(async () =>
+      toEncounterRecord(await this.prisma.$transaction((tx) => insertEncounter(tx, encounter, maxPerOwner))));
+  }
+
+  private async withEncounterErrors<T>(run: () => Promise<T>): Promise<T> {
+    try {
+      return await run();
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === PRISMA_FOREIGN_KEY_VIOLATION) throw new EncounterMapMissingError();
+      throw err;
+    }
+  }
+
+  async updateEncounter(id: string, ownerGmId: string, change: EncounterUpdate) {
+    if (!UUID.test(id)) return null;
+    const { count } = await this.prisma.encounterTemplate.updateMany({
+      where: { id, ownerGmId },
+      data: { name: change.name, data: change.data as unknown as Prisma.InputJsonValue, updatedAt: new Date(change.updatedAt) },
+    });
+    return count === 1 ? this.findEncounter(id, ownerGmId) : null;
+  }
+
+  async renameEncounter(id: string, ownerGmId: string, name: string, at: string) {
+    if (!UUID.test(id)) return null;
+    const { count } = await this.prisma.encounterTemplate.updateMany({ where: { id, ownerGmId }, data: { name, updatedAt: new Date(at) } });
+    return count === 1 ? this.findEncounter(id, ownerGmId) : null;
+  }
+
+  async deleteEncounter(id: string, ownerGmId: string) {
+    if (!UUID.test(id)) return false;
+    const { count } = await this.prisma.encounterTemplate.deleteMany({ where: { id, ownerGmId } });
+    return count === 1;
+  }
+
+  async encountersUsingMap(assetId: string, ownerGmId: string) {
+    return this.prisma.encounterTemplate.findMany({
+      where: { mapAssetId: assetId, ownerGmId }, select: { id: true, name: true }, orderBy: { createdAt: "desc" },
+    });
   }
 
   async creaturesUsingImage(assetId: string, ownerGmId: string) {
@@ -630,12 +839,50 @@ async function missingImageAsError<T>(write: () => Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * One save at a time per owner: the advisory lock is held until the transaction ends, so the count
+ * cannot go stale before the insert.
+ */
+async function insertEncounter(tx: Prisma.TransactionClient, encounter: NewEncounterRecord, maxPerOwner: number) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`encounter_templates:${encounter.ownerGmId}`}))`;
+  if ((await tx.encounterTemplate.count({ where: { ownerGmId: encounter.ownerGmId } })) >= maxPerOwner) {
+    throw new EncounterLimitError(maxPerOwner);
+  }
+  return tx.encounterTemplate.create({
+    data: {
+      ...encounter,
+      data: encounter.data as unknown as Prisma.InputJsonValue,
+      createdAt: new Date(encounter.createdAt),
+      updatedAt: new Date(encounter.updatedAt),
+    },
+    include: WITH_MAP,
+  });
+}
+
+function toEncounterRecord(row: EncounterTemplate & { map: { name: string; url: string } | null }): EncounterRecord {
+  return {
+    id: row.id,
+    ownerGmId: row.ownerGmId,
+    name: row.name,
+    version: row.version,
+    // Validated again where it is applied (ADR 0024), so a row from an older format is not trusted here.
+    data: row.data as unknown as EncounterRecord["data"],
+    mapAssetId: row.mapAssetId,
+    mapName: row.map?.name ?? null,
+    mapUrl: row.map?.url ?? null,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
 function toCreatureRecord(row: LibraryCreature & { image: { url: string } | null }): LibraryCreatureRecord {
   return {
     id: row.id,
     ownerGmId: row.ownerGmId,
     name: row.name,
     size: row.size,
+    hp: row.hp,
+    attacks: TokenAttacks.parse(row.attacks),
     maxHp: row.maxHp,
     ac: row.ac,
     color: row.color ?? DEFAULT_TOKEN_COLOR,
@@ -657,6 +904,10 @@ function toAssetRecord(row: LibraryAsset): LibraryAssetRecord {
     width: row.width,
     height: row.height,
     grid: (row.grid as unknown as GridSpec | null) ?? null,
+    detectionStatus: row.detectionStatus as DetectionState | null,
+    detectionAttempt: row.detectionAttempt,
+    detectionResult: (row.detectionResult as GridDetectionCandidate | null) ?? null,
+    detectionUpdatedAt: row.detectionUpdatedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
   };
 }

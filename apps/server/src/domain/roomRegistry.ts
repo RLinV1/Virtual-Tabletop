@@ -1,6 +1,6 @@
 import type { SessionEndReason } from "@vtt/shared";
 import type { RoomStore } from "../store/roomStore";
-import { LiveRoom } from "./liveRoom";
+import { LiveRoom, type RoomHooks } from "./liveRoom";
 
 /**
  * Loads each room at most once per process. Single-process only: running more than one
@@ -9,7 +9,7 @@ import { LiveRoom } from "./liveRoom";
 export class RoomRegistry {
   private rooms = new Map<string, Promise<LiveRoom>>();
 
-  constructor(private store: RoomStore) {}
+  constructor(private store: RoomStore, private hooks: RoomHooks = {}) {}
 
   async get(roomId: string): Promise<LiveRoom | null> {
     const existing = this.rooms.get(roomId);
@@ -26,7 +26,7 @@ export class RoomRegistry {
     // Re-check after the await so concurrent callers share one load.
     let loading = this.rooms.get(roomId);
     if (!loading) {
-      loading = LiveRoom.load(roomId, this.store);
+      loading = LiveRoom.load(roomId, this.store, this.hooks);
       this.rooms.set(roomId, loading);
       // A failed load is logged and forgotten, so the next caller tries again (room-load-isolation).
       loading.catch((err: unknown) => {
@@ -70,6 +70,11 @@ export class RoomRegistry {
       }
     }
     await this.closeCredentials(gone);
+  }
+
+  /** The room if it is already loaded; never loads one. For notices only its connected clients need. */
+  async loaded(roomId: string): Promise<LiveRoom | null> {
+    return (await this.rooms.get(roomId)?.catch(() => null)) ?? null;
   }
 
   /** Forgets a room, so the next `get` reads the store again. */

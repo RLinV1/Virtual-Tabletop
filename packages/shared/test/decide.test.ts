@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   Command, decide, decideJoin, isActive, isDisplayNameTaken, isTokenNameTaken, normalizeDisplayName, reduceAll,
-  uniqueTokenName, type Participant, type RoomState,
+  uniqueName, uniqueTokenName, type Participant, type RoomState,
 } from "../src";
 import { alice, attempt, baseRoom, bob, ctx, gm, run, withToken } from "./fixtures";
 
@@ -133,6 +133,13 @@ describe("token name uniqueness (KAN-62)", () => {
     expect(uniqueTokenName(roomWith("Goblin", "Goblin 2"), "Goblin 2")).toBe("Goblin 3");
     expect(uniqueTokenName(roomWith("Goblin"), "Goblin 7")).toBe("Goblin 7");
     expect(uniqueTokenName(roomWith("12"), "12")).toBe("12 2");
+  });
+
+  it("numbers a plain list of names the same way, for the encounter editor (ADR 0033)", () => {
+    expect(uniqueName([], "Goblin")).toBe("Goblin");
+    expect(uniqueName(["Goblin"], "Goblin")).toBe("Goblin 2");
+    expect(uniqueName(["Goblin", "goblin 2"], "Goblin")).toBe("Goblin 3");
+    expect(uniqueName(["Orc"], "  Goblin ")).toBe("Goblin");
   });
 
   it("keeps a numbered name within the 60-character limit", () => {

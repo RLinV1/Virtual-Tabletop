@@ -3,7 +3,7 @@
 ## 1. Manual grid draft
 
 - [x] 1.1 Keep editable grid values as strings and validate positive size and units plus canonical offsets in `gridDraft.ts`; verify the form can hold an empty field and `npm run typecheck` passes.
-- [x] 1.2 Put the correction form, one- and five-pixel nudges, manual-confidence label and validation message in Battle map → Adjust grid; verify the controls are present in `GmPanel.tsx` and `npm run lint` passes.
+- [x] 1.2 Put the correction form, one- and five-pixel nudges, current-grid label and validation message in Battle map → Adjust grid; verify the controls are present in `GmPanel.tsx` and `npm run lint` passes.
 
 ## 2. Private preview and application
 

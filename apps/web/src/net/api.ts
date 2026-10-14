@@ -1,12 +1,21 @@
 import {
   GM_TOKEN_HEADER,
   HistoryResponse,
+  ReplayPointsResponse,
+  ReplayResponse,
   type AssetKind,
   type CreateCreatureRequest,
   type DiceLookView,
   type DiceLooksResponse,
   type DieName,
+  type EncounterEditSession,
+  type EncounterSummary,
   type GridSpec,
+  GridDetectionStatus,
+  DetectedWallsResponse,
+  WallDetectionStatus,
+  WallDetectionAvailability,
+  type WallDetectionRequest,
   type InviteSeatResponse,
   type LegacySummary,
   type LibraryAsset,
@@ -14,9 +23,13 @@ import {
   type LibraryUsageResponse,
   type MeResponse,
   type MyRoomsResponse,
+  type SaveEncounterEditRequest,
+  type SaveEncounterRequest,
   type SeatResponse,
   type SignInRequest,
   type SignUpRequest,
+  type StartEncounterEditRequest,
+  type StartEncounterEditResponse,
   type UpdateCreatureRequest,
 } from "@vtt/shared";
 import type {
@@ -129,6 +142,24 @@ export const api = {
     return HistoryResponse.parse(await res.json());
   },
 
+  /** Where this participant can start a replay of the room (FR-PL-07, ADR 0025). */
+  async replayPoints(roomId: string, token: string, signal?: AbortSignal) {
+    const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/replay`, {
+      headers: { authorization: `Bearer ${token}` }, signal,
+    });
+    if (!res.ok) throw await errorFrom(res);
+    return ReplayPointsResponse.parse(await res.json()).points;
+  },
+
+  /** The room's history from one replay point, filtered for this participant by the server (FR-PL-07). */
+  async replay(roomId: string, token: string, pointId: string, signal?: AbortSignal) {
+    const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/replay/${encodeURIComponent(pointId)}`, {
+      headers: { authorization: `Bearer ${token}` }, signal,
+    });
+    if (!res.ok) throw await errorFrom(res);
+    return ReplayResponse.parse(await res.json());
+  },
+
   /** The room's current invite code (FR-GM-20). GM only; the server answers 403 otherwise. */
   getInvite: (roomId: string, token: string) => roomRequest<InviteResponse>(roomId, token, "GET"),
 
@@ -146,9 +177,14 @@ export const api = {
   joinRoom: (inviteCode: string, req: JoinRoomRequest) =>
     postJson<JoinRoomResponse>(`/api/invites/${encodeURIComponent(inviteCode)}/join`, req),
 
-  async upload(file: File, token: string): Promise<UploadResponse> {
+  async upload(file: File, token: string, mapSize?: { width: number; height: number }): Promise<UploadResponse> {
     const form = new FormData();
     form.append("file", file);
+    if (mapSize) {
+      form.append("purpose", "map");
+      form.append("width", String(mapSize.width));
+      form.append("height", String(mapSize.height));
+    }
     const res = await fetch("/api/uploads", {
       method: "POST",
       headers: { authorization: `Bearer ${token}` },
@@ -156,6 +192,84 @@ export const api = {
     });
     if (!res.ok) throw await errorFrom(res);
     return (await res.json()) as UploadResponse;
+  },
+
+  /** Wall detection for the room's map, as its GM (FR-GM-11, ADR 0029). */
+  walls: {
+    /**
+     * Queues an analysis of the room's current map. With `sample`, a point on a wall the GM
+     * clicked, the worker looks for walls of that colour, within `tolerance` Lab units of it
+     * (wall-editing); `strictness` and `minLength` filter what it finds.
+     */
+    async detect(roomId: string, token: string, request: WallDetectionRequest = {}): Promise<WallDetectionStatus> {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/wall-detection`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify(request),
+      });
+      if (!res.ok) throw await errorFrom(res);
+      return WallDetectionStatus.parse(await res.json());
+    },
+    /** Whether this server can detect walls now (map-editor D4); names no room. */
+    async availability(signal?: AbortSignal): Promise<WallDetectionAvailability> {
+      const res = await fetch("/api/wall-detection/availability", { signal, cache: "no-store" });
+      if (!res.ok) throw await errorFrom(res);
+      return WallDetectionAvailability.parse(await res.json());
+    },
+    /** The latest analysis of this map, or null when the room never analyzed it. */
+    async status(roomId: string, token: string, mapUrl: string, signal?: AbortSignal): Promise<WallDetectionStatus | null> {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/wall-detection?map=${encodeURIComponent(mapUrl)}`, {
+        headers: { authorization: `Bearer ${token}` }, signal, cache: "no-store",
+      });
+      if (res.status === 404) return null;
+      if (!res.ok) throw await errorFrom(res);
+      return WallDetectionStatus.parse(await res.json());
+    },
+    /** The detected segments of a finished analysis, for erasing false ones before applying. */
+    async detected(roomId: string, token: string, mapUrl: string, signal?: AbortSignal): Promise<DetectedWallsResponse> {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/wall-detection/walls?map=${encodeURIComponent(mapUrl)}`, {
+        signal, cache: "no-store", headers: { authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw await errorFrom(res);
+      return DetectedWallsResponse.parse(await res.json());
+    },
+    /** The rendered preview, fetched with the GM's credential (an <img> can't send it). */
+    async preview(roomId: string, token: string, mapUrl: string, signal?: AbortSignal): Promise<Blob> {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/wall-detection/preview?map=${encodeURIComponent(mapUrl)}`, {
+        headers: { authorization: `Bearer ${token}` }, signal, cache: "no-store",
+      });
+      if (!res.ok) throw await errorFrom(res);
+      return res.blob();
+    },
+  },
+
+  detection: {
+    async room(roomId: string, token: string, mapUrl: string, signal?: AbortSignal) {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/grid-detection`, {
+        headers: { authorization: `Bearer ${token}`, "x-expected-map-url": mapUrl }, signal,
+      });
+      if (res.status === 404) return null;
+      if (!res.ok) throw await errorFrom(res);
+      return GridDetectionStatus.parse(await res.json());
+    },
+    async retryRoom(roomId: string, token: string, mapUrl: string) {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/grid-detection/retry`, {
+        method: "POST", headers: { authorization: `Bearer ${token}`, "x-expected-map-url": mapUrl },
+      });
+      if (!res.ok) throw await errorFrom(res);
+      return GridDetectionStatus.parse(await res.json());
+    },
+    /** A library map's analysis, as the signed-in account that owns it (ADR 0017). */
+    async library(id: string, signal?: AbortSignal) {
+      const res = await fetch(`/api/library/${encodeURIComponent(id)}/grid-detection`, { signal, cache: "no-store" });
+      if (res.status === 401) onSignedOut();
+      if (res.status === 404) return null;
+      if (!res.ok) throw await errorFrom(res);
+      return GridDetectionStatus.parse(await res.json());
+    },
+    retryLibrary: (id: string) =>
+      accountRequest<unknown>(`/api/library/${encodeURIComponent(id)}/grid-detection/retry`, { method: "POST" })
+        .then((raw) => GridDetectionStatus.parse(raw)),
   },
 
   /** Accounts (FR-GM-01, ADR 0017). Errors carry the field to show them beside. */
@@ -242,6 +356,29 @@ export const api = {
         accountRequest<LibraryCreature>(`/api/library/creatures/${encodeURIComponent(id)}`, { method: "PATCH", ...jsonBody(patch) }),
       remove: (id: string) =>
         accountRequest<void>(`/api/library/creatures/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    },
+
+    /** Encounter templates: a room's prepared board saved to the account (encounter-templates, ADR 0024). */
+    encounters: {
+      list: () => accountRequest<EncounterSummary[]>("/api/library/encounters"),
+      save: (req: SaveEncounterRequest) =>
+        accountRequest<EncounterSummary>("/api/library/encounters", { method: "POST", ...jsonBody(req) }),
+      rename: (id: string, name: string) =>
+        accountRequest<EncounterSummary>(`/api/library/encounters/${encodeURIComponent(id)}`, { method: "PATCH", ...jsonBody({ name }) }),
+      remove: (id: string) =>
+        accountRequest<void>(`/api/library/encounters/${encodeURIComponent(id)}`, { method: "DELETE" }),
+      /** Rebuilds a template from a room the GM owns, keeping its id and name (ADR 0033). */
+      replaceFromRoom: (id: string, roomId: string) =>
+        accountRequest<EncounterSummary>(`/api/library/encounters/${encodeURIComponent(id)}/from-room`, { method: "PUT", ...jsonBody({ roomId }) }),
+    },
+
+    /** Editing a template in a temporary room only this GM can enter (ADR 0033). Leaving is `rooms.remove`. */
+    encounterEdits: {
+      start: (req: StartEncounterEditRequest) =>
+        accountRequest<StartEncounterEditResponse>("/api/library/encounter-edits", { method: "POST", ...jsonBody(req) }),
+      get: (roomId: string) => accountRequest<EncounterEditSession>(`/api/library/encounter-edits/${encodeURIComponent(roomId)}`),
+      save: (roomId: string, req: SaveEncounterEditRequest = {}) =>
+        accountRequest<EncounterSummary>(`/api/library/encounter-edits/${encodeURIComponent(roomId)}/save`, { method: "POST", ...jsonBody(req) }),
     },
 
     /** Dice looks saved to the account (dice-looks, ADR 0017 O3). */

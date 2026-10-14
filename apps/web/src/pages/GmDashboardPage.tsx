@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import type { GmRoomSummary, LegacySummary, MyRoomsResponse } from "@vtt/shared";
+import { presetOf } from "@vtt/shared";
+import type { EncounterSummary, GmRoomSummary, LegacySummary, MyRoomsResponse } from "@vtt/shared";
 import { AccountMenu } from "../account/AccountPages";
 import { RequireAccount } from "../account/RequireAccount";
 import { Link } from "../Link";
 import { api, ApiError } from "../net/api";
-import { forgetGmToken, newGuestToken, saveCredentials } from "../net/identity";
+import { forgetGmToken } from "../net/identity";
 import { legacyOffer } from "../net/legacy";
 import { ensureSeat } from "../net/seats";
 import { navigate } from "../router";
 import { Modal } from "../ui/Modal";
+import { formatRelative } from "../ui/formatRelative";
+import { createRoomWith, emptyRoomDetails, RoomDetailsFields, type RoomDetails } from "./RoomDetailsFields";
 
 /**
  * The signed-in person's place outside a room (gm-dashboard, room-membership): create a room,
@@ -70,20 +73,28 @@ function withoutRoom(state: RoomsState, id: string): RoomsState {
 
 /** Hosting needs the account, which the session cookie carries; the GM seat is kept on it too. */
 function CreateRoomCard() {
-  const [roomName, setRoomName] = useState("");
-  const [displayName, setDisplayName] = useState("");
+  const [details, setDetails] = useState<RoomDetails>(() => emptyRoomDetails());
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** The GM's saved encounters, offered as a starting board (encounter-templates, FR-GM-13). */
+  const [templates, setTemplates] = useState<EncounterSummary[]>([]);
+  const [templateId, setTemplateId] = useState("");
+
+  useEffect(() => {
+    let live = true;
+    // Best effort: with no templates, or a failed load, the form is just the plain one.
+    api.library.encounters.list().then((list) => live && setTemplates(list.filter((t) => t.mapName !== null)), () => {});
+    return () => {
+      live = false;
+    };
+  }, []);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      const guestToken = newGuestToken();
-      const created = await api.createRoom({ roomName, displayName, guestToken });
-      saveCredentials({ ...created, guestToken, viaAccount: true });
-      navigate(`/r/${created.roomId}`);
+      navigate(`/r/${await createRoomWith(details, templateId || undefined)}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create room");
       setBusy(false);
@@ -93,26 +104,18 @@ function CreateRoomCard() {
   return (
     <form className="card" aria-labelledby="create-room-heading" onSubmit={onSubmit}>
       <h2 id="create-room-heading">Create a room</h2>
-      <label>
-        Room name
-        <input
-          value={roomName}
-          onChange={(e) => setRoomName(e.target.value)}
-          required
-          maxLength={80}
-          placeholder="The Broken Span"
-        />
-      </label>
-      <label>
-        Your name
-        <input
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-          required
-          maxLength={40}
-          placeholder="Your name"
-        />
-      </label>
+      <RoomDetailsFields value={details} onChange={setDetails} />
+      {templates.length > 0 && (
+        <label>
+          Start from template
+          <select value={templateId} onChange={(e) => setTemplateId(e.target.value)}>
+            <option value="">Empty room</option>
+            {templates.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+        </label>
+      )}
       {error && (
         <p role="alert" className="error">
           {error}
@@ -152,7 +155,7 @@ function RoomRow(props: { room: GmRoomSummary; opening: boolean; onOpen: () => v
     <li>
       <div>
         <strong>{name}</strong>
-        <span className="muted"> · active {formatRelative(props.room.lastActiveAt)}</span>
+        <span className="muted"> · {presetOf(props.room).name} · active {formatRelative(props.room.lastActiveAt)}</span>
       </div>
       <div className="row">
         <button type="button" className="secondary small" onClick={props.onOpen} disabled={props.opening}>
@@ -369,12 +372,3 @@ function describeCounts(s: LegacySummary): string {
   return named.length > 1 ? `${named.slice(0, -1).join(", ")} and ${named.at(-1)}` : (named[0] ?? "nothing");
 }
 
-function formatRelative(iso: string) {
-  const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} h ago`;
-  const days = Math.round(hours / 24);
-  return days < 30 ? `${days} d ago` : new Date(iso).toLocaleDateString();
-}

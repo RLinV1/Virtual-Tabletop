@@ -1,0 +1,198 @@
+import {
+  MAX_WALLS_PER_ADD, MAX_WALLS_PER_REMOVE,
+  polygonArea, wallsFitMap,
+  type CommandInput, type FogRegion, type Point, type Portal, type RoomState, type Wall,
+} from "@vtt/shared";
+
+/**
+ * The map editor's private copy of the room's walls and fog (map-editor-drafts). The Walls and Fog
+ * steps edit it; nothing reaches the room until Save sends the difference with existing commands.
+ */
+export interface MapDraft {
+  /** The applied map this draft belongs to. */
+  mapUrl: string;
+  walls: Record<string, Wall>;
+  fog: Record<string, FogRegion>;
+}
+
+/** Walls and fog drawn in the editor carry ids with this prefix; the room gives them real ones on Save. */
+export const DRAFT_ID = "draft:";
+
+export function draftFrom(state: Pick<RoomState, "scene" | "walls" | "fog">): MapDraft {
+  return { mapUrl: state.scene.map?.url ?? "", walls: state.walls, fog: state.fog };
+}
+
+const pointKey = (p: Point) => `${Math.round(p.x * 10)},${Math.round(p.y * 10)}`;
+
+/** A wall's identity for the diff: its endpoints to a tenth of a pixel, in either direction. */
+function wallKey(wall: { a: Point; b: Point }): string {
+  const [a, b] = [pointKey(wall.a), pointKey(wall.b)];
+  return a < b ? `${a}|${b}` : `${b}|${a}`;
+}
+
+/** A fog region's identity for the diff: its shape and corners, so ids never need to match. */
+const fogKey = (region: FogRegion) => `${region.shape}:${region.points.map(pointKey).join(" ")}`;
+
+/** A fog region as `fog.add` takes it: a rectangle by its corners, or the polygon's points. */
+function fogAdd(region: FogRegion): Extract<CommandInput, { type: "fog.add" }>["region"] {
+  if (region.shape === "polygon") return { shape: "polygon", points: region.points };
+  const xs = region.points.map((p) => p.x);
+  const ys = region.points.map((p) => p.y);
+  return { shape: "rect", from: { x: Math.min(...xs), y: Math.min(...ys) }, to: { x: Math.max(...xs), y: Math.max(...ys) } };
+}
+
+function chunks<T>(items: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+function matchEntities<T extends { id: string }>(room: Record<string, T>, draft: Record<string, T>, key: (entity: T) => string): Map<string, T> {
+  const matches = new Map<string, T>();
+  const available = new Map(Object.values(room).map((entity) => [entity.id, entity]));
+  for (const entity of Object.values(draft)) {
+    const retained = available.get(entity.id);
+    if (!retained) continue;
+    matches.set(entity.id, retained);
+    available.delete(retained.id);
+  }
+  const byKey = new Map<string, T[]>();
+  for (const entity of available.values()) {
+    const value = key(entity);
+    const bucket = byKey.get(value) ?? [];
+    bucket.push(entity);
+    byKey.set(value, bucket);
+  }
+  for (const entity of Object.values(draft)) {
+    if (matches.has(entity.id)) continue;
+    const retained = byKey.get(key(entity))?.pop();
+    if (!retained) continue;
+    matches.set(entity.id, retained);
+  }
+  return matches;
+}
+
+export function planDraftSave(room: Pick<RoomState, "scene" | "walls" | "fog">, draft: MapDraft): CommandInput[] {
+  if (room.scene.map?.url !== draft.mapUrl) throw new Error("The map changed. Reopen the editor before saving.");
+  const commands: CommandInput[] = [];
+  const fogMatches = matchEntities(room.fog, draft.fog, fogKey);
+
+  const roomWalls = Object.values(room.walls);
+  const draftWalls = Object.values(draft.walls);
+  const wallMatches = matchEntities(room.walls, draft.walls, (w) => `${wallKey(w)}:${w.portal?.kind ?? ""}:${w.portal?.state ?? ""}`);
+  const retainedWallIds = new Set([...wallMatches.values()].map((w) => w.id));
+  if (draftWalls.length === 0 && roomWalls.length > 0) {
+    commands.push({ type: "wall.clear" });
+  } else {
+    const removed = roomWalls.filter((w) => !retainedWallIds.has(w.id)).map((w) => w.id);
+    for (const wallIds of chunks(removed, MAX_WALLS_PER_REMOVE)) commands.push({ type: "wall.remove", wallIds });
+  }
+  const added = draftWalls.filter((w) => !wallMatches.has(w.id)).map((w) => ({ a: w.a, b: w.b, ...(w.portal && { portal: w.portal }) }));
+  for (const walls of chunks(added, MAX_WALLS_PER_ADD)) commands.push({ type: "wall.add", walls });
+  for (const w of draftWalls) {
+    const roomWall = wallMatches.get(w.id);
+    if (!roomWall || samePortal(roomWall.portal, w.portal)) continue;
+    commands.push({ type: "portal.set", wallId: roomWall.id, portal: w.portal ?? null });
+  }
+
+  // Fog goes in one command so a full room can take a replacement and a refusal changes nothing (ADR 0032).
+  const retainedFogIds = new Set([...fogMatches.values()].map((f) => f.id));
+  const removeIds = Object.values(room.fog).filter((f) => !retainedFogIds.has(f.id)).map((f) => f.id);
+  const add = Object.values(draft.fog).filter((f) => !fogMatches.has(f.id)).map(fogAdd);
+  if (removeIds.length > 0 || add.length > 0) commands.push({ type: "fog.replace", removeIds, add });
+  return commands.map((command) => ({ ...command, expectedMapUrl: draft.mapUrl }));
+}
+
+/** Whether two walls are the same kind of portal, or both plain. */
+const samePortal = (a: Portal | undefined, b: Portal | undefined) => a?.kind === b?.kind && a?.state === b?.state;
+
+/** Whether Save would send anything. */
+export const draftDirty = (room: Pick<RoomState, "scene" | "walls" | "fog">, draft: MapDraft) => room.scene.map?.url === draft.mapUrl && planDraftSave(room, draft).length > 0;
+
+type FogAdd = Extract<CommandInput, { type: "fog.add" }>["region"];
+
+/** A fog region's corners, as the room stores them: a rectangle becomes its four corners. */
+const fogPoints = (region: FogAdd): Point[] => region.shape === "rect"
+  ? [
+      { x: Math.min(region.from.x, region.to.x), y: Math.min(region.from.y, region.to.y) },
+      { x: Math.max(region.from.x, region.to.x), y: Math.min(region.from.y, region.to.y) },
+      { x: Math.max(region.from.x, region.to.x), y: Math.max(region.from.y, region.to.y) },
+      { x: Math.min(region.from.x, region.to.x), y: Math.max(region.from.y, region.to.y) },
+    ]
+  : region.points;
+
+/** Why the server would refuse this wall or fog addition on a map of this size, or null: the draft only holds what Save can send. */
+export function draftCommandProblem(command: CommandInput, map: { width: number; height: number }): string | null {
+  if (command.type === "wall.add") {
+    if (command.walls.some((w) => w.a.x === w.b.x && w.a.y === w.b.y)) return "A wall needs two different ends.";
+    if (!wallsFitMap(command.walls, map)) return "Walls must lie on the map.";
+  }
+  if (command.type === "fog.add" && Math.abs(polygonArea(fogPoints(command.region))) < 1) return "A fog region needs some area.";
+  return null;
+}
+
+/**
+ * A wall or fog command applied to the draft instead of the room. `newId` names anything new.
+ * Returns null for a command the draft doesn't hold.
+ */
+export function applyToDraft(draft: MapDraft, command: CommandInput, newId: () => string): MapDraft | null {
+  switch (command.type) {
+    case "wall.add": {
+      const walls = { ...draft.walls };
+      for (const { a, b, portal } of command.walls) {
+        const id = newId();
+        walls[id] = { id, a, b, ...(portal && { portal }) };
+      }
+      return { ...draft, walls };
+    }
+    case "portal.set": {
+      const wall = draft.walls[command.wallId];
+      if (!wall) return draft;
+      const { portal: _previous, ...plain } = wall;
+      return { ...draft, walls: { ...draft.walls, [wall.id]: command.portal ? { ...plain, portal: command.portal } : plain } };
+    }
+    case "wall.remove": {
+      const walls = { ...draft.walls };
+      for (const id of command.wallIds) delete walls[id];
+      return { ...draft, walls };
+    }
+    case "wall.clear":
+      return { ...draft, walls: {} };
+    case "fog.add": {
+      const { region } = command;
+      const points = fogPoints(region);
+      const id = newId();
+      return { ...draft, fog: { ...draft.fog, [id]: { id, shape: region.shape, points } } };
+    }
+    case "fog.remove": {
+      const fog = { ...draft.fog };
+      delete fog[command.regionId];
+      return { ...draft, fog };
+    }
+    default:
+      return null;
+  }
+}
+
+/**
+ * Walls from a finished detection, as the draft's whole set of walls; a wall found twice counts
+ * once. A wall the draft already had keeps its door or window (ADR 0030).
+ */
+export function withDetectedWalls(draft: MapDraft, detected: readonly { a: Point; b: Point }[], newId: () => string): MapDraft {
+  const walls: Record<string, Wall> = {};
+  const seen = new Set<string>();
+  const existing = new Map<string, Wall>();
+  for (const wall of Object.values(draft.walls)) {
+    const key = wallKey(wall);
+    if (!existing.has(key)) existing.set(key, wall);
+  }
+  for (const { a, b } of detected) {
+    const key = wallKey({ a, b });
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const retained = existing.get(key);
+    const id = retained?.id ?? newId();
+    walls[id] = retained ?? { id, a, b };
+  }
+  return { ...draft, walls };
+}

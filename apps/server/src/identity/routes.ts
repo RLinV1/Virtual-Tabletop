@@ -15,12 +15,19 @@ import { clearSessionCookie, sessionCookie, toAccountView, type Sessions } from 
 
 const MINUTE = 60 * 1000;
 
-/** The limits of ADR 0017 I4. Exposed so tests can run them on a fake clock. */
+/**
+ * The server's HTTP limiters: those of ADR 0017 I4, plus password-change guesses and invite joins
+ * (security-hardening). Exposed so tests can run them on a fake clock.
+ */
 export function accountLimits(now: () => number = Date.now) {
   return {
     signInFailuresPerEmail: new RateLimiter(10, 15 * MINUTE, now),
     signInPerIp: new RateLimiter(30, 15 * MINUTE, now),
     signUpPerIp: new RateLimiter(10, 60 * MINUTE, now),
+    /** Wrong current passwords on a password change, per account: the sign-in budget, so a stolen cookie gains nothing. */
+    passwordChangeFailuresPerUser: new RateLimiter(10, 15 * MINUTE, now),
+    /** Invite join attempts per IP per room, so join-and-leave can't grow a room's log without bound. */
+    joinsPerIpPerRoom: new RateLimiter(30, 15 * MINUTE, now),
   };
 }
 export type AccountLimits = ReturnType<typeof accountLimits>;
@@ -64,18 +71,17 @@ export function registerIdentityRoutes(
       const body = SignInRequest.safeParse(req.body);
       if (!body.success) return void res.status(401).json({ error: SIGN_IN_FAILED });
       const emailKey = `signin:${body.data.email}`;
-      // Checked before any password work: a limited email costs no hashing, and the right
-      // password is refused too until the window passes.
-      if (refused(res, limits.signInFailuresPerEmail.check(emailKey))) return;
+      // Counted before any password work, and cleared again on success: a limited email costs no
+      // hashing, and the right password is refused too until the window passes. Counting up front
+      // (not after the await) means a burst sent at once can't all pass before any failure is
+      // recorded (security-hardening).
+      if (refused(res, limits.signInFailuresPerEmail.hit(emailKey))) return;
 
       const user = await store.findUserByEmail(body.data.email);
       const ok = user
         ? await verifyPassword(user.passwordHash, body.data.password)
         : await verifyAgainstDummy(body.data.password);
-      if (!user || !ok) {
-        limits.signInFailuresPerEmail.hit(emailKey);
-        return void res.status(401).json({ error: SIGN_IN_FAILED });
-      }
+      if (!user || !ok) return void res.status(401).json({ error: SIGN_IN_FAILED });
       limits.signInFailuresPerEmail.reset(emailKey);
       if (needsRehash(user.passwordHash)) {
         await store.setPasswordHash(user.id, await hashPassword(body.data.password), false);
@@ -111,9 +117,14 @@ export function registerIdentityRoutes(
       if (!current) return;
       const body = ChangePasswordRequest.safeParse(req.body);
       if (!body.success) return badRequest(res, body.error.issues);
+      const userKey = `password:${current.user.id}`;
+      // Counted before any password work and cleared on success, as on sign-in: a limited account
+      // costs no hashing, and a burst can't all pass before a failure is recorded.
+      if (refused(res, limits.passwordChangeFailuresPerUser.hit(userKey))) return;
       if (!(await verifyPassword(current.user.passwordHash, body.data.currentPassword))) {
         return void res.status(403).json({ error: "Current password is incorrect", field: "currentPassword" });
       }
+      limits.passwordChangeFailuresPerUser.reset(userKey);
       if (body.data.newPassword.trim().toLowerCase() === current.user.email) {
         return badRequest(res, [{ path: ["newPassword"], message: "Password can't be your email address" }]);
       }
@@ -130,10 +141,10 @@ export function registerIdentityRoutes(
 }
 
 /** A 429 with `Retry-After` when the limiter refused; true if it did. */
-function refused(res: Response, limit: LimitResult): boolean {
+export function refused(res: Response, limit: LimitResult, error = "Too many attempts. Try again later."): boolean {
   if (limit.ok) return false;
   res.setHeader("Retry-After", String(limit.retryAfterSec));
-  res.status(429).json({ error: "Too many attempts. Try again later.", retryAfterSec: limit.retryAfterSec });
+  res.status(429).json({ error, retryAfterSec: limit.retryAfterSec });
   return true;
 }
 

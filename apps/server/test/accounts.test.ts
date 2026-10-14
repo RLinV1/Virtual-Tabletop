@@ -230,6 +230,54 @@ describe("user accounts (FR-GM-01)", () => {
       await expect(server.signIn("sam@example.com", "correct horse")).resolves.toBeTruthy();
     });
 
+    it("stops guessing the current password on a password change after 10 failures in 15 minutes (security-hardening)", async () => {
+      const advance = await withClock();
+      const sam = await server.signUp({ email: "sam@example.com", password: "old password" });
+      const change = (currentPassword: string, newPassword = "new password") =>
+        sam.request("POST", "/api/auth/password", { currentPassword, newPassword });
+      for (let i = 0; i < 10; i++) expect((await change(`guess ${i}`)).status).toBe(403);
+
+      const eleventh = await change("old password");
+      expect(eleventh.status).toBe(429);
+      expect(Number(eleventh.headers.get("retry-after"))).toBeGreaterThan(0);
+      await expect(server.signIn("sam@example.com", "old password")).resolves.toBeTruthy();
+
+      advance(15 * 60 * 1000 + 1000);
+      expect((await change("old password")).status).toBe(204);
+      await expect(server.signIn("sam@example.com", "new password")).resolves.toBeTruthy();
+    });
+
+    it("checks at most 10 current passwords from a burst sent all at once (security-hardening)", async () => {
+      server = await startServer();
+      const sam = await server.signUp({ email: "sam@example.com", password: "old password" });
+      const burst = await Promise.all(Array.from({ length: 12 }, (_, i) =>
+        sam.request("POST", "/api/auth/password", { currentPassword: `guess ${i}`, newPassword: "new password" })));
+      const statuses = burst.map((r) => r.status).sort();
+      expect(statuses.filter((s) => s === 403)).toHaveLength(10);
+      expect(statuses.filter((s) => s === 429)).toHaveLength(2);
+    });
+
+    it("checks at most 10 passwords for one email from a sign-in burst sent all at once (security-hardening)", async () => {
+      server = await startServer();
+      await server.signUp({ email: "sam@example.com", password: "correct horse" });
+      const burst = await Promise.all(Array.from({ length: 12 }, (_, i) =>
+        server.anonymous().request("POST", "/api/auth/signin", { email: "sam@example.com", password: `guess ${i}` })));
+      const statuses = burst.map((r) => r.status);
+      expect(statuses.filter((s) => s === 401)).toHaveLength(10);
+      expect(statuses.filter((s) => s === 429)).toHaveLength(2);
+    });
+
+    it("clears the password-change failure count after a successful change (security-hardening)", async () => {
+      server = await startServer();
+      const sam = await server.signUp({ email: "sam@example.com", password: "old password" });
+      const change = (currentPassword: string, newPassword: string) =>
+        sam.request("POST", "/api/auth/password", { currentPassword, newPassword });
+      for (let i = 0; i < 9; i++) expect((await change(`guess ${i}`, "new password")).status).toBe(403);
+      expect((await change("old password", "new password")).status).toBe(204);
+      for (let i = 0; i < 9; i++) expect((await change(`guess ${i}`, "newer password")).status).toBe(403);
+      expect((await change("new password", "newer password")).status).toBe(204);
+    });
+
     it("limits sign-ups to 10 an hour from one address", async () => {
       server = await startServer();
       for (let i = 0; i < 10; i++) await server.signUp();

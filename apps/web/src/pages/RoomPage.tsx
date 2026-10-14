@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { House } from "@phosphor-icons/react";
-import { can, filterStateForViewer, isActive, type DiceVisibility, type GridSpec, type Participant, type Point } from "@vtt/shared";
+import { can, filterStateForViewer, isActive, presetOf, type DiceVisibility, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
 import { Board, type BoardHandle, type DiceBoard } from "../board/Board";
 import { PendingDrops, type DiceDrop } from "../board/diceDrops";
 import type { TokenDraft } from "../board/placement";
@@ -31,10 +31,14 @@ import { RollCard } from "../ui/RollCard";
 import { SectionCollapseProvider } from "../ui/PanelSection";
 import { ParticipantsButton } from "../ui/ParticipantsButton";
 import { PreviewBanner } from "../ui/PreviewBanner";
-import { previewConnection } from "../net/previewConnection";
+import { previewConnection, replayConnection } from "../net/previewConnection";
+import { ReplayBar } from "../ui/ReplayBar";
 import { ShareButton } from "../ui/ShareButton";
-import { GuideIcon, GuideTour } from "../ui/GuideTour";
+import { GuideTour } from "../ui/GuideTour";
+import { RoomMenu } from "../ui/RoomMenu";
 import { isBoolean, usePersistentState } from "../ui/usePersistentState";
+import { EncounterEditBar } from "./encounterEdit/EncounterEditBar";
+import { ENCOUNTER_EDITING, FULL_ROOM, shownTab, type RoomFeatures } from "./encounterEdit/roomFeatures";
 
 /** The set without `id`; the same set when it wasn't there, so nothing re-renders. */
 function without(set: ReadonlySet<string>, id: string): ReadonlySet<string> {
@@ -82,7 +86,11 @@ const STATUS_LABEL: Record<ConnectionStatus, string> = {
  * Route for `/r/:roomId`: loads this browser's credential for the room and runs its connection.
  * With none stored, a signed-in person's seat is resumed on this device (room-membership).
  */
-export function RoomPage({ roomId }: { roomId: string }) {
+export function RoomPage({ roomId, editing = false }: {
+  roomId: string;
+  /** A temporary room editing an encounter template (ADR 0033): only map, fog and token tools. */
+  editing?: boolean;
+}) {
   const account = useAccount();
   const [creds, setCreds] = useState(() => loadCredentials(roomId));
   const [resuming, setResuming] = useState<"idle" | "trying" | "failed">("idle");
@@ -118,7 +126,7 @@ export function RoomPage({ roomId }: { roomId: string }) {
       </main>
     );
   }
-  return <Room roomId={roomId} connection={connection} token={creds.guestToken} />;
+  return <Room roomId={roomId} connection={connection} token={creds.guestToken} features={editing ? ENCOUNTER_EDITING : FULL_ROOM} />;
 }
 
 const ENDED_COPY: Record<SessionEndReason, { title: (room: string | null) => string; body: string }> = {
@@ -160,8 +168,13 @@ function SessionEnded({ roomId, roomName, reason }: { roomId: string; roomName: 
 }
 
 /** The room once a credential exists: board, side panel, and the connection's terminal screens. */
-function Room({ roomId, connection, token }: { roomId: string; connection: RoomConnection; token: string }) {
+function Room({ roomId, connection, token, features }: {
+  roomId: string; connection: RoomConnection; token: string; features: RoomFeatures;
+}) {
   const { status, state, you, seq, endReason, refusal } = useRoomSnapshot(connection);
+  const editing = !features.tableChrome;
+  /** Leaving a temporary editing room deletes it; this page must not then say "Room deleted". */
+  const [leaving, setLeaving] = useState(false);
   const [reviewing, setReviewing] = useState<string | null>(null);
   // The GM previewing the room as one player (gm-view-as-player): the same filter the server
   // applies, run here on the GM's full state. Read-only: its connection refuses every command.
@@ -174,9 +187,17 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
   useEffect(() => {
     if (viewAs && !preview && state) setViewAs(null);
   }, [viewAs, preview, state]);
+  // Replaying the room's history (FR-PL-07): the server-filtered past, shown read-only. Never at
+  // the same time as a preview; each hides the other's way in.
+  const [replaying, setReplaying] = useState(false);
+  const [replayState, setReplayState] = useState<RoomState | null>(null);
+  const exitReplay = useCallback(() => {
+    setReplaying(false);
+    setReplayState(null);
+  }, []);
   const shownConnection = useMemo(
-    () => (preview ? previewConnection(connection, preview.you.displayName) : connection),
-    [connection, preview?.you.id, preview?.you.displayName],
+    () => (replaying ? replayConnection(connection) : preview ? previewConnection(connection, preview.you.displayName) : connection),
+    [connection, replaying, preview?.you.id, preview?.you.displayName],
   );
 
   // The seat is gone for good, on every tab that shared it: forget it, so the invite link
@@ -278,8 +299,11 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
   }, [connection]);
   const placeToken = useCallback((draft: TokenDraft) => boardRef.current?.placeToken(draft), []);
   const [sidebarCollapsed, setSidebarCollapsed] = usePersistentState("vtt.ui.sidebar", false, isBoolean);
-  const [tab, setTab] = usePersistentState<TabId>("vtt.ui.tab", "play", isTabId);
+  const [chosenTab, setTab] = usePersistentState<TabId>("vtt.ui.tab", "play", isTabId);
+  // A template being edited offers fewer tabs; a remembered tab it lacks shows its first (ADR 0033).
+  const tab = shownTab(chosenTab, features);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [logOpen, setLogOpen] = useState(false);
   const guideButtonRef = useRef<HTMLButtonElement>(null);
   const closeGuide = useCallback(() => {
     setGuideOpen(false);
@@ -408,6 +432,8 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
   const rolling = onBoard.size > 0 || !!state?.rolls.some((r) => airborne.has(r.id) && r.byParticipantId === you?.id);
   const rollThrow: RollThrow = { airborne, rolling, justLandedId: landedId, onLanded: land, expectDrop };
 
+  if (leaving) return <main className="centered" aria-busy="true">Closing…</main>;
+
   if (status === "ended") return <SessionEnded roomId={roomId} roomName={state?.name ?? null} reason={endReason} />;
 
   if (status === "unauthorized") {
@@ -430,7 +456,9 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
   // The rail is a desktop affordance. On a phone the panel is already below the board, so
   // the remembered preference is ignored there and applies again once the window widens.
   const collapsed = sidebarCollapsed && !compact;
-  const shownState = preview?.state ?? state;
+  // While a replay loads, the live board stays visible but is already read-only.
+  const shownState = replayState ?? preview?.state ?? state;
+  const readOnly = !!preview || replaying;
   const shownYou = preview?.you ?? you;
 
   return (
@@ -452,24 +480,34 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
       {/* Who is here and what the sidebar shows, above the board and the panel alike. */}
       <header className="room-topbar">
         <div className="topbar-start">
+          {editing && <EncounterEditBar roomId={roomId} seq={seq} onLeaving={() => setLeaving(true)} />}
           {/* The GM has rooms, a library and "Create room" to get back to, all on the GM
               dashboard; a player came from an invite and just closes the tab (room-navigation). */}
-          {you.role === "gm" && !preview && (
+          {!editing && you.role === "gm" && !readOnly && (
             <Link href="/gm-dashboard" className="tool-button" title="Back to your GM dashboard">
               <House size={16} aria-hidden="true" />
               Home
             </Link>
           )}
-          <h1 className="room-title">{state.name}</h1>
+          {!editing && (
+            <>
+              <h1 className="room-title">{state.name}</h1>
+              {/* Which game the room is set up for (KAN-63), as text. */}
+              <span className="preset-badge" title="Game preset">{presetOf(state).name}</span>
+            </>
+          )}
         </div>
         <div className="topbar-center">
-          <ParticipantsButton state={state} you={you} connection={shownConnection} onReviewDeparture={setReviewing} onViewAs={setViewAs} viewingAs={viewAs} readOnly={!!preview} />
+          {features.tableChrome && (
+            <ParticipantsButton state={state} you={you} connection={shownConnection} onReviewDeparture={setReviewing} onViewAs={replaying ? undefined : setViewAs} viewingAs={viewAs} readOnly={readOnly} />
+          )}
         </div>
         <div className="topbar-end">
           {!compact && (
             <PanelTabs
               className="tabbar topbar-tabs"
               isGm={you.role === "gm"}
+              offered={features.tabs}
               badges={tabBadges}
               tab={tab}
               onTab={(next, reselected) => {
@@ -482,26 +520,25 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
               }}
             />
           )}
-          {you.role === "gm" && !preview && <ActivityLog roomId={state.roomId} token={token} seq={seq} state={state} connection={connection} />}
-          <button
-            ref={guideButtonRef}
-            type="button"
-            className="tool-button"
-            data-tour="guide"
-            title="A quick tour of this page"
-            onClick={() => {
+          {features.tableChrome && <RoomMenu
+            buttonRef={guideButtonRef}
+            onActivityLog={you.role === "gm" && !readOnly ? () => setLogOpen(true) : undefined}
+            // Everyone may replay what they could see (FR-PL-07); not while previewing as a player.
+            onReplay={preview ? undefined : () => (replaying ? exitReplay() : setReplaying(true))}
+            replaying={replaying}
+            onGuide={() => {
               // The sidebar's steps need it open. It animates open, and its sections have
               // no width until it has, so wait out the transition before starting.
               const wait = collapsed && !matchMedia("(prefers-reduced-motion: reduce)").matches ? 220 : 0;
               setSidebarCollapsed(false);
               window.setTimeout(() => setGuideOpen(true), wait);
             }}
-          >
-            <GuideIcon />
-            Guide
-          </button>
+          />}
+          {features.tableChrome && you.role === "gm" && !readOnly && (
+            <ActivityLog open={logOpen} onClose={() => setLogOpen(false)} roomId={state.roomId} token={token} seq={seq} state={state} connection={connection} />
+          )}
           {/* Last, in the top-right corner: visible with the sidebar shown or hidden. */}
-          {you.role === "gm" && !preview && <ShareButton roomId={roomId} token={token} />}
+          {features.tableChrome && you.role === "gm" && !readOnly && <ShareButton roomId={roomId} token={token} />}
         </div>
       </header>
       {/* Same element, same position in both states: collapsing must never remount the
@@ -511,19 +548,20 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
         connection={connection}
         state={shownState!}
         you={shownYou!}
-        readOnly={!!preview}
-        gridPreview={you.role === "gm" && !preview ? gridPreview : null}
+        readOnly={readOnly}
+        gridPreview={you.role === "gm" && !readOnly ? gridPreview : null}
         onPickTarget={pickTarget}
         landedRollId={landedId}
-        notices={
+        selectOnly={features.selectOnly}
+        notices={features.notices && (
           // Always mounted, so screen readers register the live region before a notice lands in it.
           <div className="board-notices" role="status" aria-live="polite">
-            {you.role === "gm" && !preview && <DepartureNotices state={state} onReview={setReviewing} />}
+            {!readOnly && <DepartureNotices state={state} onReview={you.role === "gm" ? setReviewing : undefined} />}
             <TurnNotice state={shownState!} you={shownYou!} onFocusToken={focusToken} />
             <KeepSeatNotice roomId={roomId} token={token} name={you.displayName} />
           </div>
-        }
-        overlay={<RollCard roll={cardRoll} rollerName={(roll) => shownState!.participants[roll.byParticipantId]?.displayName ?? "Someone"} />}
+        )}
+        overlay={features.notices && <RollCard roll={cardRoll} rollerName={(roll) => shownState!.participants[roll.byParticipantId]?.displayName ?? "Someone"} />}
       />
       <aside className="panel" id="room-panel" tabIndex={-1} aria-label="Room controls">
         {!compact && (
@@ -556,7 +594,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
             <div className="whoami">
               You are <strong>{shownYou!.displayName}</strong> ({shownYou!.role === "gm" ? "GM" : "player"})
               {/* Players only: the GM can't leave their own room; Home is their way out. */}
-              {shownYou!.role === "player" && !preview && (
+              {shownYou!.role === "player" && !readOnly && (
                 <>
                   {" · "}
                   <LeaveTable connection={connection} state={state} you={you} />
@@ -574,7 +612,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
               connection={shownConnection}
               state={shownState!}
               you={shownYou!}
-              readOnly={!!preview}
+              readOnly={readOnly}
               token={token}
               onFocusToken={focusToken}
               attackPick={attackPick}
@@ -599,13 +637,15 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
               onTab={setTab}
               tabBadges={tabBadges}
               onReviewDeparture={setReviewing}
+              features={features}
             />
           </SectionCollapseProvider>
         </div>
       </aside>
       {/* Read-only while previewing: the same refusing connection and the viewed player's state. */}
-      <ChatPanel connection={shownConnection} state={shownState!} you={shownYou!} readOnly={!!preview} />
+      {features.chat && <ChatPanel connection={shownConnection} state={shownState!} you={shownYou!} readOnly={readOnly} />}
       {preview && <PreviewBanner name={preview.you.displayName} onExit={() => setViewAs(null)} />}
+      {replaying && <ReplayBar roomId={roomId} token={token} onShow={setReplayState} onExit={exitReplay} />}
       {guideOpen && <GuideTour role={you.role} onClose={closeGuide} />}
       {you.role === "gm" && (
         <ResolveDepartureModal

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { formatAttackParties, type DiceRoll } from "./dice";
 import { CommittedEvent, type DomainEvent } from "./events";
 import { reduceCommitted } from "./reducer";
+import { describePortalChange } from "./portals";
 import { describeUndo } from "./undo";
 import { emptyRoomState, type Participant, type RoomState } from "./state";
 import { filterEventForViewer, filterStateForViewer } from "./visibility";
@@ -32,6 +33,9 @@ export type HistoryResponse = z.infer<typeof HistoryResponse>;
 
 /** "rectangle" or "polygon", for fog sentences (FR-GM-17). */
 const fogLabel = (shape: "rect" | "polygon") => (shape === "rect" ? "rectangle" : "polygon");
+
+/** "1 wall", "42 walls" (ADR 0029). */
+const wallCount = (n: number) => `${n} ${n === 1 ? "wall" : "walls"}`;
 
 /** A board point for a sentence: at most 2 decimals, so float noise like 829.1000000000001 reads 829.1. */
 const formatPoint = (p: { x: number; y: number }) => `(${Number(p.x.toFixed(2))}, ${Number(p.y.toFixed(2))})`;
@@ -81,6 +85,16 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
     case "InitiativeStarted": return `${actorName} started initiative: ${event.initiative.order.map(tokenName).join(", ") || "no tokens"}`;
     case "InitiativeAdvanced": return `${actorName} advanced to round ${event.initiative.round}, ${tokenName(event.initiative.order[event.initiative.activeIndex] ?? "")}'s turn`;
     case "InitiativeEnded": return `${actorName} ended initiative`;
+    case "InitiativeStartUndone": return `${actorName} took back the start of initiative`;
+    case "GroupCreated": return `${actorName} created group "${event.group.name}"`;
+    case "GroupRenamed": return `${actorName} renamed group "${event.previous}" to "${event.name}"`;
+    case "GroupDeleted": return `${actorName} deleted group "${event.group.name}"`;
+    case "TokensGrouped": {
+      const names = event.changes.map((c) => tokenName(c.tokenId)).join(", ");
+      return event.groupId === null
+        ? `${actorName} took ${names} out of their group`
+        : `${actorName} put ${names} in group "${before.groups[event.groupId]?.name ?? "an unknown group"}"`;
+    }
     case "DiceRolled": {
       const { attack, expression, total, visibility } = event.roll;
       const what = attack
@@ -111,8 +125,12 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
     case "TemplateRemoved": return `${actorName} removed a ${templateLabel(event.template)}${event.template.gmOnly ? " (GM only)" : ""}`;
     case "FogAdded": return `${actorName} added a fog ${fogLabel(event.region.shape)}`;
     case "FogRemoved": return `${actorName} removed a fog ${fogLabel(event.region.shape)}`;
+    case "WallsAdded": return `${actorName} added ${wallCount(event.walls.length)}`;
+    case "WallsRemoved": return `${actorName} removed ${wallCount(event.walls.length)}`;
+    case "PortalChanged": return `${actorName} ${describePortalChange(event.from, event.to).past}`;
     case "CheckpointCreated": return `${actorName} saved checkpoint "${event.checkpoint.name}"`;
     case "CheckpointRestored": return `${actorName} restored checkpoint "${event.name}"`;
+    case "EncounterApplied": return `${actorName} applied encounter template "${event.name}"`;
     case "ActionUndone": {
       // The undone action is still in the history just before this event (ADR 0013).
       const entry = before.undo.find((e) => e.commandId === event.commandId);

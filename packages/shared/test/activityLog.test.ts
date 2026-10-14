@@ -8,6 +8,7 @@ const initiative = { order: [token.id], activeIndex: 0, round: 1 };
 const roll = { id: "roll", expression: "1d20", byParticipantId: alice.id, dice: [15], modifier: 0, total: 15, visibility: "public" as const };
 const areaTemplate = { id: "t1", shape: "cone" as const, origin: { x: 70, y: 70 }, toward: { x: 210, y: 70 }, size: 20, ownerId: alice.id, gmOnly: false };
 const fogRect = { id: "f1", shape: "rect" as const, points: [{ x: 0, y: 0 }, { x: 70, y: 0 }, { x: 70, y: 70 }, { x: 0, y: 70 }] };
+const wall = { id: "w1", a: { x: 0, y: 0 }, b: { x: 70, y: 0 } };
 const committed = (event: DomainEvent, seq = 1, actorId: string | null = gm.id): CommittedEvent =>
   ({ seq, actorId, at: "2026-09-24T12:00:00.000Z", event });
 
@@ -35,6 +36,11 @@ describe("Human-readable activity formatter (FR-REC-01)", () => {
     InitiativeStarted: [{ type: "InitiativeStarted", initiative, previous: null }, "Mara started initiative: Goblin"],
     InitiativeAdvanced: [{ type: "InitiativeAdvanced", initiative: { ...initiative, round: 2 }, previous: initiative }, "Mara advanced to round 2, Goblin's turn"],
     InitiativeEnded: [{ type: "InitiativeEnded", previous: initiative }, "Mara ended initiative"],
+    InitiativeStartUndone: [{ type: "InitiativeStartUndone", initiative: null, previous: initiative, scores: [] }, "Mara took back the start of initiative"],
+    GroupCreated: [{ type: "GroupCreated", group: { id: "g1", name: "Gate guards" } }, 'Mara created group "Gate guards"'],
+    GroupRenamed: [{ type: "GroupRenamed", groupId: "g1", name: "Patrol", previous: "Gate guards" }, 'Mara renamed group "Gate guards" to "Patrol"'],
+    GroupDeleted: [{ type: "GroupDeleted", group: { id: "g1", name: "Gate guards" }, members: [] }, 'Mara deleted group "Gate guards"'],
+    TokensGrouped: [{ type: "TokensGrouped", groupId: null, changes: [{ tokenId: token.id, previous: "g1" }] }, "Mara took Goblin out of their group"],
     DiceRolled: [{ type: "DiceRolled", roll }, "Mara rolled 1d20: 15"],
     // A roll no longer in state; attackRulings.test.ts covers the named forms (ADR 0011).
     RollRuled: [{ type: "RollRuled", rollId: "gone", verdict: "hit", previous: null }, "Mara ruled an earlier roll a hit"],
@@ -47,8 +53,12 @@ describe("Human-readable activity formatter (FR-REC-01)", () => {
     // An action no longer in the undo history; undo.test.ts covers the named form (ADR 0013).
     FogAdded: [{ type: "FogAdded", region: fogRect }, "Mara added a fog rectangle"],
     FogRemoved: [{ type: "FogRemoved", region: { ...fogRect, shape: "polygon" } }, "Mara removed a fog polygon"],
+    WallsAdded: [{ type: "WallsAdded", walls: [wall, { ...wall, id: "w2" }] }, "Mara added 2 walls"],
+    WallsRemoved: [{ type: "WallsRemoved", walls: [wall] }, "Mara removed 1 wall"],
+    PortalChanged: [{ type: "PortalChanged", wallId: wall.id, from: { kind: "door", state: "locked" }, to: { kind: "door", state: "closed" } }, "Mara unlocked a door"],
     CheckpointCreated: [{ type: "CheckpointCreated", checkpoint: { id: "c1", name: "Before the ambush", seq: 4 } }, 'Mara saved checkpoint "Before the ambush"'],
     CheckpointRestored: [{ type: "CheckpointRestored", checkpointId: "c1", name: "Before the ambush", restored: tableOf(state), previous: tableOf(state) }, 'Mara restored checkpoint "Before the ambush"'],
+    EncounterApplied: [{ type: "EncounterApplied", templateId: "t1", name: "Goblin ambush", applied: tableOf(state), previous: tableOf(state) }, 'Mara applied encounter template "Goblin ambush"'],
     ActionUndone: [{ type: "ActionUndone", commandId: "gone" }, "Mara undid an action"],
   };
   it.each(Object.entries(cases))("formats %s", (_type, [event, sentence]) => {

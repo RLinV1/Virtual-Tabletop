@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ConditionId, TokenStats } from "./conditions";
 import { DiceRoll, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
-import { AreaTemplate, ChatMessage, Checkpoint, DiceLookOnTable, FogRegion, Id, Initiative, InitiativeScore, MapImage, Participant, TableState, Token } from "./state";
+import { AreaTemplate, ChatMessage, Checkpoint, DiceLookOnTable, FogRegion, Id, Initiative, InitiativeScore, MapImage, Participant, Portal, TableState, Token, TokenGroup, Wall } from "./state";
 
 /**
  * Events are FACTS the server has committed. They are append-only and never edited.
@@ -17,6 +17,8 @@ export const DomainEvent = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("RoomCreated"),
     name: z.string(),
+    /** The game preset (KAN-63, ADR 0027). Absent on rooms created before presets: Dungeons & Dragons. */
+    preset: z.string().optional(),
   }),
   z.object({
     type: z.literal("ParticipantJoined"),
@@ -127,6 +129,39 @@ export const DomainEvent = z.discriminatedUnion("type", [
       .array(z.object({ tokenId: Id, score: InitiativeScore, previous: InitiativeScore.nullable() }))
       .optional(),
   }),
+  /**
+   * Undo of an `InitiativeStarted` (KAN-82, ADR 0026): the turn order and each token's saved
+   * score go back to what the start replaced. `previous` is the order the start had made.
+   */
+  z.object({
+    type: z.literal("InitiativeStartUndone"),
+    initiative: Initiative.nullable(),
+    previous: Initiative,
+    scores: z.array(z.object({ tokenId: Id, score: InitiativeScore.nullable(), previous: InitiativeScore.nullable() })),
+  }),
+  /** GM-only token groups (KAN-82, ADR 0026). Players receive only the seq. */
+  z.object({
+    type: z.literal("GroupCreated"),
+    group: TokenGroup,
+  }),
+  z.object({
+    type: z.literal("GroupRenamed"),
+    groupId: Id,
+    name: z.string(),
+    previous: z.string(),
+  }),
+  /** Carries the group and the tokens that were in it, so undo can restore both. */
+  z.object({
+    type: z.literal("GroupDeleted"),
+    group: TokenGroup,
+    members: z.array(Id),
+  }),
+  /** Tokens moved into `groupId`, or out of any group when null, each with the group it left. */
+  z.object({
+    type: z.literal("TokensGrouped"),
+    groupId: Id.nullable(),
+    changes: z.array(z.object({ tokenId: Id, previous: Id.nullable() })),
+  }),
   z.object({
     type: z.literal("InitiativeAdvanced"),
     initiative: Initiative,
@@ -193,6 +228,23 @@ export const DomainEvent = z.discriminatedUnion("type", [
     type: z.literal("FogRemoved"),
     region: FogRegion,
   }),
+  /** The GM applied walls (FR-GM-11, ADR 0029). The inverse of `WallsRemoved`. */
+  z.object({
+    type: z.literal("WallsAdded"),
+    walls: z.array(Wall).min(1),
+  }),
+  /** Walls were removed. Carries each one whole, so undo can restore them (invariant 6). */
+  z.object({
+    type: z.literal("WallsRemoved"),
+    walls: z.array(Wall).min(1),
+  }),
+  /** A wall's portal changed (FR-GM-18, ADR 0030). `from` is the replaced value; null is a plain wall. */
+  z.object({
+    type: z.literal("PortalChanged"),
+    wallId: Id,
+    from: Portal.nullable(),
+    to: Portal.nullable(),
+  }),
   /** The GM saved a named restore point (FR-REC-02, ADR 0019). */
   z.object({
     type: z.literal("CheckpointCreated"),
@@ -207,6 +259,18 @@ export const DomainEvent = z.discriminatedUnion("type", [
     checkpointId: Id,
     name: z.string(),
     restored: TableState,
+    previous: TableState,
+  }),
+  /**
+   * The GM replaced the board with a saved encounter template (FR-GM-13, ADR 0024). `applied` is
+   * the new board, with fresh token ids; `previous` is the board it replaced (invariant 6), so
+   * the apply can be undone. GM-only: players resync.
+   */
+  z.object({
+    type: z.literal("EncounterApplied"),
+    templateId: Id,
+    name: z.string(),
+    applied: TableState,
     previous: TableState,
   }),
   /**
