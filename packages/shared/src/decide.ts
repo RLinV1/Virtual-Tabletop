@@ -1,3 +1,4 @@
+import { findMentions } from "./chatMentions";
 import type { Command, DepartureAction } from "./commands";
 import { presetOf, tableForPreset } from "./gamePresets";
 import { MIN_HP } from "./conditions";
@@ -6,12 +7,13 @@ import type { DomainEvent } from "./events";
 import { encounterTable, type ResolvedEncounter } from "./encounters";
 import { footprintCrossesWall, isSnapped, pathCrossesWall, polygonArea, resizedTokenCenter, snapTokenCenter, spreadPositions, type GridSpec, type Point } from "./geometry";
 import { canRenderGrid } from "./gridRenderLimit";
+import { normalizeName } from "./names";
 import type { SessionEndReason } from "./protocol";
 import { blocksMovement } from "./portals";
 import { inverseOf, undoableAction, undoConflict } from "./undo";
 import { concealedFrom, fogConcealsSide, isInFog, portalConcealedFrom, templateConcealedFrom } from "./visibility";
 import { wallsFitMap, type DetectedWallsResponse } from "./wallDetection";
-import { MAX_GROUP_NAME, MAX_GROUPS, MAX_AREA_TEMPLATES, MAX_LINE_WIDTH_CELLS, MAX_CHECKPOINT_NAME, MAX_FOG_REGIONS, MAX_PLAYERS_PER_ROOM, MAX_WALLS, tableOf, type AreaTemplate, type DiceLookOnTable, type Initiative, type Participant, type Portal, type RoomState, type TableState, type Token, type Wall } from "./state";
+import { MAX_GROUP_NAME, MAX_GROUPS, MAX_AREA_TEMPLATES, MAX_LINE_WIDTH_CELLS, MAX_CHECKPOINT_NAME, MAX_CHAT_MENTIONS, MAX_FOG_REGIONS, MAX_PLAYERS_PER_ROOM, MAX_WALLS, tableOf, type AreaTemplate, type ChatMention, type DiceLookOnTable, type Initiative, type Participant, type Portal, type RoomState, type TableState, type Token, type Wall } from "./state";
 
 export type RejectionCode = "forbidden" | "not_found" | "invalid";
 
@@ -222,8 +224,12 @@ export function decide(
       if (!original) return notFound("token");
       // Everything but identity and the remembered initiative score, which belongs to the original.
       const { id: _id, initiative: _initiative, ...copy } = original;
-      // Beside the original, never on it: its own square is the first spot the spread offers.
-      const created = createTokens(state, copy, command.count, ctx, { besideOrigin: true });
+      // At the GM's chosen square, as token.create places (ADR 0033); otherwise beside the
+      // original, never on it: its own square is the first spot the spread offers.
+      if (command.position && footprintCrossesWall(command.position, copy.size, state.scene.grid, blockingWalls(state))) return wallBlocked();
+      const created = command.position
+        ? createTokens(state, { ...copy, position: command.position }, command.count, ctx)
+        : createTokens(state, copy, command.count, ctx, { besideOrigin: true });
       if (!created.ok) return created;
       // Copies join the original's group, in the same action (KAN-82).
       const groupId = state.tokenGroups[original.id];
@@ -300,7 +306,7 @@ export function decide(
         changes.rotation !== undefined || changes.imageUrl !== undefined || changes.assetId !== undefined ||
         changes.ownerIds !== undefined || changes.hidden !== undefined;
       if (gmFields && !can.administer(actor)) return forbidden();
-      const off = presetRefusal(state, { conditions: (changes.conditions?.length ?? 0) > 0, ac: changes.stats?.ac ?? null });
+      const off = presetRefusal(state, { attacks: changes.attacks !== undefined, conditions: (changes.conditions?.length ?? 0) > 0, ac: changes.stats?.ac ?? null });
       if (off) return off;
       if (changes.name !== undefined && !changes.name.trim()) return reject("invalid", "Token name can't be blank.");
       if (changes.stats && changes.stats.hp !== null && changes.stats.maxHp !== null && changes.stats.hp > changes.stats.maxHp) {
@@ -359,6 +365,11 @@ export function decide(
         if (conditions.length !== token.conditions.length || conditions.some((c) => !token.conditions.includes(c))) {
           events.push({ type: "TokenConditionsSet", tokenId: token.id, conditions, previous: token.conditions });
         }
+      }
+      // Before any owner change, so a departing owner still receives it and a new one gets the
+      // attacks from the resync that ownership triggers (ADR 0034).
+      if (changes.attacks && JSON.stringify(changes.attacks) !== JSON.stringify(token.attacks ?? [])) {
+        events.push({ type: "TokenAttacksSet", tokenId: token.id, attacks: changes.attacks, previous: token.attacks ?? [] });
       }
       if (changes.ownerIds) {
         const ownerIds = [...new Set(changes.ownerIds)];
@@ -787,9 +798,17 @@ export function decide(
       // Any active participant may talk. The socket layer already refuses ended seats; this is the authority.
       if (!isActive(actor)) return forbidden();
       // The sender comes from the actor, never from the payload (the command is strict) (ADR 0015).
+      const mentions = chatMentions(state, actor, command.text);
       return accept({
         type: "ChatMessageSent",
-        message: { id: ctx.newId(), senderId: actor.id, senderName: actor.displayName, text: command.text },
+        message: {
+          id: ctx.newId(),
+          senderId: actor.id,
+          senderName: actor.displayName,
+          text: command.text,
+          // Absent rather than empty, so a plain message keeps the shape it always had (ADR 0035).
+          ...(mentions.length > 0 && { mentions }),
+        },
       });
     }
 
@@ -901,8 +920,27 @@ function checkOwners(state: RoomState, ownerIds: string[]): Decision | null {
 }
 
 
-/** Comparison key for names: "raymond", "Raymond " and "RAYMOND" are one name (KAN-61, KAN-62). */
-export const normalizeName = (name: string) => name.normalize("NFC").trim().toLocaleLowerCase("en-US");
+/**
+ * Who a chat message mentions (ADR 0035): the room's active participants named after a boundary
+ * `@`, each once, in order of first mention, at most MAX_CHAT_MENTIONS (a room filled before the
+ * player cap can hold more). The sender is a candidate too, so the longest-name rule sees their
+ * name ("@Sir Lancelot" from Sir Lancelot doesn't tag "Sir"), and is then dropped.
+ */
+function chatMentions(state: RoomState, actor: Participant, text: string): ChatMention[] {
+  const candidates = Object.values(state.participants)
+    .filter(isActive)
+    .map((p) => ({ participantId: p.id, displayName: p.displayName }));
+  const mentions: ChatMention[] = [];
+  for (const { participantId, displayName } of findMentions(text, candidates)) {
+    if (participantId === actor.id || mentions.some((m) => m.participantId === participantId)) continue;
+    mentions.push({ participantId, displayName });
+    if (mentions.length === MAX_CHAT_MENTIONS) break;
+  }
+  return mentions;
+}
+
+// Lives in its own module so `chatMentions` can share it without importing `decide`.
+export { normalizeName };
 /** Display names compare the same way as every other name. Kept for KAN-61 callers. */
 export const normalizeDisplayName = normalizeName;
 
@@ -921,8 +959,16 @@ const MAX_TOKEN_NAME = 60;
  * so it's deterministic; the result goes into `TokenCreated`, so replay never re-runs it.
  */
 export function uniqueTokenName(state: RoomState, name: string, exceptId?: string): string {
+  return uniqueName(Object.values(state.tokens).filter((t) => t.id !== exceptId).map((t) => t.name), name);
+}
+
+/**
+ * `uniqueTokenName` over a plain list of names already in use, for boards that are not a room,
+ * such as the encounter editor's draft (ADR 0033). Same numbering and the same comparison.
+ */
+export function uniqueName(namesInUse: Iterable<string>, name: string): string {
   const trimmed = name.trim();
-  const taken = new Set(Object.values(state.tokens).filter((t) => t.id !== exceptId).map((t) => normalizeName(t.name)));
+  const taken = new Set(Array.from(namesInUse, normalizeName));
   if (!taken.has(normalizeName(trimmed))) return trimmed;
   const base = trimmed.replace(/\s+\d+$/, "") || trimmed;
   for (let n = 2; ; n++) {

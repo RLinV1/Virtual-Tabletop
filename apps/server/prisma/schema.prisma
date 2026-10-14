@@ -27,8 +27,14 @@ model Room {
   ownerGmId  String?  @map("owner_gm_id") @db.Uuid
   /// Denormalised from RoomCreated so the dashboard need not replay the log.
   name       String?
+  /// A private room for editing an encounter template (ADR 0033): hidden from room lists, closed
+  /// to joins, deleted on leave or by the sweep.
+  temporary        Boolean @default(false)
+  /// The template a temporary room saves to; null until a new template's first save.
+  editsEncounterId String? @map("edits_encounter_id") @db.Uuid
 
   owner       GmIdentity?  @relation(fields: [ownerGmId], references: [id])
+  editsEncounter EncounterTemplate? @relation(fields: [editsEncounterId], references: [id], onDelete: SetNull)
   events      Event[]
   credentials Credential[]
   snapshots   Snapshot[]
@@ -38,6 +44,7 @@ model Room {
   members     RoomMember[]
 
   @@index([ownerGmId])
+  @@index([temporary, createdAt])
   @@map("rooms")
 }
 
@@ -173,6 +180,7 @@ model EncounterTemplate {
 
   owner GmIdentity    @relation(fields: [ownerGmId], references: [id])
   map   LibraryAsset? @relation(fields: [mapAssetId], references: [id], onDelete: SetNull)
+  editingRooms Room[]
 
   @@index([ownerGmId])
   @@index([mapAssetId])

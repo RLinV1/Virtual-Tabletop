@@ -1,6 +1,5 @@
 import { attackLabel, formatAttackParties, isInFog, MAX_ATTACK_LABEL, type AttackKind, type DiceRoll, type Point, type RoomState, type Token } from "@vtt/shared";
 import { measure } from "../board/tools";
-import { readStored, type KeyValueStorage } from "../ui/usePersistentState";
 
 /**
  * Pure helpers for the Attack section (attack-targeting). The server rolls whatever `NdX+M` it
@@ -11,8 +10,6 @@ import { readStored, type KeyValueStorage } from "../ui/usePersistentState";
 export const DIE_SIDES = [4, 6, 8, 10, 12, 20, 100] as const;
 export const MAX_ATTACK_DICE = 20;
 export const MAX_ATTACK_MODIFIER = 99;
-/** Saved attacks kept per token. */
-export const MAX_SAVED_ATTACKS = 8;
 
 export interface AttackDice {
   count: number;
@@ -25,11 +22,6 @@ export interface AttackSettings extends AttackDice {
   label: string;
   /** To hit or damage (ADR 0011). Values stored before it existed have none and read as to hit. */
   kind?: AttackKind;
-}
-
-/** A one-tap attack, e.g. "Longsword" 1d20+5. */
-export interface SavedAttack extends AttackSettings {
-  name: string;
 }
 
 export const DEFAULT_ATTACK: AttackSettings = { count: 1, sides: 20, modifier: 0, label: "", kind: "toHit" };
@@ -64,15 +56,10 @@ function isAttackSettings(v: unknown): v is AttackSettings {
   );
 }
 
-const isSavedAttack = (v: unknown): v is SavedAttack => isAttackSettings(v) && typeof (v as { name?: unknown }).name === "string";
-
 /** Stored last settings by token id; anything malformed or from an older build is ignored. */
 export const isSettingsRecord = (v: unknown): v is Record<string, AttackSettings> =>
   isRecord(v) && Object.values(v).every(isAttackSettings);
 
-/** Saved attacks by token id, as stored before named attacks; read only to migrate them. */
-export const isSavedRecord = (v: unknown): v is Record<string, SavedAttack[]> =>
-  isRecord(v) && Object.values(v).every((list) => Array.isArray(list) && list.length <= MAX_SAVED_ATTACKS && list.every(isSavedAttack));
 
 export interface TargetOption {
   token: Token;
@@ -148,58 +135,9 @@ export interface AttackPreset {
   damage: AttackDice | null;
 }
 
-function isAttackDice(v: unknown): v is AttackDice {
-  if (!isRecord(v)) return false;
-  const { count, sides, modifier } = v;
-  return (
-    Number.isInteger(count) && clampCount(count as number) === count &&
-    (DIE_SIDES as readonly unknown[]).includes(sides) &&
-    Number.isInteger(modifier) && clampModifier(modifier as number) === modifier
-  );
-}
-
-function isPreset(v: unknown): v is AttackPreset {
-  if (!isRecord(v)) return false;
-  const { name, toHit, damage } = v;
-  return (
-    typeof name === "string" && name.trim().length > 0 && name.length <= MAX_ATTACK_LABEL &&
-    (toHit === null || isAttackDice(toHit)) &&
-    (damage === null || isAttackDice(damage)) &&
-    (toHit !== null || damage !== null)
-  );
-}
-
-/** Stored named attacks by token id; anything malformed or from an older build is ignored. */
-export const isPresetRecord = (v: unknown): v is Record<string, AttackPreset[]> =>
-  isRecord(v) && Object.values(v).every((list) => Array.isArray(list) && list.length <= MAX_PRESETS && list.every(isPreset));
-
-/** Local edits (including an empty list) win, then older saved attacks, then template copies. */
-export function presetsForToken(token: Pick<Token, "id" | "attacks">, stored: Record<string, AttackPreset[]>, legacy: Record<string, SavedAttack[]>): AttackPreset[] {
-  const older = legacy[token.id];
-  return stored[token.id] ?? (older ? migrateSaved(older) : token.attacks ?? []);
-}
-
-/** Read at the moment Save as creature is opened, so edits made in Attack are included. */
-export function readTokenAttacks(token: Pick<Token, "id" | "attacks">, storage: KeyValueStorage | null): AttackPreset[] {
-  return structuredClone(presetsForToken(token,
-    readStored(storage, "vtt.attack.presets", {}, isPresetRecord),
-    readStored(storage, "vtt.attack.saved", {}, isSavedRecord),
-  ));
-}
-
-export function browserTokenAttacks(token: Pick<Token, "id" | "attacks">): AttackPreset[] {
-  try { return readTokenAttacks(token, window.localStorage); }
-  catch { return structuredClone(token.attacks ?? []); }
-}
-
-const diceOf = ({ count, sides, modifier }: AttackDice): AttackDice => ({ count, sides, modifier });
-
-/** Saved attacks from before named attacks: a to-hit one keeps its to-hit roll, a damage one becomes damage-only. */
-export function migrateSaved(saved: SavedAttack[]): AttackPreset[] {
-  return saved.slice(0, MAX_PRESETS).map((s) => {
-    const name = (s.name.trim() || attackExpression(s)).slice(0, MAX_ATTACK_LABEL);
-    return kindOf(s) === "damage" ? { name, toHit: null, damage: diceOf(s) } : { name, toHit: diceOf(s), damage: null };
-  });
+/** A token's named attacks: the room's copy, shared by the GM and its owners (ADR 0034). */
+export function presetsForToken(token: Pick<Token, "attacks">): AttackPreset[] {
+  return token.attacks ?? [];
 }
 
 /**

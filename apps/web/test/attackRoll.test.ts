@@ -8,14 +8,12 @@ import {
   clampCount,
   clampModifier,
   damageAmount,
-  isSavedRecord,
   isSettingsRecord,
   kindOf,
   latestAttackRoll,
   pendingRulings,
-  migrateSaved,
   outcomeKey,
-  isPresetRecord,
+  presetsForToken,
   presetForRoll,
   presetRollLabel,
   presetSummary,
@@ -46,16 +44,13 @@ describe("attack section helpers (attack-targeting, FR-TAC-09)", () => {
     expect(attackExpression({ count: 99, sides: 8, modifier: 500 })).toBe("20d8+99");
   });
 
-  it("accepts only well-formed stored settings and saved attacks", () => {
+  it("accepts only well-formed stored settings", () => {
     const good = { count: 1, sides: 20, modifier: 5, label: "Longsword" };
     expect(isSettingsRecord({ "id-1": good })).toBe(true);
     expect(isSettingsRecord({ "id-1": { ...good, sides: 7 } })).toBe(false);
     expect(isSettingsRecord({ "id-1": { ...good, count: 0 } })).toBe(false);
     expect(isSettingsRecord({ "id-1": 5 })).toBe(false);
     expect(isSettingsRecord([good])).toBe(false);
-    expect(isSavedRecord({ "id-1": [{ ...good, name: "Longsword" }] })).toBe(true);
-    expect(isSavedRecord({ "id-1": [good] })).toBe(false);
-    expect(isSavedRecord({ "id-1": Array.from({ length: 9 }, () => ({ ...good, name: "x" })) })).toBe(false);
   });
 
   it("reads stored settings from before roll types as to hit (ADR 0011)", () => {
@@ -63,7 +58,6 @@ describe("attack section helpers (attack-targeting, FR-TAC-09)", () => {
     expect(isSettingsRecord({ "id-1": old })).toBe(true);
     expect(isSettingsRecord({ "id-1": { ...old, kind: "damage" } })).toBe(true);
     expect(isSettingsRecord({ "id-1": { ...old, kind: "heal" } })).toBe(false);
-    expect(isSavedRecord({ "id-1": [{ ...old, name: "Damage", kind: "damage" }] })).toBe(true);
     expect(kindOf(old)).toBe("toHit");
     expect(kindOf({ ...old, kind: "damage" })).toBe("damage");
   });
@@ -136,24 +130,9 @@ describe("named attacks (attack-ux-polish, FR-TAC-09)", () => {
   const d = (count: number, sides: number, modifier: number) => ({ count, sides, modifier });
   const longsword = { name: "Longsword", toHit: d(1, 20, 5), damage: d(1, 8, 3) };
 
-  it("turns saved attacks into named attacks", () => {
-    expect(migrateSaved([
-      { name: "Longsword", count: 1, sides: 20, modifier: 5, label: "Longsword", kind: "toHit" },
-      { name: "Damage", count: 1, sides: 8, modifier: 3, label: "Damage", kind: "damage" },
-      { name: "", count: 2, sides: 6, modifier: 0, label: "" },
-    ])).toEqual([
-      { name: "Longsword", toHit: d(1, 20, 5), damage: null },
-      { name: "Damage", toHit: null, damage: d(1, 8, 3) },
-      { name: "2d6", toHit: d(2, 6, 0), damage: null },
-    ]);
-  });
-
-  it("stores only named attacks with a name and at least one roll, at most 8 per token", () => {
-    expect(isPresetRecord({ aria: [longsword] })).toBe(true);
-    expect(isPresetRecord({ aria: [{ ...longsword, toHit: null, damage: null }] })).toBe(false);
-    expect(isPresetRecord({ aria: [{ ...longsword, name: "  " }] })).toBe(false);
-    expect(isPresetRecord({ aria: [{ ...longsword, damage: d(1, 7, 0) }] })).toBe(false);
-    expect(isPresetRecord({ aria: Array.from({ length: 9 }, () => longsword) })).toBe(false);
+  it("are the token's own, shared attacks, or none (shared-token-attacks, ADR 0034)", () => {
+    expect(presetsForToken({ attacks: [longsword] })).toEqual([longsword]);
+    expect(presetsForToken({})).toEqual([]);
   });
 
   it("finds the named attack a to-hit roll was made with, by label and attacker", () => {

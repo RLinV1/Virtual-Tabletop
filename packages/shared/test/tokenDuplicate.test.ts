@@ -130,3 +130,46 @@ describe("Undo token creation (KAN-82, FR-REC-02)", () => {
     expect(room.attempt(gm, { type: "history.undo", commandId })).toMatchObject({ ok: false, message: "Can't undo: Goblin 2 no longer exists." });
   });
 });
+
+describe("Duplicate onto a chosen square (KAN-82, ADR 0033)", () => {
+  it("puts the copy on the given square, with everything copied", () => {
+    const { room, goblin } = withGoblin();
+    const at = { x: 385, y: 245 };
+    const [copy] = created(room.run(gm, { type: "token.duplicate", tokenId: goblin.id, position: at }).events);
+    expect(copy).toMatchObject({ name: "Goblin 2", position: at, stats: goblin.stats, conditions: goblin.conditions, ownerIds: goblin.ownerIds, attacks: goblin.attacks });
+  });
+
+  it("joins the original's group in the same decision", () => {
+    const { room, goblin } = withGoblin();
+    const { events: made } = room.run(gm, { type: "group.create", name: "Gate guards" });
+    const groupId = (made[0] as Extract<DomainEvent, { type: "GroupCreated" }>).group.id;
+    room.run(gm, { type: "group.assign", groupId, tokenIds: [goblin.id] });
+    const { events } = room.run(gm, { type: "token.duplicate", tokenId: goblin.id, position: { x: 385, y: 245 } });
+    expect(events.map((e) => e.type)).toEqual(["TokenCreated", "TokensGrouped"]);
+    expect(room.state.tokenGroups[created(events)[0]!.id]).toBe(groupId);
+  });
+
+  it("keeps a hidden original's copy hidden from players", () => {
+    const { room, goblin } = withGoblin({ hidden: true });
+    const before = room.state;
+    const { events } = room.run(gm, { type: "token.duplicate", tokenId: goblin.id, position: { x: 385, y: 245 } });
+    expect(created(events)[0]!.hidden).toBe(true);
+    expect(filterEventForViewer(room.log.at(-1)!, before, alice).kind).toBe("redacted");
+  });
+
+  it("refuses a square whose footprint crosses a wall, creating nothing", () => {
+    const { room, goblin } = withGoblin();
+    room.run(gm, { type: "scene.setMap", map: { url: "/uploads/map.png", width: 1400, height: 1050 } });
+    room.run(gm, { type: "wall.add", walls: [{ a: { x: 385, y: 0 }, b: { x: 385, y: 700 } }] });
+    const before = room.state;
+    expect(room.attempt(gm, { type: "token.duplicate", tokenId: goblin.id, position: { x: 385, y: 245 } })).toMatchObject({ ok: false, code: "invalid" });
+    expect(room.state).toBe(before);
+  });
+
+  it("leaves a duplicate without a square beside the original, as before", () => {
+    const { room, goblin } = withGoblin();
+    const [copy] = created(room.run(gm, { type: "token.duplicate", tokenId: goblin.id }).events);
+    expect(copy!.position).not.toEqual(goblin.position);
+    expect(Math.abs(copy!.position.x - goblin.position.x)).toBeLessThanOrEqual(room.state.scene.grid.cellSize);
+  });
+});

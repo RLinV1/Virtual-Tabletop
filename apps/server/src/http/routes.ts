@@ -19,15 +19,7 @@ import {
   replayFrom,
   replayPoints,
   activityHistory,
-  DEFAULT_GRID,
   DEFAULT_PRESET_ID,
-  emptyRoomState,
-  encounterTable,
-  presetOf,
-  tableForPreset,
-  type GamePreset,
-  type TableState,
-  tableOf,
   type CreateRoomResponse,
   type InviteResponse,
   type JoinRoomResponse,
@@ -36,6 +28,7 @@ import {
 } from "@vtt/shared";
 import { hashToken, newInviteCode } from "../domain/credentials";
 import { resolveEncounter } from "../domain/encounterTemplates";
+import type { RoomLifecycle } from "../domain/roomLifecycle";
 import type { AssetStore } from "../store/assetStore";
 import type { RoomRegistry } from "../domain/roomRegistry";
 import type { RoomStore } from "../store/roomStore";
@@ -46,6 +39,7 @@ import { registerDiceLookRoutes } from "../ownership/diceLooks";
 import { registerLegacyRoutes } from "../ownership/legacy";
 import { resolveOwner } from "../ownership/resolveOwner";
 import { imageUploader } from "./imageUpload";
+import { registerEncounterEditRoutes } from "./encounterEdits";
 import { registerEncounterRoutes } from "./encounters";
 import { registerLibraryRoutes } from "./library";
 import { detectionWire } from "./library";
@@ -58,10 +52,10 @@ export function registerRoutes(
   app: Express,
   deps: {
     store: RoomStore; registry: RoomRegistry; uploadDir: string; assets: AssetStore; limits: AccountLimits;
-    detection: GridDetectionDispatcher; walls: WallDetections;
+    detection: GridDetectionDispatcher; walls: WallDetections; rooms: RoomLifecycle;
   },
 ) {
-  const { store, registry, uploadDir, assets, limits, detection, walls } = deps;
+  const { store, registry, uploadDir, assets, limits, detection, walls, rooms } = deps;
 
   const receiveImage = imageUploader(uploadDir);
 
@@ -94,38 +88,16 @@ export function registerRoutes(
         encounter = found.encounter;
       }
 
-      const roomId = randomUUID();
-      const inviteCode = newInviteCode();
-      const participantId = randomUUID();
-
-      await store.createRoom(roomId, inviteCode, { ownerGmId: account.user.ownerId, name: body.data.roomName });
-      await store.saveCredential(hashToken(body.data.guestToken), {
-        roomId, participantId, sessionHash: account.session.tokenHash,
+      const { roomId, inviteCode, participantId } = await rooms.createRoomWithSeat({
+        ownerGmId: account.user.ownerId,
+        userId: account.user.id,
+        sessionHash: account.session.tokenHash,
+        guestToken: body.data.guestToken,
+        roomName: body.data.roomName,
+        displayName: body.data.displayName,
+        preset: body.data.preset ?? DEFAULT_PRESET_ID,
+        encounter,
       });
-      await store.putMember({ roomId, participantId, userId: account.user.id });
-      const room = await registry.get(roomId);
-      // The game preset's defaults (KAN-63, ADR 0027): its grid units, when they aren't the default grid's.
-      const preset = presetOf({ preset: body.data.preset ?? DEFAULT_PRESET_ID });
-      const grid = { ...DEFAULT_GRID, ...preset.grid };
-      await room!.appendSystem(participantId, [
-        { type: "RoomCreated", name: body.data.roomName, preset: preset.id },
-        ...(grid.unitsPerCell !== DEFAULT_GRID.unitsPerCell || grid.unitLabel !== DEFAULT_GRID.unitLabel
-          ? [{ type: "GridSet" as const, grid, previous: DEFAULT_GRID }]
-          : []),
-        {
-          type: "ParticipantJoined",
-          participant: { id: participantId, role: "gm", displayName: body.data.displayName.trim() },
-        },
-        ...(encounter
-          ? [{
-            type: "EncounterApplied" as const,
-            templateId: encounter.id,
-            name: encounter.name,
-            applied: tableForPreset(withPresetGrid(encounterTable(encounter, randomUUID), preset), preset),
-            previous: { ...tableOf(emptyRoomState(roomId)), scene: { map: null, grid } },
-          }]
-          : []),
-      ]);
       const response: CreateRoomResponse = { roomId, inviteCode, participantId };
       return res.json(response);
     })().catch(internalError(req, res));
@@ -143,7 +115,8 @@ export function registerRoutes(
 
       const roomId = await store.findRoomByInvite(req.params.inviteCode);
       const room = roomId ? await registry.get(roomId) : null;
-      if (!roomId || !room || room.closed) return res.status(404).json({ error: "Invite not found" });
+      // A temporary encounter-editing room is its GM's alone (ADR 0033): its code reads as unknown.
+      if (!roomId || !room || room.closed || (await store.isTemporaryRoom(roomId))) return res.status(404).json({ error: "Invite not found" });
       // Every attempt counts, accepted or not: each join and its leave are permanent events, and
       // the player cap bounds seats held at once, not seats a room stores (security-hardening D2).
       const limit = limits.joinsPerIpPerRoom.hit(`join:${roomId}:${req.ip}`);
@@ -361,29 +334,14 @@ export function registerRoutes(
       if (!owned) return res.status(404).json({ error: "Room not found" });
 
       // Close first, so nothing commits into a room that is going away and nobody is left in it.
-      await registry.close(roomId, "deleted");
-      let deleted;
-      try {
-        deleted = await store.deleteRoom(roomId);
-      } finally {
-        // On failure too: the next access reloads the room from the store instead of finding it closed.
-        registry.evict(roomId);
-      }
-      walls.forgetRoom(roomId);
-      if (!deleted) return res.status(404).json({ error: "Room not found" });
-
-      // After the commit, and best-effort: the room is gone, and a stray object has a random name.
-      for (const key of deleted.uploadKeys) {
-        await assets.delete(key).catch((err: unknown) => {
-          console.error(`[vtt] could not delete upload ${key} of deleted room ${roomId}`, err);
-        });
-      }
+      if (!(await rooms.deleteRoomFully(roomId))) return res.status(404).json({ error: "Room not found" });
       return res.status(204).end();
     })().catch(internalError(req, res));
   });
 
   registerLibraryRoutes(app, { store, uploadDir, assets, detection });
   registerEncounterRoutes(app, { store, registry });
+  registerEncounterEditRoutes(app, { store, registry, rooms });
   registerLegacyRoutes(app, { store });
   registerDiceLookRoutes(app, { store, uploadDir, assets });
   registerMembershipRoutes(app, { store, registry });
@@ -458,11 +416,6 @@ export function registerRoutes(
     const participant = room && !room.closed ? room.activeParticipant(cred.participantId) : undefined;
     return participant ? { roomId: cred.roomId, participant } : null;
   }
-}
-
-/** A template's table keeps its own grid alignment but takes the room's preset units (KAN-63). */
-function withPresetGrid(table: TableState, preset: GamePreset): TableState {
-  return { ...table, scene: { ...table.scene, grid: { ...table.scene.grid, ...preset.grid } } };
 }
 
 /**

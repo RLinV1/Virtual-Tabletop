@@ -23,6 +23,7 @@ export const REVERSIBLE_EVENT_TYPES = [
   "TokenMoved",
   "TokenHiddenSet",
   "TokenConditionsSet",
+  "TokenAttacksSet",
   "TokenStatsSet",
   "RollRuled",
   "RollDamageApplied",
@@ -215,6 +216,8 @@ function inverseOfOne(event: SingleInverse): DomainEvent {
       return { type: "TokenHiddenSet", tokenId: event.tokenId, hidden: event.previous, previous: event.hidden };
     case "TokenConditionsSet":
       return { type: "TokenConditionsSet", tokenId: event.tokenId, conditions: event.previous, previous: event.conditions };
+    case "TokenAttacksSet":
+      return { type: "TokenAttacksSet", tokenId: event.tokenId, attacks: event.previous, previous: event.attacks };
     case "TokenStatsSet":
       return { type: "TokenStatsSet", tokenId: event.tokenId, stats: event.previous, previous: event.stats };
     case "RollRuled":
@@ -328,58 +331,103 @@ export function undoConflict(state: RoomState, entry: UndoEntry): string | null 
       event.type === "TokenMoved" ? token.position.x === event.to.x && token.position.y === event.to.y
       : event.type === "TokenHiddenSet" ? token.hidden === event.hidden
       : event.type === "TokenStatsSet" ? sameStats(token.stats, event.stats)
+      : event.type === "TokenAttacksSet" ? JSON.stringify(token.attacks ?? []) === JSON.stringify(event.attacks)
       : sameSet(token.conditions, event.conditions);
     if (!current) return `Can't undo: ${name} has changed since.`;
   }
   return null;
 }
 
-/** A table as `reduce` applies it: one from before walls existed had none (ADR 0029). */
+/** A table as `reduce` applies it: one from before walls existed had none (ADR 0029). */
+
 const withWalls = (table: TableState): TableState => ({ ...table, walls: table.walls ?? {} });
 
-type GroupEvent = Extract<ReversibleEvent, { type: "GroupCreated" | "GroupRenamed" | "GroupDeleted" | "TokensGrouped" }>;
-
-const isGroupEvent = (event: ReversibleEvent): event is GroupEvent =>
-  event.type === "GroupCreated" || event.type === "GroupRenamed" || event.type === "GroupDeleted" || event.type === "TokensGrouped";
-
-/**
- * Why undoing a group event would clobber a newer change: a message, or null when it is safe (KAN-82).
- */
-function groupUndoConflict(state: RoomState, event: GroupEvent): string | null {
-  const label = (id: string) => `"${state.groups[id]?.name ?? "that group"}"`;
-  switch (event.type) {
-    case "GroupCreated": {
-      const group = state.groups[event.group.id];
-      if (!group) return "Can't undo: that group has already been deleted.";
-      if (group.name !== event.group.name) return `Can't undo: ${label(group.id)} has been renamed since.`;
-      // Deleting it now would also ungroup tokens put in it later.
-      if (Object.values(state.tokenGroups).includes(group.id)) return `Can't undo: ${label(group.id)} has tokens in it now.`;
-      return null;
-    }
-    case "GroupRenamed": {
-      const group = state.groups[event.groupId];
-      if (!group) return "Can't undo: that group has been deleted.";
-      return group.name === event.name ? null : `Can't undo: ${label(group.id)} has been renamed since.`;
-    }
-    case "GroupDeleted": {
-      if (state.groups[event.group.id]) return `Can't undo: ${label(event.group.id)} is already back.`;
-      if (Object.keys(state.groups).length >= MAX_GROUPS) return `Can't undo: the room already has ${MAX_GROUPS} groups.`;
-      const clash = Object.values(state.groups).find((g) => normalizeName(g.name) === normalizeName(event.group.name));
-      if (clash) return `Can't undo: another group is now named "${clash.name}".`;
-      if (event.members.some((id) => state.tokenGroups[id] !== undefined)) return "Can't undo: some of its tokens are in another group now.";
-      return null;
-    }
-    case "TokensGrouped": {
-      if (event.changes.some(({ tokenId }) => (state.tokenGroups[tokenId] ?? null) !== event.groupId)) {
-        return "Can't undo: some of those tokens have moved to another group since.";
-      }
-      if (event.changes.some(({ previous }) => previous !== null && !state.groups[previous])) {
-        return "Can't undo: a group those tokens came from has been deleted.";
-      }
-      return null;
-    }
-  }
-}
+type GroupEvent = Extract<ReversibleEvent, { type: "GroupCreated" | "GroupRenamed" | "GroupDeleted" | "TokensGrouped" }>;
+
+
+
+const isGroupEvent = (event: ReversibleEvent): event is GroupEvent =>
+
+  event.type === "GroupCreated" || event.type === "GroupRenamed" || event.type === "GroupDeleted" || event.type === "TokensGrouped";
+
+
+
+/**
+
+ * Why undoing a group event would clobber a newer change: a message, or null when it is safe (KAN-82).
+
+ */
+
+function groupUndoConflict(state: RoomState, event: GroupEvent): string | null {
+
+  const label = (id: string) => `"${state.groups[id]?.name ?? "that group"}"`;
+
+  switch (event.type) {
+
+    case "GroupCreated": {
+
+      const group = state.groups[event.group.id];
+
+      if (!group) return "Can't undo: that group has already been deleted.";
+
+      if (group.name !== event.group.name) return `Can't undo: ${label(group.id)} has been renamed since.`;
+
+      // Deleting it now would also ungroup tokens put in it later.
+
+      if (Object.values(state.tokenGroups).includes(group.id)) return `Can't undo: ${label(group.id)} has tokens in it now.`;
+
+      return null;
+
+    }
+
+    case "GroupRenamed": {
+
+      const group = state.groups[event.groupId];
+
+      if (!group) return "Can't undo: that group has been deleted.";
+
+      return group.name === event.name ? null : `Can't undo: ${label(group.id)} has been renamed since.`;
+
+    }
+
+    case "GroupDeleted": {
+
+      if (state.groups[event.group.id]) return `Can't undo: ${label(event.group.id)} is already back.`;
+
+      if (Object.keys(state.groups).length >= MAX_GROUPS) return `Can't undo: the room already has ${MAX_GROUPS} groups.`;
+
+      const clash = Object.values(state.groups).find((g) => normalizeName(g.name) === normalizeName(event.group.name));
+
+      if (clash) return `Can't undo: another group is now named "${clash.name}".`;
+
+      if (event.members.some((id) => state.tokenGroups[id] !== undefined)) return "Can't undo: some of its tokens are in another group now.";
+
+      return null;
+
+    }
+
+    case "TokensGrouped": {
+
+      if (event.changes.some(({ tokenId }) => (state.tokenGroups[tokenId] ?? null) !== event.groupId)) {
+
+        return "Can't undo: some of those tokens have moved to another group since.";
+
+      }
+
+      if (event.changes.some(({ previous }) => previous !== null && !state.groups[previous])) {
+
+        return "Can't undo: a group those tokens came from has been deleted.";
+
+      }
+
+      return null;
+
+    }
+
+  }
+
+}
+
 
 /** Deep equality for plain data, ignoring object key order. */
 function sameValue(a: unknown, b: unknown): boolean {
@@ -475,5 +523,7 @@ export function describeUndo(entry: UndoEntry, tokens: RoomState["tokens"]): { v
       return { verb: `conditions on ${name}`, noun: `the condition change on ${name}` };
     case "TokenStatsSet":
       return { verb: `stats on ${name}`, noun: `the stats change on ${name}` };
+    case "TokenAttacksSet":
+      return { verb: `attacks on ${name}`, noun: `the attack change on ${name}` };
   }
 }

@@ -15,6 +15,9 @@ This document covers architecture, stack, repository, and the running prototype.
 | [`adr/0003-tactical-state.md`](adr/0003-tactical-state.md) | Stats, conditions, initiative, dice |
 | [`adr/0028-grid-detection-http-contract.md`](adr/0028-grid-detection-http-contract.md) | Private HTTP contract for grid detection |
 | [`adr/0029-walls-and-wall-detection.md`](adr/0029-walls-and-wall-detection.md) | Walls as room state, BullMQ wall detection |
+| [`adr/0033-duplicate-at-position.md`](adr/0033-duplicate-at-position.md) | `token.duplicate` at a chosen square (proposed) |
+| [`adr/0034-shared-token-attacks.md`](adr/0034-shared-token-attacks.md) | Token attacks as room state, editable by owners (proposed) |
+| [`adr/0035-chat-mentions.md`](adr/0035-chat-mentions.md) | `@` mentions recorded on chat messages (proposed) |
 
 ---
 
@@ -326,7 +329,7 @@ with no security value.
 | FR-GM-05 | Viewport-independent grid metadata | `GridSet`, board coordinates | B |
 | FR-GM-06 | UVTT import | Server parser → scene + walls | D |
 | FR-GM-07 | UVTT validation | zod at parse time | D |
-| FR-GM-08 | Token setup | `token.create` | ~ |
+| FR-GM-08 | Token setup | `token.create`; New Token, Saved Creatures and Duplicate place one token per click until done, from the keyboard too (`token.duplicate.position`, ADR 0033) | ~ |
 | FR-GM-09 | Editable walls and portals | `wall.*` + GM wall layer (ADR 0029) | ~ |
 | FR-GM-10 | Token ownership assignment | `token.setOwners`, roster UI | B |
 | FR-GM-11 | Vision-based map parsing | `wall-detection` BullMQ queue → `vision-walls` (ADR 0029) | ~ |
@@ -335,7 +338,7 @@ with no security value.
 | FR-GM-14 | GM and player roles | `Participant.role` | B |
 | FR-GM-15 | Server-side authorization | `decide()` | B |
 | FR-GM-16 | Token visibility controls | `token.setHidden` + filters | B |
-| FR-GM-17 | Manual fog of war | `fog.*` + filters (ADR 0016) | B |
+| FR-GM-17 | Manual fog of war | `fog.*` + filters (ADR 0016); board Fog tool for play, Edit map › Fog for setup | B |
 | FR-GM-18 | Interactive portal states | Portal state in geometry | D |
 | FR-GM-19 | Dynamic line of sight | Pixi masking + raycast | D |
 | FR-GM-20 | Guest revocation, invite regeneration | `credentials.revoked_at` | D |

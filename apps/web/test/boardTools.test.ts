@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_GRID, type GridSpec, type Point } from "@vtt/shared";
-import { areaOrigin, areaShape, areaSizeFromDrag, fogRegionAt, hitMark, measure, snapToCellCenter, snapToIntersection, sweepPoints, type Mark } from "../src/board/tools";
+import { areaOrigin, areaShape, areaSizeFromDrag, fogDraftPoints, fogRegionAt, hitMark, measure, snapToCellCenter, snapToIntersection, sweepPoints, type Mark } from "../src/board/tools";
 
 const grid: GridSpec = DEFAULT_GRID; // 70 px cells, 5 ft per cell
 const offsetGrid: GridSpec = { ...DEFAULT_GRID, offsetX: 10, offsetY: 20 };
@@ -199,6 +199,18 @@ describe("Fog tool hit testing (FR-GM-17)", () => {
     expect(fogRegionAt(fog, { x: 75, y: 75 })?.id).toBe("b");
     expect(fogRegionAt(fog, { x: 25, y: 25 })?.id).toBe("a");
     expect(fogRegionAt(fog, { x: 300, y: 300 })).toBeNull();
+  });
+
+  it("stores a dragged rectangle as its four corners, whichever way it was dragged", () => {
+    const corners = [{ x: 10, y: 20 }, { x: 110, y: 20 }, { x: 110, y: 80 }, { x: 10, y: 80 }];
+    expect(fogDraftPoints({ shape: "rect", from: { x: 10, y: 20 }, to: { x: 110, y: 80 } })).toEqual(corners);
+    expect(fogDraftPoints({ shape: "rect", from: { x: 110, y: 80 }, to: { x: 10, y: 20 } })).toEqual(corners);
+    expect(fogDraftPoints({ shape: "rect", from: { x: 110, y: 20 }, to: { x: 10, y: 80 } })).toEqual(corners);
+  });
+
+  it("keeps a polygon's corners as clicked", () => {
+    const points = [{ x: 0, y: 0 }, { x: 50, y: 10 }, { x: 20, y: 60 }];
+    expect(fogDraftPoints({ shape: "polygon", points })).toEqual(points);
   });
 });
 

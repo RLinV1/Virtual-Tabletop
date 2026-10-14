@@ -202,7 +202,7 @@ export function SignUpPage() {
       <label>
         Password
         <span className="muted small">
-          {PASSWORD_MIN} to {PASSWORD_MAX} characters. A few words make a strong one.
+          {PASSWORD_MIN} to {PASSWORD_MAX} characters.
         </span>
         <input
           type="password"

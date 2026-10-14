@@ -10,6 +10,8 @@ import { PanelSection } from "../ui/PanelSection";
  * Encounter templates (FR-GM-13, ADR 0024): the GM saves this room's prepared board to their
  * library and applies a saved one here. Applying replaces the map, grid, tokens and fog and ends
  * any running encounter; chat, rolls and players stay, and it can be undone from the activity log.
+ * Saving can also replace one of the GM's templates, keeping its id and name (ADR 0033), when this
+ * room uses that template's map.
  * The list is the account's, so a GM without an account just doesn't see the panel's actions.
  */
 export function EncounterPanel({ connection, state }: { connection: RoomConnection; state: RoomState }) {
@@ -19,6 +21,13 @@ export function EncounterPanel({ connection, state }: { connection: RoomConnecti
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("");
   const [confirming, setConfirming] = useState<EncounterSummary | null>(null);
+  /** Where Save writes: "" for a new template, or the id of a template to replace. */
+  const [target, setTarget] = useState("");
+  const [confirmingReplace, setConfirmingReplace] = useState<EncounterSummary | null>(null);
+  const roomMapId = state.scene.map?.assetId ?? null;
+  /** A template can only be replaced from a room on its own map (the server checks too). */
+  const sameMap = (t: EncounterSummary) => t.mapAssetId !== null && t.mapAssetId === roomMapId;
+  const replacing = templates?.find((t) => t.id === target) ?? null;
 
   const refresh = useCallback(() => {
     api.library.encounters.list().then(
@@ -33,6 +42,7 @@ export function EncounterPanel({ connection, state }: { connection: RoomConnecti
 
   const save = async () => {
     if (busy) return;
+    if (replacing) return setConfirmingReplace(replacing);
     const trimmed = name.trim();
     if (!trimmed) return setError("Give the template a name.");
     setBusy(true);
@@ -46,6 +56,23 @@ export function EncounterPanel({ connection, state }: { connection: RoomConnecti
       setError(err instanceof Error ? err.message : "Could not save the template");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const replace = async (template: EncounterSummary) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const saved = await api.library.encounters.replaceFromRoom(template.id, state.roomId);
+      setTemplates((all) => [saved, ...(all ?? []).filter((t) => t.id !== saved.id)]);
+      setTarget("");
+      setError(null);
+      setStatus(`Replaced encounter template "${saved.name}" with this room's board.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not replace the template");
+    } finally {
+      setBusy(false);
+      setConfirmingReplace(null);
     }
   };
 
@@ -72,18 +99,33 @@ export function EncounterPanel({ connection, state }: { connection: RoomConnecti
           void save();
         }}
       >
-        <label className="checkpoint-name">
-          <span className="sr-only">Template name</span>
-          <input
-            value={name}
-            maxLength={MAX_ENCOUNTER_NAME}
-            placeholder="Goblin ambush"
-            onChange={(e) => setName(e.target.value)}
-            disabled={busy}
-          />
-        </label>
+        {templates && templates.length > 0 && (
+          <label className="checkpoint-name">
+            <span className="sr-only">Save to</span>
+            <select value={target} onChange={(e) => setTarget(e.target.value)} disabled={busy}>
+              <option value="">Save as new</option>
+              {templates.map((t) => (
+                <option key={t.id} value={t.id} disabled={!sameMap(t)}>
+                  Replace {t.name}{sameMap(t) ? "" : " (different map)"}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {!replacing && (
+          <label className="checkpoint-name">
+            <span className="sr-only">Encounter name</span>
+            <input
+              value={name}
+              maxLength={MAX_ENCOUNTER_NAME}
+              placeholder="Encounter name"
+              onChange={(e) => setName(e.target.value)}
+              disabled={busy}
+            />
+          </label>
+        )}
         <button type="submit" className="secondary" disabled={busy}>
-          Save
+          {replacing ? "Replace" : "Save"}
         </button>
       </form>
       {error && <p role="alert" className="error">{error}</p>}
@@ -112,6 +154,24 @@ export function EncounterPanel({ connection, state }: { connection: RoomConnecti
           ))}
         </ul>
       )}
+      <Modal open={confirmingReplace !== null} title="Replace encounter template?" onClose={() => setConfirmingReplace(null)}>
+        {confirmingReplace && (
+          <div className="stack">
+            <p>
+              Replace <strong>{confirmingReplace.name}</strong> with this room's map, grid, tokens and fog? Its name stays,
+              and rooms already made from it don't change.
+            </p>
+            <div className="row button-row">
+              <button type="button" disabled={busy} onClick={() => void replace(confirmingReplace)}>
+                Replace {confirmingReplace.name}
+              </button>
+              <button type="button" className="secondary" disabled={busy} onClick={() => setConfirmingReplace(null)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
       <Modal open={confirming !== null} title="Apply encounter template?" onClose={() => setConfirming(null)}>
         {confirming && (
           <div className="stack">

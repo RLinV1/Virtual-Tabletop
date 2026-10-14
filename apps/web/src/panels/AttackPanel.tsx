@@ -28,8 +28,6 @@ import {
   damageAmount,
   DEFAULT_ATTACK,
   DIE_SIDES,
-  isPresetRecord,
-  isSavedRecord,
   isSettingsRecord,
   kindOf,
   LAST_USED_KEY,
@@ -46,11 +44,11 @@ import {
   type AttackDice,
   type AttackPreset,
   type AttackSettings,
-  type SavedAttack,
 } from "./attackRoll";
 import type { AttackReset } from "./attackSession";
 import { trayRoll } from "./DicePanel";
 import { RulingButtons } from "./RulingButtons";
+import { saveTokenAttacks } from "./tokenAttacks";
 
 /**
  * Who attacks whom. Held by the room page, so the board's Pick on board can fill it in and the
@@ -123,9 +121,6 @@ export function AttackPanel({
 
   // Browser-local conveniences, kept here so they outlive a change of attacker.
   const [lastUsed, setLastUsed] = usePersistentState<Record<string, AttackSettings>>(LAST_USED_KEY, {}, isSettingsRecord);
-  const [stored, setStored] = usePersistentState<Record<string, AttackPreset[]>>("vtt.attack.presets", {}, isPresetRecord);
-  // Saved attacks from before named attacks: read to migrate, never written or deleted.
-  const [legacy] = usePersistentState<Record<string, SavedAttack[]>>("vtt.attack.saved", {}, isSavedRecord);
   const [customOpen, setCustomOpen] = usePersistentState("vtt.ui.customRoll", false, isBoolean);
 
   // An encounter that ends while this is showing clears the custom settings kept in memory too
@@ -137,8 +132,8 @@ export function AttackPanel({
     setLastUsed({});
   }, [reset.count, setLastUsed]);
 
-  const presetsFor = (tokenId: string, all: Record<string, AttackPreset[]>) => presetsForToken(state.tokens[tokenId]!, all, legacy);
-  const allPresets: Record<string, AttackPreset[]> = Object.fromEntries(Object.keys(state.tokens).map((id) => [id, presetsFor(id, stored)]));
+  // Each token's attacks are the room's, shared by the GM and its owners (ADR 0034).
+  const allPresets: Record<string, AttackPreset[]> = Object.fromEntries(Object.values(state.tokens).map((t) => [t.id, presetsForToken(t)]));
 
   return (
     <PanelSection
@@ -183,7 +178,7 @@ export function AttackPanel({
           onPickOnBoard={() => onPickOnBoard(attacker.id)}
           onShowPing={onShowPing}
           onRolledCustom={(settings) => setLastUsed((all) => ({ ...all, [attacker.id]: settings }))}
-          onPresets={(update) => setStored((all) => ({ ...all, [attacker.id]: update(presetsFor(attacker.id, all)).slice(0, MAX_PRESETS) }))}
+          onPresets={(update) => saveTokenAttacks(connection, attacker.id, update(presetsForToken(attacker)).slice(0, MAX_PRESETS))}
         />
       )}
     </PanelSection>
@@ -239,7 +234,8 @@ function AttackForm({
   onPickOnBoard: () => void;
   onShowPing: (at: Point) => void;
   onRolledCustom: (settings: AttackSettings) => void;
-  onPresets: (update: (presets: AttackPreset[]) => AttackPreset[]) => void;
+  /** Save the attacker's attacks for the GM and its owners; resolves to why the server refused, else null. */
+  onPresets: (update: (presets: AttackPreset[]) => AttackPreset[]) => Promise<string | null>;
 }) {
   const [settings, setSettings] = useState<AttackSettings>(initial);
   // The modifier field's own text, so "-" or an empty box can be typed on the way to "-2".
@@ -392,17 +388,16 @@ function AttackForm({
           initial={typeof editing === "number" ? (presets[editing] ?? null) : null}
           taken={presets.filter((_, j) => j !== editing).map((p) => p.name)}
           onSave={(next) => {
-            if (typeof editing === "number") onPresets((list) => list.map((p, j) => (j === editing ? next : p)));
-            else {
-              onPresets((list) => [...list, next]);
-              // A new attack is usually the one about to be used.
-              setSelected(presets.length);
-            }
+            const at = editing;
+            void onPresets((list) => (typeof at === "number" ? list.map((p, j) => (j === at ? next : p)) : [...list, next])).then(setError);
+            // A new attack is usually the one about to be used.
+            if (typeof at !== "number") setSelected(presets.length);
             setEditing(null);
           }}
           {...(typeof editing === "number" && {
             onRemove: () => {
-              onPresets((list) => list.filter((_, j) => j !== editing));
+              const at = editing;
+              void onPresets((list) => list.filter((_, j) => j !== at)).then(setError);
               setSelected(0);
               setEditing(null);
             },
