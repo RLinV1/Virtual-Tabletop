@@ -1,10 +1,13 @@
-import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type ReactNode, type RefObject } from "react";
 
 /**
  * A button that opens a small anchored panel (participants list, share link).
  *
  * Closes on Escape (returning focus to the button), on a second click, and on a pointer
  * press outside. Open state is local UI only; nothing here is persisted or sent.
+ *
+ * With `placement: "fixed"` the panel is placed against the window instead of its anchor, so a
+ * list that scrolls can't clip it. It closes on any scroll or resize rather than drift off its button.
  */
 export function PopoverButton({
   label,
@@ -14,6 +17,8 @@ export function PopoverButton({
   className = "tool-button",
   tourId,
   buttonRef: outerButtonRef,
+  placement = "anchored",
+  buttonProps,
   children,
 }: {
   /** Accessible name of the button, e.g. "Participants, 3". */
@@ -28,6 +33,11 @@ export function PopoverButton({
   tourId?: string;
   /** Also points at the button, for a caller that moves focus to it. */
   buttonRef?: RefObject<HTMLButtonElement | null>;
+  /** "fixed" escapes a scrolling ancestor, e.g. a row in the token roster. */
+  placement?: "anchored" | "fixed";
+  /** Extra attributes for the button, e.g. drag handlers; never its click, label or ARIA state. */
+  buttonProps?: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "onClick" | "type" | "aria-label" | "aria-expanded" | "aria-controls">
+    & { [data: `data-${string}`]: string };
   /** The panel's content. As a function it gets `close`, for an item that hands off to a modal. */
   children: ReactNode | ((close: () => void) => ReactNode);
 }) {
@@ -35,6 +45,36 @@ export function PopoverButton({
   const wrapRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelId = useId();
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [fixedStyle, setFixedStyle] = useState<CSSProperties | null>(null);
+
+  // Below the button, or above it when there isn't room, kept inside the window.
+  useLayoutEffect(() => {
+    if (!open || placement !== "fixed") return setFixedStyle(null);
+    const button = buttonRef.current?.getBoundingClientRect();
+    const panel = panelRef.current?.getBoundingClientRect();
+    if (!button || !panel) return;
+    const gap = 8;
+    const below = button.bottom + gap + panel.height <= window.innerHeight;
+    const top = below ? button.bottom + gap : Math.max(gap, button.top - gap - panel.height);
+    const left = align === "right" ? button.right - panel.width : button.left;
+    setFixedStyle({ position: "fixed", top, left: Math.max(gap, Math.min(left, window.innerWidth - panel.width - gap)), right: "auto" });
+  }, [open, placement, align]);
+
+  useEffect(() => {
+    if (!open || placement !== "fixed") return;
+    const close = (e: Event) => {
+      // Scrolling inside the panel itself is fine.
+      if (e.type === "scroll" && panelRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [open, placement]);
 
   useEffect(() => {
     if (!open) return;
@@ -59,6 +99,7 @@ export function PopoverButton({
       }}
     >
       <button
+        {...buttonProps}
         ref={(el) => {
           buttonRef.current = el;
           if (outerButtonRef) outerButtonRef.current = el;
@@ -74,7 +115,15 @@ export function PopoverButton({
         {buttonContent}
       </button>
       {open && (
-        <div id={panelId} role="dialog" aria-label={title} className={`popover popover-${align}`}>
+        <div
+          ref={panelRef}
+          id={panelId}
+          role="dialog"
+          aria-label={title}
+          className={`popover popover-${align}`}
+          // Hidden for the one frame before it is measured, so it never flashes in the wrong place.
+          style={placement === "fixed" ? fixedStyle ?? { position: "fixed", visibility: "hidden" } : undefined}
+        >
           {typeof children === "function" ? children(() => setOpen(false)) : children}
         </div>
       )}

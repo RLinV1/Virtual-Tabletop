@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState, type DragEvent, type ReactNode } from "react";
 import { presetOf, type PresetFeatures } from "@vtt/shared";
 import { Trash } from "@phosphor-icons/react";
 import {
@@ -30,6 +30,7 @@ import { Modal } from "../ui/Modal";
 import { PanelSection } from "../ui/PanelSection";
 import { CollapseToggle, GroupHeading, NewGroupForm } from "./GroupHeading";
 import { groupedTokens } from "./tokenGroups";
+import { GroupMoveMenu } from "./GroupMoveMenu";
 
 /**
  * Focusable token roster (FR-GM-24), showing stats and conditions (FR-TAC-07/08).
@@ -84,6 +85,54 @@ export function TokenRoster({
     return r.ok;
   };
 
+  /** The token being dragged by its grip, and the section under it ("" is Ungrouped) (roster-group-move). */
+  const [dragging, setDragging] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  /** After a move from the menu: where focus goes once the token's row has moved. */
+  const [refocus, setRefocus] = useState<{ tokenId: string; groupId: string | null } | null>(null);
+  const groups = Object.values(state.groups);
+  const groupOf = (tokenId: string) => state.tokenGroups[tokenId] ?? null;
+
+  /** One token into a group, or out of any with null: one undoable action, as the editor's Group field. */
+  const moveToGroup = async (tokenId: string, groupId: string | null) => {
+    if (groupOf(tokenId) === groupId) return false;
+    return send({ type: "group.assign", groupId, tokenIds: [tokenId] });
+  };
+
+  // The row is rebuilt in its new section, so its grip lost focus; give it back, or to the
+  // section's heading when that section is collapsed.
+  useEffect(() => {
+    if (!refocus || (state.tokenGroups[refocus.tokenId] ?? null) !== refocus.groupId) return;
+    setRefocus(null);
+    const handle = document.querySelector<HTMLElement>(`[data-move-handle="${refocus.tokenId}"]`);
+    const heading = document.querySelector<HTMLElement>(`[data-group-section="${refocus.groupId ?? ""}"] .group-toggle`);
+    (handle ?? heading)?.focus();
+  }, [refocus, state.tokenGroups]);
+
+  /** Drag-and-drop handlers for one group's section, heading and list together. */
+  const dropZone = (groupId: string | null) => {
+    const key = groupId ?? "";
+    return {
+      "data-group-section": key,
+      onDragOver: (e: DragEvent<HTMLElement>) => {
+        if (!dragging) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        if (dropTarget !== key) setDropTarget(key);
+      },
+      onDragLeave: (e: DragEvent<HTMLElement>) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropTarget((t) => (t === key ? null : t));
+      },
+      onDrop: (e: DragEvent<HTMLElement>) => {
+        e.preventDefault();
+        const tokenId = dragging;
+        setDragging(null);
+        setDropTarget(null);
+        if (tokenId) void moveToGroup(tokenId, groupId);
+      },
+    };
+  };
+
   const tokens = Object.values(state.tokens)
     .filter((t) => t.name.toLowerCase().includes(query.trim().toLowerCase()))
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -102,6 +151,21 @@ export function TokenRoster({
       }}
       // The board places each copy where the GM clicks, until they're done (ADR 0033).
       onDuplicate={isGm ? () => onDuplicateToken(token.id) : undefined}
+      handle={isGm && groups.length > 0 ? (
+        <GroupMoveMenu
+          token={token}
+          groups={groups}
+          groupId={groupOf(token.id)}
+          onMove={async (groupId) => {
+            if (await moveToGroup(token.id, groupId)) setRefocus({ tokenId: token.id, groupId });
+          }}
+          onDragStart={() => setDragging(token.id)}
+          onDragEnd={() => {
+            setDragging(null);
+            setDropTarget(null);
+          }}
+        />
+      ) : undefined}
     />
   );
 
@@ -123,8 +187,10 @@ export function TokenRoster({
         // The GM's roster is grouped (KAN-82); players never receive groups, so theirs is one list.
         <>
           {groupedTokens(state, tokens).map(({ group, tokens: members }) =>
-            group || members.length > 0 || tokens.length === 0 ? (
-              <section key={group?.id ?? "ungrouped"} className="roster-group" aria-label={group?.name ?? "Ungrouped tokens"}>
+            // An empty Ungrouped appears while dragging, so a token can be dropped out of its group.
+            group || members.length > 0 || tokens.length === 0 || dragging ? (
+              <section key={group?.id ?? "ungrouped"} {...dropZone(group?.id ?? null)}
+                className={dropTarget === (group?.id ?? "") ? "roster-group drop-target" : "roster-group"} aria-label={group?.name ?? "Ungrouped tokens"}>
                 {group ? (
                   <GroupHeading group={group} tokens={members} connection={connection} onError={setError}
                     collapsed={collapsed.has(group.id)} onToggle={() => toggle(group.id)} />
@@ -135,7 +201,7 @@ export function TokenRoster({
                   </div>
                 )}
                 {collapsed.has(group?.id ?? "") ? null : members.length === 0 ? (
-                  <p className="muted">{group ? "No tokens in this group yet. Use Edit on a token to add it." : query ? "No tokens match." : "No tokens yet."}</p>
+                  <p className="muted">{group ? "No tokens in this group yet. Drag a token here by its grip, or use its Move menu." : query ? "No tokens match." : "No tokens yet."}</p>
                 ) : (
                   <ul className="plain roster">
                     {members.map((token) => row(token))}
@@ -196,6 +262,7 @@ function RosterRow({
   onFocus,
   onEdit,
   onDuplicate,
+  handle,
 }: {
   token: Token;
   you: Participant;
@@ -204,6 +271,8 @@ function RosterRow({
   onEdit: () => void;
   /** GM only (token-card-actions). */
   onDuplicate?: () => void;
+  /** GM only, when the room has groups: the grip that moves the token to another group (roster-group-move). */
+  handle?: ReactNode;
 }) {
   // Same rule the server enforces; this only decides whether to draw the controls.
   const editable = can.editToken(you, token);
@@ -212,6 +281,7 @@ function RosterRow({
   return (
     <li className={isActive ? "roster-row active" : "roster-row"}>
       <div className="roster-main">
+        {handle}
         <button type="button" className="roster-focus" onClick={onFocus}>
           <span className="swatch" style={{ background: token.color }} aria-hidden />
           <span className="token-name">{token.name}</span>
