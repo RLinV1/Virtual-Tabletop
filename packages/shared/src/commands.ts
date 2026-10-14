@@ -100,11 +100,15 @@ export const Command = z.discriminatedUnion("type", [
     /** Place this many copies in one action, numbered and spread over free squares (KAN-70). */
     count: z.number().int().min(1).max(MAX_TOKENS_PER_CREATE).default(1),
   }),
-  /** GM copies a token, 1–20 times, onto the nearest free squares beside it (KAN-82). */
+  /**
+   * GM copies a token, 1–20 times, onto the nearest free squares beside it (KAN-82), or starting
+   * at `position` when the GM chose the square (ADR 0033).
+   */
   z.object({
     type: z.literal("token.duplicate"),
     tokenId: Id,
     count: z.number().int().min(1).max(MAX_TOKENS_PER_CREATE).default(1),
+    position: Point.optional(),
   }).strict(),
   /** GM-only token groups (KAN-82, ADR 0026). */
   z.object({

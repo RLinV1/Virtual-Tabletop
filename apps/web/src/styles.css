@@ -2248,6 +2248,9 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 /* Library creatures (library-creatures): a creature without art is a plain disc, as on the board. */
 .creature-disc { display: block; width: 70%; aspect-ratio: 1; border-radius: 50%; }
 .add-token-creature { flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+/* New Token and Saved Creatures share the row the single Add token button filled (token-placement-flow). */
+.add-token-buttons { gap: var(--space-2); }
+.add-token-buttons > button { flex: 1 1 0; }
 .add-token-advanced summary { cursor: pointer; font-size: var(--fs-sm); color: var(--muted); padding: 0.2rem 0; }
 .add-token-advanced[open] summary { margin-bottom: var(--space-2); color: var(--text); }
 .picker-item .creature-disc { width: 100%; }

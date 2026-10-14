@@ -73,4 +73,25 @@ describe("Token groups across the wire (KAN-82, FR-GM-16, FR-GM-23)", () => {
     expect(Object.values(pc.state.tokens).map((t) => t.name)).toEqual(["Goblin"]);
     expect(pc.state).toEqual(viewFor(gm.state, pc));
   });
+
+  it("duplicates onto a chosen square, reaching a player only when the copy is not hidden (ADR 0033, FR-GM-23)", async () => {
+    const { gm, pc } = await table();
+    await gm.command({ type: "token.create", name: "Goblin", position: { x: 105, y: 105 } });
+    await gm.command({ type: "token.create", name: "Shadow", position: { x: 175, y: 35 }, hidden: true });
+    expect((await gm.command({ type: "token.duplicate", tokenId: tokenId(gm, "Goblin"), position: { x: 385, y: 245 } })).type).toBe("ack");
+    expect((await gm.command({ type: "token.duplicate", tokenId: tokenId(gm, "Shadow"), position: { x: 455, y: 245 } })).type).toBe("ack");
+    await pc.waitForSeq(gm.seq);
+    expect(Object.values(pc.state.tokens).find((t) => t.name === "Goblin 2")?.position).toEqual({ x: 385, y: 245 });
+    expect(pc.rawLog.join("\n")).not.toContain("Shadow");
+    expect(pc.state).toEqual(viewFor(gm.state, pc));
+  });
+
+  it("rejects a forged player duplicate onto a square (FR-GM-15)", async () => {
+    const { gm, pc } = await table();
+    await gm.command({ type: "token.create", name: "Fighter", position: { x: 35, y: 35 }, ownerIds: [pc.participantId] });
+    await pc.waitForSeq(gm.seq);
+    const seq = gm.seq;
+    expect(await pc.command({ type: "token.duplicate", tokenId: tokenId(pc, "Fighter"), position: { x: 385, y: 245 } })).toMatchObject({ type: "rejected", code: "forbidden" });
+    expect(gm.seq).toBe(seq);
+  });
 });

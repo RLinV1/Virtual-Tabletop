@@ -882,6 +882,16 @@ export class BoardView {
     this.redrawGhost();
   }
 
+  /**
+   * Keyboard placement (token-placement-flow): put the ghost on `at`, snapped as a click there
+   * would be. The pointer moves it again on its next move; whichever moved last wins.
+   */
+  setPlacementCursor(at: Point) {
+    if (!this.placement) return;
+    this.hover = { at, free: false };
+    this.redrawGhost();
+  }
+
   private redrawGhost() {
     if (!this.initialized) return;
     const { placement, hover, state, you } = this;

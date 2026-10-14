@@ -222,8 +222,12 @@ export function decide(
       if (!original) return notFound("token");
       // Everything but identity and the remembered initiative score, which belongs to the original.
       const { id: _id, initiative: _initiative, ...copy } = original;
-      // Beside the original, never on it: its own square is the first spot the spread offers.
-      const created = createTokens(state, copy, command.count, ctx, { besideOrigin: true });
+      // At the GM's chosen square, as token.create places (ADR 0033); otherwise beside the
+      // original, never on it: its own square is the first spot the spread offers.
+      if (command.position && footprintCrossesWall(command.position, copy.size, state.scene.grid, blockingWalls(state))) return wallBlocked();
+      const created = command.position
+        ? createTokens(state, { ...copy, position: command.position }, command.count, ctx)
+        : createTokens(state, copy, command.count, ctx, { besideOrigin: true });
       if (!created.ok) return created;
       // Copies join the original's group, in the same action (KAN-82).
       const groupId = state.tokenGroups[original.id];

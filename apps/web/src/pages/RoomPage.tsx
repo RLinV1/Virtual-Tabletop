@@ -287,6 +287,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
     }
   }, [connection]);
   const placeToken = useCallback((draft: TokenDraft) => boardRef.current?.placeToken(draft), []);
+  const duplicateToken = useCallback((tokenId: string) => boardRef.current?.duplicateToken(tokenId), []);
   const [sidebarCollapsed, setSidebarCollapsed] = usePersistentState("vtt.ui.sidebar", false, isBoolean);
   const [tab, setTab] = usePersistentState<TabId>("vtt.ui.tab", "play", isTabId);
   const [guideOpen, setGuideOpen] = useState(false);
@@ -608,6 +609,7 @@ function Room({ roomId, connection, token }: { roomId: string; connection: RoomC
               gridApplying={gridApplying}
               gridError={gridError}
               onPlaceToken={placeToken}
+              onDuplicateToken={duplicateToken}
               compact={compact}
               tab={tab}
               onTab={setTab}
