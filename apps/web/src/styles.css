@@ -246,6 +246,7 @@ a.tool-button { text-decoration: none; }
 .token-card dl { display: grid; grid-template-columns: auto 1fr; gap: var(--space-1) var(--space-3); margin: 0; }
 .token-card dt { color: var(--muted); }
 .token-card dd { margin: 0; }
+.token-card-actions { margin-top: var(--space-2); gap: var(--space-2); }
 
 /* Placing a new token (place-token-on-board): top centre, clear of the toolbar and notices. */
 .placement-bar {

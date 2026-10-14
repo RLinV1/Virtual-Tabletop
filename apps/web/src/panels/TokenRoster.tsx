@@ -50,6 +50,8 @@ export function TokenRoster({
   onFocusToken,
   onPlaceToken,
   onDuplicateToken,
+  editingTokenId,
+  onEditToken,
 }: {
   connection: RoomConnection;
   state: RoomState;
@@ -61,9 +63,11 @@ export function TokenRoster({
   onPlaceToken: (draft: TokenDraft) => void;
   /** GM: place copies of a token, once per click (token-placement-flow, ADR 0033). */
   onDuplicateToken: (tokenId: string) => void;
+  /** The token whose editor is open. The room page owns it, so the board's token card can open it too. */
+  editingTokenId: string | null;
+  onEditToken: (tokenId: string | null) => void;
 }) {
   const [query, setQuery] = useState("");
-  const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** Group ids the GM collapsed; "" is the Ungrouped section (KAN-82). */
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
@@ -73,7 +77,7 @@ export function TokenRoster({
     return next;
   });
   const isGm = you.role === "gm";
-  const editing = editingId ? state.tokens[editingId] : undefined;
+  const editing = editingTokenId ? state.tokens[editingTokenId] : undefined;
   const send = async (command: Parameters<RoomConnection["command"]>[0]) => {
     const r = await connection.command(command);
     setError(r.ok ? null : r.message);
@@ -94,8 +98,10 @@ export function TokenRoster({
       onFocus={() => onFocusToken(token.id)}
       onEdit={() => {
         setError(null);
-        setEditingId(token.id);
+        onEditToken(token.id);
       }}
+      // The board places each copy where the GM clicks, until they're done (ADR 0033).
+      onDuplicate={isGm ? () => onDuplicateToken(token.id) : undefined}
     />
   );
 
@@ -150,7 +156,7 @@ export function TokenRoster({
       {error && !editing && <p role="alert" className="error">{error}</p>}
       {isGm && <AddTokenButton state={state} token={guestToken} onPlace={onPlaceToken} />}
 
-      <Modal open={!!editing} title={editing ? `Edit ${editing.name}` : "Edit token"} onClose={() => setEditingId(null)}>
+      <Modal open={!!editing} title={editing ? `Edit ${editing.name}` : "Edit token"} onClose={() => onEditToken(null)}>
         {editing && (
           <TokenEditor
             key={editing.id}
@@ -166,15 +172,15 @@ export function TokenRoster({
             onSave={async (changes, groupId) => {
               if (Object.keys(changes).length > 0 && !(await send({ type: "token.configure", tokenId: editing.id, changes }))) return;
               if (groupId !== undefined && !(await send({ type: "group.assign", groupId, tokenIds: [editing.id] }))) return;
-              setEditingId(null);
+              onEditToken(null);
             }}
             onDuplicate={() => {
               // The board places each copy where the GM clicks, until they're done (ADR 0033).
               onDuplicateToken(editing.id);
-              setEditingId(null);
+              onEditToken(null);
             }}
             onDelete={async () => {
-              if (await send({ type: "token.delete", tokenId: editing.id })) setEditingId(null);
+              if (await send({ type: "token.delete", tokenId: editing.id })) onEditToken(null);
             }}
           />
         )}
@@ -189,15 +195,18 @@ function RosterRow({
   isActive,
   onFocus,
   onEdit,
+  onDuplicate,
 }: {
   token: Token;
   you: Participant;
   isActive: boolean;
   onFocus: () => void;
   onEdit: () => void;
+  /** GM only (token-card-actions). */
+  onDuplicate?: () => void;
 }) {
   // Same rule the server enforces; this only decides whether to draw the controls.
-  const editable = can.moveToken(you, token);
+  const editable = can.editToken(you, token);
   const fraction = hpFraction(token.stats);
 
   return (
@@ -219,6 +228,11 @@ function RosterRow({
         {editable && (
           <button type="button" className="link small" onClick={onEdit} aria-label={`Edit ${token.name}`}>
             Edit
+          </button>
+        )}
+        {onDuplicate && (
+          <button type="button" className="link small" onClick={onDuplicate} aria-label={`Duplicate ${token.name}`}>
+            Duplicate
           </button>
         )}
       </div>
