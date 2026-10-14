@@ -126,3 +126,58 @@ describe("room chat over the wire (KAN-75)", () => {
     expect(await alice.command({ type: "participant.rename", displayName: "Alicia" })).toMatchObject({ type: "ack" });
   });
 });
+
+describe("chat mentions over the wire (chat-mentions)", () => {
+  it("delivers a mention to the GM and every player, and to a late joiner with the history", async () => {
+    const { gm, alice, bob, gmCreds } = await setup();
+    const sent = await alice.command({ type: "chat.send", text: "@Bob look" });
+    expect(sent).toMatchObject({ type: "ack" });
+    await Promise.all([gm, alice, bob].map((c) => c.waitForSeq(seqOf(sent))));
+
+    const mentions = [{ participantId: bob.participantId, displayName: "Bob" }];
+    for (const c of [gm, alice, bob]) {
+      expect(c.state.chat).toEqual([
+        { id: expect.any(String), senderId: alice.participantId, senderName: "Alice", text: "@Bob look", at: expect.any(String), mentions },
+      ]);
+    }
+    // Every client converged on the same chat, id and time included.
+    expect(alice.state.chat).toEqual(gm.state.chat);
+    expect(bob.state.chat).toEqual(gm.state.chat);
+
+    const carol = await server.connect(await server.join(gmCreds.inviteCode, "Carol"));
+    clients.push(carol);
+    expect(carol.state.chat[0]?.mentions).toEqual(mentions);
+    expect(carol.state.chat).toEqual(gm.state.chat);
+  });
+
+  it("does not mention someone who has left", async () => {
+    const { gm, alice, bob } = await setup();
+    // Leaving ends the seat's session, so there is no ack to wait for (KAN-58).
+    bob.send({ type: "command", clientCommandId: "leave", command: { type: "participant.leave" } });
+    await bob.waitFor((m) => m.type === "sessionEnded");
+    const sent = await alice.command({ type: "chat.send", text: "@Bob are you there?" });
+    await gm.waitForSeq(seqOf(sent));
+    expect(gm.state.chat[0]).toMatchObject({ text: "@Bob are you there?" });
+    expect(gm.state.chat[0]).not.toHaveProperty("mentions");
+  });
+
+  it("never turns a hidden token's name into a mention or sends its id to players", async () => {
+    const { gm, alice, bob } = await setup();
+    expect(await gm.command({ type: "token.create", name: "Shade", position: { x: 0, y: 0 }, hidden: true })).toMatchObject({ type: "ack" });
+    const shadeId = Object.values(gm.state.tokens).find((t) => t.name === "Shade")!.id;
+    const sent = await alice.command({ type: "chat.send", text: "@Shade is that you?" });
+    expect(sent).toMatchObject({ type: "ack" });
+    await Promise.all([gm, alice, bob].map((c) => c.waitForSeq(seqOf(sent))));
+    expect(gm.state.chat[0]).not.toHaveProperty("mentions");
+    for (const player of [alice, bob]) expect(player.rawLog.join("\n")).not.toContain(shadeId);
+  });
+
+  it("rejects a client-chosen mention list and records nothing", async () => {
+    const { gm, alice, bob } = await setup();
+    const before = alice.seq;
+    const reply = await alice.command(forged({ type: "chat.send", text: "hi", mentions: [{ participantId: bob.participantId, displayName: "Bob" }] }));
+    expect(reply).toMatchObject({ type: "rejected", code: "bad_request" });
+    expect(alice.seq).toBe(before);
+    expect(gm.state.chat).toEqual([]);
+  });
+});
