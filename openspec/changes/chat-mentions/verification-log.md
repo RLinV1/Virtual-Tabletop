@@ -80,3 +80,25 @@ Editing `packages/shared` restarted the `tsx watch` server, which wiped the in-m
 - [x] Stopped `server-isolated` (:3101), `web-isolated` (:5273) and both viewer-script runs. The user's :3001 and :5173 servers were never touched.
 - [x] Restored `.claude/launch.json` (`git checkout`).
 - [x] Deleted the scratchpad file holding the throwaway GM credentials. The account lived only in the in-memory server and is gone.
+
+## Merge of main (2026-10-14)
+
+Merged `main` (`dbae5fc`, PRs up to #100) into `feat/chat-mentions` and renumbered this change's ADR from 0023 to 0034, since main took 0023 for creature starting HP.
+
+**Conflicts resolved:** `decide.ts` and `index.ts` (combined both sides' imports and exports), `styles.css` (the participant-name width limit plus main's AFK name colour), and `ChatPanel.tsx` (the mention autocomplete plus main's draggable chat button, KAN-75). Both sides declared `onKeyDown`, so the input's mention handler is now `onInputKeyDown`, and the launcher's Shift+arrow handler is unchanged.
+
+**Environment:** the same setup as above. Temporary `server-verify` (:3101, in-memory, `DATABASE_URL`/`REDIS_URL` empty) and `web-verify` (:5273) entries in `.claude/launch.json`, since restored. The built-in browser was the GM; a scratchpad socket script played Aria and Bea. The throwaway GM account "Mara" existed only in the in-memory server. The user's :3001 and :5173 servers were not touched.
+
+| # | Step | Result |
+| --- | --- | --- |
+| M1 | `npm install`, `npm run lint`, `npm run typecheck`, `npm test` | All pass: shared 573, server 394 (35 skipped), web 575, bench 2. The lockfile was unchanged. |
+| M2 | Aria sends "@Mara the door is locked", Bea sends "ok" | The launcher reads "Chat, 2 unread, 1 mentions you". |
+| M3 | Drag the chat button to the upper left | It moved and the position was saved (`vtt.ui.chatSpot`). The widget got `chat-widget-left chat-widget-top`. The drag did not open the chat. |
+| M4 | Focus the button, Shift+ArrowRight ×2, Shift+ArrowDown | It moved 48px right and 24px down. |
+| M5 | Enter on the button opens the chat; type "hey @", ArrowDown | The popup opens downward from the moved button, with the list (Aria, Bea) inside it. ArrowDown highlighted Bea and did not move the button. |
+| M6 | Enter, type "watch the door", Shift+ArrowLeft, End, Enter | The first Enter picked "@Bea " (caret 9) without sending. Shift+arrow in the input did not move the button. Sent "hey @Bea watch the door" with "@Bea" as a mention. |
+| M7 | Bea leaves (`participant.leave`) | "Bea has left the room." `@` now offers only Aria, and the earlier "@Bea" stays highlighted. Escape closed the list but left the popup open. |
+| M8 | Participants list | Bea's row is `participant-away`, with the name muted (rgb 142,150,162) and "AFK". Names keep the 14rem limit, and every row is one 40px line. |
+| M9 | Console and server logs | No server errors. The only console 403 came from a manual `/invite` fetch made during setup without the GM header. |
+
+**Cleanup:** stopped both servers, restored `.claude/launch.json`, and deleted the scratchpad credentials and player tokens.
