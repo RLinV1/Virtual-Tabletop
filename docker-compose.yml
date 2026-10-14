@@ -82,6 +82,8 @@ services:
       DATABASE_URL: postgres://vtt:vtt@postgres:5432/vtt
       REDIS_URL: redis://redis:6379
       S3_ENDPOINT: http://s3:8333
+      # The vision service is its own container; the default 127.0.0.1:8000 is this container.
+      VISION_URL: http://vision:8000
       # Dev only: signs in as t@gmail.com / password with no sign-up (never set in production).
       SEED_DEV_ACCOUNT: "1"
     ports: ["3001:3001"]
