@@ -50,8 +50,8 @@ import { aimExpiry, expiredAims } from "./aims";
 import { PING_MS, pingPulse } from "./ping";
 
 /**
- * How a GM's board shows fog (FR-GM-17): see-through with outlines ("tint") or only faint outlines
- * ("off"). Players, and the GM viewing as a player, always see it opaque.
+ * How a GM's board shows fog (FR-GM-17): see-through with outlines ("tint") or not at all ("off").
+ * Players, and the GM viewing as a player, always see it opaque.
  */
 export type GmFogView = "tint" | "off";
 
@@ -122,8 +122,13 @@ const FOG_CLOUD_SCALE = 2.5;
 const FOG_WISP_SCALE = 1.55;
 const FOG_WISP_ANGLE = 0.6;
 const FOG_WISP_ALPHA = 0.55;
-/** The GM sees fog half-opaque over the map and tokens, so what is under it stays visible (gm-view-as-player). */
-const FOG_GM_ALPHA = 0.5;
+/**
+ * The GM sees fog as a flat tint over the map and tokens, so what is under it stays visible, with a
+ * firmer outline marking each region's edge (gm-view-as-player).
+ */
+const FOG_GM_FILL = 0x000000;
+const FOG_GM_FILL_ALPHA = 0.25;
+const FOG_GM_EDGE_ALPHA = 0.8;
 const FOG_EDGE = 0x9fb3c8;
 /** How close (screen pixels) a click has to come to a door or window to use it (ADR 0030). */
 const PORTAL_REACH_PX = 10;
@@ -1059,8 +1064,8 @@ export class BoardView {
   }
 
   /**
-   * Draw fog: opaque for players; for a GM with fog on, half-opaque over the walls and tokens, so a
-   * fogged token looks covered but stays visible; a GM with fog off sees only an outline. Players
+   * Draw fog: opaque clouds for players; for a GM with fog on, a flat tint over the walls and tokens, so a
+   * fogged token looks covered but stays visible; a GM with fog off sees no fog at all. Players
    * never have what is under fog in their state (ADR 0016), so for them the order changes nothing.
    */
   private redrawFog() {
@@ -1074,24 +1079,25 @@ export class BoardView {
     const gm = this.you?.role === "gm";
     const px = 1 / this.world.scale.x;
     const cell = state.scene.grid.cellSize;
-    // "See everything": the GM's tint is switched off and only a faint outline marks each region.
+    // "See everything": the GM switched fog off, so nothing is drawn for it.
     const tint = !gm || this.gmFogView === "tint";
     const hasRegions = Object.keys(state.fog).length > 0 || this.pendingFog.length > 0;
-    // The cloud texture is made on first need, so a board with no fog never pays for it.
-    const cloud = tint && hasRegions ? this.fogCloud() : null;
+    // The cloud texture is made on first need, so a board with no fog never pays for it. Only players get it.
+    const cloud = !gm && hasRegions ? this.fogCloud() : null;
     // The clouds drift across the board; the texture tiles seamlessly, so any offset is fine.
     const matrix = new Matrix().scale(FOG_CLOUD_SCALE, FOG_CLOUD_SCALE).translate(this.fogOffset.x, this.fogOffset.y);
     const wisps = new Matrix().scale(FOG_WISP_SCALE, FOG_WISP_SCALE).rotate(FOG_WISP_ANGLE).translate(this.wispOffset.x, this.wispOffset.y);
-    const fillAlpha = gm ? FOG_GM_ALPHA : 1;
     const draw = (points: Point[], pending: boolean) => {
       const flat = points.flatMap((p) => [p.x, p.y]);
-      if (tint) {
-        g.poly(flat).fill({ texture: cloud!, matrix, textureSpace: "global", alpha: fillAlpha });
-        // The wisps would thicken the GM's tint past half, so only players get them.
-        if (!gm) g.poly(flat).fill({ texture: cloud!, matrix: wisps, textureSpace: "global", alpha: FOG_WISP_ALPHA });
+      if (gm) {
+        if (!tint) return;
+        g.poly(flat).fill({ color: FOG_GM_FILL, alpha: FOG_GM_FILL_ALPHA });
+        edge.poly(flat).stroke({ width: 2 * px, color: FOG_EDGE, alpha: FOG_GM_EDGE_ALPHA * (pending ? 0.5 : 1) });
+        return;
       }
-      if (!gm) g.poly(flat).stroke({ width: 2 * FOG_BLEED_CELLS * cell, join: "miter", texture: cloud!, matrix, textureSpace: "global", alpha: 1 });
-      if (gm) edge.poly(flat).stroke({ width: 2 * px, color: FOG_EDGE, alpha: (pending ? 0.5 : 0.9) * (tint ? 1 : 0.4) });
+      g.poly(flat).fill({ texture: cloud!, matrix, textureSpace: "global", alpha: 1 });
+      g.poly(flat).fill({ texture: cloud!, matrix: wisps, textureSpace: "global", alpha: FOG_WISP_ALPHA });
+      g.poly(flat).stroke({ width: 2 * FOG_BLEED_CELLS * cell, join: "miter", texture: cloud!, matrix, textureSpace: "global", alpha: 1 });
     };
     for (const region of Object.values(state.fog)) {
       if (!this.removingFog.has(region.id)) draw(region.points, false);
@@ -1128,12 +1134,11 @@ export class BoardView {
 
   /**
    * Runs the fog drift only while fog exists, the page is shown, motion is allowed, and the
-   * fill is drawn: a GM who switched the tint off sees no drift, so there is nothing to animate.
+   * viewer is a player: the GM's flat tint has no clouds, so there is nothing to animate.
    */
   private fogLoopWanted() {
     const any = Object.keys(this.state?.fog ?? {}).length > 0 || this.pendingFog.length > 0;
-    const tinted = this.you?.role !== "gm" || this.gmFogView !== "off";
-    return any && tinted && document.visibilityState === "visible" && !this.reducedMotion;
+    return any && this.you?.role !== "gm" && document.visibilityState === "visible" && !this.reducedMotion;
   }
 
   private syncFogLoop() {

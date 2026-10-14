@@ -32,11 +32,11 @@ While viewing as a player, board tools, token drags and panel controls SHALL be 
 - **THEN** the token does not move and no command is sent
 
 ### Requirement: GM default view shows through fog
-In the GM's normal view, fog regions SHALL be drawn at 50% opacity with their outline, so the GM can see the whole map and every token beneath them. A token under fog SHALL stay visible to the GM and look covered by the tint, so the GM can tell which tokens players cannot see. Players' fog SHALL remain fully opaque. Fog SHALL be drawn opaque on the GM's screen only in a player view: the player preview and the map editor's Player view, which SHALL draw fog as a player sees it.
+In the GM's normal view, fog regions SHALL be drawn as a solid black fill at 25% opacity with an outline at 80% opacity, so the GM can see the whole map and every token beneath them. A token under fog SHALL stay visible to the GM and look covered by the tint, so the GM can tell which tokens players cannot see. Players' fog SHALL remain fully opaque. Fog SHALL be drawn opaque on the GM's screen only in a player view: the player preview and the map editor's Player view, which SHALL draw fog as a player sees it.
 
 #### Scenario: GM sees under fog
 - **WHEN** a region is fogged and the GM is in the normal view
-- **THEN** the map and tokens in the region remain visible under a half-opaque fog tint and outline
+- **THEN** the map and tokens in the region remain visible under a 25% fog tint, and the region's edge is outlined at 80% opacity
 
 #### Scenario: Fogged token is marked for the GM
 - **WHEN** a goblin stands inside a fog region and the GM is in the normal view
@@ -47,12 +47,12 @@ In the GM's normal view, fog regions SHALL be drawn at 50% opacity with their ou
 - **THEN** fog is drawn fully opaque, as players see it
 
 ### Requirement: GM can switch the fog tint off
-When the room has fog, the GM SHALL be able to switch the fog tint off on their own view and back on again. With the tint off the fog fill SHALL NOT be drawn and only a faint outline SHALL mark each region. The choice SHALL apply only to the GM's own view, SHALL be remembered by that browser, and SHALL NOT change what players see or any room state.
+When the room has fog, the GM SHALL be able to switch the fog tint off on their own view and back on again. With the tint off, neither the fog fill nor its outline SHALL be drawn, so fog is fully invisible on the GM's view. Fog SHALL be shown each time the board opens; the choice SHALL NOT be remembered across page loads. The choice SHALL apply only to the GM's own view and SHALL NOT change what players see or any room state.
 
 #### Scenario: See everything
 - **WHEN** the GM turns the fog tint off
-- **THEN** the map and tokens in fogged regions show with no tint, and players' views are unchanged
+- **THEN** the map and tokens in fogged regions show with no tint and no outline, and players' views are unchanged
 
-#### Scenario: Preference kept
+#### Scenario: Fog is shown again on reload
 - **WHEN** the GM reloads the page after turning the tint off
-- **THEN** the tint is still off
+- **THEN** fog is shown again, with its tint and outline

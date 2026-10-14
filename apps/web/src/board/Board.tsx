@@ -86,8 +86,6 @@ const FOG_HINTS = {
   reveal: "Click fog to remove it and show players what is under it · undo from the activity log",
 } as const;
 
-/** Only this browser remembers the GM's fog choice; an older saved "player" fails this and reads as "tint". */
-const isGmFogView = (v: unknown): v is GmFogView => v === "tint" || v === "off";
 
 /** With GM only ticked, the areas are the GM's alone; saying "everyone sees them" would mislead. */
 const GM_ONLY_AREA_HINT = "Drag to size and aim · click to place the chosen size · GM only: players won't see these areas";
@@ -104,8 +102,8 @@ function isTyping(target: EventTarget | null) {
 export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, readOnly = false, toolbar, notices, overlay, landedRollId, onPickTarget }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<BoardView | null>(null);
-  /** GM only: false shows everything through the fog (this browser remembers it). */
-  const [gmFog, setGmFog] = usePersistentState<GmFogView>("vtt.ui.gmFogView", "tint", isGmFogView);
+  /** GM only: "off" hides fog from this view. Not remembered: every time the board opens, fog is shown. */
+  const [gmFog, setGmFog] = useState<GmFogView>("tint");
   /** GM only: whether this browser draws the walls. Players never receive them. */
   const [showWalls, setShowWalls] = usePersistentState<boolean>("vtt.ui.gmShowWalls", true, (v): v is boolean => typeof v === "boolean");
   /** GM only: whether this browser draws doors and windows. Players always see the ones they can reach. */
