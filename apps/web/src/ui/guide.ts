@@ -39,7 +39,7 @@ const STEPS: StepSpec[] = [
     target: "tools",
     title: "Board tools",
     body: {
-      gm: "Select moves tokens. Measure and Draw leave marks only you see. AoE places a spell area everyone sees, unless you tick GM only. Hold Alt to place off the grid. Drag the Eraser over marks and areas to remove them, anyone's areas included. Clear removes all of yours.",
+      gm: "Select moves tokens. Measure and Draw leave marks only you see. AoE places a spell area everyone sees, unless you tick GM only. Hold Alt to place off the grid. Drag the Eraser over marks and areas to remove them, anyone's areas included. Fog hides or reveals part of the map for players straight away. Clear removes all of yours.",
       player: "Select moves tokens. Measure and Draw leave marks only you see. AoE places a spell area everyone sees. Hold Alt to place off the grid. Drag the Eraser over your marks and areas to remove them, or Clear to remove them all.",
     },
   },

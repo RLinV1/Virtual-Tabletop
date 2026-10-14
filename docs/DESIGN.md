@@ -335,7 +335,7 @@ with no security value.
 | FR-GM-14 | GM and player roles | `Participant.role` | B |
 | FR-GM-15 | Server-side authorization | `decide()` | B |
 | FR-GM-16 | Token visibility controls | `token.setHidden` + filters | B |
-| FR-GM-17 | Manual fog of war | `fog.*` + filters (ADR 0016) | B |
+| FR-GM-17 | Manual fog of war | `fog.*` + filters (ADR 0016); board Fog tool for play, Edit map › Fog for setup | B |
 | FR-GM-18 | Interactive portal states | Portal state in geometry | D |
 | FR-GM-19 | Dynamic line of sight | Pixi masking + raycast | D |
 | FR-GM-20 | Guest revocation, invite regeneration | `credentials.revoked_at` | D |
