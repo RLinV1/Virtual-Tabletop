@@ -19,11 +19,11 @@ The GM's view SHALL outline each fog region with a thin line in the fog's own to
 - **THEN** its edge is a thin line in the fog's tone and the fill meets it without a visible frame
 
 ### Requirement: Fog looks like mist
-Fog SHALL look like drifting mist: pale and cloudy, with borders that feather into the map and billow with the cloud, in both the GM's view and the players' view. It SHALL NOT look like a flat textured rectangle or end in a hard straight edge. The feather SHALL be narrow enough that fog still hides what lies under it right up to the region's border.
+In the players' view, and for a GM viewing as a player, fog SHALL look like drifting mist: pale and cloudy, with borders that fade outward into the map over about one grid cell while keeping the region's straight edges and corners. It SHALL NOT look like a flat textured rectangle or end in a hard line. The fade SHALL lie outside the region, so fog hides everything inside the region up to its border.
 
 #### Scenario: Region border
 - **WHEN** a fog region is drawn
-- **THEN** its border fades over a fraction of a grid cell, with no bright or dark rim and no visible frame
+- **THEN** its border fades outward over about one grid cell, with no bright or dark rim and no visible frame
 
 #### Scenario: Region interior
 - **WHEN** a fog region covers part of the map
