@@ -206,7 +206,7 @@ export function GridForm({
   );
 }
 
-const WIDTH_NAMES = ["Hairline", "Thin", "Medium", "Thick", "Bold"];
+const WIDTH_NAMES = ["Hairline", "Thin", "Medium", "Thick", "Bold", "Heavy"];
 
 /**
  * Line colour, thickness and opacity (grid-line-style, ADR 0005), behind an "Advanced"

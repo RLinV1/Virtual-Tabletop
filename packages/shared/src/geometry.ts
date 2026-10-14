@@ -52,8 +52,8 @@ export function normalizeGridOffsets(grid: GridSpec): GridSpec {
   };
 }
 
-/** Thickness presets offered to the GM, in board pixels (Hairline, Thin, Medium, Thick, Bold). */
-export const GRID_LINE_WIDTHS = [1, 2, 3, 4, 6] as const;
+/** Thickness presets offered to the GM, in board pixels (Hairline, Thin, Medium, Thick, Bold, Heavy). */
+export const GRID_LINE_WIDTHS = [1, 2, 3, 4, 6, 8] as const;
 
 /** The grid's line style, with the historical look for anything unset (ADR 0005). */
 export function gridLineStyle(grid: GridSpec): { color: string; width: number; opacity: number } {
