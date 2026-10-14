@@ -22,6 +22,7 @@ import { outcomeKey, pendingRulings } from "../panels/attackRoll";
 import { ActivityLog } from "../panels/ActivityLog";
 import type { AttackPick } from "../panels/AttackPanel";
 import { useEncounterReset } from "../panels/attackSession";
+import { clearLegacyAttackStorage } from "../panels/tokenAttacks";
 import { gridsEqual, parseGridDraft, toGridDraft, type GridDraft } from "./gridDraft";
 import { LeaveTable } from "../panels/LeaveTable";
 import { ResolveDepartureModal } from "../panels/ResolveDeparture";
@@ -95,6 +96,13 @@ export function RoomPage({ roomId, editing = false }: {
   const [creds, setCreds] = useState(() => loadCredentials(roomId));
   const [resuming, setResuming] = useState<"idle" | "trying" | "failed">("idle");
   const connection = useMemo(() => (creds ? new RoomConnection(roomId, creds.guestToken) : null), [roomId, creds]);
+
+  // Attacks used to be kept in this browser; they are the token's now, so drop the old copies (ADR 0034).
+  useEffect(() => {
+    let storage: Storage | null = null;
+    try { storage = window.localStorage; } catch { /* blocked: nothing to clear */ }
+    clearLegacyAttackStorage(storage);
+  }, []);
 
   useEffect(() => {
     if (creds || account.status !== "signedIn" || resuming !== "idle") return;
@@ -298,6 +306,7 @@ function Room({ roomId, connection, token, features }: {
     }
   }, [connection]);
   const placeToken = useCallback((draft: TokenDraft) => boardRef.current?.placeToken(draft), []);
+  const duplicateToken = useCallback((tokenId: string) => boardRef.current?.duplicateToken(tokenId), []);
   const [sidebarCollapsed, setSidebarCollapsed] = usePersistentState("vtt.ui.sidebar", false, isBoolean);
   const [chosenTab, setTab] = usePersistentState<TabId>("vtt.ui.tab", "play", isTabId);
   // A template being edited offers fewer tabs; a remembered tab it lacks shows its first (ADR 0033).
@@ -632,6 +641,7 @@ function Room({ roomId, connection, token, features }: {
               gridApplying={gridApplying}
               gridError={gridError}
               onPlaceToken={placeToken}
+              onDuplicateToken={duplicateToken}
               compact={compact}
               tab={tab}
               onTab={setTab}

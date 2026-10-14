@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EncounterEditSession, EncounterSummary } from "@vtt/shared";
+import { accountStore } from "../src/account/accountStore";
 import { api } from "../src/net/api";
 import * as router from "../src/router";
 import { EncounterEditBar } from "../src/pages/encounterEdit/EncounterEditBar";
@@ -50,7 +51,7 @@ describe("template-editing mode shows only map, fog and token tools (encounter-t
     expect(screen.getByRole("button", { name: "Measure" })).toBeTruthy();
   });
 
-  it("offers Edit map with only its Grid and Fog steps, and no checkpoints, templates or walls", () => {
+  it("offers Edit Grid and Manage Fog, an editor with only those steps, and no checkpoints, templates or walls", () => {
     const fake = fakeConnection();
     render(
       <GmPanel
@@ -64,7 +65,10 @@ describe("template-editing mode shows only map, fog and token tools (encounter-t
     expect(screen.queryByText("Checkpoints")).toBeNull();
     expect(screen.queryByText("Encounter templates")).toBeNull();
     expect(screen.queryByText(/wall/)).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Edit map" }));
+    expect(screen.queryByRole("button", { name: "Change Map" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Manage Walls" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Manage Fog" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Grid" }));
     const editor = screen.getByRole("dialog", { name: "Edit map" });
     expect(within(editor).getAllByRole("tab").map((t) => t.textContent)).toEqual(["1 · Grid", "2 · Fog"]);
     fireEvent.click(within(editor).getByRole("tab", { name: "2 · Fog" }));
@@ -245,6 +249,20 @@ describe("open a template in a room (encounter-templates, ADR 0033)", () => {
     await waitFor(() => expect(navigate).toHaveBeenCalledWith("/r/real-1"));
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ roomName: "Session 4 - Crypt", displayName: "Dana", templateId: "t1" }));
     expect(remove).toHaveBeenCalledWith("temp-1");
+  });
+
+  it("starts the GM's name as the account's (create-room-form-defaults)", async () => {
+    accountStore.setState({ status: "signedIn", account: { id: "a1", email: "dana@example.com", displayName: "Dana" } });
+    try {
+      mount(existing);
+      await screen.findByRole("heading", { name: "Crypt guards" });
+      fireEvent.click(screen.getByRole("button", { name: "Open in a room" }));
+      const dialog = screen.getByRole("dialog", { name: "Open in a room" });
+      expect((within(dialog).getByLabelText("Your name") as HTMLInputElement).value).toBe("Dana");
+      expect(within(dialog).getByLabelText("Your name").getAttribute("placeholder")).toBeNull();
+    } finally {
+      accountStore.setState({ status: "loading" });
+    }
   });
 
   it("sends nothing for a blank name or Cancel", async () => {

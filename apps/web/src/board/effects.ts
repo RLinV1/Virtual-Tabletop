@@ -31,6 +31,8 @@ export function attackEffectFor(event: DomainEvent, after: RoomState, viewer: Pa
       if (viewer.role !== "gm" && event.roll.visibility === "gm") return null;
       const { actor, target } = event.roll.attack ?? {};
       if (!actor || !target || !visible(actor.tokenId) || !visible(target.tokenId)) return null;
+      // Damage after a to-hit is the same swing: it already struck (no-repeat-strike-on-damage).
+      if (event.roll.attack?.kind === "damage" && followsToHit(after, event.roll.id, actor.tokenId, target.tokenId)) return null;
       return { kind: "strike", fromId: actor.tokenId, toId: target.tokenId };
     }
     case "RollRuled": {
@@ -46,6 +48,20 @@ export function attackEffectFor(event: DomainEvent, after: RoomState, viewer: Pa
     default:
       return null;
   }
+}
+
+/**
+ * Whether the latest attack roll before `rollId` from `actorId` at `targetId`, in this viewer's
+ * copy of the room, is a to-hit roll. Only the viewer's rolls count, so a GM-only to-hit or one
+ * whose sides were hidden from a player leaves the damage roll to strike for them.
+ */
+function followsToHit(state: RoomState, rollId: string, actorId: string, targetId: string): boolean {
+  const at = state.rolls.findIndex((roll) => roll.id === rollId);
+  for (let i = (at === -1 ? state.rolls.length : at) - 1; i >= 0; i--) {
+    const attack = state.rolls[i]!.attack;
+    if (attack?.actor?.tokenId === actorId && attack.target?.tokenId === targetId) return attack.kind === "toHit";
+  }
+  return false;
 }
 
 /**

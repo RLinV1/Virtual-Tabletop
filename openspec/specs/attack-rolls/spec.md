@@ -114,33 +114,6 @@ The custom settings SHALL start from the last ones this browser used with the ch
 - **WHEN** the GM makes a GM-only attack roll against Aria
 - **THEN** players receive neither the roll nor a ping
 
-### Requirement: Named attacks
-The viewer SHALL be able to keep up to 8 named attacks per token. Each named attack SHALL have:
-- a name of at most 40 characters;
-- a to-hit roll, a damage roll, or both, each chosen as die type, number of dice and modifier.
-
-The Attack section SHALL list them as its attacks, e.g. "Longsword", "Fire Bolt", "Claws", with an **Add attack** control. The app SHALL NOT classify them (weapon, spell or other); the name is only a label. Named attacks SHALL be added, edited and removed in the Attack section, SHALL be kept in this browser only, and SHALL NOT be sent to the server or other participants.
-
-Tapping a named attack, once a target is chosen, SHALL roll immediately:
-- a named attack with a to-hit roll rolls it, as a to-hit roll labeled with the named attack's name;
-- a named attack with only a damage roll rolls it, as a damage roll labeled "<name> damage".
-
-Attack controls SHALL be unavailable until a target is chosen. Saved attacks from before this change SHALL become named attacks the first time they are read:
-- a saved to-hit attack becomes a named attack with that to-hit roll;
-- a saved damage attack becomes a damage-only named attack.
-
-#### Scenario: One tap to hit
-- **WHEN** Aria has an attack "Longsword" (to hit `1d20+5`, damage `1d8+3`), Goblin 2 is the target, and her owner taps Longsword
-- **THEN** a to-hit roll `1d20+5` labeled "Longsword" is made against Goblin 2 at once
-
-#### Scenario: Damage-only named attack
-- **WHEN** Bram has an attack "Burning Hands" with only damage `3d6` and his owner taps it with Goblin A targeted
-- **THEN** a damage roll `3d6` labeled "Burning Hands damage" is made against Goblin A at once
-
-#### Scenario: Saved attacks become named attacks
-- **WHEN** a browser holds saved attacks "Longsword 1d20+5" (to hit) and "Damage 1d8+3" (damage) for Aria from before this change
-- **THEN** Aria shows an attack "Longsword" with to hit `1d20+5`, and a damage-only named attack "Damage" with `1d8+3`
-
 ### Requirement: Attack rolls show who attacked whom
 Everywhere the room shows a roll that carries attack context, it SHALL name the attacking token, the target token and the label if any, followed by the expression and total, e.g. "Aria → Goblin 2 · Longsword · 1d20+5 = 17". The names shown SHALL be the tokens' names at the time of the roll, even after a token is renamed or deleted. The system SHALL NOT state whether the attack hits, and SHALL NOT change any token's hit points or conditions as a result of the roll.
 
@@ -195,3 +168,55 @@ A player SHALL NOT receive the ID or name of a token that is hidden from them th
 #### Scenario: Target hidden after the roll
 - **WHEN** a player attacks the visible Goblin 2 and the GM later hides Goblin 2
 - **THEN** players' roll logs no longer contain Goblin 2's ID or name for that roll, and the GM's log still does
+### Requirement: Shared named attacks
+Each token SHALL hold up to 8 named attacks in the room. Each named attack SHALL have:
+- a name of at most 40 characters, unique within the token, ignoring case;
+- a to-hit roll, a damage roll, or both, each chosen as die type, number of dice and modifier.
+
+The GM, and each owner of a token, SHALL be able to add, edit and remove that token's named attacks, both in the Attack section (with an **Add attack** control) and in the token editor. The token editor and the New Token form SHALL each show an **Attacks** section that collapses within the dialog: closed when the dialog opens, with the number of attacks in its heading, and listing the attacks with Add attack, Edit and Remove when opened. In New Token, the section SHALL show any attacks a creature filled in, and the attacks it lists SHALL be placed with the token. A change SHALL be saved to the token and reach every device of the GM and the token's owners. Other players SHALL NOT receive a token's named attacks, in snapshots or events. The server MUST refuse a change from a player who doesn't own the token, a change breaking these limits, and any change while the room's game preset has attacks off. The GM SHALL be able to undo a change from the activity log. The app SHALL NOT classify named attacks (weapon, spell or other); the name is only a label. Attacks saved only in a browser before this change SHALL be cleared, not read.
+
+Tapping a named attack, once a target is chosen, SHALL roll immediately:
+- a named attack with a to-hit roll rolls it, as a to-hit roll labeled with the named attack's name;
+- a named attack with only a damage roll rolls it, as a damage roll labeled "<name> damage".
+
+Attack controls SHALL be unavailable until a target is chosen.
+
+#### Scenario: One tap to hit
+- **WHEN** Aria has an attack "Longsword" (to hit `1d20+5`, damage `1d8+3`), Goblin 2 is the target, and her owner taps Longsword
+- **THEN** a to-hit roll `1d20+5` labeled "Longsword" is made against Goblin 2 at once
+
+#### Scenario: Damage-only named attack
+- **WHEN** Bram has an attack "Burning Hands" with only damage `3d6` and his owner taps it with Goblin A targeted
+- **THEN** a damage roll `3d6` labeled "Burning Hands damage" is made against Goblin A at once
+
+#### Scenario: The GM's edit reaches the owner
+- **WHEN** the GM opens Goblin's token editor, adds "Scimitar" (to hit `1d20+4`, damage `1d6+2`) and saves, while Goblin's owner is connected on another device
+- **THEN** the owner's Attack section offers Scimitar for Goblin without a reload, and so does the GM's other device
+
+#### Scenario: Attacks collapse in the dialogs
+- **WHEN** the GM opens Goblin's token editor (2 attacks), or chooses From creature → "Goblin" in New Token
+- **THEN** the dialog shows a closed section headed "Attacks · 2", and opening it lists both attacks with Edit, plus Add attack
+
+#### Scenario: Attacks typed into New Token
+- **WHEN** the GM adds "Bite" (to hit `1d20+3`, damage `1d6+1`) in New Token's Attacks section and places the token
+- **THEN** the placed token has Bite for the GM and its owners
+
+#### Scenario: An owner adds an attack
+- **WHEN** Aria's owner adds "Fire Bolt" (to hit `1d20+5`, damage `1d10`) in the Attack section
+- **THEN** Aria has Fire Bolt for the GM and her owner, and the activity log shows the change
+
+#### Scenario: Other players never see attacks
+- **WHEN** the GM changes the attacks of a goblin that Bram's owner doesn't own
+- **THEN** Bram's owner receives nothing about those attacks, live or after a reload
+
+#### Scenario: A forged edit is refused
+- **WHEN** a player sends an attack change for a token they don't own
+- **THEN** the server refuses it as forbidden and nothing changes
+
+#### Scenario: Undo
+- **WHEN** the GM removes Goblin's Scimitar by mistake and undoes it from the activity log
+- **THEN** Goblin has Scimitar again for the GM and its owners
+
+#### Scenario: Old browser attacks are cleared
+- **WHEN** a browser still holds attacks for Aria saved only in that browser before this change
+- **THEN** they are not shown and are removed from the browser, and Aria shows only the attacks on her token

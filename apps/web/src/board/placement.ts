@@ -49,3 +49,46 @@ export function autoPlacementPoint(state: RoomState, size: number): Point {
     state.scene.grid,
   );
 }
+
+/**
+ * What a placement creates on each click (token-placement-flow): copies of a filled-in draft (New
+ * Token, Saved Creatures), or copies of a token on the board, made by the server (Duplicate, ADR 0033).
+ */
+export type PlacingSource =
+  | { kind: "create"; draft: TokenDraft }
+  | { kind: "duplicate"; tokenId: string; ghost: PlacementGhost };
+
+/**
+ * The command one placement sends: always one token at `at`. Placing repeats until the GM ends it,
+ * so no count and nothing about repeating is ever sent.
+ */
+export function placementCommand(source: PlacingSource, at: Point): CommandInput {
+  if (source.kind === "duplicate") return { type: "token.duplicate", tokenId: source.tokenId, position: at };
+  const { count: _count, ...draft } = source.draft;
+  return { ...draft, count: 1, position: at };
+}
+
+/** Where keyboard placement starts: the square(s) nearest the map's centre. */
+export function startCursor(state: RoomState, size: number): Point {
+  const map = state.scene.map;
+  const center = map ? { x: map.width / 2, y: map.height / 2 } : { x: 1050, y: 700 };
+  return snapTokenCenter(center, size, state.scene.grid);
+}
+
+/** The keyboard cursor moved `dx`, `dy` squares, kept so the token's squares stay on the map. */
+export function moveCursor(cursor: Point, dx: number, dy: number, size: number, state: RoomState): Point {
+  const { grid, map } = state.scene;
+  const next = { x: cursor.x + dx * grid.cellSize, y: cursor.y + dy * grid.cellSize };
+  if (!map) return next;
+  const half = (size * grid.cellSize) / 2;
+  const inside = next.x - half >= -0.5 && next.y - half >= -0.5 && next.x + half <= map.width + 0.5 && next.y + half <= map.height + 0.5;
+  return inside ? next : cursor;
+}
+
+/** "column 8, row 5": the square under the cursor's top-left corner, counting from 1, for screen readers. */
+export function cursorSquare(cursor: Point, size: number, grid: GridSpec): string {
+  const half = (size * grid.cellSize) / 2;
+  const column = Math.floor((cursor.x - half - grid.offsetX + grid.cellSize / 2) / grid.cellSize) + 1;
+  const row = Math.floor((cursor.y - half - grid.offsetY + grid.cellSize / 2) / grid.cellSize) + 1;
+  return `column ${column}, row ${row}`;
+}

@@ -55,7 +55,7 @@ describe("grouped roster helper (KAN-82)", () => {
 
 describe("the GM's grouped roster (KAN-82)", () => {
   const render = (you: Participant) => renderToStaticMarkup(
-    <TokenRoster connection={connection} state={room()} you={you} token="t" onFocusToken={() => {}} onPlaceToken={() => {}} />,
+    <TokenRoster connection={connection} state={room()} you={you} token="t" onFocusToken={() => {}} onPlaceToken={() => {}} onDuplicateToken={() => {}} />,
   );
 
   it("shows group headings with Hide all, Show all, Rename, Delete, collapse and a New group form", () => {
@@ -74,7 +74,7 @@ describe("the GM's grouped roster (KAN-82)", () => {
   it("gives players one flat list with no group names", () => {
     const state = { ...room(), groups: {}, tokenGroups: {} };
     const html = renderToStaticMarkup(
-      <TokenRoster connection={connection} state={state} you={alice} token="t" onFocusToken={() => {}} onPlaceToken={() => {}} />,
+      <TokenRoster connection={connection} state={state} you={alice} token="t" onFocusToken={() => {}} onPlaceToken={() => {}} onDuplicateToken={() => {}} />,
     );
     expect(html).not.toContain("Ungrouped");
     expect(html).not.toContain("Add group");
@@ -94,15 +94,16 @@ describe("token editor: group and duplicate (KAN-82)", () => {
       groupId="gate"
       onSave={async () => {}}
       onDelete={() => {}}
-      onDuplicate={async () => {}}
+      onDuplicate={() => {}}
     />,
   );
 
-  it("offers the GM a Group field preset to the token's group, and Duplicate with a count", () => {
+  it("offers the GM a Group field preset to the token's group, and Duplicate with no count (token-placement-flow)", () => {
     const html = render(true);
     expect(html).toMatch(/<option value="gate" selected="">Gate guards<\/option>/);
     expect(text(html)).toContain("Duplicate");
-    expect(html).toMatch(/max="20"/);
+    expect(text(html)).not.toContain("Copies");
+    expect(text(html)).toContain("Click squares on the board to place copies.");
   });
 
   it("offers a player neither", () => {

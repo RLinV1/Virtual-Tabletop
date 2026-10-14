@@ -157,6 +157,13 @@ export function filterEventForViewer(
     case "TokenImageSet":
     case "TokenConditionsSet":
       return hiddenBefore(e.tokenId) ? redacted : pass;
+    case "TokenAttacksSet": {
+      // Named attacks are the GM's (who never reaches here) and the token's owners' alone, like in
+      // snapshots (ADR 0034).
+      const token = before.tokens[e.tokenId];
+      if (!token || hiddenBefore(e.tokenId)) return redacted;
+      return token.ownerIds.includes(viewer.id) ? pass : redacted;
+    }
     case "DiceRolled":
       // FR-GM-22: a player learns that *something* happened at this seq, never what.
       if (e.roll.visibility === "gm") return redacted;

@@ -49,7 +49,7 @@ const alwaysVisible = (html: string) => html.replace(/<details.*?<\/details>/g, 
 describe("condensed token editor (condense-token-editor)", () => {
   it("opens with every section closed", () => {
     const found = sections(render(true));
-    expect(found.map((s) => s.title)).toEqual(["Conditions", "Control & visibility", "Advanced"]);
+    expect(found.map((s) => s.title)).toEqual(["Conditions", "Attacks", "Control & visibility", "Advanced"]);
     expect(found.every((s) => !s.open)).toBe(true);
   });
 
@@ -75,9 +75,9 @@ describe("condensed token editor (condense-token-editor)", () => {
     expect(found.find((s) => s.title === "Advanced")!.summary).toBe("Advanced 2 cells · 0° · no image");
   });
 
-  it("shows a player only stats and a closed Conditions section", () => {
+  it("shows a player (an owner) only stats and closed Conditions and Attacks sections (shared-token-attacks)", () => {
     const html = render(false);
-    expect(sections(html).map((s) => s.title)).toEqual(["Conditions"]);
+    expect(sections(html).map((s) => s.title)).toEqual(["Conditions", "Attacks"]);
     for (const label of ["Name<input", "Board X", "Controlled by", "Remove image", "Upload image"]) expect(html).not.toContain(label);
   });
 });
