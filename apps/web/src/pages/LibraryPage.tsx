@@ -10,6 +10,8 @@ import { RequireAccount } from "../account/RequireAccount";
 import { GridForm } from "./GridForm";
 import { CreatureCard, CreatureForm } from "./LibraryCreatures";
 import { EncounterCard } from "./LibraryEncounters";
+import { LibraryPicker } from "./LibraryPicker";
+import { startEncounterEdit } from "./encounterEdit/startEdit";
 import { DiceLookCards, DiceLookModal, DiceSignInLine, SaveBrowserLooksOffer } from "./DiceLooks";
 import { createDiceLook } from "../ui/diceSkinStore";
 import { toGridDraft, withGridSuggestion } from "./gridDraft";
@@ -89,6 +91,29 @@ function Library() {
   /** The owned map whose grid is open in the editor. */
   const [gridTarget, setGridTarget] = useState<LibraryAsset | null>(null);
   const [gridSaving, setGridSaving] = useState(false);
+  /** New encounter: choosing its map (ADR 0033). */
+  const [pickingEncounterMap, setPickingEncounterMap] = useState(false);
+  /** The map a new encounter waits on while its grid is set up first. */
+  const [encounterMapAwaitingGrid, setEncounterMapAwaitingGrid] = useState<string | null>(null);
+  const [startingEncounter, setStartingEncounter] = useState(false);
+
+  /** Opens a new encounter on one of the GM's maps in a temporary room; a map with no grid gets one first. */
+  async function newEncounterOn(map: LibraryAsset) {
+    setPickingEncounterMap(false);
+    if (!map.grid) {
+      setEncounterMapAwaitingGrid(map.id);
+      setGridTarget(map);
+      return;
+    }
+    setStartingEncounter(true);
+    setError(null);
+    try {
+      await startEncounterEdit({ mapAssetId: map.id });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't start a new encounter");
+      setStartingEncounter(false);
+    }
+  }
 
   useEffect(() => {
     let live = true;
@@ -172,7 +197,11 @@ function Library() {
           <button type="button" onClick={() => void createDiceLook().then(setDiceTarget)}>New dice look</button>
         ) : tab === "creature" ? (
           <button type="button" onClick={() => setCreatureTarget("new")}>New creature</button>
-        ) : tab === "encounter" ? null : (
+        ) : tab === "encounter" ? (
+          <button type="button" disabled={startingEncounter} onClick={() => setPickingEncounterMap(true)}>
+            {startingEncounter ? "Opening…" : "New encounter"}
+          </button>
+        ) : (
           <UploadButton
             kind={kind}
             onUploaded={(a) => {
@@ -196,7 +225,7 @@ function Library() {
             <p className="muted">
               {query
                 ? "None of your encounter templates match that search."
-                : "You haven't saved any encounter templates yet. Open a room you run, prepare its map, tokens and fog, then use Save in the Encounter templates section of the GM panel."}
+                : "You haven't saved any encounter templates yet. Use New encounter to place creatures and fog on one of your maps, or save a room you run from the Encounter templates section of its Manage tab."}
             </p>
           )}
           <ul className="plain asset-grid" role="tabpanel">
@@ -291,8 +320,14 @@ function Library() {
 
       <DiceLookModal lookId={diceTarget} onClose={() => setDiceTarget(null)} />
 
+      <Modal open={pickingEncounterMap} title="Choose a map for the encounter" onClose={() => setPickingEncounterMap(false)}>
+        {/* Only the GM's own maps: a template keeps its map by library id (ADR 0024). */}
+        <LibraryPicker kind="map" includeBuiltins={false} onPick={(map) => void newEncounterOn(map)} />
+      </Modal>
       <Modal open={gridTarget !== null} title={gridTarget?.grid ? "Edit grid" : "Set up grid"} className="grid-editor-modal" onClose={() => {
-        if (!gridSaving) setGridTarget(null);
+        if (gridSaving) return;
+        setGridTarget(null);
+        setEncounterMapAwaitingGrid(null);
       }}>
         {gridTarget && (
           <LibraryGridEditor
@@ -300,10 +335,18 @@ function Library() {
             asset={gridTarget}
             saving={gridSaving}
             onSavingChange={setGridSaving}
-            onCancel={() => setGridTarget(null)}
+            onCancel={() => {
+              setGridTarget(null);
+              setEncounterMapAwaitingGrid(null);
+            }}
             onSaved={(saved, currentEditor) => {
               replace(saved);
               if (currentEditor) setGridTarget((open) => (open?.id === saved.id ? null : open));
+              // A new encounter was waiting for this map's grid: open it now.
+              if (encounterMapAwaitingGrid === saved.id && saved.grid) {
+                setEncounterMapAwaitingGrid(null);
+                void newEncounterOn(saved);
+              }
             }}
           />
         )}

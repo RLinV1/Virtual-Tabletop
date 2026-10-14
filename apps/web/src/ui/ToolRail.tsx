@@ -60,6 +60,7 @@ export function ToolRail({
   onSelect,
   onOptions,
   onClear,
+  selectOnly = false,
 }: {
   active: BoardTool["kind"];
   options: ToolOptions;
@@ -70,6 +71,8 @@ export function ToolRail({
   onSelect: (kind: ToolKind) => void;
   onOptions: (options: ToolOptions) => void;
   onClear: () => void;
+  /** Only Select, with no marks to clear: a template being edited (ADR 0033). */
+  selectOnly?: boolean;
 }) {
   const [collapsed, setCollapsed] = usePersistentState("vtt.ui.toolRail", false, isBoolean);
   const toggle = (
@@ -91,7 +94,7 @@ export function ToolRail({
     <div className="tool-rail-wrap" data-tour="tools">
       <div className="tool-rail" role="toolbar" aria-label="Board tools" aria-orientation="vertical">
         {toggle}
-        {TOOLS.filter((t) => isGm || !t.gmOnly).map((t) => (
+        {TOOLS.filter((t) => (isGm || !t.gmOnly) && (!selectOnly || t.kind === "select")).map((t) => (
           <button
             key={t.kind}
             type="button"
@@ -104,11 +107,15 @@ export function ToolRail({
             <span className="rail-label">{t.label}</span>
           </button>
         ))}
-        <span className="rail-divider" aria-hidden="true" />
-        <button type="button" className="tool-button rail-button labelled" aria-label="Clear all my marks" title="Clear all my marks" onClick={onClear}>
-          <Trash size={18} aria-hidden="true" />
-          <span className="rail-label">Clear</span>
-        </button>
+        {!selectOnly && (
+          <>
+            <span className="rail-divider" aria-hidden="true" />
+            <button type="button" className="tool-button rail-button labelled" aria-label="Clear all my marks" title="Clear all my marks" onClick={onClear}>
+              <Trash size={18} aria-hidden="true" />
+              <span className="rail-label">Clear</span>
+            </button>
+          </>
+        )}
       </div>
 
       {active === "draw" && (

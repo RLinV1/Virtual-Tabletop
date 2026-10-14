@@ -23,6 +23,9 @@ export function App() {
       return <JoinPage key={route.inviteCode} inviteCode={route.inviteCode} />;
     case "room":
       return <RoomPage key={route.roomId} roomId={route.roomId} />;
+    case "encounterEdit":
+      // A temporary room for editing an encounter template (ADR 0033).
+      return <RoomPage key={`edit:${route.roomId}`} roomId={route.roomId} editing />;
     case "notFound":
       return (
         <main className="centered">

@@ -1,5 +1,7 @@
 import { ENCOUNTER_TEMPLATE_VERSION, EncounterTemplateData, templateMapImage, type ResolvedEncounter } from "@vtt/shared";
 import type { LibraryStore } from "../store/libraryStore";
+import type { RoomStore } from "../store/roomStore";
+import type { RoomRegistry } from "./roomRegistry";
 
 export type ResolveEncounterResult =
   | { ok: true; encounter: ResolvedEncounter }
@@ -35,4 +37,37 @@ export async function resolveEncounter(
       fog: data.data.fog,
     },
   };
+}
+
+
+export type BoardFromRoomResult = { ok: true; data: EncounterTemplateData } | { ok: false; status: 400 | 404; error: string };
+
+/**
+ * A template's board from the live state of a room the caller owns (ADR 0024): the GM's view, so
+ * hidden tokens are kept; no owners, initiative, ids, walls or portals. The map must be one of the
+ * caller's library maps. A room that is missing or someone else's is the same 404.
+ */
+export async function boardFromRoom(
+  store: Pick<RoomStore, "findRoomOwner" | "findAsset">,
+  registry: Pick<RoomRegistry, "get">,
+  gmId: string,
+  roomId: string,
+): Promise<BoardFromRoomResult> {
+  if ((await store.findRoomOwner(roomId)) !== gmId) return { ok: false, status: 404, error: "Room not found" };
+  const room = await registry.get(roomId);
+  if (!room) return { ok: false, status: 404, error: "Room not found" };
+  const board = room.boardForOwner();
+  const map = board.scene.map;
+  const mapAsset = map?.assetId ? await store.findAsset(map.assetId, gmId) : null;
+  if (!map || !mapAsset || mapAsset.kind !== "map") {
+    return { ok: false, status: 400, error: "Put this room's map in your library first, then save the encounter" };
+  }
+  const data = EncounterTemplateData.safeParse({
+    map: { assetId: mapAsset.id, width: mapAsset.width, height: mapAsset.height },
+    grid: board.scene.grid,
+    tokens: Object.values(board.tokens).map(({ id: _id, ownerIds: _owners, initiative: _initiative, ...token }) => token),
+    fog: Object.values(board.fog).map(({ id: _id, ...region }) => region),
+  });
+  if (!data.success) return { ok: false, status: 400, error: "This board is too large to save as a template" };
+  return { ok: true, data: data.data };
 }

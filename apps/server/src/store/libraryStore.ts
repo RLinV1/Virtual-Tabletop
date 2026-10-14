@@ -68,6 +68,13 @@ export interface EncounterRecord {
 
 export type NewEncounterRecord = Omit<EncounterRecord, "mapName" | "mapUrl">;
 
+/** What an edit or a replace from a room changes on a template (ADR 0033). */
+export interface EncounterUpdate {
+  name: string;
+  data: EncounterTemplateData;
+  updatedAt: string;
+}
+
 /** The template would link to a map that does not exist (or was deleted mid-request). */
 export class EncounterMapMissingError extends Error {
   constructor() {
@@ -103,6 +110,10 @@ export interface NewRoomOptions {
   /** The owner row that owns the room (an account's, ADR 0017 O1); null for rooms created without one. */
   ownerGmId?: string | null;
   name?: string;
+  /** A private room for editing an encounter template (ADR 0033). */
+  temporary?: boolean;
+  /** The template a temporary room saves to; null for a new template until its first save. */
+  editsEncounterId?: string | null;
 }
 
 /**
@@ -140,7 +151,7 @@ export interface LibraryStore {
   /** The GM's creatures whose image is this asset, for the delete warning. */
   creaturesUsingImage(assetId: string, ownerGmId: string): Promise<{ id: string; name: string }[]>;
 
-  /** The owner's encounter templates, newest first (ADR 0024). Every read and write is scoped to its owner. */
+  /** The owner's encounter templates, most recently saved first (ADR 0024, ADR 0033). Every read and write is scoped to its owner. */
   listEncounters(ownerGmId: string): Promise<EncounterRecord[]>;
   findEncounter(id: string, ownerGmId: string): Promise<EncounterRecord | null>;
   countEncounters(ownerGmId: string): Promise<number>;
@@ -150,6 +161,11 @@ export interface LibraryStore {
    * so concurrent saves cannot pass the limit.
    */
   createEncounter(encounter: NewEncounterRecord, maxPerOwner: number): Promise<EncounterRecord>;
+  /**
+   * Replaces a template's name and board, keeping its id, map link, version and creation time
+   * (ADR 0033). Null when the owner has no such template.
+   */
+  updateEncounter(id: string, ownerGmId: string, change: EncounterUpdate): Promise<EncounterRecord | null>;
   /** Null when the owner has no such template. */
   renameEncounter(id: string, ownerGmId: string, name: string, at: string): Promise<EncounterRecord | null>;
   deleteEncounter(id: string, ownerGmId: string): Promise<boolean>;

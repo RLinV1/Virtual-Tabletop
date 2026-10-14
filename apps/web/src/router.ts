@@ -8,6 +8,7 @@ export type Route =
   | { page: "signup" }
   | { page: "join"; inviteCode: string }
   | { page: "room"; roomId: string }
+  | { page: "encounterEdit"; roomId: string }
   | { page: "notFound" };
 
 function parse(pathname: string): Route {
@@ -18,6 +19,8 @@ function parse(pathname: string): Route {
   if (/^\/signup\/?$/.test(pathname)) return { page: "signup" };
   const join = pathname.match(/^\/join\/([^/]+)\/?$/);
   if (join) return { page: "join", inviteCode: decodeURIComponent(join[1]!) };
+  const edit = pathname.match(/^\/encounters\/edit\/([^/]+)\/?$/);
+  if (edit) return { page: "encounterEdit", roomId: decodeURIComponent(edit[1]!) };
   const room = pathname.match(/^\/r\/([^/]+)\/?$/);
   if (room) return { page: "room", roomId: decodeURIComponent(room[1]!) };
   return { page: "notFound" };
