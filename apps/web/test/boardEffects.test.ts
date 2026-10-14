@@ -85,6 +85,48 @@ describe("attackEffectFor: which events animate (KAN-76)", () => {
   });
 });
 
+describe("attackEffectFor: damage after a to-hit does not strike again (KAN-76, no-repeat-strike-on-damage)", () => {
+  const attack = (id: string, kind: "toHit" | "damage", target = "b", over: Partial<DiceRoll> = {}) =>
+    roll({ id, attack: { actor: side("a"), target: side(target), label: null, kind }, ...over });
+  const threeTokens = [token("a"), token("b"), token("c")];
+  const strikeFor = (rolls: DiceRoll[], viewer: Participant = gm) =>
+    attackEffectFor(rolled(rolls[rolls.length - 1]!), room({ tokens: threeTokens, rolls }), viewer);
+
+  it("plays nothing for damage right after a to-hit on the same pair", () => {
+    expect(strikeFor([attack("r1", "toHit"), attack("r2", "damage")])).toBeNull();
+  });
+
+  it("still strikes for damage with no earlier attack roll (a damage-only attack)", () => {
+    expect(strikeFor([attack("r2", "damage")])).toEqual({ kind: "strike", fromId: "a", toId: "b" });
+  });
+
+  it("still strikes for damage against a different target than the to-hit", () => {
+    expect(strikeFor([attack("r1", "toHit", "b"), attack("r2", "damage", "c")])).toEqual({ kind: "strike", fromId: "a", toId: "c" });
+  });
+
+  it("goes by the latest roll for the pair: damage after damage strikes", () => {
+    expect(strikeFor([attack("r1", "toHit"), attack("r2", "damage"), attack("r3", "damage")])).toMatchObject({ kind: "strike" });
+  });
+
+  it("looks past rolls between other tokens", () => {
+    expect(strikeFor([attack("r1", "toHit"), attack("r2", "toHit", "c"), attack("r3", "damage")])).toBeNull();
+  });
+
+  it("strikes for a player whose copy never had the GM-only to-hit", () => {
+    // filterStateForViewer drops GM-only rolls, so the player's rolls hold only the damage.
+    expect(strikeFor([attack("r2", "damage")], player)).toMatchObject({ kind: "strike" });
+    expect(strikeFor([attack("r1", "toHit", "b", { visibility: "gm" }), attack("r2", "damage")], gm)).toBeNull();
+  });
+
+  it("treats a to-hit ruled Miss like any other: damage after it plays nothing", () => {
+    expect(strikeFor([attack("r1", "toHit", "b", { verdict: "miss" }), attack("r2", "damage")])).toBeNull();
+  });
+
+  it("never stops a to-hit from striking", () => {
+    expect(strikeFor([attack("r1", "toHit"), attack("r2", "toHit")])).toMatchObject({ kind: "strike" });
+  });
+});
+
 describe("attackEffectFor: rulings with a hidden side (KAN-76, FR-GM-23)", () => {
   it("plays no hit, miss or damage when the attacker is blanked or hidden for the player", () => {
     const blanked = roll({ attack: { actor: null, target: side("b"), label: null, kind: "toHit" } });
