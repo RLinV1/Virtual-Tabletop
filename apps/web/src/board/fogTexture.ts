@@ -40,33 +40,69 @@ export type Rgb = readonly [number, number, number];
 const DEFAULT_DARK: Rgb = [96, 104, 118];
 const DEFAULT_LIGHT: Rgb = [236, 240, 246];
 
-/** The map's average colour, or null when the browser won't let the image be read. */
+/** Extremes of the sample that do not count towards the map's colour: this share off each end, by brightness. */
+const TRIM = 0.1;
+/** How far the map colour's hue is pushed away from grey, so a mixed map does not average out to flat grey. */
+const CHROMA_LIFT = 1.5;
+/** Banks sit this far down from the map colour towards black, and mist this far up towards white. */
+const BANK_DARKEN = 0.92;
+const MIST_LIGHTEN = 0.47;
+
+/** The mean colour of RGBA pixels once the darkest and lightest tenth are left out. */
+export function trimmedMean(data: ArrayLike<number>): Rgb {
+  const pixels: { luma: number; r: number; g: number; b: number }[] = [];
+  for (let i = 0; i + 3 < data.length; i += 4) {
+    const r = data[i]!, g = data[i + 1]!, b = data[i + 2]!;
+    pixels.push({ luma: 0.299 * r + 0.587 * g + 0.114 * b, r, g, b });
+  }
+  pixels.sort((a, b) => a.luma - b.luma);
+  const cut = Math.floor(pixels.length * TRIM);
+  const kept = pixels.slice(cut, pixels.length - cut);
+  const used = kept.length > 0 ? kept : pixels;
+  if (used.length === 0) return DEFAULT_DARK;
+  let r = 0, g = 0, b = 0;
+  for (const p of used) { r += p.r; g += p.g; b += p.b; }
+  return [r / used.length, g / used.length, b / used.length];
+}
+
+/** The map's own colour, or null when the browser won't let the image be read. */
 export function averageColor(source: CanvasImageSource): Rgb | null {
   try {
     const canvas = document.createElement("canvas");
-    canvas.width = 8;
-    canvas.height = 8;
+    canvas.width = 16;
+    canvas.height = 16;
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
-    ctx.drawImage(source, 0, 0, 8, 8);
-    const { data } = ctx.getImageData(0, 0, 8, 8);
-    let r = 0, g = 0, b = 0;
-    for (let i = 0; i < data.length; i += 4) { r += data[i]!; g += data[i + 1]!; b += data[i + 2]!; }
-    const n = data.length / 4;
-    return [r / n, g / n, b / n];
+    ctx.drawImage(source, 0, 0, 16, 16);
+    return trimmedMean(ctx.getImageData(0, 0, 16, 16).data);
   } catch {
     return null;
   }
 }
 
+const clamp = (n: number) => Math.min(255, Math.max(0, n));
+
 /**
- * The fog as a canvas; the caller turns it into a repeating texture. Given the map's average
- * colour, the fog's dark banks and pale mist are shades of that colour, so it sits in the map
- * instead of looking pasted on.
+ * The fog's two shades. With the map's colour, banks are only a little darker and mist a little
+ * lighter, so the fog reads as haze over this map; without it, the default blue-grey.
+ */
+export function fogPalette(base?: Rgb | null): { dark: Rgb; light: Rgb } {
+  if (!base) return { dark: DEFAULT_DARK, light: DEFAULT_LIGHT };
+  const luma = 0.299 * base[0] + 0.587 * base[1] + 0.114 * base[2];
+  const lifted = base.map((c) => clamp(luma + (c - luma) * CHROMA_LIFT)) as unknown as Rgb;
+  return {
+    dark: lifted.map((c) => c * BANK_DARKEN) as unknown as Rgb,
+    light: lifted.map((c) => c + (255 - c) * MIST_LIGHTEN) as unknown as Rgb,
+  };
+}
+
+/**
+ * The fog as a canvas; the caller turns it into a repeating texture. Given the map's colour,
+ * the fog's dark banks and pale mist are shades of it, so it sits in the map instead of looking
+ * pasted on.
  */
 export function makeFogCanvas(base?: Rgb | null): HTMLCanvasElement {
-  const dark: Rgb = base ? [base[0] * 0.45, base[1] * 0.45, base[2] * 0.45] : DEFAULT_DARK;
-  const light: Rgb = base ? [base[0] + (255 - base[0]) * 0.55, base[1] + (255 - base[1]) * 0.55, base[2] + (255 - base[2]) * 0.55] : DEFAULT_LIGHT;
+  const { dark, light } = fogPalette(base);
   const size = FOG_TEXTURE_SIZE;
   const canvas = document.createElement("canvas");
   canvas.width = size;
@@ -95,7 +131,7 @@ export function makeFogCanvas(base?: Rgb | null): HTMLCanvasElement {
       // Bend the lookup by another noise field, so the clouds stretch into curls and wisps.
       const n = fbm(mist, u + 0.35 * (fbm(warpX, u, v) - 0.5), v + 0.35 * (fbm(warpY, u, v) - 0.5));
       // Stretch the middle of the range for contrast: dark blue-grey banks, pale mist on top.
-      const t = Math.min(1, Math.max(0, (n - 0.22) * 2.1));
+      const t = Math.min(1, Math.max(0, (n - 0.02) * 2));
       const lift = t * t * (3 - 2 * t);
       const i = (y * size + x) * 4;
       image.data[i] = dark[0] + lift * (light[0] - dark[0]);
@@ -106,4 +142,90 @@ export function makeFogCanvas(base?: Rgb | null): HTMLCanvasElement {
   }
   ctx.putImageData(image, 0, 0);
   return canvas;
+}
+
+/** How far mist trails out past a fog region's edge, in grid cells. Inside the edge the fog is solid. */
+export const FOG_FEATHER_CELLS = 1.0;
+const FEATHER_STEPS = 12;
+
+/**
+ * Turns the soft distance ramp (1 inside the region, falling to 0 out in the feather) and a noise
+ * value in [0, 1] into the mask's alpha. The noise moves the threshold, so the mist's outer edge
+ * billows into tongues and gaps, while the solid interior (ramp 1) stays fully opaque for any noise.
+ */
+export function fogMaskAlpha(ramp: number, noise: number): number {
+  // Noise only counts out in the feather, so the alpha is continuous across the region's edge.
+  const amp = 0.3 * Math.min(1, Math.max(0, (1 - ramp) * 4));
+  const t = Math.min(1, Math.max(0, (ramp + (noise - 0.5) * amp + 0.12) / 1.12));
+  return t * t * (3 - 2 * t);
+}
+
+/** Cloud noise at a board position, in [0, 1]; features are about a grid cell across. */
+function edgeNoise(layers: { values: Float32Array; cells: number; weight: number }[], u: number, v: number): number {
+  let n = 0;
+  for (const l of layers) n += sample(l.values, l.cells, u, v) * l.weight;
+  return n;
+}
+
+/**
+ * The fog regions as a white-on-transparent mask at a fraction of the map's size, for the board to
+ * use as an alpha mask over the cloud layers. Opaque inside every region; past the edge a
+ * noise-broken ramp of mist fades out over `FOG_FEATHER_CELLS`, so the border thins into the map
+ * instead of drawing a line. Linear sampling of the small mask softens it further.
+ */
+export function makeFogMaskCanvas(
+  regions: ReadonlyArray<ReadonlyArray<{ x: number; y: number }>>,
+  width: number,
+  height: number,
+  cell: number,
+): { canvas: HTMLCanvasElement; scale: number } {
+  const scale = Math.min(1, 10 / Math.max(1, cell), 1536 / Math.max(1, width, height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.ceil(width * scale));
+  canvas.height = Math.max(1, Math.ceil(height * scale));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return { canvas, scale };
+  ctx.scale(scale, scale);
+  ctx.lineJoin = "miter";
+  ctx.miterLimit = 20;
+  const trace = () => {
+    ctx.beginPath();
+    for (const points of regions) {
+      points.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+      ctx.closePath();
+    }
+  };
+  const reach = FOG_FEATHER_CELLS * cell;
+  ctx.fillStyle = "#fff";
+  ctx.strokeStyle = "#fff";
+  // Wide, faint strokes first: where they overlap near the edge the alpha builds up to solid.
+  for (let k = FEATHER_STEPS; k >= 1; k--) {
+    ctx.globalAlpha = 0.22;
+    ctx.lineWidth = (2 * reach * k) / FEATHER_STEPS;
+    trace();
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  trace();
+  ctx.fill();
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const period = Math.max(1, cell) * 40;
+  const layers = [
+    { cells: 10, weight: 0.3, seed: 3 },
+    { cells: 20, weight: 0.3, seed: 7 },
+    { cells: 40, weight: 0.25, seed: 19 },
+    { cells: 80, weight: 0.15, seed: 31 },
+  ].map((l) => ({ ...l, values: lattice(l.cells, l.seed) }));
+  for (let y = 0; y < canvas.height; y++) {
+    for (let x = 0; x < canvas.width; x++) {
+      const i = (y * canvas.width + x) * 4;
+      const ramp = image.data[i + 3]! / 255;
+      const n = ramp >= 1 ? 1 : edgeNoise(layers, (((x + 0.5) / scale) % period) / period, (((y + 0.5) / scale) % period) / period);
+      image.data[i] = image.data[i + 1] = image.data[i + 2] = 255;
+      image.data[i + 3] = Math.round(255 * fogMaskAlpha(ramp, n));
+    }
+  }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.putImageData(image, 0, 0);
+  return { canvas, scale };
 }

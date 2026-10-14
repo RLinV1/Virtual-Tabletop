@@ -1,6 +1,6 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { MAX_FOG_POINTS, type Command, type FogRegion, type GridSpec, type MapImage, type Point } from "@vtt/shared";
-import { FOG_TEXTURE_SIZE, makeFogCanvas } from "../../board/fogTexture";
+import { FOG_TEXTURE_SIZE, averageColor, fogPalette, makeFogCanvas, type Rgb } from "../../board/fogTexture";
 import { fogRegionAt } from "../../board/tools";
 import { MapCanvas } from "./MapCanvas";
 
@@ -21,16 +21,30 @@ const clamp = (p: Point, map: MapImage): Point => ({
  * coordinates (invariant 8). Rectangle drags out a region, Polygon clicks out its corners, and
  * Reveal removes the topmost region under the click.
  */
-/** The board's cloud texture as an image, made once on first use (board/fogTexture.ts). */
-let fogImage: string | null = null;
-const cloudImage = () => (fogImage ??= makeFogCanvas().toDataURL());
+/** The map's own colour, so editor fog is tinted like the board's (null until the image has loaded or when it cannot be read). */
+function useMapColor(url: string): Rgb | null {
+  const [color, setColor] = useState<Rgb | null>(null);
+  useEffect(() => {
+    let live = true;
+    setColor(null);
+    const image = new Image();
+    // Maps can be served from the object store's own origin; without CORS the canvas is tainted and the colour unreadable.
+    image.crossOrigin = "anonymous";
+    image.onload = () => { if (live) setColor(averageColor(image)); };
+    image.src = url;
+    return () => { live = false; };
+  }, [url]);
+  return color;
+}
+
+const rgbCss = ([r, g, b]: Rgb) => `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
 
 /**
  * Fog as players see it: the board's two drifting cloud layers, as SVG patterns. Each pattern
  * moves by exactly one tile per loop, so the drift never jumps. Still when motion is reduced.
  */
-function PlayerFog({ id }: { id: string }) {
-  const href = cloudImage();
+function PlayerFog({ id, base }: { id: string; base: Rgb | null }) {
+  const href = useMemo(() => makeFogCanvas(base).toDataURL(), [base]);
   const still = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
   const size = FOG_TEXTURE_SIZE;
   const layer = (key: string, transform: string, to: string, dur: string) => (
@@ -61,6 +75,8 @@ export function FogCanvas({ map, grid, fog, mode, onAdd, onRemove, onNotice, bus
   playerView?: boolean;
 }) {
   const fogId = useId().replace(/:/g, "");
+  const base = useMapColor(map.url);
+  const tint = rgbCss(fogPalette(base).dark);
   const [corners, setCorners] = useState<Point[]>([]);
   const [anchor, setAnchor] = useState<Point | null>(null);
   const [hover, setHover] = useState<Point | null>(null);
@@ -135,14 +151,14 @@ export function FogCanvas({ map, grid, fog, mode, onAdd, onRemove, onNotice, bus
         const draft = anchor && hover ? clamp(hover, map) : null;
         return (
           <>
-            {playerView && <PlayerFog id={fogId} />}
+            {playerView && <PlayerFog id={fogId} base={base} />}
             {Object.values(fog).map((region) => {
               const points = region.points.map((p) => `${p.x},${p.y}`).join(" ");
               return (
                 <g key={region.id}>
                   <polygon
                     points={points}
-                    fill={playerView ? `url(#${fogId}-base)` : "#0b0d12"}
+                    fill={playerView ? `url(#${fogId}-base)` : tint}
                     fillOpacity={playerView ? 1 : 0.62}
                     stroke={revealing?.id === region.id ? "#e74c3c" : playerView ? "none" : "#9aa4b2"}
                     strokeWidth={(revealing?.id === region.id ? 3 : 1.5) * px}

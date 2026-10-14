@@ -4,11 +4,11 @@ import {
   ColorMatrixFilter,
   Container,
   Graphics,
-  Matrix,
   Sprite,
   Text,
   Texture,
   Ticker,
+  TilingSprite,
   type FederatedPointerEvent,
 } from "pixi.js";
 import {
@@ -44,7 +44,7 @@ import {
   watchReducedMotion,
   type AttackEffect,
 } from "./effects";
-import { averageColor, makeFogCanvas, type Rgb } from "./fogTexture";
+import { averageColor, fogPalette, makeFogCanvas, makeFogMaskCanvas, type Rgb } from "./fogTexture";
 import { areaOrigin, areaShape, areaSizeFromDrag, formatDistance, hitMark, measure, portalAt, sweepPoints, templateMark, type BoardTool, type Mark } from "./tools";
 import { aimExpiry, expiredAims } from "./aims";
 import { PING_MS, pingPulse } from "./ping";
@@ -102,8 +102,6 @@ const MAX_MARKS = 100;
 const MIN_MARK_DRAG_PX = 4;
 /** Stand-in id for the token being placed; never a real token's id. */
 const GHOST_ID = "placement-ghost";
-/** Fog is drawn this far past its edge in grid cells, so no seam shows at a region's border or the map's. */
-const FOG_BLEED_CELLS = 0.06;
 /** How fast the clouds drift, in board pixels per second, and how often the drift is redrawn. */
 const FOG_DRIFT_PX_PER_S = 38;
 const FOG_DRIFT_INTERVAL_MS = 1000 / 20;
@@ -114,11 +112,11 @@ const FOG_CLOUD_SCALE = 2.5;
  * the two tiles never line up and the fog churns instead of sliding. Its opacity over the base.
  */
 const FOG_WISP_SCALE = 1.55;
-const FOG_WISP_ANGLE = 0.6;
 const FOG_WISP_ALPHA = 0.55;
 /** The GM sees fog nearly opaque too, so what players cannot see is hidden from the GM view as well (the Fog toggle shows everything). */
 const FOG_GM_ALPHA = 1;
-const FOG_EDGE = 0x9fb3c8;
+/** The GM's fog outline: a thin line in the fog's own pale tone, faint enough not to read as a frame. */
+const FOG_EDGE_ALPHA = 0.45;
 /** How close (screen pixels) a click has to come to a door or window to use it (ADR 0030). */
 const PORTAL_REACH_PX = 10;
 /** Portal colours by kind: wood for doors, glass for windows. Locked ones get a red lock mark. */
@@ -268,7 +266,16 @@ export class BoardView {
    * Fog regions (FR-GM-17), between the grid and the tokens: a player's own token stays visible
    * on top, and anything else under fog is not in a player's state at all (ADR 0016).
    */
-  private fogGraphics = new Graphics();
+  /**
+   * The cloud layers, shown only through `fogMaskSprite`: a low-resolution mask of the regions
+   * with a noise-broken, feathered border, rebuilt only when fog or the grid changes (not on drift).
+   */
+  private fogMist = new Container();
+  private fogCloudA: TilingSprite | null = null;
+  private fogCloudB: TilingSprite | null = null;
+  private fogMaskSprite = new Sprite(Texture.EMPTY);
+  private fogMaskFog: RoomState["fog"] | null = null;
+  private fogMaskKey = "";
   /** The GM's fog outlines, kept apart so the fog's feathering never blurs them. */
   private fogEdgeGraphics = new Graphics();
   private fogLayer = new Container();
@@ -406,10 +413,12 @@ export class BoardView {
     this.measureLabel.anchor.set(0.5, 1.2);
     this.measureLabel.visible = false;
     this.markLayer.addChild(this.marksGraphics, this.overlayGraphics, this.measureLabel);
-    this.fogGraphics.eventMode = "none";
+    this.fogMist.eventMode = "none";
+    this.fogMaskSprite.eventMode = "none";
+    this.fogMist.mask = this.fogMaskSprite;
     this.fogEdgeGraphics.eventMode = "none";
     this.fogLayer.eventMode = "none";
-    this.fogLayer.addChild(this.fogGraphics, this.fogEdgeGraphics);
+    this.fogLayer.addChild(this.fogMaskSprite, this.fogMist, this.fogEdgeGraphics);
     this.wallGraphics.eventMode = "none";
     this.portalGraphics.eventMode = "none";
     this.world.addChild(this.mapSprite, this.grid, this.fogLayer, this.wallGraphics, this.portalGraphics, this.tokenLayer, this.markLayer, this.fxLayer);
@@ -503,6 +512,7 @@ export class BoardView {
     if (this.dirty && this.marksScale !== this.world.scale.x) this.redrawMarks();
     if (this.dirty && this.portalsScale !== this.world.scale.x) this.drawPortals();
     if (this.dirty) {
+      this.driftFog();
       this.app.render();
       this.notifyView();
     }
@@ -982,33 +992,88 @@ export class BoardView {
     const state = this.state;
     this.drawnFog = state?.fog ?? null;
     this.layerFog(this.you?.role === "gm" && this.gmFogView !== "off");
-    const g = this.fogGraphics.clear();
     const edge = this.fogEdgeGraphics.clear();
-    if (!state) return;
+    if (!state) {
+      this.fogMist.visible = false;
+      this.fogMaskSprite.visible = false;
+      return;
+    }
     // A GM on "Player view" sees fog drawn exactly as players do.
     const gm = this.you?.role === "gm" && this.gmFogView !== "player";
     const px = 1 / this.world.scale.x;
-    const cell = state.scene.grid.cellSize;
     // "See everything": the GM's tint is switched off and only a faint outline marks each region.
     const tint = !gm || this.gmFogView === "tint";
     const hasRegions = Object.keys(state.fog).length > 0;
-    // The cloud texture is made on first need, so a board with no fog never pays for it.
-    const cloud = tint && hasRegions ? this.fogCloud() : null;
-    // The clouds drift across the board; the texture tiles seamlessly, so any offset is fine.
-    const matrix = new Matrix().scale(FOG_CLOUD_SCALE, FOG_CLOUD_SCALE).translate(this.fogOffset.x, this.fogOffset.y);
-    const wisps = new Matrix().scale(FOG_WISP_SCALE, FOG_WISP_SCALE).rotate(FOG_WISP_ANGLE).translate(this.wispOffset.x, this.wispOffset.y);
-    const fillAlpha = gm ? FOG_GM_ALPHA : 1;
-    const draw = (points: Point[]) => {
-      const flat = points.flatMap((p) => [p.x, p.y]);
-      if (tint) {
-        g.poly(flat).fill({ texture: cloud!, matrix, textureSpace: "global", alpha: fillAlpha });
-        g.poly(flat).fill({ texture: cloud!, matrix: wisps, textureSpace: "global", alpha: fillAlpha * FOG_WISP_ALPHA });
+    const mist = tint && hasRegions;
+    this.fogMist.visible = mist;
+    this.fogMaskSprite.visible = mist;
+    if (mist) {
+      this.syncFogMist(state);
+      this.driftFog();
+    }
+    if (gm && !tint) {
+      const [er, eg, eb] = fogPalette(this.fogBase).light;
+      const edgeColor = (Math.round(er) << 16) | (Math.round(eg) << 8) | Math.round(eb);
+      for (const region of Object.values(state.fog)) {
+        edge.poly(region.points.flatMap((p) => [p.x, p.y])).stroke({ width: px, color: edgeColor, alpha: FOG_EDGE_ALPHA * 0.7 });
       }
-      if (!gm) g.poly(flat).stroke({ width: 2 * FOG_BLEED_CELLS * cell, join: "miter", texture: cloud!, matrix, textureSpace: "global", alpha: 1 });
-      if (gm) edge.poly(flat).stroke({ width: 2 * px, color: FOG_EDGE, alpha: 0.9 * (tint ? 1 : 0.4) });
-    };
-    for (const region of Object.values(state.fog)) draw(region.points);
+    }
     this.syncFogLoop();
+  }
+
+  /** Builds the mask (when fog or the grid changed) and the two cloud layers it reveals. */
+  private syncFogMist(state: RoomState) {
+    const { width, height } = this.boardSize();
+    const cell = state.scene.grid.cellSize;
+    const key = `${width}x${height}x${cell}`;
+    const cloud = this.fogCloud();
+    if (!this.fogCloudA || !this.fogCloudB) {
+      this.fogCloudA = new TilingSprite({ texture: cloud, width, height });
+      this.fogCloudB = new TilingSprite({ texture: cloud, width, height });
+      this.fogCloudA.eventMode = "none";
+      this.fogCloudB.eventMode = "none";
+      this.fogCloudA.tileScale.set(FOG_CLOUD_SCALE);
+      this.fogCloudB.tileScale.set(FOG_WISP_SCALE);
+      this.fogCloudB.alpha = FOG_WISP_ALPHA;
+      this.fogMist.addChild(this.fogCloudA, this.fogCloudB);
+    }
+    if (this.fogCloudA.texture !== cloud) {
+      this.fogCloudA.texture = cloud;
+      this.fogCloudB.texture = cloud;
+    }
+    this.fogMist.alpha = this.you?.role === "gm" && this.gmFogView !== "player" ? FOG_GM_ALPHA : 1;
+    if (key === this.fogMaskKey && state.fog === this.fogMaskFog) return;
+    this.fogMaskKey = key;
+    this.fogMaskFog = state.fog;
+    const { canvas, scale } = makeFogMaskCanvas(Object.values(state.fog).map((r) => r.points), width, height, cell);
+    const old = this.fogMaskSprite.texture;
+    this.fogMaskSprite.texture = Texture.from(canvas);
+    if (old !== Texture.EMPTY) old.destroy(true);
+    this.fogMaskSprite.scale.set(1 / scale);
+  }
+
+  /**
+   * Slides the cloud layers; the mask stays put. The layers only cover the part of the board on
+   * screen: a mask filter allocates a texture the size of what it masks, which at high zoom over a
+   * whole map is far past what the GPU allows.
+   */
+  private driftFog() {
+    const a = this.fogCloudA, b = this.fogCloudB;
+    if (!a || !b || !this.fogMist.visible) return;
+    const { width, height } = this.boardSize();
+    const k = this.world.scale.x;
+    const screen = this.app.screen;
+    const x0 = Math.max(0, Math.floor(-this.world.x / k) - 1);
+    const y0 = Math.max(0, Math.floor(-this.world.y / k) - 1);
+    const x1 = Math.min(width, Math.ceil((screen.width - this.world.x) / k) + 1);
+    const y1 = Math.min(height, Math.ceil((screen.height - this.world.y) / k) + 1);
+    const w = Math.max(1, x1 - x0), h = Math.max(1, y1 - y0);
+    for (const [layer, drift] of [[a, this.fogOffset], [b, this.wispOffset]] as const) {
+      layer.position.set(x0, y0);
+      layer.width = w;
+      layer.height = h;
+      layer.tilePosition.set(drift.x - x0, drift.y - y0);
+    }
   }
 
   /** Puts the fog over the tokens (`covering`) or back under the walls, only when that changes. */
@@ -1069,7 +1134,7 @@ export class BoardView {
     this.lastFogDraw = now;
     this.fogOffset = { x: this.fogOffset.x + FOG_DRIFT_PX_PER_S * dt, y: this.fogOffset.y + FOG_DRIFT_PX_PER_S * 0.35 * dt };
     this.wispOffset = { x: this.wispOffset.x - FOG_DRIFT_PX_PER_S * 1.6 * dt, y: this.wispOffset.y + FOG_DRIFT_PX_PER_S * 0.6 * dt };
-    this.redrawFog();
+    this.driftFog();
     return true;
   };
 
