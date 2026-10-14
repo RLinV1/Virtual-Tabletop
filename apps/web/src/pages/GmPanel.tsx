@@ -103,7 +103,7 @@ export function GmPanel({
       />
       {features.tableAdmin && (
         <>
-          <CheckpointsPanel connection={connection} state={state} />
+          <CheckpointsPanel connection={connection} state={state} token={token} />
           <EncounterPanel connection={connection} state={state} />
         </>
       )}

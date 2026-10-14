@@ -1,5 +1,6 @@
 import {
   GM_TOKEN_HEADER,
+  CheckpointPreviewResponse,
   HistoryResponse,
   ReplayPointsResponse,
   ReplayResponse,
@@ -140,6 +141,15 @@ export const api = {
     });
     if (!res.ok) throw await errorFrom(res);
     return HistoryResponse.parse(await res.json());
+  },
+
+  /** A checkpoint's saved board, for the GM to look at before restoring it (FR-REC-02, ADR 0036). */
+  async checkpointPreview(roomId: string, token: string, checkpointId: string, signal?: AbortSignal) {
+    const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/checkpoints/${encodeURIComponent(checkpointId)}/preview`, {
+      headers: { authorization: `Bearer ${token}` }, signal,
+    });
+    if (!res.ok) throw await errorFrom(res);
+    return CheckpointPreviewResponse.parse(await res.json());
   },
 
   /** Where this participant can start a replay of the room (FR-PL-07, ADR 0025). */
