@@ -19,6 +19,7 @@ import { WallSetup } from "./mapEditor/WallSetup";
 import { draftConnection } from "./mapEditor/draftConnection";
 import { draftDirty, draftFrom, planDraftSave, type MapDraft } from "./mapEditor/mapDraft";
 import { prepCommand, prepDirty, startPrep, type MapPrep } from "./mapPrep";
+import { FULL_ROOM, type RoomFeatures } from "./encounterEdit/roomFeatures";
 
 interface Props {
   connection: RoomConnection;
@@ -33,12 +34,15 @@ interface Props {
   gridError: string | null;
   /** Opens the per-token review for a player who left (KAN-58). */
   onReviewDeparture: (participantId: string) => void;
+  /** What this room offers; a template being edited offers less (ADR 0033). */
+  features?: RoomFeatures;
 }
 
 /** The GM's administration section: departed players to resolve, map and grid setup, fog, then checkpoints. */
 export function GmPanel({
   connection, state, token, onReviewDeparture,
   gridDraft, hasGridDraft, onGridDraftChange, onGridDraftCancel, onGridApply, gridApplying, gridError,
+  features = FULL_ROOM,
 }: Props) {
   const [error, setError] = useState<string | null>(null);
   // The library belongs to the signed-in account (ADR 0017).
@@ -53,7 +57,7 @@ export function GmPanel({
   return (
     <>
       {error && <p role="alert" className="error">{error}</p>}
-      <DepartedPlayers state={state} onReview={onReviewDeparture} />
+      {features.tableAdmin && <DepartedPlayers state={state} onReview={onReviewDeparture} />}
       <MapSection
         roomId={state.roomId}
         token={token}
@@ -69,6 +73,7 @@ export function GmPanel({
         mapUrl={state.scene.map?.url ?? null}
         map={state.scene.map}
         wallCount={Object.keys(state.walls).length}
+        fixedMap={!features.mapAndWalls}
         gridApplying={gridApplying}
         room={state}
         connection={connection}
@@ -96,8 +101,12 @@ export function GmPanel({
           </RoomGridEditor>
         )}
       />
-      <CheckpointsPanel connection={connection} state={state} />
-      <EncounterPanel connection={connection} state={state} />
+      {features.tableAdmin && (
+        <>
+          <CheckpointsPanel connection={connection} state={state} />
+          <EncounterPanel connection={connection} state={state} />
+        </>
+      )}
     </>
   );
 }
@@ -167,6 +176,11 @@ const STEPS: { key: EditorStep; label: string }[] = [
   { key: "walls", label: "3 · Walls" },
   { key: "fog", label: "4 · Fog" },
 ];
+/** A template's map is fixed and holds no walls (ADR 0033). */
+const FIXED_MAP_STEPS: { key: EditorStep; label: string }[] = [
+  { key: "grid", label: "1 · Grid" },
+  { key: "fog", label: "2 · Fog" },
+];
 
 /**
  * Battle map setup (map-editor). The Manage tab shows a summary and Edit map, which opens a
@@ -191,6 +205,11 @@ function MapSection(props: {
   mapUrl: string | null;
   map: MapImage | null;
   wallCount: number;
+  /**
+   * The map can't be changed and has no walls (a template being edited, ADR 0033): the editor
+   * and its openers offer only the Grid and Fog steps.
+   */
+  fixedMap?: boolean;
   gridApplying: boolean;
   /** The live map's grid form; `close` is called after a successful apply or a cancel. */
   grid: (close: () => void) => ReactNode;
@@ -436,18 +455,20 @@ function MapSection(props: {
   };
 
   const shown = prep?.map ?? props.map;
+  const steps = props.fixedMap ? FIXED_MAP_STEPS : STEPS;
   return (
     <PanelSection id="gm-map" title="Battle map">
       <div className="stack">
         <p className="muted">
           {props.map
-            ? `${props.map.width} × ${props.map.height} px · ${props.wallCount} ${props.wallCount === 1 ? "wall" : "walls"}`
+            ? `${props.map.width} × ${props.map.height} px${props.fixedMap ? "" : ` · ${props.wallCount} ${props.wallCount === 1 ? "wall" : "walls"}`}`
             : "No map yet."}
         </p>
         {props.map ? (
           // Each opens the one editor on its own step; its tabs still reach the others (map-section-step-buttons).
+          // A fixed map offers only the steps its editor has (ADR 0033).
           <div className="row button-row" data-tour="gm-grid">
-            {OPENERS.map(({ key, label }) => (
+            {OPENERS.filter(({ key }) => steps.some((s) => s.key === key)).map(({ key, label }) => (
               <button key={key} type="button" className={key === "map" ? "secondary" : undefined} onClick={() => {
                 setStep(key);
                 setEditorOpen(true);
@@ -456,7 +477,7 @@ function MapSection(props: {
               </button>
             ))}
           </div>
-        ) : (
+        ) : props.fixedMap ? null : (
           <div className="row button-row" data-tour="gm-grid">
             <label className="upload-button">
               <span>{busy ? "Uploading…" : "Upload map"}</span>
@@ -488,7 +509,7 @@ function MapSection(props: {
         onClose={requestClose}
         headerContent={(
           <nav className="map-editor-steps" role="tablist" aria-label="Map setup steps">
-            {STEPS.map(({ key, label }) => (
+            {steps.map(({ key, label }) => (
               <button
                 key={key}
                 type="button"

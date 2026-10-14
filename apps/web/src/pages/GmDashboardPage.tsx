@@ -1,16 +1,17 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { DEFAULT_PRESET_ID, GAME_PRESETS, presetOf } from "@vtt/shared";
+import { presetOf } from "@vtt/shared";
 import type { EncounterSummary, GmRoomSummary, LegacySummary, MyRoomsResponse } from "@vtt/shared";
 import { AccountMenu } from "../account/AccountPages";
-import { useAccount } from "../account/accountStore";
 import { RequireAccount } from "../account/RequireAccount";
 import { Link } from "../Link";
 import { api, ApiError } from "../net/api";
-import { forgetGmToken, newGuestToken, saveCredentials } from "../net/identity";
+import { forgetGmToken } from "../net/identity";
 import { legacyOffer } from "../net/legacy";
 import { ensureSeat } from "../net/seats";
 import { navigate } from "../router";
 import { Modal } from "../ui/Modal";
+import { formatRelative } from "../ui/formatRelative";
+import { createRoomWith, RoomDetailsFields, useRoomDetails } from "./RoomDetailsFields";
 
 /**
  * The signed-in person's place outside a room (gm-dashboard, room-membership): create a room,
@@ -72,17 +73,12 @@ function withoutRoom(state: RoomsState, id: string): RoomsState {
 
 /** Hosting needs the account, which the session cookie carries; the GM seat is kept on it too. */
 function CreateRoomCard() {
-  const account = useAccount();
-  const [roomName, setRoomName] = useState("");
-  /** Starts as the account's name, once; the GM may change it for this room (create-room-form-defaults). */
-  const [displayName, setDisplayName] = useState(() => (account.status === "signedIn" ? account.account.displayName : ""));
+  const [details, setDetails] = useRoomDetails();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   /** The GM's saved encounters, offered as a starting board (encounter-templates, FR-GM-13). */
   const [templates, setTemplates] = useState<EncounterSummary[]>([]);
   const [templateId, setTemplateId] = useState("");
-  /** The game the room is set up for (KAN-63); the registry's default unless the GM picks another. */
-  const [preset, setPreset] = useState(DEFAULT_PRESET_ID);
 
   useEffect(() => {
     let live = true;
@@ -98,10 +94,7 @@ function CreateRoomCard() {
     setBusy(true);
     setError(null);
     try {
-      const guestToken = newGuestToken();
-      const created = await api.createRoom({ roomName, displayName, guestToken, preset, ...(templateId && { templateId }) });
-      saveCredentials({ ...created, guestToken, viaAccount: true });
-      navigate(`/r/${created.roomId}`);
+      navigate(`/r/${await createRoomWith(details, templateId || undefined)}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create room");
       setBusy(false);
@@ -111,37 +104,7 @@ function CreateRoomCard() {
   return (
     <form className="card" aria-labelledby="create-room-heading" onSubmit={onSubmit}>
       <h2 id="create-room-heading">Create a room</h2>
-      <label>
-        Room name
-        <input
-          value={roomName}
-          onChange={(e) => setRoomName(e.target.value)}
-          required
-          maxLength={80}
-        />
-      </label>
-      <label>
-        Your name
-        <input
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-          required
-          maxLength={40}
-        />
-      </label>
-      {/* Only a choice once there is more than one game (KAN-63). */}
-      {GAME_PRESETS.length > 1 && <fieldset className="preset-choice">
-        <legend>Game</legend>
-        {GAME_PRESETS.map((p) => (
-          <label key={p.id} className="preset-option">
-            <input type="radio" name="preset" value={p.id} checked={preset === p.id} onChange={() => setPreset(p.id)} />
-            <span>
-              <strong>{p.name}</strong>
-              <span className="muted small-print">{p.description}</span>
-            </span>
-          </label>
-        ))}
-      </fieldset>}
+      <RoomDetailsFields value={details} onChange={setDetails} />
       {templates.length > 0 && (
         <label>
           Start from template
@@ -409,12 +372,3 @@ function describeCounts(s: LegacySummary): string {
   return named.length > 1 ? `${named.slice(0, -1).join(", ")} and ${named.at(-1)}` : (named[0] ?? "nothing");
 }
 
-function formatRelative(iso: string) {
-  const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} h ago`;
-  const days = Math.round(hours / 24);
-  return days < 30 ? `${days} d ago` : new Date(iso).toLocaleDateString();
-}

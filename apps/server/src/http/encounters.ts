@@ -3,12 +3,13 @@ import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import {
   ENCOUNTER_TEMPLATE_VERSION,
-  EncounterTemplateData,
   MAX_ENCOUNTER_TEMPLATES,
   RenameEncounterRequest,
+  ReplaceEncounterFromRoomRequest,
   SaveEncounterRequest,
   type EncounterSummary,
 } from "@vtt/shared";
+import { boardFromRoom } from "../domain/encounterTemplates";
 import type { RoomRegistry } from "../domain/roomRegistry";
 import { requireAccountOwner, resolveOwner, type Owner } from "../ownership/resolveOwner";
 import { EncounterLimitError, EncounterMapMissingError, type EncounterRecord } from "../store/libraryStore";
@@ -35,25 +36,10 @@ export function registerEncounterRoutes(app: Express, deps: { store: RoomStore; 
       if (!requireAccountOwner(owner, res)) return;
       const body = SaveEncounterRequest.safeParse(req.body);
       if (!body.success) return void res.status(400).json({ error: body.error.issues });
-      // A room that is missing or someone else's is the same 404, so room ids can't be probed.
-      if ((await store.findRoomOwner(body.data.roomId)) !== gmId) return void res.status(404).json({ error: "Room not found" });
 
-      const room = await registry.get(body.data.roomId);
-      if (!room) return void res.status(404).json({ error: "Room not found" });
-      const board = room.boardForOwner();
-      const map = board.scene.map;
-      const mapAsset = map?.assetId ? await store.findAsset(map.assetId, gmId) : null;
-      if (!map || !mapAsset || mapAsset.kind !== "map") {
-        return void res.status(400).json({ error: "Put this room's map in your library first, then save the encounter" });
-      }
-
-      const data = EncounterTemplateData.safeParse({
-        map: { assetId: mapAsset.id, width: mapAsset.width, height: mapAsset.height },
-        grid: board.scene.grid,
-        tokens: Object.values(board.tokens).map(({ id: _id, ownerIds: _owners, initiative: _initiative, ...token }) => token),
-        fog: Object.values(board.fog).map(({ id: _id, ...region }) => region),
-      });
-      if (!data.success) return void res.status(400).json({ error: "This board is too large to save as a template" });
+      const built = await boardFromRoom(store, registry, gmId, body.data.roomId);
+      if (!built.ok) return void res.status(built.status).json({ error: built.error });
+      const data = built.data;
 
       const now = new Date().toISOString();
       try {
@@ -62,8 +48,8 @@ export function registerEncounterRoutes(app: Express, deps: { store: RoomStore; 
           ownerGmId: gmId,
           name: body.data.name,
           version: ENCOUNTER_TEMPLATE_VERSION,
-          data: data.data,
-          mapAssetId: mapAsset.id,
+          data,
+          mapAssetId: data.map.assetId,
           createdAt: now,
           updatedAt: now,
         }, MAX_ENCOUNTER_TEMPLATES);
@@ -74,6 +60,27 @@ export function registerEncounterRoutes(app: Express, deps: { store: RoomStore; 
         }
         throw err;
       }
+    });
+  });
+
+  app.put("/api/library/encounters/:id/from-room", (req, res) => {
+    void withOwner(req, res, async (gmId, owner) => {
+      if (!requireAccountOwner(owner, res)) return;
+      const id = IdParam.safeParse(req.params.id);
+      const record = id.success ? await store.findEncounter(id.data, gmId) : null;
+      if (!record) return void notFound(res);
+      const body = ReplaceEncounterFromRoomRequest.safeParse(req.body);
+      if (!body.success) return void res.status(400).json({ error: body.error.issues });
+
+      const built = await boardFromRoom(store, registry, gmId, body.data.roomId);
+      if (!built.ok) return void res.status(built.status).json({ error: built.error });
+      if (!record.mapAssetId) return void res.status(409).json({ error: mapDeletedMessage(record.name) });
+      if (built.data.map.assetId !== record.mapAssetId) {
+        return void res.status(409).json({ error: `This room uses a different map than "${record.name}". Save it as a new template instead.` });
+      }
+      const updated = await store.updateEncounter(record.id, gmId, { name: record.name, data: built.data, updatedAt: new Date().toISOString() });
+      if (!updated) return void notFound(res);
+      res.json(toSummary(updated));
     });
   });
 
@@ -109,18 +116,24 @@ export function registerEncounterRoutes(app: Express, deps: { store: RoomStore; 
   }
 }
 
-function notFound(res: Response) {
+export function notFound(res: Response) {
   res.status(404).json({ error: "Encounter template not found" });
 }
 
+export function mapDeletedMessage(name: string) {
+  return `The map for "${name}" was deleted from your library.`;
+}
+
 /** The board data stays on the server; the library needs only what it lists. */
-function toSummary(record: EncounterRecord): EncounterSummary {
+export function toSummary(record: EncounterRecord): EncounterSummary {
   return {
     id: record.id,
     name: record.name,
     mapName: record.mapName,
+    mapAssetId: record.mapAssetId,
     tokenCount: record.data.tokens.length,
     fogCount: record.data.fog.length,
     createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
   };
 }

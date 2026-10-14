@@ -1,6 +1,6 @@
 import type { CommittedEvent, DomainEvent } from "@vtt/shared";
 import type { IdentityStore } from "./identityStore";
-import type { LibraryStore, NewRoomOptions } from "./libraryStore";
+import type { EncounterRecord, LibraryStore, NewEncounterRecord, NewRoomOptions } from "./libraryStore";
 import type { GridDetectionStore } from "./gridDetectionStore";
 import type { RoomUploadPurpose } from "@vtt/shared";
 import type { MembershipStore } from "./membershipStore";
@@ -74,4 +74,22 @@ export interface RoomStore extends LibraryStore, GridDetectionStore, IdentitySto
    * this has committed, or null when there was no such room.
    */
   deleteRoom(roomId: string): Promise<{ uploadKeys: string[] } | null>;
+
+  /** True for a temporary encounter-editing room (ADR 0033), which nobody may join. */
+  isTemporaryRoom(roomId: string): Promise<boolean>;
+  /**
+   * One of this owner's temporary editing rooms and the template it saves to (ADR 0033); null
+   * for a normal room, another owner's, or none, so the three read the same.
+   */
+  findEditSession(roomId: string, ownerGmId: string): Promise<{ editsEncounterId: string | null } | null>;
+  /**
+   * A temporary room's first save (ADR 0033): creates the template and links the room to it in
+   * one step, so overlapping saves cannot both create one. When the room is already linked,
+   * creates nothing and returns the linked id; null when the room is not one of this owner's
+   * temporary rooms. Throws as `createEncounter` does, and then creates and links nothing.
+   */
+  createEncounterForEditRoom(roomId: string, encounter: NewEncounterRecord, maxPerOwner: number):
+    Promise<{ created: EncounterRecord } | { linkedTo: string } | null>;
+  /** Temporary rooms opened before `at`, for the sweep that deletes ones left behind. */
+  listTemporaryRoomsBefore(at: string): Promise<string[]>;
 }

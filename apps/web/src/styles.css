@@ -162,6 +162,11 @@ label.inline { flex-direction: row; align-items: center; gap: 0.35rem; color: va
   margin: 0; font-size: var(--fs-md); font-weight: 700;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
 }
+/* A template being edited in a temporary room (ADR 0033): its name, save state and actions. */
+.encounter-edit-bar { display: flex; align-items: center; gap: var(--space-2); min-width: 0; flex-wrap: wrap; }
+.encounter-edit-label { color: var(--muted); font-size: var(--fs-sm); white-space: nowrap; }
+.encounter-edit-state { color: var(--muted); font-size: var(--fs-sm); white-space: nowrap; }
+.encounter-edit-state.unsaved { color: var(--warn); }
 /* The panel tabs as buttons in the bar: the open one is filled, like the tool rail's. */
 .tabbar.topbar-tabs { border-bottom: none; gap: var(--space-1); }
 .tabbar.topbar-tabs .tab {

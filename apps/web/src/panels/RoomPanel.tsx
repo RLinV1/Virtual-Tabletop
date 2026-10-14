@@ -17,6 +17,7 @@ import { MyTokens } from "./MyTokens";
 import { RulingsPanel } from "./RulingsPanel";
 import { TokenRoster } from "./TokenRoster";
 import { useSectionCollapse } from "../ui/PanelSection";
+import { FULL_ROOM, type RoomFeatures } from "../pages/encounterEdit/roomFeatures";
 
 /**
  * The room's side panel, composed per role and per screen size (FR-PL-03).
@@ -39,13 +40,14 @@ export type TabId = "play" | "tokens" | "dice" | "gm";
 export const isTabId = (v: unknown): v is TabId => v === "play" || v === "tokens" || v === "dice" || v === "gm";
 
 /** The panel's tabs for this role. Manage is the GM's only; a player is never offered it. */
-export function panelTabs(isGm: boolean): { id: TabId; label: string; icon: ReactNode }[] {
-  return [
+export function panelTabs(isGm: boolean, offered: readonly TabId[] = FULL_ROOM.tabs): { id: TabId; label: string; icon: ReactNode }[] {
+  const tabs: { id: TabId; label: string; icon: ReactNode }[] = [
     { id: "play", label: "Play", icon: <Sword size={16} aria-hidden="true" /> },
     { id: "tokens", label: "Tokens", icon: <UserList size={16} aria-hidden="true" /> },
     { id: "dice", label: "Dice", icon: <DiceFive size={16} aria-hidden="true" /> },
     ...(isGm ? [{ id: "gm" as const, label: "Manage", icon: <MapTrifold size={16} aria-hidden="true" /> }] : []),
   ];
+  return tabs.filter((t) => offered.includes(t.id));
 }
 
 /** Ids shared by the tab buttons (in the top bar or the panel) and the one tab panel. */
@@ -65,15 +67,18 @@ export function PanelTabs({
   onTab,
   badges = {},
   className = "tabbar",
+  offered,
 }: {
   isGm: boolean;
+  /** The tabs this room offers (ADR 0033); all of them when absent. */
+  offered?: readonly TabId[];
   badges?: TabBadges;
   tab: TabId;
   /** `reselected` is true when the already-selected tab was pressed again. */
   onTab: (tab: TabId, reselected: boolean) => void;
   className?: string;
 }) {
-  const tabs = panelTabs(isGm);
+  const tabs = panelTabs(isGm, offered);
   /** Set when the arrow keys moved the selection, so focus can follow it. */
   const movedByKeyboard = useRef(false);
 
@@ -169,6 +174,8 @@ interface Props {
   onReviewDeparture: (participantId: string) => void;
   /** Marks on the tabs, e.g. pending rulings on Play (attack-ux-polish). */
   tabBadges?: TabBadges;
+  /** What this room offers; a template being edited offers less (ADR 0033). */
+  features?: RoomFeatures;
 }
 
 /**
@@ -179,7 +186,7 @@ export function RoomPanel({
   connection, state, you, token, onFocusToken, onPlaceToken,
   attackPick, onAttackPick, attackReset, rollThrow, onPickOnBoard, onShowPing, diceBoard, attackVisibility, onAttackVisibility,
   gridDraft, hasGridDraft, onGridDraftChange, onGridDraftCancel, onGridApply, gridApplying, gridError,
-  compact, tab, onTab, onReviewDeparture, tabBadges, readOnly,
+  compact, tab, onTab, onReviewDeparture, tabBadges, readOnly, features: roomFeatures = FULL_ROOM,
 }: Props) {
   const isGm = you.role === "gm";
   useQuietAttackSection(state, you);
@@ -233,13 +240,14 @@ export function RoomPanel({
         onGridApply={onGridApply}
         gridApplying={gridApplying}
         gridError={gridError}
+        features={roomFeatures}
       />
     ) : null,
   };
 
   return (
     <div className="tabbed">
-      {compact && <PanelTabs isGm={isGm} tab={tab} badges={tabBadges} onTab={(t) => onTab(t)} />}
+      {compact && <PanelTabs isGm={isGm} tab={tab} badges={tabBadges} onTab={(t) => onTab(t)} offered={roomFeatures.tabs} />}
       <div role="tabpanel" id={TAB_PANEL_ID} aria-labelledby={tabButtonId(tab)} tabIndex={0} className="tabpanel">
         {/* A disabled fieldset turns every control off but leaves the content readable by screen readers (gm-view-as-player). */}
         <fieldset className="preview-fieldset" disabled={readOnly}>

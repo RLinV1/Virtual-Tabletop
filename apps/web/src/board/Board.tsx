@@ -35,6 +35,8 @@ interface Props {
   landedRollId?: string | null;
   /** The viewer clicked the token `attackerId` attacks, in Pick on board (attack-targeting). */
   onPickTarget?: (attackerId: string, targetId: string) => void;
+  /** Only the Select tool: a template being edited (ADR 0033). */
+  selectOnly?: boolean;
 }
 
 /** What the roster and initiative list can ask the canvas to do (FR-GM-24). */
@@ -93,7 +95,7 @@ function isTyping(target: EventTarget | null) {
 }
 
 /** The PixiJS board plus its React toolbar and notices; Pixi objects stay inside `BoardView`. */
-export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, readOnly = false, toolbar, notices, overlay, landedRollId, onPickTarget }, ref) {
+export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, readOnly = false, toolbar, notices, overlay, landedRollId, onPickTarget, selectOnly = false }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<BoardView | null>(null);
   /** GM only: false shows everything through the fog (this browser remembers it). */
@@ -490,6 +492,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
           setTool((current) => (current.kind === "attack" ? current : toolFor(current.kind, options)));
         }}
         onClear={() => viewRef.current?.clearMarks()}
+        selectOnly={selectOnly}
       />
       )}
       {overlay}

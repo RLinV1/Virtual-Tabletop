@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express, { type Express } from "express";
 import { Server as SocketIOServer } from "socket.io";
+import { roomLifecycle } from "./domain/roomLifecycle";
 import { RoomRegistry } from "./domain/roomRegistry";
 import { createGridDetectionDispatcher, type Detector, type GridDetectionDispatcher } from "./domain/gridDetection";
 import { bullmqWallQueue, WallDetections, type WallJobQueue } from "./domain/wallDetection";
@@ -14,6 +15,9 @@ import { LocalDiskAssetStore, type AssetStore } from "./store/assetStore";
 import { MemoryRoomStore } from "./store/memoryRoomStore";
 import type { RoomStore } from "./store/roomStore";
 import { registerSocket } from "./ws/socket";
+
+/** How long a temporary encounter-editing room may be left behind before the sweep deletes it (ADR 0033). */
+export const TEMPORARY_ROOM_LIFETIME_MS = 24 * 60 * 60_000;
 
 export interface AppOptions {
   store: RoomStore;
@@ -60,6 +64,8 @@ export interface App {
   limits: AccountLimits;
   /** The hourly sweep, on demand: ended sessions, then connections whose seat was deleted elsewhere. */
   sweep(): Promise<void>;
+  /** The hourly sweep of temporary encounter-editing rooms left behind (ADR 0033), on demand. */
+  sweepTemporaryRooms(): Promise<void>;
   listen(opts: { port: number; host: string }): Promise<void>;
   close(): Promise<void>;
 }
@@ -108,6 +114,18 @@ export async function buildApp({
   const stopSweeping = sessions.startSweeping(closeDeletedSeats);
   const stopLimitSweep = setInterval(() => Object.values(limits).forEach((l) => l.sweep()), 60_000);
   stopLimitSweep.unref();
+  const rooms = roomLifecycle({ store, registry, assets: assetStore, walls });
+  // A temporary room is deleted when its GM leaves it; this catches the ones left open (ADR 0033).
+  const sweepTemporaryRooms = async () => {
+    const before = new Date(now() - TEMPORARY_ROOM_LIFETIME_MS).toISOString();
+    for (const roomId of await store.listTemporaryRoomsBefore(before)) {
+      await rooms.deleteRoomFully(roomId).catch((err: unknown) => {
+        console.error(`[vtt] could not delete temporary room ${roomId}`, err);
+      });
+    }
+  };
+  const stopTemporaryRoomSweep = setInterval(() => void sweepTemporaryRooms(), 60 * 60_000);
+  stopTemporaryRoomSweep.unref();
 
   app.use(express.json({ limit: "64kb" }));
   app.use(attachAccount(sessions));
@@ -150,7 +168,7 @@ export async function buildApp({
     detector, redisUrl: store instanceof MemoryRoomStore ? undefined : redisUrl, visionUrl,
   });
   registerIdentityRoutes(app, { store, sessions, limits });
-  registerRoutes(app, { store, registry, uploadDir, assets: assetStore, limits, detection, walls });
+  registerRoutes(app, { store, registry, uploadDir, assets: assetStore, limits, detection, walls, rooms });
   registerSocket(io, { store, registry, sessions, logger });
 
   return {
@@ -163,6 +181,7 @@ export async function buildApp({
       await sessions.sweep();
       await closeDeletedSeats();
     },
+    sweepTemporaryRooms,
     listen: ({ port, host }) =>
       new Promise((resolve, reject) => {
         server.once("error", reject);
@@ -173,6 +192,7 @@ export async function buildApp({
     close: async () => {
       stopSweeping();
       clearInterval(stopLimitSweep);
+      clearInterval(stopTemporaryRoomSweep);
       await detection.close();
       await walls.close();
       await new Promise<void>((resolve, reject) => {

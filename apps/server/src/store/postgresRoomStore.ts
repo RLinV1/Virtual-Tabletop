@@ -24,6 +24,7 @@ import {
   EncounterLimitError,
   EncounterMapMissingError,
   type EncounterRecord,
+  type EncounterUpdate,
   type NewEncounterRecord,
   type CreaturePatch,
   type DiceFaceRecord,
@@ -72,7 +73,10 @@ export class PostgresRoomStore implements RoomStore {
 
   async createRoom(roomId: string, inviteCode: string, options: NewRoomOptions = {}) {
     await this.prisma.room.create({
-      data: { id: roomId, inviteCode, ownerGmId: options.ownerGmId ?? null, name: options.name ?? null },
+      data: {
+        id: roomId, inviteCode, ownerGmId: options.ownerGmId ?? null, name: options.name ?? null,
+        temporary: options.temporary ?? false, editsEncounterId: options.editsEncounterId ?? null,
+      },
     });
   }
 
@@ -251,6 +255,39 @@ export class PostgresRoomStore implements RoomStore {
     return deleted;
   }
 
+  async isTemporaryRoom(roomId: string) {
+    if (!UUID.test(roomId)) return false;
+    return (await this.prisma.room.count({ where: { id: roomId, temporary: true } })) === 1;
+  }
+
+  async findEditSession(roomId: string, ownerGmId: string) {
+    if (!UUID.test(roomId)) return null;
+    const room = await this.prisma.room.findFirst({ where: { id: roomId, ownerGmId, temporary: true }, select: { editsEncounterId: true } });
+    return room ? { editsEncounterId: room.editsEncounterId } : null;
+  }
+
+  async createEncounterForEditRoom(roomId: string, encounter: NewEncounterRecord, maxPerOwner: number) {
+    if (!UUID.test(roomId)) return null;
+    return this.withEncounterErrors(() => this.prisma.$transaction(async (tx) => {
+      // The room row lock makes a second save of this room wait, then see the first one's link.
+      // Lock order is the room, then the owner's template lock; nothing takes them the other way.
+      const [room] = await tx.$queryRaw<{ edits_encounter_id: string | null }[]>`
+        SELECT edits_encounter_id FROM rooms
+        WHERE id = ${roomId}::uuid AND owner_gm_id = ${encounter.ownerGmId}::uuid AND temporary
+        FOR UPDATE`;
+      if (!room) return null;
+      if (room.edits_encounter_id) return { linkedTo: room.edits_encounter_id };
+      const created = await insertEncounter(tx, encounter, maxPerOwner);
+      await tx.room.update({ where: { id: roomId }, data: { editsEncounterId: created.id } });
+      return { created: toEncounterRecord(created) };
+    }));
+  }
+
+  async listTemporaryRoomsBefore(at: string) {
+    const rooms = await this.prisma.room.findMany({ where: { temporary: true, createdAt: { lt: new Date(at) } }, select: { id: true } });
+    return rooms.map((r) => r.id);
+  }
+
   async registerGm(tokenHash: string) {
     const row = await this.prisma.gmIdentity.upsert({
       where: { tokenHash },
@@ -267,12 +304,12 @@ export class PostgresRoomStore implements RoomStore {
   }
 
   async listOwnedRooms(ownerGmId: string): Promise<GmRoomSummary[]> {
-    return this.summarize({ ownerGmId });
+    return this.summarize({ ownerGmId, temporary: false });
   }
 
   async summarizeRooms(roomIds: string[]) {
     const ids = roomIds.filter((id) => UUID.test(id));
-    return ids.length ? this.summarize({ id: { in: ids } }) : [];
+    return ids.length ? this.summarize({ id: { in: ids }, temporary: false }) : [];
   }
 
   private async summarize(where: Prisma.RoomWhereInput): Promise<GmRoomSummary[]> {
@@ -487,7 +524,7 @@ export class PostgresRoomStore implements RoomStore {
 
   async listEncounters(ownerGmId: string) {
     const rows = await this.prisma.encounterTemplate.findMany({
-      where: { ownerGmId }, orderBy: { createdAt: "desc" }, include: WITH_MAP,
+      where: { ownerGmId }, orderBy: { updatedAt: "desc" }, include: WITH_MAP,
     });
     return rows.map(toEncounterRecord);
   }
@@ -504,29 +541,26 @@ export class PostgresRoomStore implements RoomStore {
   }
 
   async createEncounter(encounter: NewEncounterRecord, maxPerOwner: number) {
+    return this.withEncounterErrors(async () =>
+      toEncounterRecord(await this.prisma.$transaction((tx) => insertEncounter(tx, encounter, maxPerOwner))));
+  }
+
+  private async withEncounterErrors<T>(run: () => Promise<T>): Promise<T> {
     try {
-      const row = await this.prisma.$transaction(async (tx) => {
-        // One save at a time per owner: the lock is held until the transaction ends, so the count
-        // below cannot go stale before the insert.
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`encounter_templates:${encounter.ownerGmId}`}))`;
-        if ((await tx.encounterTemplate.count({ where: { ownerGmId: encounter.ownerGmId } })) >= maxPerOwner) {
-          throw new EncounterLimitError(maxPerOwner);
-        }
-        return tx.encounterTemplate.create({
-          data: {
-            ...encounter,
-            data: encounter.data as unknown as Prisma.InputJsonValue,
-            createdAt: new Date(encounter.createdAt),
-            updatedAt: new Date(encounter.updatedAt),
-          },
-          include: WITH_MAP,
-        });
-      });
-      return toEncounterRecord(row);
+      return await run();
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === PRISMA_FOREIGN_KEY_VIOLATION) throw new EncounterMapMissingError();
       throw err;
     }
+  }
+
+  async updateEncounter(id: string, ownerGmId: string, change: EncounterUpdate) {
+    if (!UUID.test(id)) return null;
+    const { count } = await this.prisma.encounterTemplate.updateMany({
+      where: { id, ownerGmId },
+      data: { name: change.name, data: change.data as unknown as Prisma.InputJsonValue, updatedAt: new Date(change.updatedAt) },
+    });
+    return count === 1 ? this.findEncounter(id, ownerGmId) : null;
   }
 
   async renameEncounter(id: string, ownerGmId: string, name: string, at: string) {
@@ -803,6 +837,26 @@ async function missingImageAsError<T>(write: () => Promise<T>): Promise<T> {
     }
     throw err;
   }
+}
+
+/**
+ * One save at a time per owner: the advisory lock is held until the transaction ends, so the count
+ * cannot go stale before the insert.
+ */
+async function insertEncounter(tx: Prisma.TransactionClient, encounter: NewEncounterRecord, maxPerOwner: number) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`encounter_templates:${encounter.ownerGmId}`}))`;
+  if ((await tx.encounterTemplate.count({ where: { ownerGmId: encounter.ownerGmId } })) >= maxPerOwner) {
+    throw new EncounterLimitError(maxPerOwner);
+  }
+  return tx.encounterTemplate.create({
+    data: {
+      ...encounter,
+      data: encounter.data as unknown as Prisma.InputJsonValue,
+      createdAt: new Date(encounter.createdAt),
+      updatedAt: new Date(encounter.updatedAt),
+    },
+    include: WITH_MAP,
+  });
 }
 
 function toEncounterRecord(row: EncounterTemplate & { map: { name: string; url: string } | null }): EncounterRecord {
