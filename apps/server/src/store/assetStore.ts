@@ -95,6 +95,9 @@ export class S3AssetStore implements AssetStore {
       ...(opts.attempts !== undefined && { maxAttempts: opts.attempts }),
       // Path-style addressing: the bucket is in the path, not the subdomain.
       forcePathStyle: true,
+      // The SDK adds a trailing checksum to streamed uploads by default, which SeaweedFS rejects as
+      // InvalidAccessKeyId; ask for one only where an operation requires it.
+      requestChecksumCalculation: "WHEN_REQUIRED",
       credentials: {
         accessKeyId: opts.accessKeyId ?? "vtt",
         secretAccessKey: opts.secretAccessKey ?? "vttvttvtt",
