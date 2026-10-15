@@ -128,7 +128,7 @@ export function registerLibraryRoutes(
   });
 
   // Walls and fog prepared on a library map (ADR 0037). Accounts only, like every library write.
-  app.put("/api/library/:id/board", express.json({ limit: "1mb" }), (req, res) => {
+  app.put("/api/library/:id/board", signedInOnly, express.json({ limit: "1mb" }), (req, res) => {
     void withGm(req, res, async (gmId, owner) => {
       if (!requireAccountOwner(owner, res)) return;
       const id = AssetIdParam.safeParse(req.params.id);
@@ -195,6 +195,14 @@ export function registerLibraryRoutes(
   });
 
   registerCreatureRoutes(app, { store, withGm });
+
+  /** Answers 401 before a large body is read: only a signed-in caller may make the server buffer 1 MB. */
+  function signedInOnly(req: Request, res: Response, next: () => void) {
+    resolveOwner(req, res, store).then(
+      (owner) => (owner ? next() : void res.status(401).json({ error: "Sign in to do that" })),
+      () => void res.status(500).json({ error: "Internal error" }),
+    );
+  }
 
   async function withGm(req: Request, res: Response, handler: (gmId: string, owner: Owner) => Promise<void>) {
     try {

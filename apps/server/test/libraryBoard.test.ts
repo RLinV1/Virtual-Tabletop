@@ -78,4 +78,13 @@ describe("walls and fog prepared on a library map (asset-library, ADR 0037)", ()
     expect((await put(a, token.id, board)).status).toBe(404);
     expect((await put(a, "11111111-1111-4111-8111-111111111111", board)).status).toBe(404);
   });
+
+  it("answers 401 to a signed-out caller before reading the body", async () => {
+    const res = await fetch(`${server.base}/api/library/11111111-1111-4111-8111-111111111111/board`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ walls: [], fog: [] }),
+    });
+    expect(res.status).toBe(401);
+  });
 });
