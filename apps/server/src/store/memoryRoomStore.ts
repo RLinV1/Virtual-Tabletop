@@ -241,6 +241,15 @@ export class MemoryRoomStore implements RoomStore {
     }));
   }
 
+  private seededOwners = new Set<string>();
+
+  async seedShippedMaps(ownerGmId: string, rows: LibraryAssetRecord[]) {
+    if (this.seededOwners.has(ownerGmId)) return false;
+    this.seededOwners.add(ownerGmId);
+    for (const row of rows) this.assets.set(row.id, structuredClone(row));
+    return true;
+  }
+
   async findDetection(target: DetectionTarget): Promise<DetectionRecord | null> {
     return this.readDetection(target);
   }

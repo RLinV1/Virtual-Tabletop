@@ -16,6 +16,7 @@ import { registerCreatureRoutes } from "./creatures";
 import type { AssetStore } from "../store/assetStore";
 import type { LibraryAssetRecord } from "../store/libraryStore";
 import type { RoomStore } from "../store/roomStore";
+import { ensureShippedMaps, isShippedKey } from "../domain/shippedMaps";
 import { enqueueDetection, type GridDetectionDispatcher } from "../domain/gridDetection";
 import type { DetectionRecord } from "../store/gridDetectionStore";
 import { requireAccountOwner, resolveOwner, type Owner } from "../ownership/resolveOwner";
@@ -52,7 +53,8 @@ export function registerLibraryRoutes(
   });
 
   app.get("/api/library", (req, res) => {
-    void withGm(req, res, async (gmId) => {
+    void withGm(req, res, async (gmId, owner) => {
+      if (owner.via === "account") await ensureShippedMaps(store, gmId);
       res.json((await store.listAssets(gmId)).map(toWire));
     });
   });
@@ -158,7 +160,8 @@ export function registerLibraryRoutes(
       const removed = await store.deleteAsset(id.data, gmId);
       if (!removed) return void notFound(res);
       // Rooms still naming this URL in their log now get a 404 and draw a generic stand-in.
-      await assets.delete(removed.objectKey);
+      // A seeded map's image is a shipped file, not a stored object (ADR 0036).
+      if (!isShippedKey(removed.objectKey)) await assets.delete(removed.objectKey);
       res.status(204).end();
     });
   });

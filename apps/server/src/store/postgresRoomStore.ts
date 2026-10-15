@@ -352,6 +352,23 @@ export class PostgresRoomStore implements RoomStore {
     });
   }
 
+  async seedShippedMaps(ownerGmId: string, rows: LibraryAssetRecord[]) {
+    return this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.gmIdentity.updateMany({
+        where: { id: ownerGmId, shippedMapsSeededAt: null },
+        data: { shippedMapsSeededAt: new Date() },
+      });
+      if (count !== 1) return false;
+      await tx.libraryAsset.createMany({
+        data: rows.map((a) => ({
+          id: a.id, ownerGmId: a.ownerGmId, kind: a.kind, objectKey: a.objectKey, url: a.url, name: a.name,
+          width: a.width, height: a.height, grid: a.grid ?? Prisma.DbNull, createdAt: new Date(a.createdAt),
+        })),
+      });
+      return true;
+    });
+  }
+
   async findDetection(target: DetectionTarget): Promise<DetectionRecord | null> {
     if (target.scope === "library") {
       const row = await this.prisma.libraryAsset.findUnique({ where: { id: target.id } });

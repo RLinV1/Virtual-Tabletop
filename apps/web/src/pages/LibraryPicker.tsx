@@ -49,8 +49,9 @@ export function LibraryPicker(props: {
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
     const own = (assets ?? []).filter((a) => a.kind === props.kind && (!q || a.name.toLowerCase().includes(q)));
-    return includeBuiltins ? [...own, ...builtinsMatching(props.kind, query)] : own;
-  }, [assets, props.kind, query, includeBuiltins]);
+    // A signed-in account's shipped maps are its own rows already (ADR 0036).
+    return includeBuiltins && !(signedIn && props.kind === "map") ? [...own, ...builtinsMatching(props.kind, query)] : own;
+  }, [assets, props.kind, query, includeBuiltins, signedIn]);
 
   return (
     <div className="library-picker" role="group" aria-label={`Choose a ${props.kind} from your library`}>

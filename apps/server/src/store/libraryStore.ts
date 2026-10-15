@@ -129,6 +129,11 @@ export interface LibraryStore {
 
   createAsset(asset: LibraryAssetRecord): Promise<void>;
   listAssets(ownerGmId: string): Promise<LibraryAssetRecord[]>;
+  /**
+   * Inserts the shipped maps as the owner's rows, only if the owner was never seeded, and marks
+   * the owner seeded, in one step (ADR 0036). A deleted seeded map stays deleted. True if it seeded.
+   */
+  seedShippedMaps(ownerGmId: string, rows: LibraryAssetRecord[]): Promise<boolean>;
   /** The asset only if `ownerGmId` owns it — callers never see another GM's rows. */
   findAsset(id: string, ownerGmId: string): Promise<LibraryAssetRecord | null>;
   updateAsset(id: string, ownerGmId: string, patch: { name?: string; grid?: GridSpec }): Promise<LibraryAssetRecord | null>;
