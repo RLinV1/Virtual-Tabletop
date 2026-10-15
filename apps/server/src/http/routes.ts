@@ -152,6 +152,7 @@ export function registerRoutes(
     void (async () => {
       const actor = await authenticate(req);
       if (!actor || actor.participant.role !== "gm") return res.status(403).json({ error: "GM only" });
+      if (refused(res, limits.uploadsPerRoom.hit(`upload:${actor.roomId}`), "Too many uploads. Try again later.")) return;
       const upload = await receiveImage(req, res);
       if (!upload.ok) return res.status(upload.status).json({ error: upload.error });
       const fields = DirectUploadFields.safeParse(req.body);
@@ -237,6 +238,8 @@ export function registerRoutes(
     void (async () => {
       if (!(await isRoomGm(req, req.params.roomId))) return res.status(403).json({ error: "GM only" });
       if (!walls.available) return res.status(503).json({ error: "Wall detection isn't set up on this server." });
+      const limit = limits.wallDetectionsPerRoom.hit(`walls:${req.params.roomId}`);
+      if (refused(res, limit, "Too many wall detections for this room. Try again later.")) return;
       const body = WallDetectionRequest.safeParse(req.body ?? {});
       if (!body.success) return res.status(400).json({ error: "Invalid detection request" });
       const room = await registry.get(req.params.roomId);
@@ -374,6 +377,7 @@ export function registerRoutes(
     void (async () => {
       const auth = await authenticate(req);
       if (!auth || auth.roomId !== req.params.roomId) return res.status(403).json({ error: "Not in this room" });
+      if (refusedReplay(res, auth.roomId, auth.participant.id)) return;
       const events = await store.loadEvents(auth.roomId);
       return res.json(ReplayPointsResponse.parse({ points: replayPoints(events, auth.participant) }));
     })().catch(internalError(req, res));
@@ -384,6 +388,7 @@ export function registerRoutes(
     void (async () => {
       const auth = await authenticate(req);
       if (!auth || auth.roomId !== req.params.roomId) return res.status(403).json({ error: "Not in this room" });
+      if (refusedReplay(res, auth.roomId, auth.participant.id)) return;
       const started = performance.now();
       const events = await store.loadEvents(auth.roomId);
       // Only a point from the viewer's own list: known starting places, never an arbitrary seq.
@@ -411,6 +416,11 @@ export function registerRoutes(
       return res.json(CheckpointPreviewResponse.parse(preview));
     })().catch(internalError(req, res));
   });
+
+  /** Both replay routes share one budget per participant: each request folds the whole log. */
+  function refusedReplay(res: Response, roomId: string, participantId: string) {
+    return refused(res, limits.replaysPerParticipant.hit(`replay:${roomId}:${participantId}`), "Too many replay requests. Try again in a minute.");
+  }
 
   /** True when the bearer credential is this room's GM, still in the room. */
   async function isRoomGm(req: Request, roomId: string) {

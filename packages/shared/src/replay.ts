@@ -119,10 +119,11 @@ export function replayFrom(
         truncated = true;
         break;
       }
-      const visibleBefore = filterStateForViewer(state, viewer);
+      // Participants are public (filterStateForViewer keeps them), so the name needs no filtered copy.
       const actorName = committed.actorId === null ? "System"
-        : visibleBefore.participants[committed.actorId]?.displayName ?? joinedNames.get(committed.actorId) ?? "Someone";
+        : state.participants[committed.actorId]?.displayName ?? joinedNames.get(committed.actorId) ?? "Someone";
       if (filtered.kind === "event") {
+        const visibleBefore = filterStateForViewer(state, viewer);
         frames.push({ kind: "event", committed: filtered.committed, sentence: formatActivity(filtered.committed.event, actorName, visibleBefore) });
       } else {
         const visibleAfter = filterStateForViewer(next, viewer);
