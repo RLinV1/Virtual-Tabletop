@@ -495,7 +495,10 @@ function MapSection(props: {
     // From the Manage tab: the library map already has its grid, so it goes straight to the table.
     const command = prepCommand(next);
     if (!command) return setPickError("This map's saved grid isn't valid. Upload it, or fix it in your library.");
-    if (await props.onSetMap(command.map, command.grid, setPickError)) setPicking(false);
+    if (await props.onSetMap(command.map, command.grid, setPickError)) {
+      setPicking(false);
+      void copyLibraryBoard(map);
+    }
   };
 
   const shown = prep?.map ?? props.map;
