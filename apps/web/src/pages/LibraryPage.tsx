@@ -8,6 +8,7 @@ import { Modal } from "../ui/Modal";
 import { AccountMenu } from "../account/AccountPages";
 import { RequireAccount } from "../account/RequireAccount";
 import { GridForm } from "./GridForm";
+import { HudLayout } from "./mapEditor/HudLayout";
 import { CreatureCard, CreatureForm } from "./LibraryCreatures";
 import { EncounterCard } from "./LibraryEncounters";
 import { LibraryPicker } from "./LibraryPicker";
@@ -324,12 +325,19 @@ function Library() {
         {/* Only the GM's own maps: a template keeps its map by library id (ADR 0024). */}
         <LibraryPicker kind="map" includeBuiltins={false} onPick={(map) => void newEncounterOn(map)} />
       </Modal>
-      <Modal open={gridTarget !== null} title={gridTarget?.grid ? "Edit grid" : "Set up grid"} className="grid-editor-modal" onClose={() => {
+      <Modal open={gridTarget !== null} title={gridTarget?.grid ? "Edit grid" : "Set up grid"} className="map-editor" onClose={() => {
         if (gridSaving) return;
         setGridTarget(null);
         setEncounterMapAwaitingGrid(null);
-      }}>
+      }} headerContent={(
+        <nav className="map-editor-steps" role="tablist" aria-label="Map setup steps">
+          <button type="button" role="tab" aria-selected className="map-editor-step">Grid</button>
+        </nav>
+      )}>
         {gridTarget && (
+          <div className="map-editor-shell">
+            <div className="map-editor-body" role="tabpanel">
+              <HudLayout className="map-editor-grid">
           <LibraryGridEditor
             key={JSON.stringify([gridTarget.id, gridTarget.url, gridTarget.width, gridTarget.height, gridTarget.grid])}
             asset={gridTarget}
@@ -349,6 +357,9 @@ function Library() {
               }
             }}
           />
+              </HudLayout>
+            </div>
+          </div>
         )}
       </Modal>
     </main>
@@ -612,6 +623,7 @@ function LibraryGridEditor({ asset, onCancel, onSaved, saving, onSavingChange }:
           setDraft(withGridSuggestion(draft, candidate));
           setError(null);
         }}
+        advancedOpen
         submitLabel="Save grid"
         busyLabel="Saving…"
         cancelLabel={asset.grid ? "Cancel" : "Set up later"}

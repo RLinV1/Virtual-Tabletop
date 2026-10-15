@@ -3,7 +3,7 @@ import { inactiveLabel, pendingDepartures, type GridSpec, type LibraryAsset, typ
 import { api } from "../net/api";
 import { libraryAssetId } from "../net/builtinAssets";
 import { useAccount } from "../account/accountStore";
-import { imageSize } from "../net/imageFile";
+import { imageSize, nameFromFile } from "../net/imageFile";
 import type { CommandResult, RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
 import { CheckpointsPanel } from "../panels/CheckpointsPanel";
@@ -111,10 +111,24 @@ export function GmPanel({
   );
 }
 
-function RoomGridEditor(props: ComponentProps<typeof GridForm> & {
+function RoomGridEditor({ libraryDetectionId, ...props }: ComponentProps<typeof GridForm> & {
   roomId: string; token: string; directMap: boolean;
+  /** A library map just uploaded here: its grid analysis, like a direct upload's. */
+  libraryDetectionId?: string | null;
 }) {
+  if (libraryDetectionId) return <LibraryMapGridEditor {...props} assetId={libraryDetectionId} advancedOpen />;
   return props.directMap ? <DirectMapGridEditor {...props} advancedOpen /> : <GridForm {...props} advancedOpen />;
+}
+
+function LibraryMapGridEditor({ assetId, ...props }: ComponentProps<typeof GridForm> & { assetId: string }) {
+  const detection = useGridDetection("library", "", assetId);
+  return <GridForm
+    {...props}
+    detection={detection.status}
+    detectionError={detection.error}
+    onRetryDetection={() => { void detection.retry(); }}
+    onUseSuggestion={(candidate) => props.onChange(withGridSuggestion(props.draft, candidate))}
+  />;
 }
 
 function DirectMapGridEditor(props: ComponentProps<typeof RoomGridEditor>) {
@@ -231,6 +245,10 @@ function MapSection(props: {
   const [prepError, setPrepError] = useState<string | null>(null);
   const [applyingMap, setApplyingMap] = useState(false);
   const uploadRef = useRef<HTMLInputElement>(null);
+  /** Whether a map uploaded here is also kept in the account's library (on by default, ADR 0004). */
+  const [saveToLibrary, setSaveToLibrary] = useState(true);
+  /** The library row made by this editor's latest upload, whose grid analysis the Grid step shows. */
+  const [uploadedAssetId, setUploadedAssetId] = useState<string | null>(null);
   /** Bumped when a library map is picked, so an upload still in flight can't replace that draft. */
   const prepGeneration = useRef(0);
   /**
@@ -419,12 +437,18 @@ function MapSection(props: {
     try {
       // Read the size first: a map upload carries it so the server can analyze it (grid-detection).
       const { width, height } = await imageSize(file);
-      const { url } = await api.upload(file, props.token, { width, height });
+      // Saved to the library, the map is a library row the room links to, so it can be reused and
+      // saved in encounters; otherwise it is a direct upload that only this room knows.
+      const asset = props.hasLibrary && saveToLibrary
+        ? await api.library.upload(file, { kind: "map", name: nameFromFile(file), width, height })
+        : null;
+      const { url } = asset ?? (await api.upload(file, props.token, { width, height }));
       // Another map was chosen meanwhile: keep that draft and its grid edits.
       if (generation !== prepGeneration.current) return;
       // Nothing is sent yet: the upload becomes a private draft (KAN-59).
       props.onError(null);
-      setPrep(startPrep({ url, width, height }, undefined, props.currentGrid));
+      setUploadedAssetId(asset?.id ?? null);
+      setPrep(startPrep({ url, width, height, ...(asset && { assetId: asset.id }) }, undefined, props.currentGrid));
       setStep("grid");
       // An upload from the Manage tab opens the editor to line up its grid.
       setEditorOpen(true);
@@ -545,6 +569,12 @@ function MapSection(props: {
                 <aside className="map-editor-hud" aria-label="Map">
                   <h3 className="map-editor-heading">Battle map</h3>
                   <p className="muted">Upload a map image, or place one from your library. It stays private until you apply it with its grid.</p>
+                  {props.hasLibrary && (
+                    <label className="inline">
+                      <input type="checkbox" checked={saveToLibrary} disabled={busy} onChange={(e) => setSaveToLibrary(e.target.checked)} />
+                      <span>Also save uploads to my library</span>
+                    </label>
+                  )}
                   <label className="upload-button">
                     <span>{busy ? "Uploading…" : "Upload map"}</span>
                     <input
@@ -577,6 +607,7 @@ function MapSection(props: {
                   roomId={props.roomId}
                   token={props.token}
                   directMap={!prep.map.assetId}
+                  libraryDetectionId={prep.map.assetId && prep.map.assetId === uploadedAssetId ? uploadedAssetId : null}
                   grid={prep.initial}
                   map={prep.map}
                   draft={prep.draft}
