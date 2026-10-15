@@ -28,6 +28,12 @@ export function accountLimits(now: () => number = Date.now) {
     passwordChangeFailuresPerUser: new RateLimiter(10, 15 * MINUTE, now),
     /** Invite join attempts per IP per room, so join-and-leave can't grow a room's log without bound. */
     joinsPerIpPerRoom: new RateLimiter(30, 15 * MINUTE, now),
+    /** Replay requests per participant: each one folds the room's whole log on the event loop (FR-PL-07). */
+    replaysPerParticipant: new RateLimiter(30, MINUTE, now),
+    /** Wall detection runs per room, so one room can't hold the few server-wide job slots (FR-GM-11). */
+    wallDetectionsPerRoom: new RateLimiter(10, 15 * MINUTE, now),
+    /** Image uploads per room: each one is stored and may queue grid and wall analysis (FR-GM-02). */
+    uploadsPerRoom: new RateLimiter(60, 15 * MINUTE, now),
   };
 }
 export type AccountLimits = ReturnType<typeof accountLimits>;
