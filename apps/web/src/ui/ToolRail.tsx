@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { isBoolean, usePersistentState } from "./usePersistentState";
-import { CaretDoubleLeft, CaretDoubleRight, Circle, Cursor, Eraser, LineSegment, PaintBrush, PencilSimple, Ruler, Square, Target, Trash, Triangle } from "@phosphor-icons/react";
+import { CaretDoubleLeft, CaretDoubleRight, Circle, CloudFog, Cursor, Eraser, Eye, LineSegment, PaintBrush, PencilSimple, Polygon, Ruler, Square, Target, Trash, Triangle } from "@phosphor-icons/react";
 import { AREA_SIZES, DRAW_COLORS, type AreaShape, type BoardTool, type DrawShape, type FogMode } from "../board/tools";
 
 /** The options each tool remembers while another tool is active. */
@@ -25,6 +25,14 @@ const TOOLS: { kind: ToolKind; label: string; icon: ReactNode; gmOnly?: boolean 
   { kind: "draw", label: "Draw", icon: <PencilSimple size={18} aria-hidden="true" /> },
   { kind: "area", label: "AoE", icon: <Target size={18} aria-hidden="true" /> },
   { kind: "erase", label: "Eraser", icon: <Eraser size={18} aria-hidden="true" /> },
+  // Players never see a fog control, not even a disabled one (FR-GM-17, INTERFACE.md).
+  { kind: "fog", label: "Fog", icon: <CloudFog size={18} aria-hidden="true" />, gmOnly: true },
+];
+
+const FOG_MODES: { key: FogMode; label: string; icon: ReactNode }[] = [
+  { key: "rect", label: "Fog rectangle", icon: <Square size={16} aria-hidden="true" /> },
+  { key: "polygon", label: "Fog polygon", icon: <Polygon size={16} aria-hidden="true" /> },
+  { key: "reveal", label: "Reveal (remove fog)", icon: <Eye size={16} aria-hidden="true" /> },
 ];
 
 const DRAW_SHAPES: { shape: DrawShape; label: string; icon: ReactNode }[] = [
@@ -190,6 +198,17 @@ export function ToolRail({
               GM only
             </label>
           )}
+        </div>
+      )}
+
+      {active === "fog" && isGm && (
+        <div className="tool-options" role="group" aria-label="Fog options">
+          <Segmented
+            label="Fog mode"
+            items={FOG_MODES}
+            value={options.fog.mode}
+            onChange={(mode) => onOptions({ ...options, fog: { mode } })}
+          />
         </div>
       )}
     </div>
