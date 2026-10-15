@@ -638,9 +638,12 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
         </div>
       )}
       {/* Announced when the tool changes; while placing, the placement bar already speaks. */}
-      <p className="board-hint" aria-live={placing ? "off" : "polite"}>
-        {placing ? PLACING_HINT : tool.kind === "area" && tool.gmOnly ? GM_ONLY_AREA_HINT : tool.kind === "fog" ? FOG_HINTS[tool.mode] : HINTS[tool.kind]}
-      </p>
+      {/* Read-only boards (a player preview, a checkpoint preview) can't ping or place, so no hint. */}
+      {!readOnly && (
+        <p className="board-hint" aria-live={placing ? "off" : "polite"}>
+          {placing ? PLACING_HINT : tool.kind === "area" && tool.gmOnly ? GM_ONLY_AREA_HINT : tool.kind === "fog" ? FOG_HINTS[tool.mode] : HINTS[tool.kind]}
+        </p>
+      )}
     </div>
   );
 });

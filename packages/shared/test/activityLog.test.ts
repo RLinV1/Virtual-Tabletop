@@ -58,6 +58,7 @@ describe("Human-readable activity formatter (FR-REC-01)", () => {
     WallsRemoved: [{ type: "WallsRemoved", walls: [wall] }, "Mara removed 1 wall"],
     PortalChanged: [{ type: "PortalChanged", wallId: wall.id, from: { kind: "door", state: "locked" }, to: { kind: "door", state: "closed" } }, "Mara unlocked a door"],
     CheckpointCreated: [{ type: "CheckpointCreated", checkpoint: { id: "c1", name: "Before the ambush", seq: 4 } }, 'Mara saved checkpoint "Before the ambush"'],
+    CheckpointDeleted: [{ type: "CheckpointDeleted", checkpoint: { id: "c1", name: "Before the ambush", seq: 3 } }, 'Mara deleted checkpoint "Before the ambush"'],
     CheckpointRestored: [{ type: "CheckpointRestored", checkpointId: "c1", name: "Before the ambush", restored: tableOf(state), previous: tableOf(state) }, 'Mara restored checkpoint "Before the ambush"'],
     EncounterApplied: [{ type: "EncounterApplied", templateId: "t1", name: "Goblin ambush", applied: tableOf(state), previous: tableOf(state) }, 'Mara applied encounter template "Goblin ambush"'],
     ActionUndone: [{ type: "ActionUndone", commandId: "gone" }, "Mara undid an action"],

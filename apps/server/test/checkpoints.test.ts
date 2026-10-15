@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { tableOf, type Token } from "@vtt/shared";
+import { CheckpointPreviewResponse, tableOf, type Token } from "@vtt/shared";
 import { startServer, type TestClient, viewFor } from "./helpers";
 
 let server: Awaited<ReturnType<typeof startServer>>;
@@ -26,7 +26,8 @@ const ok = async (p: Promise<unknown>) => expect(await p).toMatchObject({ type: 
 async function setup() {
   const gmCreds = await server.createRoom();
   const gm = await connect(gmCreds);
-  const alice = await connect(await server.join(gmCreds.inviteCode, "Alice"));
+  const aliceCreds = await server.join(gmCreds.inviteCode, "Alice");
+  const alice = await connect(aliceCreds);
   const bob = await connect(await server.join(gmCreds.inviteCode, "Bob"));
   await ok(gm.command({ type: "scene.setMap", map: { url: "/uploads/a.png", width: 1000, height: 800 } }));
   await ok(gm.command({ type: "token.create", name: "Rogue", position: { x: 35, y: 35 }, ownerIds: [alice.participantId] }));
@@ -35,7 +36,7 @@ async function setup() {
   await ok(alice.command({ type: "template.place", shape: "circle", origin: { x: 210, y: 210 }, toward: { x: 210, y: 210 }, size: 10 }));
   await ok(gm.command({ type: "checkpoint.create", name: "Start" }));
   await Promise.all([alice, bob].map((c) => c.waitForSeq(gm.seq)));
-  return { gm, alice, bob };
+  return { gm, alice, bob, gmCreds, aliceToken: aliceCreds.guestToken };
 }
 
 describe("checkpoints over the wire (KAN-41, FR-REC-02)", () => {
@@ -110,5 +111,60 @@ describe("checkpoints over the wire (KAN-41, FR-REC-02)", () => {
     const after = await server.store.loadEvents(gm.state.roomId);
     expect(after.slice(0, before.length)).toEqual(before);
     expect(after.at(-1)!.event.type).toBe("CheckpointRestored");
+  });
+});
+
+const get = (path: string, token?: string) => fetch(`${server.base}${path}`, {
+  headers: token ? { authorization: `Bearer ${token}` } : {},
+});
+
+describe("checkpoint preview and delete over the wire (ADR 0036, FR-REC-02)", () => {
+  it("previews the board as it was, changing nothing and sending no event", async () => {
+    const { gm, gmCreds } = await setup();
+    const checkpoint = gm.state.checkpoints[0]!;
+    const saved = tableOf(gm.state);
+    await ok(gm.command({ type: "token.delete", tokenId: named(gm, "Rogue")!.id }));
+    await ok(gm.command({ type: "token.create", name: "Troll", position: { x: 385, y: 35 } }));
+    const seq = gm.seq;
+    const log = await server.store.loadEvents(gm.state.roomId);
+
+    const res = await get(`/api/rooms/${gm.state.roomId}/checkpoints/${checkpoint.id}/preview`, gmCreds.guestToken);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    const body = CheckpointPreviewResponse.parse(await res.json());
+    expect(body.name).toBe("Start");
+    expect(body.table).toEqual(saved);
+    expect(Object.values(body.table.tokens).map((t) => t.name).sort()).toEqual(["Orc", "Rogue"]);
+    expect(await server.store.loadEvents(gm.state.roomId)).toEqual(log);
+    expect(gm.seq).toBe(seq);
+  });
+
+  it("refuses players and strangers, and answers 404 for an unknown checkpoint", async () => {
+    const { gm, aliceToken, gmCreds } = await setup();
+    const path = (id: string) => `/api/rooms/${gm.state.roomId}/checkpoints/${id}/preview`;
+    const id = gm.state.checkpoints[0]!.id;
+    expect((await get(path(id), aliceToken)).status).toBe(403);
+    expect((await get(path(id))).status).toBe(403);
+    expect((await get(path("00000000-0000-4000-8000-000000000000"), gmCreds.guestToken)).status).toBe(404);
+  });
+
+  it("deletes a checkpoint: gone from the GM's list, never reaches a player, preview 404s", async () => {
+    const { gm, alice, bob, gmCreds } = await setup();
+    const id = gm.state.checkpoints[0]!.id;
+    expect(await alice.command({ type: "checkpoint.delete", checkpointId: id })).toMatchObject({ type: "rejected", code: "forbidden" });
+    const table = tableOf(gm.state);
+
+    await ok(gm.command({ type: "checkpoint.delete", checkpointId: id }));
+    await Promise.all([alice, bob].map((c) => c.waitForSeq(gm.seq)));
+
+    expect(gm.state.checkpoints).toEqual([]);
+    expect(tableOf(gm.state)).toEqual(table);
+    for (const c of [alice, bob]) {
+      const raw = c.rawLog.join(" ");
+      expect(raw).not.toContain("CheckpointDeleted");
+      expect(raw).not.toContain(id);
+    }
+    expect((await get(`/api/rooms/${gm.state.roomId}/checkpoints/${id}/preview`, gmCreds.guestToken)).status).toBe(404);
+    expect(await gm.command({ type: "checkpoint.restore", checkpointId: id })).toMatchObject({ type: "rejected", code: "not_found" });
   });
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { House } from "@phosphor-icons/react";
 import { can, filterStateForViewer, isActive, presetOf, type DiceVisibility, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
 import { Board, type BoardHandle, type DiceBoard } from "../board/Board";
@@ -38,6 +38,7 @@ import { ShareButton } from "../ui/ShareButton";
 import { GuideTour } from "../ui/GuideTour";
 import { RoomMenu } from "../ui/RoomMenu";
 import { isBoolean, usePersistentState } from "../ui/usePersistentState";
+import { PanelResizeHandle, clampPanelWidth, isPanelWidth } from "../ui/PanelResizeHandle";
 import { EncounterEditBar } from "./encounterEdit/EncounterEditBar";
 import { ENCOUNTER_EDITING, FULL_ROOM, shownTab, type RoomFeatures } from "./encounterEdit/roomFeatures";
 
@@ -308,6 +309,8 @@ function Room({ roomId, connection, token, features }: {
   const placeToken = useCallback((draft: TokenDraft) => boardRef.current?.placeToken(draft), []);
   const duplicateToken = useCallback((tokenId: string) => boardRef.current?.duplicateToken(tokenId), []);
   const [sidebarCollapsed, setSidebarCollapsed] = usePersistentState("vtt.ui.sidebar", false, isBoolean);
+  // A width the viewer dragged the sidebar to, in px; null keeps the stylesheet's responsive default.
+  const [panelWidth, setPanelWidth] = usePersistentState<number | null>("vtt.ui.panelWidth", null, isPanelWidth);
   const [chosenTab, setTab] = usePersistentState<TabId>("vtt.ui.tab", "play", isTabId);
   // A template being edited offers fewer tabs; a remembered tab it lacks shows its first (ADR 0033).
   const tab = shownTab(chosenTab, features);
@@ -471,7 +474,10 @@ function Room({ roomId, connection, token, features }: {
   const shownYou = preview?.you ?? you;
 
   return (
-    <div className={["room", compact && "compact", collapsed && "sidebar-collapsed"].filter(Boolean).join(" ")}>
+    <div
+      className={["room", compact && "compact", collapsed && "sidebar-collapsed"].filter(Boolean).join(" ")}
+      style={panelWidth !== null && !compact ? ({ "--panel-width": `${clampPanelWidth(panelWidth, window.innerWidth)}px` } as CSSProperties) : undefined}
+    >
       {/* Keyboard and screen-reader users should not have to tab through the canvas,
           which is a single non-navigable element, to reach the controls. */}
       <a
@@ -573,6 +579,7 @@ function Room({ roomId, connection, token, features }: {
         overlay={features.notices && <RollCard roll={cardRoll} rollerName={(roll) => shownState!.participants[roll.byParticipantId]?.displayName ?? "Someone"} />}
       />
       <aside className="panel" id="room-panel" tabIndex={-1} aria-label="Room controls">
+        {!compact && !collapsed && <PanelResizeHandle width={panelWidth} onWidth={setPanelWidth} />}
         {!compact && (
           // A tab on the panel's inner edge, vertically centred. With the panel collapsed to
           // zero width it sits on the right edge of the screen. It stays mounted in both

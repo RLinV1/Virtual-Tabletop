@@ -258,6 +258,11 @@ export const DomainEvent = z.discriminatedUnion("type", [
     type: z.literal("CheckpointCreated"),
     checkpoint: Checkpoint,
   }),
+  /** The GM removed a checkpoint from the list (ADR 0036). Carries the whole entity (invariant 6). Not undoable. */
+  z.object({
+    type: z.literal("CheckpointDeleted"),
+    checkpoint: Checkpoint,
+  }),
   /**
    * The GM put the board back as it was at a checkpoint (ADR 0019). Carries the board it
    * replaced (invariant 6), so the restore itself can be undone. GM-only: players resync.

@@ -299,6 +299,14 @@ a.tool-button { text-decoration: none; }
   border-left: 1px solid var(--border);
 }
 .sidebar-collapsed .panel { border-left: none; }
+/* The drag strip on the panel's inner edge; the board canvas resizes with its host. */
+.panel-resize {
+  position: absolute; top: 0; bottom: 0; left: 0; z-index: 5;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.panel-resize:hover, .panel-resize:focus-visible, .panel-resize:active { background: var(--accent); opacity: 0.6; }
 /* The collapse tab, centred on the panel's inner edge (or the screen's right edge).
    Offset with `translate`, not `transform`: the global `button:active` rule sets
    `transform`, which would drop the offset mid-press and slide the tab out from under
@@ -2488,3 +2496,16 @@ dialog.modal.map-editor {
 }
 /* A label, so it would otherwise inherit the stacked label layout. */
 .board-filters-row { flex-direction: row; align-items: center; gap: var(--space-2); min-height: 32px; color: var(--text); cursor: pointer; white-space: nowrap; }
+
+/* Checkpoint rows: name, then Preview / Restore / Delete. */
+.checkpoint-actions { gap: var(--space-1); flex-wrap: wrap; justify-content: flex-end; }
+dialog.modal.checkpoint-preview-modal { width: min(64rem, calc(100vw - 2rem)); }
+.checkpoint-preview-banner {
+  margin: 0; padding: 0.5rem 0.75rem; border: 1px solid var(--accent); border-radius: var(--radius);
+  background: var(--panel); color: var(--text);
+}
+.checkpoint-preview-board { position: relative; display: grid; height: min(60dvh, 34rem); border-radius: var(--radius); overflow: hidden; }
+.checkpoint-summary { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-1) var(--space-3); margin: 0; }
+.checkpoint-summary dt { color: var(--muted); }
+.checkpoint-summary dd { margin: 0; }
+.checkpoint-summary ul, .checkpoint-summary ol { margin: 0; padding-left: var(--space-4); }

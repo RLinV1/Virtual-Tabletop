@@ -14,6 +14,7 @@ import {
   HistoryQuery,
   ROOM_FULL,
   HistoryResponse,
+  CheckpointPreviewResponse,
   ReplayPointsResponse,
   ReplayResponse,
   replayFrom,
@@ -393,6 +394,21 @@ export function registerRoutes(
       // Same cue as a slow checkpoint restore: time for a snapshot cache (ADR 0019).
       if (ms > 500) console.warn(`[vtt] replay of room ${auth.roomId} took ${Math.round(ms)} ms (${events.length} events)`);
       return res.json(replay);
+    })().catch(internalError(req, res));
+  });
+
+  /**
+   * FR-REC-02: the GM looks at a checkpoint's saved board before restoring it (ADR 0036). Read-only:
+   * no command, no event, no seq. GM only, so the table needs no per-viewer filtering.
+   */
+  app.get("/api/rooms/:roomId/checkpoints/:checkpointId/preview", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void (async () => {
+      const roomId = req.params.roomId;
+      if (!(await isRoomGm(req, roomId))) return res.status(403).json({ error: "GM only" });
+      const preview = await (await registry.get(roomId))?.previewCheckpoint(req.params.checkpointId);
+      if (!preview) return res.status(404).json({ error: "No such checkpoint" });
+      return res.json(CheckpointPreviewResponse.parse(preview));
     })().catch(internalError(req, res));
   });
 
