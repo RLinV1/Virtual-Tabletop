@@ -69,14 +69,22 @@ describe("map editor walls (FR-GM-09, FR-GM-11)", () => {
     await waitFor(() => expect(commands).toHaveLength(1));
   });
 
-  it("greys out detection with the reason when the server can't detect, but still draws and erases", async () => {
-    vi.spyOn(api.walls, "availability").mockResolvedValue({ available: false, reason: "The vision service is not running." });
+  it("leaves detection out when the server can't detect, but still draws and erases", async () => {
+    const availability = vi.spyOn(api.walls, "availability").mockResolvedValue({ available: false, reason: "The vision service is not running." });
     mount();
-    expect(await screen.findByText(/The vision service is not running\./)).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Detect walls" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((tool("Pick") as HTMLButtonElement).disabled).toBe(true);
+    await waitFor(() => expect(availability).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: "Detect walls" })).toBeNull();
+    expect(screen.queryByText("Automatic detection")).toBeNull();
+    expect(screen.queryByRole("radio", { name: "Pick" })).toBeNull();
     expect((tool("Draw") as HTMLButtonElement).disabled).toBe(false);
     expect((tool("Erase") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("offers detection while the server can detect", async () => {
+    vi.spyOn(api.walls, "availability").mockResolvedValue({ available: true });
+    mount();
+    expect(await screen.findByRole("button", { name: "Detect walls" })).toBeTruthy();
+    expect(tool("Pick")).toBeTruthy();
   });
 
   it("adds a wall per segment of a chain, snapped to grid corners, and Enter ends the chain", async () => {

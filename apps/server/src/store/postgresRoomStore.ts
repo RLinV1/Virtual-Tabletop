@@ -11,7 +11,7 @@ import {
 import { randomUUID } from "node:crypto";
 import type { GridDetectionCandidate, RoomUploadPurpose } from "@vtt/shared";
 import { DETECTION_STALE_MS, type DetectionOutcome, type DetectionRecord, type DetectionTarget, type DetectionState } from "./gridDetectionStore";
-import { ConditionId, DEFAULT_TOKEN_COLOR, presetFromLog, TokenAttacks, type AssetKind, type CommittedEvent, type DieName, type DomainEvent, type GmRoomSummary, type GridSpec, type LegacySummary } from "@vtt/shared";
+import { ConditionId, DEFAULT_TOKEN_COLOR, EMPTY_LIBRARY_BOARD, presetFromLog, type LibraryMapBoard, TokenAttacks, type AssetKind, type CommittedEvent, type DieName, type DomainEvent, type GmRoomSummary, type GridSpec, type LegacySummary } from "@vtt/shared";
 import {
   EmailTakenError,
   type EndedSessions,
@@ -463,6 +463,19 @@ export class PostgresRoomStore implements RoomStore {
   async findAsset(id: string, ownerGmId: string) {
     const row = await this.prisma.libraryAsset.findFirst({ where: { id, ownerGmId } });
     return row ? toAssetRecord(row) : null;
+  }
+
+  async findAssetBoard(id: string, ownerGmId: string) {
+    const row = await this.prisma.libraryAsset.findFirst({ where: { id, ownerGmId, kind: "map" }, select: { board: true } });
+    return row ? ((row.board as unknown as LibraryMapBoard | null) ?? EMPTY_LIBRARY_BOARD) : null;
+  }
+
+  async setAssetBoard(id: string, ownerGmId: string, board: LibraryMapBoard) {
+    const { count } = await this.prisma.libraryAsset.updateMany({
+      where: { id, ownerGmId, kind: "map" },
+      data: { board: board as unknown as Prisma.InputJsonValue },
+    });
+    return count === 1;
   }
 
   async updateAsset(id: string, ownerGmId: string, patch: { name?: string; grid?: GridSpec }) {

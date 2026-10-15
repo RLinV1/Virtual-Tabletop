@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { RoomUploadPurpose } from "@vtt/shared";
 import { DETECTION_STALE_MS, type DetectionOutcome, type DetectionRecord, type DetectionTarget } from "./gridDetectionStore";
-import { DEFAULT_TOKEN_COLOR, presetFromLog, type CommittedEvent, type DieName, type GmRoomSummary, type GridSpec, type LegacySummary } from "@vtt/shared";
+import { DEFAULT_TOKEN_COLOR, EMPTY_LIBRARY_BOARD, presetFromLog, type LibraryMapBoard, type CommittedEvent, type DieName, type GmRoomSummary, type GridSpec, type LegacySummary } from "@vtt/shared";
 import {
   EmailTakenError,
   type EndedSessions,
@@ -341,6 +341,19 @@ export class MemoryRoomStore implements RoomStore {
     const next = { ...asset, ...(patch.name !== undefined && { name: patch.name }), ...(patch.grid && { grid: patch.grid }) };
     this.assets.set(id, next);
     return structuredClone(next);
+  }
+
+  async findAssetBoard(id: string, ownerGmId: string) {
+    const asset = this.assets.get(id);
+    if (!asset || asset.ownerGmId !== ownerGmId || asset.kind !== "map") return null;
+    return structuredClone(asset.board ?? EMPTY_LIBRARY_BOARD);
+  }
+
+  async setAssetBoard(id: string, ownerGmId: string, board: LibraryMapBoard) {
+    const asset = this.assets.get(id);
+    if (!asset || asset.ownerGmId !== ownerGmId || asset.kind !== "map") return false;
+    asset.board = structuredClone(board);
+    return true;
   }
 
   async deleteAsset(id: string, ownerGmId: string) {

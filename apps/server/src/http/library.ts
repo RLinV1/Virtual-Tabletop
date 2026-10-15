@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { unlink } from "node:fs/promises";
 import path from "node:path";
-import type { Express, Request, Response } from "express";
+import express, { type Express, type Request, type Response } from "express";
 import { z } from "zod";
 import {
   canRenderGrid,
+  LibraryMapBoard,
+  libraryBoardProblem,
   LibraryPatchRequest,
   LibraryUploadFields,
   GridDetectionStatus,
@@ -113,6 +115,32 @@ export function registerLibraryRoutes(
       const updated = await store.updateAsset(id.data, gmId, patch.data);
       if (!updated) return void notFound(res);
       res.json(toWire(updated));
+    });
+  });
+
+  app.get("/api/library/:id/board", (req, res) => {
+    void withGm(req, res, async (gmId) => {
+      const id = AssetIdParam.safeParse(req.params.id);
+      const board = id.success ? await store.findAssetBoard(id.data, gmId) : null;
+      if (!board) return void notFound(res);
+      res.json(board);
+    });
+  });
+
+  // Walls and fog prepared on a library map (ADR 0037). Accounts only, like every library write.
+  app.put("/api/library/:id/board", express.json({ limit: "1mb" }), (req, res) => {
+    void withGm(req, res, async (gmId, owner) => {
+      if (!requireAccountOwner(owner, res)) return;
+      const id = AssetIdParam.safeParse(req.params.id);
+      if (!id.success) return void notFound(res);
+      const board = LibraryMapBoard.safeParse(req.body);
+      if (!board.success) return void res.status(400).json({ error: board.error.issues });
+      const asset = await store.findAsset(id.data, gmId);
+      if (!asset || asset.kind !== "map") return void notFound(res);
+      const problem = libraryBoardProblem(board.data, asset);
+      if (problem) return void res.status(400).json({ error: problem });
+      if (!(await store.setAssetBoard(id.data, gmId, board.data))) return void notFound(res);
+      res.json(board.data);
     });
   });
 

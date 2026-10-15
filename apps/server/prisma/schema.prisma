@@ -152,6 +152,8 @@ model LibraryAsset {
   width     Int
   height    Int
   grid      Json?
+  /// Walls and fog prepared on the map (ADR 0037): a LibraryMapBoard, or null for none.
+  board     Json?
   detectionStatus String? @map("detection_status")
   detectionAttempt Int @default(0) @map("detection_attempt")
   detectionResult Json? @map("detection_result")

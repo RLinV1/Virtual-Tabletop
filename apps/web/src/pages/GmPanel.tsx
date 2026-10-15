@@ -18,6 +18,7 @@ import { FogSetup } from "./mapEditor/FogSetup";
 import { WallSetup } from "./mapEditor/WallSetup";
 import { draftConnection } from "./mapEditor/draftConnection";
 import { draftDirty, draftFrom, planDraftSave, type MapDraft } from "./mapEditor/mapDraft";
+import { draftFromBoard } from "./mapEditor/libraryBoardDraft";
 import { prepCommand, prepDirty, startPrep, type MapPrep } from "./mapPrep";
 import { FULL_ROOM, type RoomFeatures } from "./encounterEdit/roomFeatures";
 
@@ -412,13 +413,33 @@ function MapSection(props: {
     try {
       // One command: the map and its grid reach the table together (ADR 0004). Walls come next.
       if (await props.onSetMap(command.map, command.grid, setPrepError)) {
+        const placed = prep.map;
         discardPrep();
+        void copyLibraryBoard(placed);
         setStep("walls");
         return true;
       }
       return false;
     } finally {
       setApplyingMap(false);
+    }
+  };
+  /**
+   * A library map brings the walls and fog prepared on it (ADR 0037), through the same commands as
+   * the editor's own Save. A map with none leaves the room's walls and fog as they are.
+   */
+  const copyLibraryBoard = async (placed: MapImage) => {
+    if (!placed.assetId || !props.hasLibrary) return;
+    try {
+      const board = await api.library.board(placed.assetId);
+      if (board.walls.length === 0 && board.fog.length === 0) return;
+      const roomAfterMap = { scene: { ...props.room.scene, map: placed }, walls: props.room.walls, fog: props.room.fog };
+      for (const command of planDraftSave(roomAfterMap, draftFromBoard(placed.url, board))) {
+        const result = await props.connection.command(command);
+        if (!result.ok) throw new Error(result.message);
+      }
+    } catch (err) {
+      props.onError(`The map was applied, but its saved walls and fog could not be added: ${err instanceof Error ? err.message : "unknown error"}`);
     }
   };
   // A grid being edited belongs to the map it was edited for.

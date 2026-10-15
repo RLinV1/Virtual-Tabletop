@@ -10,6 +10,10 @@ A room that uses a shipped map records only its URL, never a library `assetId`. 
 - The "Included with the app" section and the picker's built-in entries stop listing maps for signed-in accounts (they are rows now). Shipped token art stays as it is.
 - The shipped map catalog moves to `packages/shared` so server and web read one definition.
 - A nullable `gm_identities.shipped_maps_seeded_at` column records that an owner was seeded. See ADR 0036.
+- The library's Edit grid opens in the map editor's full-screen layout, with Grid, Walls and Fog steps. Walls and fog are saved on the library map (`library_assets.board`, ADR 0037) and copied into a room when the map is placed.
+- Uploading a map in a room's editor also saves it to the library by default (can be turned off).
+- Wall auto-detection controls are shown only while the vision service is up.
+- Encounter templates get a read-only Preview.
 
 ## Capabilities
 

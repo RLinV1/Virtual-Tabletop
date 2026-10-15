@@ -6,7 +6,7 @@ import {
   type CommandInput, type DetectedWall, type Point, type Portal, type PortalKind, type PortalState, type RoomState, type Wall, type WallStyle, type WallDetectionAvailability, type WallDetectionRequest, type WallDetectionStatus,
 } from "@vtt/shared";
 import { api } from "../../net/api";
-import { useRoomSnapshot, type RoomConnection } from "../../net/roomConnection";
+import { useRoomSnapshot, type EditorConnection } from "../../net/roomConnection";
 import { WallCanvas, type CanvasMode } from "./WallCanvas";
 import { HudLayout } from "./HudLayout";
 
@@ -41,7 +41,13 @@ const HINTS: Record<CanvasMode, string> = {
  * tools, automatic detection, its preview, and Apply and Clear. Detection controls are greyed out
  * with the reason when the server can't detect walls; drawing and erasing always work.
  */
-export function WallSetup({ connection, state, token }: { connection: RoomConnection; state: RoomState; token: string }) {
+export function WallSetup({ connection, state, token, detection: detectionEnabled = true }: {
+  connection: EditorConnection;
+  state: RoomState;
+  token: string;
+  /** False where there is no room to run detection against (a library map): the detection controls are left out. */
+  detection?: boolean;
+}) {
   const map = state.scene.map;
   const mapUrl = map?.url ?? "";
   const wallCount = Object.keys(state.walls).length;
@@ -65,9 +71,11 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
   // Counts the changes to `detection` made by a notice or a Detect click, so a slower status fetch never overwrites them.
   const detectionChanges = useRef(0);
   const status = detection.mapUrl === mapUrl ? detection.status : null;
-  const canDetect = availability?.available === true;
+  // Detection is offered only while the vision service is up; otherwise its controls are left out, not greyed.
+  const canDetect = detectionEnabled && availability?.available === true;
 
   useEffect(() => {
+    if (!detectionEnabled) return;
     const abort = new AbortController();
     api.walls.availability(abort.signal)
       .then(setAvailability)
@@ -77,7 +85,7 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
 
   // The latest analysis of this map, then every change the server announces for it.
   useEffect(() => {
-    if (!mapUrl) return;
+    if (!mapUrl || !detectionEnabled) return;
     const abort = new AbortController();
     const started = detectionChanges.current;
     api.walls.status(state.roomId, token, mapUrl, abort.signal)
@@ -96,7 +104,7 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
   // The rendered preview, once a result is in. Fetched as a blob: it needs the GM's credential.
   const done = status?.status === "done";
   useEffect(() => {
-    if (!done || !mapUrl) return;
+    if (!done || !mapUrl || !detectionEnabled) return;
     const abort = new AbortController();
     let objectUrl: string | null = null;
     api.walls.preview(state.roomId, token, mapUrl, abort.signal)
@@ -114,7 +122,7 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
 
   // The detected segments themselves, so false ones can be erased on the canvas before applying.
   useEffect(() => {
-    if (!done || !mapUrl) {
+    if (!done || !mapUrl || !detectionEnabled) {
       setCandidates(null);
       return;
     }
@@ -187,7 +195,6 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
 
   const pending = status?.status === "queued" || status?.status === "running";
   const found = status?.status === "done" ? status.wallCount : null;
-  const unavailableReason = availability && !availability.available ? availability.reason ?? "Wall detection is unavailable." : null;
 
   return (
     <HudLayout className="map-editor-split">
@@ -209,24 +216,20 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
         <section className="stack">
           <h3 className="map-editor-heading">Tools</h3>
           <div className="map-editor-modes" role="radiogroup" aria-label="Wall tool">
-            {MODES.map(({ key, label, icon: Icon, needsDetection }) => {
-              const disabled = needsDetection && !canDetect;
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  role="radio"
-                  aria-checked={mode === key}
-                  className="tool-button map-editor-mode"
-                  disabled={disabled}
-                  title={disabled ? unavailableReason ?? "Checking wall detection…" : label}
-                  onClick={() => setMode(key)}
-                >
-                  <Icon size={18} aria-hidden="true" />
-                  <span>{label}</span>
-                </button>
-              );
-            })}
+            {MODES.filter(({ needsDetection }) => !needsDetection || canDetect).map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                type="button"
+                role="radio"
+                aria-checked={mode === key}
+                className="tool-button map-editor-mode"
+                title={label}
+                onClick={() => setMode(key)}
+              >
+                <Icon size={18} aria-hidden="true" />
+                <span>{label}</span>
+              </button>
+            ))}
           </div>
           {mode === "portal" && (
             <div className="stack map-editor-portal">
@@ -253,9 +256,8 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
           </p>
         </section>
 
-        <section className={canDetect ? "stack" : "stack map-editor-unavailable"} aria-disabled={!canDetect}>
+        {canDetect && <section className="stack">
           <h3 className="map-editor-heading">Automatic detection</h3>
-          {unavailableReason && <p className="muted">{unavailableReason}</p>}
           {canDetect && pending && <p className="walls-status" aria-busy="true">{status?.status === "running" ? "Detecting walls…" : "Waiting for the vision service…"}</p>}
           {canDetect && found !== null && (
             <figure className="walls-preview">
@@ -317,7 +319,7 @@ export function WallSetup({ connection, state, token }: { connection: RoomConnec
               </button>
             )}
           </div>
-        </section>
+        </section>}
 
         {wallCount > 0 && (
           <button type="button" className="secondary danger" onClick={() => void run({ type: "wall.clear" }, "Walls cleared.")}>

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Command, RoomState } from "@vtt/shared";
-import type { RoomConnection } from "../../net/roomConnection";
+import type { EditorConnection } from "../../net/roomConnection";
 import { coversWholeMap, describeCells, wholeMapRegion } from "../../panels/fogCells";
 
 /**
@@ -8,7 +8,7 @@ import { coversWholeMap, describeCells, wholeMapRegion } from "../../panels/fogC
  * a list, by keyboard as well as pointer. They send the same `fog.add` / `fog.remove` commands as
  * the fog canvas.
  */
-export function FogControls({ connection, state, intro }: { connection: RoomConnection; state: RoomState; intro: string }) {
+export function FogControls({ connection, state, intro }: { connection: EditorConnection; state: RoomState; intro: string }) {
   const { map, grid } = state.scene;
   const regions = Object.values(state.fog);
   const [busy, setBusy] = useState(false);

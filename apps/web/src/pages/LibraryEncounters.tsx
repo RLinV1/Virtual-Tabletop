@@ -3,6 +3,7 @@ import { MAX_ENCOUNTER_NAME, type EncounterSummary } from "@vtt/shared";
 import { api } from "../net/api";
 import { formatRelative } from "../ui/formatRelative";
 import { startEncounterEdit } from "./encounterEdit/startEdit";
+import { EncounterPreviewModal } from "./EncounterPreviewModal";
 
 /** "3 tokens · 1 fog region", for a template's card and pickers. */
 export function encounterSummary(encounter: EncounterSummary): string {
@@ -25,6 +26,7 @@ export function EncounterCard(props: {
   const [name, setName] = useState(encounter.name);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function rename(e: FormEvent) {
@@ -104,12 +106,16 @@ export function EncounterCard(props: {
         <div className="row asset-actions">
           {/* A template whose map is gone can't be opened (encounter-templates). */}
           {encounter.mapName !== null && (
-            <button type="button" className="link" disabled={busy} onClick={() => void edit()}>Edit</button>
+            <>
+              <button type="button" className="link" disabled={busy} onClick={() => setPreviewing(true)}>Preview</button>
+              <button type="button" className="link" disabled={busy} onClick={() => void edit()}>Edit</button>
+            </>
           )}
           <button type="button" className="link" onClick={() => setEditing(true)}>Rename</button>
           <button type="button" className="link danger" onClick={() => setConfirming(true)}>Delete</button>
         </div>
       )}
+      <EncounterPreviewModal templateId={previewing ? encounter.id : null} name={encounter.name} onClose={() => setPreviewing(false)} />
     </li>
   );
 }

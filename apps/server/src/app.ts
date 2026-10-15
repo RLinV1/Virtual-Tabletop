@@ -127,7 +127,9 @@ export async function buildApp({
   const stopTemporaryRoomSweep = setInterval(() => void sweepTemporaryRooms(), 60 * 60_000);
   stopTemporaryRoomSweep.unref();
 
-  app.use(express.json({ limit: "64kb" }));
+  // A library map's prepared walls and fog can hold up to 1500 walls (ADR 0037); that route parses its own body.
+  const json = express.json({ limit: "64kb" });
+  app.use((req, res, next) => (/^\/api\/library\/[^/]+\/board$/.test(req.path) ? next() : json(req, res, next)));
   app.use(attachAccount(sessions));
   app.use(requireSameOrigin(sessions, clientOrigin.split(",").map((o) => o.trim())));
   // Uploaded pictures are drawn on other people's screens (dice looks, ADR 0018): never let a

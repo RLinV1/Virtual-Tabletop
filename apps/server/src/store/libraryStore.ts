@@ -1,4 +1,4 @@
-import type { AssetKind, EncounterTemplateData, AttackPreset, ConditionId, DieName, GmRoomSummary, GridSpec, LegacySummary } from "@vtt/shared";
+import type { LibraryMapBoard, AssetKind, EncounterTemplateData, AttackPreset, ConditionId, DieName, GmRoomSummary, GridSpec, LegacySummary } from "@vtt/shared";
 import type { DetectionState } from "./gridDetectionStore";
 
 /** A stored library asset (ADR 0004). `objectKey` is the AssetStore key; it never leaves the server. */
@@ -12,6 +12,8 @@ export interface LibraryAssetRecord {
   width: number;
   height: number;
   grid: GridSpec | null;
+  /** Walls and fog prepared on a map (ADR 0037); never sent with the asset, read through `findAssetBoard`. */
+  board?: LibraryMapBoard | null;
   detectionStatus?: DetectionState | null;
   detectionAttempt?: number;
   detectionResult?: import("@vtt/shared").GridDetectionCandidate | null;
@@ -137,6 +139,10 @@ export interface LibraryStore {
   /** The asset only if `ownerGmId` owns it — callers never see another GM's rows. */
   findAsset(id: string, ownerGmId: string): Promise<LibraryAssetRecord | null>;
   updateAsset(id: string, ownerGmId: string, patch: { name?: string; grid?: GridSpec }): Promise<LibraryAssetRecord | null>;
+  /** The map's prepared walls and fog (empty when none); null when the owner has no such map. */
+  findAssetBoard(id: string, ownerGmId: string): Promise<LibraryMapBoard | null>;
+  /** Replaces the map's prepared walls and fog; false when the owner has no such map. */
+  setAssetBoard(id: string, ownerGmId: string, board: LibraryMapBoard): Promise<boolean>;
   /** Removes the row and its reference index entries. Returns the removed row. */
   deleteAsset(id: string, ownerGmId: string): Promise<LibraryAssetRecord | null>;
 

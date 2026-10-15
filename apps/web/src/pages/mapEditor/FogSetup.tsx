@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Eye, Polygon, Rectangle, UserFocus } from "@phosphor-icons/react";
 import type { RoomState } from "@vtt/shared";
-import type { RoomConnection } from "../../net/roomConnection";
+import type { EditorConnection } from "../../net/roomConnection";
 import { FogControls } from "./FogControls";
 import { FogCanvas, type FogAdd, type FogCanvasMode } from "./FogCanvas";
 import { HudLayout } from "./HudLayout";
@@ -23,7 +23,7 @@ const HINTS: Record<FogCanvasMode, string> = {
  * and the same controls as Manage › Fog of war. It sends the board Fog tool's `fog.add` and
  * `fog.remove`, so players see no difference.
  */
-export function FogSetup({ connection, state }: { connection: RoomConnection; state: RoomState }) {
+export function FogSetup({ connection, state }: { connection: EditorConnection; state: RoomState }) {
   const map = state.scene.map;
   const [mode, setMode] = useState<FogCanvasMode>("rect");
   const [busy, setBusy] = useState(false);
