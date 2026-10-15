@@ -1,4 +1,5 @@
-import { ENCOUNTER_TEMPLATE_VERSION, EncounterTemplateData, templateMapImage, type ResolvedEncounter } from "@vtt/shared";
+import { ENCOUNTER_TEMPLATE_VERSION, EncounterTemplateData, shippedMapByUrl, templateMapImage, type ResolvedEncounter } from "@vtt/shared";
+import { ensureShippedMaps } from "./shippedMaps";
 import type { LibraryStore } from "../store/libraryStore";
 import type { RoomStore } from "../store/roomStore";
 import type { RoomRegistry } from "./roomRegistry";
@@ -48,7 +49,7 @@ export type BoardFromRoomResult = { ok: true; data: EncounterTemplateData } | { 
  * caller's library maps. A room that is missing or someone else's is the same 404.
  */
 export async function boardFromRoom(
-  store: Pick<RoomStore, "findRoomOwner" | "findAsset">,
+  store: Pick<RoomStore, "findRoomOwner" | "findAsset" | "listAssets" | "seedShippedMaps">,
   registry: Pick<RoomRegistry, "get">,
   gmId: string,
   roomId: string,
@@ -58,7 +59,12 @@ export async function boardFromRoom(
   if (!room) return { ok: false, status: 404, error: "Room not found" };
   const board = room.boardForOwner();
   const map = board.scene.map;
-  const mapAsset = map?.assetId ? await store.findAsset(map.assetId, gmId) : null;
+  let mapAsset = map?.assetId ? await store.findAsset(map.assetId, gmId) : null;
+  if (map && !mapAsset && shippedMapByUrl(map.url)) {
+    // A room that placed a shipped map before maps were library rows records only its URL (ADR 0036).
+    await ensureShippedMaps(store, gmId);
+    mapAsset = (await store.listAssets(gmId)).find((a) => a.kind === "map" && a.url === map.url) ?? null;
+  }
   if (!map || !mapAsset || mapAsset.kind !== "map") {
     return { ok: false, status: 400, error: "Put this room's map in your library first, then save the encounter" };
   }

@@ -3,7 +3,7 @@ import { inactiveLabel, pendingDepartures, type GridSpec, type LibraryAsset, typ
 import { api } from "../net/api";
 import { libraryAssetId } from "../net/builtinAssets";
 import { useAccount } from "../account/accountStore";
-import { imageSize } from "../net/imageFile";
+import { imageSize, nameFromFile } from "../net/imageFile";
 import type { CommandResult, RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
 import { CheckpointsPanel } from "../panels/CheckpointsPanel";
@@ -18,6 +18,7 @@ import { FogSetup } from "./mapEditor/FogSetup";
 import { WallSetup } from "./mapEditor/WallSetup";
 import { draftConnection } from "./mapEditor/draftConnection";
 import { draftDirty, draftFrom, planDraftSave, type MapDraft } from "./mapEditor/mapDraft";
+import { commandsForBoard } from "./mapEditor/libraryBoardDraft";
 import { prepCommand, prepDirty, startPrep, type MapPrep } from "./mapPrep";
 import { FULL_ROOM, type RoomFeatures } from "./encounterEdit/roomFeatures";
 
@@ -111,10 +112,24 @@ export function GmPanel({
   );
 }
 
-function RoomGridEditor(props: ComponentProps<typeof GridForm> & {
+function RoomGridEditor({ libraryDetectionId, ...props }: ComponentProps<typeof GridForm> & {
   roomId: string; token: string; directMap: boolean;
+  /** A library map just uploaded here: its grid analysis, like a direct upload's. */
+  libraryDetectionId?: string | null;
 }) {
+  if (libraryDetectionId) return <LibraryMapGridEditor {...props} assetId={libraryDetectionId} advancedOpen />;
   return props.directMap ? <DirectMapGridEditor {...props} advancedOpen /> : <GridForm {...props} advancedOpen />;
+}
+
+function LibraryMapGridEditor({ assetId, ...props }: ComponentProps<typeof GridForm> & { assetId: string }) {
+  const detection = useGridDetection("library", "", assetId);
+  return <GridForm
+    {...props}
+    detection={detection.status}
+    detectionError={detection.error}
+    onRetryDetection={() => { void detection.retry(); }}
+    onUseSuggestion={(candidate) => props.onChange(withGridSuggestion(props.draft, candidate))}
+  />;
 }
 
 function DirectMapGridEditor(props: ComponentProps<typeof RoomGridEditor>) {
@@ -231,6 +246,10 @@ function MapSection(props: {
   const [prepError, setPrepError] = useState<string | null>(null);
   const [applyingMap, setApplyingMap] = useState(false);
   const uploadRef = useRef<HTMLInputElement>(null);
+  /** Whether a map uploaded here is also kept in the account's library (on by default, ADR 0004). */
+  const [saveToLibrary, setSaveToLibrary] = useState(true);
+  /** The library row made by this editor's latest upload, whose grid analysis the Grid step shows. */
+  const [uploadedAssetId, setUploadedAssetId] = useState<string | null>(null);
   /** Bumped when a library map is picked, so an upload still in flight can't replace that draft. */
   const prepGeneration = useRef(0);
   /**
@@ -394,13 +413,32 @@ function MapSection(props: {
     try {
       // One command: the map and its grid reach the table together (ADR 0004). Walls come next.
       if (await props.onSetMap(command.map, command.grid, setPrepError)) {
+        const placed = prep.map;
         discardPrep();
+        void copyLibraryBoard(placed);
         setStep("walls");
         return true;
       }
       return false;
     } finally {
       setApplyingMap(false);
+    }
+  };
+  /**
+   * A library map brings the walls and fog prepared on it (ADR 0037), adding to the walls and fog the
+   * room already has. A map with none leaves them as they are.
+   */
+  const copyLibraryBoard = async (placed: MapImage) => {
+    if (!placed.assetId || !props.hasLibrary) return;
+    try {
+      const board = await api.library.board(placed.assetId);
+      if (board.walls.length === 0 && board.fog.length === 0) return;
+      for (const command of commandsForBoard(board, placed.url)) {
+        const result = await props.connection.command(command);
+        if (!result.ok) throw new Error(result.message);
+      }
+    } catch (err) {
+      props.onError(`The map was applied, but its saved walls and fog could not be added: ${err instanceof Error ? err.message : "unknown error"}`);
     }
   };
   // A grid being edited belongs to the map it was edited for.
@@ -419,12 +457,18 @@ function MapSection(props: {
     try {
       // Read the size first: a map upload carries it so the server can analyze it (grid-detection).
       const { width, height } = await imageSize(file);
-      const { url } = await api.upload(file, props.token, { width, height });
+      // Saved to the library, the map is a library row the room links to, so it can be reused and
+      // saved in encounters; otherwise it is a direct upload that only this room knows.
+      const asset = props.hasLibrary && saveToLibrary
+        ? await api.library.upload(file, { kind: "map", name: nameFromFile(file), width, height })
+        : null;
+      const { url } = asset ?? (await api.upload(file, props.token, { width, height }));
       // Another map was chosen meanwhile: keep that draft and its grid edits.
       if (generation !== prepGeneration.current) return;
       // Nothing is sent yet: the upload becomes a private draft (KAN-59).
       props.onError(null);
-      setPrep(startPrep({ url, width, height }, undefined, props.currentGrid));
+      setUploadedAssetId(asset?.id ?? null);
+      setPrep(startPrep({ url, width, height, ...(asset && { assetId: asset.id }) }, undefined, props.currentGrid));
       setStep("grid");
       // An upload from the Manage tab opens the editor to line up its grid.
       setEditorOpen(true);
@@ -451,7 +495,10 @@ function MapSection(props: {
     // From the Manage tab: the library map already has its grid, so it goes straight to the table.
     const command = prepCommand(next);
     if (!command) return setPickError("This map's saved grid isn't valid. Upload it, or fix it in your library.");
-    if (await props.onSetMap(command.map, command.grid, setPickError)) setPicking(false);
+    if (await props.onSetMap(command.map, command.grid, setPickError)) {
+      setPicking(false);
+      void copyLibraryBoard(map);
+    }
   };
 
   const shown = prep?.map ?? props.map;
@@ -545,6 +592,12 @@ function MapSection(props: {
                 <aside className="map-editor-hud" aria-label="Map">
                   <h3 className="map-editor-heading">Battle map</h3>
                   <p className="muted">Upload a map image, or place one from your library. It stays private until you apply it with its grid.</p>
+                  {props.hasLibrary && (
+                    <label className="inline">
+                      <input type="checkbox" checked={saveToLibrary} disabled={busy} onChange={(e) => setSaveToLibrary(e.target.checked)} />
+                      <span>Also save uploads to my library</span>
+                    </label>
+                  )}
                   <label className="upload-button">
                     <span>{busy ? "Uploading…" : "Upload map"}</span>
                     <input
@@ -577,6 +630,7 @@ function MapSection(props: {
                   roomId={props.roomId}
                   token={props.token}
                   directMap={!prep.map.assetId}
+                  libraryDetectionId={prep.map.assetId && prep.map.assetId === uploadedAssetId ? uploadedAssetId : null}
                   grid={prep.initial}
                   map={prep.map}
                   draft={prep.draft}

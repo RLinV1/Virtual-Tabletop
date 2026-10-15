@@ -3,6 +3,7 @@ import { MAX_ENCOUNTER_NAME, type EncounterSummary, type RoomState } from "@vtt/
 import { api } from "../net/api";
 import type { RoomConnection } from "../net/roomConnection";
 import { encounterSummary } from "../pages/LibraryEncounters";
+import { EncounterPreviewBoard, useEncounterPreview } from "../pages/EncounterPreviewModal";
 import { Modal } from "../ui/Modal";
 import { PanelSection } from "../ui/PanelSection";
 
@@ -172,9 +173,10 @@ export function EncounterPanel({ connection, state }: { connection: RoomConnecti
           </div>
         )}
       </Modal>
-      <Modal open={confirming !== null} title="Apply encounter template?" onClose={() => setConfirming(null)}>
+      <Modal className="checkpoint-preview-modal" open={confirming !== null} title="Apply encounter template?" onClose={() => setConfirming(null)}>
         {confirming && (
-          <div className="stack">
+          <div className="stack checkpoint-preview">
+            <ApplyPreview templateId={confirming.id} name={confirming.name} />
             <p>
               Replace this room's board with <strong>{confirming.name}</strong>? The map, grid, tokens and fog are swapped,
               and a running encounter ends. Chat, dice rolls and players stay. You can undo this from the activity log.
@@ -191,5 +193,21 @@ export function EncounterPanel({ connection, state }: { connection: RoomConnecti
         )}
       </Modal>
     </PanelSection>
+  );
+}
+
+/** The template's saved board, shown above the Apply question so the GM sees what will replace the room's. */
+function ApplyPreview({ templateId, name }: { templateId: string; name: string }) {
+  const { preview, error } = useEncounterPreview(templateId);
+  return (
+    <>
+      {error && <p role="alert" className="error">{error}</p>}
+      {!preview && !error && <p className="muted" role="status">Loading the saved board…</p>}
+      {preview && (
+        <div className="checkpoint-preview-board">
+          <EncounterPreviewBoard preview={preview} name={name} />
+        </div>
+      )}
+    </>
   );
 }

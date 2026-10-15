@@ -42,6 +42,15 @@ export interface ResolvedEncounter {
   fog: Omit<FogRegion, "id">[];
 }
 
+/** A template's saved board for a read-only preview in the library: what an apply would place, before it is placed. */
+export interface EncounterPreview {
+  name: string;
+  map: MapImage;
+  grid: GridSpec;
+  tokens: TemplateToken[];
+  fog: Omit<FogRegion, "id">[];
+}
+
 /** The board an apply makes: the template's, with fresh ids, no owners and nothing running. */
 export function encounterTable(encounter: ResolvedEncounter, newId: () => string): TableState {
   const tokens: TableState["tokens"] = {};

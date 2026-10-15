@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { memo, useEffect, useId, useMemo, useState } from "react";
 import { MAX_FOG_POINTS, type Command, type FogRegion, type GridSpec, type MapImage, type Point } from "@vtt/shared";
 import { FOG_TEXTURE_SIZE, averageColor, fogPalette, makeFogCanvas, type Rgb } from "../../board/fogTexture";
 import { fogRegionAt } from "../../board/tools";
@@ -43,8 +43,25 @@ const rgbCss = ([r, g, b]: Rgb) => `rgb(${Math.round(r)}, ${Math.round(g)}, ${Ma
  * Fog as players see it: the board's two drifting cloud layers, as SVG patterns. Each pattern
  * moves by exactly one tile per loop, so the drift never jumps. Still when motion is reduced.
  */
+/**
+ * The fog texture as a data URL, made once per map colour. Drawing and encoding it takes long
+ * enough to stall the click that turns Player view on, so it is made ahead of time, when the map's
+ * colour is known, and kept for the next toggle.
+ */
+const textureCache = new Map<string, string>();
+const textureKey = (base: Rgb | null) => (base ? base.map((c) => Math.round(c)).join(",") : "default");
+function fogTextureUrl(base: Rgb | null): string {
+  const key = textureKey(base);
+  let url = textureCache.get(key);
+  if (!url) {
+    url = makeFogCanvas(base).toDataURL();
+    textureCache.set(key, url);
+  }
+  return url;
+}
+
 function PlayerFog({ id, base }: { id: string; base: Rgb | null }) {
-  const href = useMemo(() => makeFogCanvas(base).toDataURL(), [base]);
+  const href = useMemo(() => fogTextureUrl(base), [base]);
   const still = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
   const size = FOG_TEXTURE_SIZE;
   const layer = (key: string, transform: string, to: string, dur: string) => (
@@ -60,6 +77,48 @@ function PlayerFog({ id, base }: { id: string; base: Rgb | null }) {
     </defs>
   );
 }
+
+/** One path of every region's outline, so Player view paints two shapes, not two per region. */
+const outline = (fog: Record<string, FogRegion>) =>
+  Object.values(fog).map((r) => `M${r.points.map((p) => `${p.x},${p.y}`).join("L")}Z`).join("");
+
+/**
+ * The fog regions. Memoised: pointer moves redraw the canvas many times a second, and the fog
+ * (its patterns animate) must not be rebuilt for each one.
+ */
+const FogRegions = memo(function FogRegions({ fog, playerView, tint, fogId, revealingId, px }: {
+  fog: Record<string, FogRegion>;
+  playerView: boolean;
+  tint: string;
+  fogId: string;
+  revealingId: string | null;
+  px: number;
+}) {
+  const all = useMemo(() => outline(fog), [fog]);
+  if (playerView) {
+    return (
+      <>
+        <path d={all} fill={`url(#${fogId}-base)`} />
+        <path d={all} fill={`url(#${fogId}-wisps)`} fillOpacity={0.55} pointerEvents="none" />
+      </>
+    );
+  }
+  return (
+    <>
+      {Object.values(fog).map((region) => (
+        <polygon
+          key={region.id}
+          points={region.points.map((p) => `${p.x},${p.y}`).join(" ")}
+          fill={tint}
+          fillOpacity={0.62}
+          stroke={revealingId === region.id ? "#e74c3c" : "#9aa4b2"}
+          strokeWidth={(revealingId === region.id ? 3 : 1.5) * px}
+          strokeDasharray={`${6 * px} ${4 * px}`}
+        />
+      ))}
+    </>
+  );
+});
 
 export function FogCanvas({ map, grid, fog, mode, onAdd, onRemove, onNotice, busy, playerView = false }: {
   map: MapImage;
@@ -77,6 +136,16 @@ export function FogCanvas({ map, grid, fog, mode, onAdd, onRemove, onNotice, bus
   const fogId = useId().replace(/:/g, "");
   const base = useMapColor(map.url);
   const tint = rgbCss(fogPalette(base).dark);
+  // Make the Player view texture while the GM is still drawing, once the map's colour is known.
+  useEffect(() => {
+    const warm = () => { fogTextureUrl(base); };
+    if (typeof requestIdleCallback === "function") {
+      const handle = requestIdleCallback(warm);
+      return () => cancelIdleCallback(handle);
+    }
+    const handle = setTimeout(warm, 200);
+    return () => clearTimeout(handle);
+  }, [base]);
   const [corners, setCorners] = useState<Point[]>([]);
   const [anchor, setAnchor] = useState<Point | null>(null);
   const [hover, setHover] = useState<Point | null>(null);
@@ -101,7 +170,12 @@ export function FogCanvas({ map, grid, fog, mode, onAdd, onRemove, onNotice, bus
       mode={mode}
       pan={false}
       label="Map fog. Drag a rectangle, click out a polygon, or click fog to reveal it; the wheel or a pinch zooms, and two fingers pan."
-      onMove={(p) => setHover(p)}
+      onMove={(p) => {
+        // Hover only drives the reveal highlight and the draft being drawn; elsewhere a pointer
+        // move must not redraw the canvas.
+        if (mode === "reveal" || anchor || (mode === "polygon" && corners.length > 0)) setHover(p);
+        else if (hover) setHover(null);
+      }}
       onCancel={() => setAnchor(null)}
       onSecondary={() => { setCorners([]); setAnchor(null); }}
       onPress={(p) => { if (mode === "rect" && !busy) setAnchor(clamp(p, map)); }}
@@ -152,22 +226,7 @@ export function FogCanvas({ map, grid, fog, mode, onAdd, onRemove, onNotice, bus
         return (
           <>
             {playerView && <PlayerFog id={fogId} base={base} />}
-            {Object.values(fog).map((region) => {
-              const points = region.points.map((p) => `${p.x},${p.y}`).join(" ");
-              return (
-                <g key={region.id}>
-                  <polygon
-                    points={points}
-                    fill={playerView ? `url(#${fogId}-base)` : tint}
-                    fillOpacity={playerView ? 1 : 0.62}
-                    stroke={revealing?.id === region.id ? "#e74c3c" : playerView ? "none" : "#9aa4b2"}
-                    strokeWidth={(revealing?.id === region.id ? 3 : 1.5) * px}
-                    strokeDasharray={`${6 * px} ${4 * px}`}
-                  />
-                  {playerView && <polygon points={points} fill={`url(#${fogId}-wisps)`} fillOpacity={0.55} pointerEvents="none" />}
-                </g>
-              );
-            })}
+            <FogRegions fog={fog} playerView={playerView} tint={tint} fogId={fogId} revealingId={revealing?.id ?? null} px={px} />
             {anchor && draft && (
               <rect
                 x={Math.min(anchor.x, draft.x)} y={Math.min(anchor.y, draft.y)}

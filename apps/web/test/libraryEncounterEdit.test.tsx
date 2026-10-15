@@ -79,7 +79,7 @@ describe("New encounter in the library (encounter-templates, ADR 0033)", () => {
     fireEvent.click(screen.getByRole("button", { name: "New encounter" }));
     const picker = screen.getByRole("dialog", { name: "Choose a map for the encounter" });
     fireEvent.click(await within(picker).findByTitle("Crypt"));
-    expect(await screen.findByRole("dialog", { name: "Set up grid" })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "Set up map" })).toBeTruthy();
     expect(start).not.toHaveBeenCalled();
   });
 });

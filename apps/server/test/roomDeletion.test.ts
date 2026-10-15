@@ -157,7 +157,7 @@ describe("room deletion: what is removed and what is kept (KAN-72)", () => {
 
     // Kept: the library asset (still served) and the GM's other room.
     const library = (await (await gmFetch(gm, "/api/library")).json()) as LibraryAsset[];
-    expect(library.map((a) => a.id)).toEqual([map.id]);
+    expect(library.filter((a) => !a.url.startsWith("/img/")).map((a) => a.id)).toEqual([map.id]);
     expect((await fetch(server.base + map.url)).status).toBe(200);
     expect(await usage()).toEqual([{ id: keep.roomId, name: "Keep" }]);
     const rooms = (await (await gmFetch(gm, "/api/gm/rooms")).json()) as GmRoomSummary[];

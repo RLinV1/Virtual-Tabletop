@@ -8,6 +8,8 @@ import { Modal } from "../ui/Modal";
 import { AccountMenu } from "../account/AccountPages";
 import { RequireAccount } from "../account/RequireAccount";
 import { GridForm } from "./GridForm";
+import { HudLayout } from "./mapEditor/HudLayout";
+import { LibraryMapEditor } from "./mapEditor/LibraryMapEditor";
 import { CreatureCard, CreatureForm } from "./LibraryCreatures";
 import { EncounterCard } from "./LibraryEncounters";
 import { LibraryPicker } from "./LibraryPicker";
@@ -139,7 +141,7 @@ function Library() {
     return (assets ?? []).filter((a) => a.kind === kind && (!q || a.name.toLowerCase().includes(q)));
   }, [assets, kind, query]);
 
-  const builtins = useMemo(() => (tab === "creature" || tab === "encounter" || tab === "dice" ? [] : builtinsMatching(kind, query)), [tab, kind, query]);
+  const builtins = useMemo(() => (tab === "creature" || tab === "encounter" || tab === "dice" || kind === "map" ? [] : builtinsMatching(kind, query)), [tab, kind, query]);
 
   const shownCreatures = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -324,33 +326,35 @@ function Library() {
         {/* Only the GM's own maps: a template keeps its map by library id (ADR 0024). */}
         <LibraryPicker kind="map" includeBuiltins={false} onPick={(map) => void newEncounterOn(map)} />
       </Modal>
-      <Modal open={gridTarget !== null} title={gridTarget?.grid ? "Edit grid" : "Set up grid"} className="grid-editor-modal" onClose={() => {
-        if (gridSaving) return;
-        setGridTarget(null);
-        setEncounterMapAwaitingGrid(null);
-      }}>
-        {gridTarget && (
-          <LibraryGridEditor
-            key={JSON.stringify([gridTarget.id, gridTarget.url, gridTarget.width, gridTarget.height, gridTarget.grid])}
-            asset={gridTarget}
-            saving={gridSaving}
-            onSavingChange={setGridSaving}
-            onCancel={() => {
-              setGridTarget(null);
-              setEncounterMapAwaitingGrid(null);
-            }}
-            onSaved={(saved, currentEditor) => {
-              replace(saved);
-              if (currentEditor) setGridTarget((open) => (open?.id === saved.id ? null : open));
-              // A new encounter was waiting for this map's grid: open it now.
-              if (encounterMapAwaitingGrid === saved.id && saved.grid) {
-                setEncounterMapAwaitingGrid(null);
-                void newEncounterOn(saved);
-              }
-            }}
-          />
+      <LibraryMapEditor
+        asset={gridTarget}
+        blockClose={gridSaving}
+        onClose={() => {
+          setGridTarget(null);
+          setEncounterMapAwaitingGrid(null);
+        }}
+        gridStep={(close) => gridTarget && (
+          <HudLayout className="map-editor-grid">
+            <LibraryGridEditor
+              key={JSON.stringify([gridTarget.id, gridTarget.url, gridTarget.width, gridTarget.height, gridTarget.grid])}
+              asset={gridTarget}
+              saving={gridSaving}
+              onSavingChange={setGridSaving}
+              onCancel={close}
+              onSaved={(saved, currentEditor) => {
+                replace(saved);
+                // Closing asks first when walls or fog are unsaved; a new encounter waiting for this
+                // map's grid opens only once the editor has closed.
+                const closed = currentEditor ? close() : true;
+                if (closed && encounterMapAwaitingGrid === saved.id && saved.grid) {
+                  setEncounterMapAwaitingGrid(null);
+                  void newEncounterOn(saved);
+                }
+              }}
+            />
+          </HudLayout>
         )}
-      </Modal>
+      />
     </main>
   );
 }
@@ -612,6 +616,7 @@ function LibraryGridEditor({ asset, onCancel, onSaved, saving, onSavingChange }:
           setDraft(withGridSuggestion(draft, candidate));
           setError(null);
         }}
+        advancedOpen
         submitLabel="Save grid"
         busyLabel="Saving…"
         cancelLabel={asset.grid ? "Cancel" : "Set up later"}

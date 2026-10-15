@@ -1,5 +1,6 @@
 import type { CommandInput, DetectedWallsResponse } from "@vtt/shared";
-import type { CommandResult, RoomConnection } from "../../net/roomConnection";
+import { createStore } from "zustand/vanilla";
+import type { CommandResult, EditorConnection, RoomConnection, RoomSnapshot } from "../../net/roomConnection";
 import { applyToDraft, draftCommandProblem, DRAFT_ID, withDetectedWalls, type MapDraft } from "./mapDraft";
 
 /** The commands the draft holds; `applyToDraft` handles each. */
@@ -58,4 +59,31 @@ export function draftConnection(
       return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
     },
   });
+}
+
+/**
+ * A connection with no room behind it, for editing a library map's walls and fog (ADR 0037): wall
+ * and fog commands change the draft, and anything else is refused. Wall-detection notices never come.
+ */
+export function createDraftConnection(
+  update: (change: (draft: MapDraft) => MapDraft) => void,
+  mapSize: () => { width: number; height: number } | null,
+): EditorConnection {
+  let next = 0;
+  const newId = () => `${DRAFT_ID}${Date.now().toString(36)}-${++next}`;
+  const store = createStore<RoomSnapshot>(() => ({
+    status: "open", state: null, you: null, seq: 0, snapshots: 0, endReason: null, refusal: null,
+  }));
+  return {
+    store,
+    onWallDetection: () => () => true,
+    command: async (input) => {
+      if (!DRAFT_COMMANDS.has(input.type)) return { ok: false, code: "invalid", message: "That is not available here." };
+      const size = mapSize();
+      const problem = size ? draftCommandProblem(input, size) : null;
+      if (problem) return { ok: false, code: "invalid", message: problem };
+      update((draft) => applyToDraft(draft, input, newId) ?? draft);
+      return { ok: true, seq: null };
+    },
+  };
 }

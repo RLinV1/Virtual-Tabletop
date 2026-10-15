@@ -18,7 +18,6 @@ export function CheckpointsPanel({ connection, state, token }: { connection: Roo
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("");
-  const [confirming, setConfirming] = useState<Checkpoint | null>(null);
   const [deleting, setDeleting] = useState<Checkpoint | null>(null);
   const [previewing, setPreviewing] = useState<Checkpoint | null>(null);
   const [preview, setPreview] = useState<CheckpointPreviewResponse | null>(null);
@@ -66,7 +65,7 @@ export function CheckpointsPanel({ connection, state, token }: { connection: Roo
       if (result.ok) setStatus(`Restored checkpoint "${checkpoint.name}". Undo it from the activity log if that was wrong.`);
     } finally {
       setBusy(false);
-      setConfirming(null);
+      setPreviewing(null);
     }
   };
 
@@ -128,7 +127,7 @@ export function CheckpointsPanel({ connection, state, token }: { connection: Roo
                 <button type="button" className="secondary" disabled={busy} aria-label={`Preview ${c.name}`} onClick={() => setPreviewing(c)}>
                   Preview
                 </button>
-                <button type="button" className="secondary" disabled={busy} aria-label={`Restore ${c.name}`} onClick={() => setConfirming(c)}>
+                <button type="button" className="secondary" disabled={busy} aria-label={`Restore ${c.name}`} onClick={() => setPreviewing(c)}>
                   Restore
                 </button>
                 <button type="button" className="secondary" disabled={busy} aria-label={`Delete ${c.name}`} onClick={() => setDeleting(c)}>
@@ -143,7 +142,7 @@ export function CheckpointsPanel({ connection, state, token }: { connection: Roo
         {previewing && (
           <div className="stack checkpoint-preview">
             <p className="checkpoint-preview-banner" role="note">
-              <strong>Preview · View only.</strong> This is the table as it was when "{previewing.name}" was saved. Nothing changes until you restore.
+              <strong>Preview · View only.</strong> This is the table as it was when "{previewing.name}" was saved. Restoring puts the map, tokens, areas, fog and initiative back to this; chat and dice rolls stay, and you can undo it from the activity log. Nothing changes until you restore.
             </p>
             {previewError && <p role="alert" className="error">{previewError}</p>}
             {!previewState && !previewError && <p className="muted" role="status">Loading the saved board…</p>}
@@ -154,28 +153,10 @@ export function CheckpointsPanel({ connection, state, token }: { connection: Roo
             )}
             <div className="row button-row">
               <button type="button" className="secondary" onClick={() => setPreviewing(null)}>
-                Exit preview
-              </button>
-              <button type="button" disabled={busy || !previewState} onClick={() => { setConfirming(previewing); setPreviewing(null); }}>
-                Restore {previewing.name}…
-              </button>
-            </div>
-          </div>
-        )}
-      </Modal>
-      <Modal open={confirming !== null} title="Restore checkpoint?" onClose={() => setConfirming(null)}>
-        {confirming && (
-          <div className="stack">
-            <p>
-              Put the board back to <strong>{confirming.name}</strong>? The map, tokens, areas, fog and initiative go back
-              to how they were. Chat and dice rolls stay. You can undo this from the activity log.
-            </p>
-            <div className="row button-row">
-              <button type="button" disabled={busy} onClick={() => void restore(confirming)}>
-                Restore {confirming.name}
-              </button>
-              <button type="button" className="secondary" disabled={busy} onClick={() => setConfirming(null)}>
                 Cancel
+              </button>
+              <button type="button" disabled={busy || (!previewState && !previewError)} onClick={() => void restore(previewing)}>
+                Restore {previewing.name}
               </button>
             </div>
           </div>

@@ -10,6 +10,8 @@ import {
   type DiceLooksResponse,
   type DieName,
   type EncounterEditSession,
+  type EncounterPreview,
+  type LibraryMapBoard,
   type EncounterSummary,
   type GridSpec,
   GridDetectionStatus,
@@ -353,6 +355,11 @@ export const api = {
     update: (id: string, patch: { name?: string; grid?: GridSpec }) =>
       accountRequest<LibraryAsset>(`/api/library/${encodeURIComponent(id)}`, { method: "PATCH", ...jsonBody(patch) }),
 
+    /** The walls and fog prepared on a library map (ADR 0037). */
+    board: (id: string) => accountRequest<LibraryMapBoard>(`/api/library/${encodeURIComponent(id)}/board`),
+    setBoard: (id: string, board: LibraryMapBoard) =>
+      accountRequest<LibraryMapBoard>(`/api/library/${encodeURIComponent(id)}/board`, { method: "PUT", ...jsonBody(board) }),
+
     usage: (id: string) => accountRequest<LibraryUsageResponse>(`/api/library/${encodeURIComponent(id)}/usage`),
 
     remove: (id: string) => accountRequest<void>(`/api/library/${encodeURIComponent(id)}`, { method: "DELETE" }),
@@ -377,6 +384,7 @@ export const api = {
         accountRequest<EncounterSummary>(`/api/library/encounters/${encodeURIComponent(id)}`, { method: "PATCH", ...jsonBody({ name }) }),
       remove: (id: string) =>
         accountRequest<void>(`/api/library/encounters/${encodeURIComponent(id)}`, { method: "DELETE" }),
+      preview: (id: string) => accountRequest<EncounterPreview>(`/api/library/encounters/${encodeURIComponent(id)}/preview`),
       /** Rebuilds a template from a room the GM owns, keeping its id and name (ADR 0033). */
       replaceFromRoom: (id: string, roomId: string) =>
         accountRequest<EncounterSummary>(`/api/library/encounters/${encodeURIComponent(id)}/from-room`, { method: "PUT", ...jsonBody({ roomId }) }),
