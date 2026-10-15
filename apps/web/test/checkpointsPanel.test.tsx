@@ -30,10 +30,11 @@ describe("the GM's Checkpoints section (KAN-41, FR-REC-02)", () => {
     expect(html).toContain('role="status"');
   });
 
-  it("gives each checkpoint Preview and Delete buttons named after it (ADR 0036)", () => {
+  it("gives each checkpoint only Restore and Delete; Restore opens the preview (ADR 0036)", () => {
     const html = render({ ...emptyRoomState("r1"), checkpoints: [{ id: "c1", name: "Start", seq: 4 }] });
-    expect(html).toContain('aria-label="Preview Start"');
+    expect(html).toContain('aria-label="Restore Start"');
     expect(html).toContain('aria-label="Delete Start"');
+    expect(html).not.toContain('aria-label="Preview Start"');
   });
 
   it("lives in the GM's Manage tab, which players never get", () => {
