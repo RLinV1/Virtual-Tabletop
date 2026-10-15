@@ -1084,6 +1084,9 @@ dialog.modal.dice-look-modal { width: min(40rem, calc(100vw - 2rem)); }
   padding: 0.6rem 0; border-bottom: 1px solid var(--border);
 }
 .room-list li:last-child { border-bottom: none; }
+/* A room's name and status stay on one line; a long one is cut with an ellipsis, never wrapped. */
+.room-list li > div:first-child { min-width: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.room-list li > .row { flex-shrink: 0; }
 
 .notice {
   border: 1px solid var(--warn); border-radius: 8px; padding: 0.6rem 0.75rem;
