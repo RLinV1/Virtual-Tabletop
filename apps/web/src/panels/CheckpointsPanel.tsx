@@ -1,27 +1,11 @@
-import { useEffect, useState } from "react";
-import { MAX_CHECKPOINT_NAME, type Checkpoint, type CheckpointPreviewResponse, type RoomState, type TableState } from "@vtt/shared";
+import { useEffect, useMemo, useState } from "react";
+import { Board } from "../board/Board";
+import { previewConnection } from "../net/previewConnection";
+import { MAX_CHECKPOINT_NAME, type Checkpoint, type CheckpointPreviewResponse, type RoomState } from "@vtt/shared";
 import { api } from "../net/api";
 import type { RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
 import { PanelSection } from "../ui/PanelSection";
-
-/** What a saved board holds, in the words the preview shows (ADR 0036). Hidden tokens are marked, not left out: this is the GM's view. */
-export function summarizeTable(table: TableState) {
-  const nameOf = (id: string) => table.tokens[id]?.name ?? "A deleted token";
-  const { initiative } = table;
-  return {
-    map: table.scene.map ? `${table.scene.map.width} × ${table.scene.map.height} px` : "No map",
-    tokens: Object.values(table.tokens).map((t) => ({ id: t.id, name: t.name, hidden: t.hidden })),
-    areas: Object.keys(table.templates).length,
-    fog: Object.keys(table.fog).length,
-    walls: Object.keys(table.walls ?? {}).length,
-    initiative: initiative
-      ? { round: initiative.round, order: initiative.order.map((id, i) => ({ id, name: nameOf(id), active: i === initiative.activeIndex })) }
-      : null,
-  };
-}
-
-const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /**
  * Named checkpoints (KAN-41, FR-REC-02, ADR 0019, ADR 0036): the GM saves the board under a name,
@@ -99,7 +83,13 @@ export function CheckpointsPanel({ connection, state, token }: { connection: Roo
     }
   };
 
-  const summary = preview ? summarizeTable(preview.table) : null;
+  // The saved table drawn on the real board: the live room's people and chat, the checkpoint's map, tokens, areas, fog, walls and initiative.
+  const previewState = useMemo<RoomState | null>(
+    () => (preview ? { ...state, ...preview.table, walls: preview.table.walls ?? {} } : null),
+    [preview, state],
+  );
+  const gm = Object.values(state.participants).find((p) => p.role === "gm") ?? null;
+  const readOnlyConnection = useMemo(() => previewConnection(connection, "a checkpoint preview"), [connection]);
 
   return (
     <PanelSection id="gm-checkpoints" title="Checkpoints">
@@ -149,51 +139,25 @@ export function CheckpointsPanel({ connection, state, token }: { connection: Roo
           ))}
         </ul>
       )}
-      <Modal open={previewing !== null} title={previewing ? `Preview: ${previewing.name}` : "Preview"} onClose={() => setPreviewing(null)}>
+      <Modal className="checkpoint-preview-modal" open={previewing !== null} title={previewing ? `Preview: ${previewing.name}` : "Preview"} onClose={() => setPreviewing(null)}>
         {previewing && (
           <div className="stack checkpoint-preview">
+            <p className="checkpoint-preview-banner" role="note">
+              <strong>Preview · View only.</strong> This is the table as it was when "{previewing.name}" was saved. Nothing changes until you restore.
+            </p>
             {previewError && <p role="alert" className="error">{previewError}</p>}
-            {!summary && !previewError && <p className="muted" role="status">Loading the saved board…</p>}
-            {summary && (
-              <>
-                <p className="muted">The board as it was when this checkpoint was saved. Nothing changes until you restore.</p>
-                <dl className="checkpoint-summary">
-                  <dt>Map</dt>
-                  <dd>{summary.map}</dd>
-                  <dt>Tokens</dt>
-                  <dd>
-                    {summary.tokens.length === 0 ? "None" : (
-                      <ul className="plain">
-                        {summary.tokens.map((t) => <li key={t.id}>{t.name}{t.hidden && <span className="muted"> (hidden)</span>}</li>)}
-                      </ul>
-                    )}
-                  </dd>
-                  <dt>Areas</dt>
-                  <dd>{count(summary.areas, "area")}</dd>
-                  <dt>Fog</dt>
-                  <dd>{count(summary.fog, "fog region")}</dd>
-                  <dt>Walls</dt>
-                  <dd>{count(summary.walls, "wall")}</dd>
-                  <dt>Initiative</dt>
-                  <dd>
-                    {summary.initiative === null ? "Not running" : (
-                      <>
-                        <span>Round {summary.initiative.round}</span>
-                        <ol>
-                          {summary.initiative.order.map((e, i) => <li key={`${e.id}-${i}`}>{e.name}{e.active && <strong> (up now)</strong>}</li>)}
-                        </ol>
-                      </>
-                    )}
-                  </dd>
-                </dl>
-              </>
+            {!previewState && !previewError && <p className="muted" role="status">Loading the saved board…</p>}
+            {previewState && gm && readOnlyConnection && (
+              <div className="checkpoint-preview-board">
+                <Board connection={readOnlyConnection} state={previewState} you={gm} gridPreview={null} readOnly />
+              </div>
             )}
             <div className="row button-row">
-              <button type="button" disabled={busy || !summary} onClick={() => { setConfirming(previewing); setPreviewing(null); }}>
-                Restore {previewing.name}
-              </button>
               <button type="button" className="secondary" onClick={() => setPreviewing(null)}>
-                Close
+                Exit preview
+              </button>
+              <button type="button" disabled={busy || !previewState} onClick={() => { setConfirming(previewing); setPreviewing(null); }}>
+                Restore {previewing.name}…
               </button>
             </div>
           </div>

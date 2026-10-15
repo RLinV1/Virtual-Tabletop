@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { emptyRoomState, tableOf, type RoomState } from "@vtt/shared";
+import { emptyRoomState, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../src/net/roomConnection";
-import { CheckpointsPanel, summarizeTable } from "../src/panels/CheckpointsPanel";
+import { CheckpointsPanel } from "../src/panels/CheckpointsPanel";
 import { panelTabs } from "../src/panels/RoomPanel";
 
 const connection = { command: async () => ({ ok: true }) } as unknown as RoomConnection;
@@ -34,26 +34,6 @@ describe("the GM's Checkpoints section (KAN-41, FR-REC-02)", () => {
     const html = render({ ...emptyRoomState("r1"), checkpoints: [{ id: "c1", name: "Start", seq: 4 }] });
     expect(html).toContain('aria-label="Preview Start"');
     expect(html).toContain('aria-label="Delete Start"');
-  });
-
-  it("summarises a saved board with hidden tokens marked and the initiative order named", () => {
-    const base = emptyRoomState("r1");
-    const token = (id: string, name: string, hidden: boolean) =>
-      ({ id, name, hidden, position: { x: 0, y: 0 } }) as unknown as RoomState["tokens"][string];
-    const table = {
-      ...tableOf(base),
-      scene: { ...base.scene, map: { url: "/uploads/a.png", width: 1000, height: 800 } },
-      tokens: { a: token("a", "Goblin", false), b: token("b", "Orc", true) },
-      initiative: { order: ["b", "a"], activeIndex: 1, round: 2 },
-    };
-    expect(summarizeTable(table)).toEqual({
-      map: "1000 × 800 px",
-      tokens: [{ id: "a", name: "Goblin", hidden: false }, { id: "b", name: "Orc", hidden: true }],
-      areas: 0,
-      fog: 0,
-      walls: 0,
-      initiative: { round: 2, order: [{ id: "b", name: "Orc", active: false }, { id: "a", name: "Goblin", active: true }] },
-    });
   });
 
   it("lives in the GM's Manage tab, which players never get", () => {

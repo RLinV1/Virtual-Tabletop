@@ -2499,6 +2499,12 @@ dialog.modal.map-editor {
 
 /* Checkpoint rows: name, then Preview / Restore / Delete. */
 .checkpoint-actions { gap: var(--space-1); flex-wrap: wrap; justify-content: flex-end; }
+dialog.modal.checkpoint-preview-modal { width: min(64rem, calc(100vw - 2rem)); }
+.checkpoint-preview-banner {
+  margin: 0; padding: 0.5rem 0.75rem; border: 1px solid var(--accent); border-radius: var(--radius);
+  background: var(--panel); color: var(--text);
+}
+.checkpoint-preview-board { position: relative; display: grid; height: min(60dvh, 34rem); border-radius: var(--radius); overflow: hidden; }
 .checkpoint-summary { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-1) var(--space-3); margin: 0; }
 .checkpoint-summary dt { color: var(--muted); }
 .checkpoint-summary dd { margin: 0; }
