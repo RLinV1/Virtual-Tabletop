@@ -21,11 +21,16 @@ const STEPS: { key: Step; label: string }[] = [
  * changes (ADR 0037); the Grid step is the library's own form and saves separately. Automatic wall
  * detection is not offered here, since it runs against a room.
  */
-export function LibraryMapEditor({ asset, gridStep, onClose }: {
+export function LibraryMapEditor({ asset, gridStep, blockClose = false, onClose }: {
   /** The map being edited, or null when the editor is closed. */
   asset: LibraryAsset | null;
-  /** The Grid step's content, which saves the grid itself. */
-  gridStep: ReactNode;
+  /**
+   * The Grid step's content, which saves the grid itself. It gets the editor's own close, which asks
+   * before discarding unsaved walls or fog and returns whether the editor closed.
+   */
+  gridStep: (close: () => boolean) => ReactNode;
+  /** The Grid step is saving: the dialog's own close waits. */
+  blockClose?: boolean;
   onClose: () => void;
 }) {
   const [step, setStep] = useState<Step>("grid");
@@ -86,11 +91,14 @@ export function LibraryMapEditor({ asset, gridStep, onClose }: {
     }
   };
 
-  const close = () => {
-    if (saving) return;
-    if (dirty && !window.confirm("Discard your unsaved wall and fog changes?")) return;
+  /** Closes unless a walls and fog save is running or the GM keeps unsaved changes; true once closed. */
+  const closeGuarded = () => {
+    if (saving) return false;
+    if (dirty && !window.confirm("Discard your unsaved wall and fog changes?")) return false;
     onClose();
+    return true;
   };
+  const close = () => { if (!blockClose) closeGuarded(); };
 
   return (
     <Modal
@@ -118,7 +126,7 @@ export function LibraryMapEditor({ asset, gridStep, onClose }: {
     >
       <div className="map-editor-shell">
         <div className="map-editor-body" role="tabpanel">
-          {step === "grid" && gridStep}
+          {step === "grid" && gridStep(closeGuarded)}
           {step !== "grid" && loadError && <p role="alert" className="error">{loadError}</p>}
           {step !== "grid" && !loadError && !state && <p className="muted">Loading…</p>}
           {step === "walls" && state && <WallSetup connection={connection} state={state} token="" detection={false} />}

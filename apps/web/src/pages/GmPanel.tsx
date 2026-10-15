@@ -18,7 +18,7 @@ import { FogSetup } from "./mapEditor/FogSetup";
 import { WallSetup } from "./mapEditor/WallSetup";
 import { draftConnection } from "./mapEditor/draftConnection";
 import { draftDirty, draftFrom, planDraftSave, type MapDraft } from "./mapEditor/mapDraft";
-import { draftFromBoard } from "./mapEditor/libraryBoardDraft";
+import { commandsForBoard } from "./mapEditor/libraryBoardDraft";
 import { prepCommand, prepDirty, startPrep, type MapPrep } from "./mapPrep";
 import { FULL_ROOM, type RoomFeatures } from "./encounterEdit/roomFeatures";
 
@@ -425,16 +425,15 @@ function MapSection(props: {
     }
   };
   /**
-   * A library map brings the walls and fog prepared on it (ADR 0037), through the same commands as
-   * the editor's own Save. A map with none leaves the room's walls and fog as they are.
+   * A library map brings the walls and fog prepared on it (ADR 0037), adding to the walls and fog the
+   * room already has. A map with none leaves them as they are.
    */
   const copyLibraryBoard = async (placed: MapImage) => {
     if (!placed.assetId || !props.hasLibrary) return;
     try {
       const board = await api.library.board(placed.assetId);
       if (board.walls.length === 0 && board.fog.length === 0) return;
-      const roomAfterMap = { scene: { ...props.room.scene, map: placed }, walls: props.room.walls, fog: props.room.fog };
-      for (const command of planDraftSave(roomAfterMap, draftFromBoard(placed.url, board))) {
+      for (const command of commandsForBoard(board, placed.url)) {
         const result = await props.connection.command(command);
         if (!result.ok) throw new Error(result.message);
       }

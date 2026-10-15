@@ -328,32 +328,30 @@ function Library() {
       </Modal>
       <LibraryMapEditor
         asset={gridTarget}
+        blockClose={gridSaving}
         onClose={() => {
-          if (gridSaving) return;
           setGridTarget(null);
           setEncounterMapAwaitingGrid(null);
         }}
-        gridStep={gridTarget && (
+        gridStep={(close) => gridTarget && (
           <HudLayout className="map-editor-grid">
             <LibraryGridEditor
-        key={JSON.stringify([gridTarget.id, gridTarget.url, gridTarget.width, gridTarget.height, gridTarget.grid])}
-        asset={gridTarget}
-        saving={gridSaving}
-        onSavingChange={setGridSaving}
-        onCancel={() => {
-          setGridTarget(null);
-          setEncounterMapAwaitingGrid(null);
-        }}
-        onSaved={(saved, currentEditor) => {
-          replace(saved);
-          if (currentEditor) setGridTarget((open) => (open?.id === saved.id ? null : open));
-          // A new encounter was waiting for this map's grid: open it now.
-          if (encounterMapAwaitingGrid === saved.id && saved.grid) {
-            setEncounterMapAwaitingGrid(null);
-            void newEncounterOn(saved);
-          }
-        }}
-      />
+              key={JSON.stringify([gridTarget.id, gridTarget.url, gridTarget.width, gridTarget.height, gridTarget.grid])}
+              asset={gridTarget}
+              saving={gridSaving}
+              onSavingChange={setGridSaving}
+              onCancel={close}
+              onSaved={(saved, currentEditor) => {
+                replace(saved);
+                // Closing asks first when walls or fog are unsaved; a new encounter waiting for this
+                // map's grid opens only once the editor has closed.
+                const closed = currentEditor ? close() : true;
+                if (closed && encounterMapAwaitingGrid === saved.id && saved.grid) {
+                  setEncounterMapAwaitingGrid(null);
+                  void newEncounterOn(saved);
+                }
+              }}
+            />
           </HudLayout>
         )}
       />
