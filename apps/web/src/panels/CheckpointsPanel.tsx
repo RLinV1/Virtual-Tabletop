@@ -124,9 +124,6 @@ export function CheckpointsPanel({ connection, state, token }: { connection: Roo
             <li key={c.id} className="checkpoint-row">
               <span>{c.name}</span>
               <span className="row checkpoint-actions">
-                <button type="button" className="secondary" disabled={busy} aria-label={`Preview ${c.name}`} onClick={() => setPreviewing(c)}>
-                  Preview
-                </button>
                 <button type="button" className="secondary" disabled={busy} aria-label={`Restore ${c.name}`} onClick={() => setPreviewing(c)}>
                   Restore
                 </button>
