@@ -127,7 +127,6 @@ function LibraryMapGridEditor({ assetId, ...props }: ComponentProps<typeof GridF
     {...props}
     detection={detection.status}
     detectionError={detection.error}
-    onRetryDetection={() => { void detection.retry(); }}
     onUseSuggestion={(candidate) => props.onChange(withGridSuggestion(props.draft, candidate))}
   />;
 }
@@ -138,7 +137,6 @@ function DirectMapGridEditor(props: ComponentProps<typeof RoomGridEditor>) {
     {...props}
     detection={detection.status}
     detectionError={detection.error}
-    onRetryDetection={() => { void detection.retry(); }}
     onUseSuggestion={(candidate) => props.onChange(withGridSuggestion(props.draft, candidate))}
   />;
 }
