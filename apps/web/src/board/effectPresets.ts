@@ -1,5 +1,5 @@
 import type { ISourceOptions } from "@tsparticles/engine";
-import type { ConditionId, Point } from "@vtt/shared";
+import type { AnimationDef, AttackStyle, ConditionId, Point } from "@vtt/shared";
 
 /**
  * The look of every effect the overlay draws (board-effects-overlay). Pure data and arithmetic: no
@@ -176,3 +176,25 @@ export const SPARK_REACH = [1, 0.7, 1.15, 0.8, 1.05, 0.65, 1.2, 0.75];
 /** Seconds of the strike's flight and of the burst that follows, for the full-motion version. */
 export const STRIKE_FLIGHT_S = 0.5;
 export const IMPACT_S = 0.5;
+
+// ---------- built-in attack and nuke animations (ADR 0038) ----------
+
+/** Built-in look of each attack style, used when an attack names no animation of its own. */
+export const ATTACK_STYLE_PRESETS: Record<AttackStyle, AnimationDef> = {
+  melee: { shape: "slash", duration: 0.9, primary: "#ff8a1f", secondary: "#ffd24a", size: 1.4, particles: 28, glow: 0.7, shake: 0.5, flash: 0.45 },
+  ranged: { shape: "projectile", duration: 1, primary: "#9ad7ff", secondary: "#e8f6ff", size: 1.1, particles: 22, glow: 0.65, shake: 0.25, flash: 0.35 },
+  magic: { shape: "bolt", duration: 1.3, primary: "#a855f7", secondary: "#e9b8ff", size: 1.3, particles: 44, glow: 0.9, shake: 0.4, flash: 0.55 },
+};
+
+/** The nuke's built-in blast: orange fire with a white flash and a heavy shake. */
+export const NUKE_PRESET: AnimationDef = {
+  shape: "nuke", duration: 1.8, primary: "#ff6a00", secondary: "#fff4d6", size: 3, particles: 120, glow: 0.9, shake: 0.9, flash: 0.9,
+};
+
+/** Every built-in with a display name, for the library's "Start from built-in" and the nuke picker. */
+export const BUILTIN_ANIMATIONS: ReadonlyArray<{ id: string; name: string; def: AnimationDef }> = [
+  { id: "builtin-melee", name: "Melee slash", def: ATTACK_STYLE_PRESETS.melee },
+  { id: "builtin-ranged", name: "Ranged projectile", def: ATTACK_STYLE_PRESETS.ranged },
+  { id: "builtin-magic", name: "Magic bolt", def: ATTACK_STYLE_PRESETS.magic },
+  { id: "builtin-nuke", name: "Nuke", def: NUKE_PRESET },
+];

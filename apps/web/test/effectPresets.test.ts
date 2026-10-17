@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { CONDITIONS } from "@vtt/shared";
+import { AnimationDef, CONDITIONS, NukeAnimationDef, StrikeAnimationDef } from "@vtt/shared";
 import {
+  ATTACK_STYLE_PRESETS,
+  BUILTIN_ANIMATIONS,
   CONDITION_VISUALS,
+  NUKE_PRESET,
   MAX_CONDITION_EMITTERS,
   conditionParticleOptions,
   particleBox,
@@ -62,5 +65,30 @@ describe("effect presets (board-effects-overlay)", () => {
     const box = particleBox(30);
     expect(box.height).toBeGreaterThan(60);
     expect(box.offsetY).toBeLessThan(-30);
+  });
+});
+
+describe("built-in attack and nuke animations (FR-TAC-09, ADR 0038)", () => {
+  it("parses every style preset as an AnimationDef that can be used for an attack", () => {
+    for (const [style, def] of Object.entries(ATTACK_STYLE_PRESETS)) {
+      expect(AnimationDef.safeParse(def).success, style).toBe(true);
+      expect(StrikeAnimationDef.safeParse(def).success, style).toBe(true);
+    }
+  });
+
+  it("gives melee a slash, ranged a projectile and magic a bolt", () => {
+    expect(ATTACK_STYLE_PRESETS.melee.shape).toBe("slash");
+    expect(ATTACK_STYLE_PRESETS.ranged.shape).toBe("projectile");
+    expect(ATTACK_STYLE_PRESETS.magic.shape).toBe("bolt");
+  });
+
+  it("parses the nuke preset as a nuke animation", () => {
+    expect(NukeAnimationDef.safeParse(NUKE_PRESET).success).toBe(true);
+    expect(NUKE_PRESET).toMatchObject({ shape: "nuke", size: 3, particles: 120 });
+  });
+
+  it("lists all four built-ins for the library, each valid", () => {
+    expect(BUILTIN_ANIMATIONS).toHaveLength(4);
+    for (const b of BUILTIN_ANIMATIONS) expect(AnimationDef.safeParse(b.def).success, b.name).toBe(true);
   });
 });

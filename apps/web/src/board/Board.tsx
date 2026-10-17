@@ -9,7 +9,7 @@ import { BoardFilters } from "./BoardFilters";
 import { canAnimateDice, type TrayRoll } from "../ui/Die3D";
 import { ThrownDice, type ActiveThrow } from "./ThrownDice";
 import { BoardView, type GmFogView } from "./boardView";
-import { MAX_ATTACK_EFFECTS, attackEffectFor, attackPlan, prefersReducedMotion, type AttackEffect } from "./effects";
+import { MAX_ATTACK_EFFECTS, attackEffectFor, attackPlan, effectiveReducedMotion, type AttackEffect } from "./effects";
 import type { OverlayEffect } from "./EffectsOverlay";
 import { boardDieSize, centreThrow, onMap, throwLanding, type BoardThrow, type BoardTransform } from "./diceThrow";
 import { cursorSquare, moveCursor, placementCommand, startCursor, type PlacementGhost, type PlacingSource, type TokenDraft } from "./placement";
@@ -48,6 +48,8 @@ export interface BoardHandle {
   duplicateToken(tokenId: string): void;
   /** Pick a target on the board for `tokenId` to attack; the pick goes to `onPickTarget` (attack-targeting). */
   startAttack(tokenId: string): void;
+  /** Let the viewer click one point on the map; resolves with it in board coordinates, or null if cancelled (Esc, right-click, or another pick). */
+  pickPoint(): Promise<Point | null>;
   /** Show a ping on this viewer's board only, e.g. the one an attack roll just sent. */
   showPing(at: Point): void;
   /**
@@ -107,6 +109,7 @@ const HINTS: Record<BoardTool["kind"], string> = {
   area: "Drag to size and aim · click to place the chosen size · hold Alt to place freely · everyone at the table sees areas",
   erase: "Click or drag over your marks and areas to erase them · Esc to stop",
   attack: "Click the token to attack · Esc or right-click to cancel",
+  point: "Click the map to choose the spot · Esc or right-click to cancel",
   fog: "",
 };
 
@@ -166,6 +169,17 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   /** The tool to go back to once an attack's target is picked or cancelled. */
   const beforeAttack = useRef<BoardTool>({ kind: "select" });
   const endAttack = () => setTool((current) => (current.kind === "attack" ? beforeAttack.current : current));
+  /** Waiting for a map click from `pickPoint`, and the tool to go back to afterwards. */
+  const pointPick = useRef<((at: Point | null) => void) | null>(null);
+  const beforePoint = useRef<BoardTool>({ kind: "select" });
+  const endPointPick = (at: Point | null) => {
+    const done = pointPick.current;
+    pointPick.current = null;
+    setTool((current) => (current.kind === "point" ? beforePoint.current : current));
+    done?.(at);
+  };
+  const endPointPickRef = useRef(endPointPick);
+  endPointPickRef.current = endPointPick;
   /** What New Token, Saved Creatures or Duplicate handed over; placing repeats until the GM ends it. */
   const [placing, setPlacing] = useState<Placing | null>(null);
   const placingRef = useRef(placing);
@@ -194,7 +208,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     const id = nextEffectId.current++;
     setOverlayEffects((all) => [...all, { id, effect }].slice(-MAX_ATTACK_EFFECTS));
     // Also removed here, so an effect that waited for the overlay to load never plays late.
-    window.setTimeout(() => dropEffect(id), attackPlan(effect, prefersReducedMotion()).durationMs + 300);
+    window.setTimeout(() => dropEffect(id), attackPlan(effect, effectiveReducedMotion(latest.current.state)).durationMs + 300);
   };
   const playEffectRef = useRef(playEffect);
   playEffectRef.current = playEffect;
@@ -204,6 +218,8 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     setBoardThrows(throwsRef.current.filter((t) => t.throw.rollId !== rollId));
     done.forEach((t) => t.onGone());
   }, []);
+  // A point pick still waiting when the board goes away resolves as cancelled.
+  useEffect(() => () => pointPick.current?.(null), []);
   // Don't leave the Dice panel waiting on dice that are no longer drawn.
   useEffect(
     () => () =>
@@ -288,6 +304,8 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
         latest.current.onPickTarget?.(attackerId, targetId);
       },
       cancelAttack: () => endAttack(),
+      pickPoint: (at) => endPointPickRef.current(at),
+      cancelPoint: () => endPointPickRef.current(null),
     });
 
     let disposed = false;
@@ -447,6 +465,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       if (e.key !== "Escape") return;
       if (viewRef.current?.cancelFogPolygon()) return;
       if (toolRef.current.kind === "attack") endAttack();
+      else if (toolRef.current.kind === "point") endPointPick(null);
       else setTool({ kind: "select" });
     };
     window.addEventListener("keydown", onKey);
@@ -485,6 +504,15 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       setPlacing(null);
       if (toolRef.current.kind !== "attack") beforeAttack.current = toolRef.current;
       setTool({ kind: "attack", attackerId: tokenId });
+    },
+    pickPoint: () => {
+      pointPick.current?.(null);
+      setPlacing(null);
+      if (toolRef.current.kind !== "point") beforePoint.current = toolRef.current;
+      setTool({ kind: "point" });
+      return new Promise<Point | null>((resolve) => {
+        pointPick.current = resolve;
+      });
     },
     showPing: (at: Point) => viewRef.current?.showPing(at),
     aimThrow: (client: Point, velocity: Point) => {
@@ -556,6 +584,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
           />
         )}
       </div>
+      {tool.kind === "point" && <p className="grid-preview-label" role="status">Click the map to set the blast centre · Esc cancels</p>}
       {gridPreview && <p className="grid-preview-label" role="status">Preview · Not applied</p>}
       {!readOnly && (
       <ToolRail

@@ -7,6 +7,8 @@ import {
   formatAttackOutcome,
   MAX_ATTACK_LABEL,
   type AttackKind,
+  type AnimationDef,
+  type AttackStyle,
   type DiceRoll,
   type DiceVisibility,
   type Participant,
@@ -49,6 +51,13 @@ import type { AttackReset } from "./attackSession";
 import { trayRoll } from "./DicePanel";
 import { RulingButtons } from "./RulingButtons";
 import { saveTokenAttacks } from "./tokenAttacks";
+import { useStrikeAnimations } from "./useLibraryAnimations";
+
+/** The Animation select's value for an animation that is on the attack but not (or no longer) in the library. */
+const CURRENT_ANIMATION = "__current";
+
+/** The styles the picker offers, in order. */
+const ATTACK_STYLES: readonly AttackStyle[] = ["melee", "ranged", "magic"];
 
 /**
  * Who attacks whom. Held by the room page, so the board's Pick on board can fill it in and the
@@ -246,6 +255,8 @@ function AttackForm({
   const [editing, setEditing] = useState<number | "new" | null>(null);
   /** The named attack the Roll button rolls, picked from the list (attack-panel-encounter-reset). */
   const [selected, setSelected] = useState(0);
+  /** How the next roll is drawn on the board; none leaves it to the attack or the distance (ADR 0038). */
+  const [style, setStyle] = useState<AttackStyle | null>(null);
   const isGm = you.role === "gm";
   const chosen = presets.length > 0 ? presets[Math.min(selected, presets.length - 1)] : undefined;
   const chosenIndex = chosen ? presets.indexOf(chosen) : -1;
@@ -270,7 +281,7 @@ function AttackForm({
       type: "dice.roll",
       expression: roll.expression,
       visibility: rollVisibility,
-      attack: { actorTokenId: attackerId, targetTokenId: roll.targetId, kind: roll.kind, ...(roll.label && { label: roll.label }) },
+      attack: { actorTokenId: attackerId, targetTokenId: roll.targetId, kind: roll.kind, ...(roll.label && { label: roll.label }), ...(style && { style }) },
     });
     setBusy(false);
     if (!result.ok) {
@@ -375,6 +386,14 @@ function AttackForm({
         <button type="button" className="icon-button attack-board-pick" onClick={onPickOnBoard} aria-label="Pick target on board" title="Pick target on board">
           <Crosshair size={18} aria-hidden="true" />
         </button>
+      </div>
+
+      <div className="attack-kind attack-style" role="group" aria-label="Attack style">
+        {ATTACK_STYLES.map((option) => (
+          <button key={option} type="button" className="chip" aria-pressed={style === option} onClick={() => setStyle(style === option ? null : option)}>
+            {option[0]!.toUpperCase() + option.slice(1)}
+          </button>
+        ))}
       </div>
 
       {isGm && visibility === "public" && (attacker.hidden || target?.token.hidden) && (
@@ -614,6 +633,12 @@ export function PresetEditor({
   const [toHit, setToHit] = useState<AttackDice | null>(initial ? initial.toHit : { count: 1, sides: 20, modifier: 0 });
   const [damage, setDamage] = useState<AttackDice | null>(initial ? initial.damage : { count: 1, sides: 6, modifier: 0 });
   const [error, setError] = useState<string | null>(null);
+  /** The attack's own animation: a copy of a library one (ADR 0038). Null leaves the attack's style to decide. */
+  const [animation, setAnimation] = useState<AnimationDef | null>(initial?.animation ?? null);
+  const library = useStrikeAnimations();
+  /** The library entry the animation was copied from, by definition, for the select's value. */
+  const libraryMatch = animation ? library.find((a) => JSON.stringify(a.def) === JSON.stringify(animation)) : undefined;
+  const animationValue = !animation ? "" : libraryMatch ? libraryMatch.id : CURRENT_ANIMATION;
 
   const save = (e: FormEvent) => {
     e.preventDefault();
@@ -621,7 +646,7 @@ export function PresetEditor({
     if (!trimmed) return setError("Give the attack a name.");
     if (taken.some((n) => n.toLocaleLowerCase() === trimmed.toLocaleLowerCase())) return setError(`There is already an attack called ${trimmed}.`);
     if (!toHit && !damage) return setError("An attack needs a to-hit roll, a damage roll, or both.");
-    onSave({ name: trimmed, toHit, damage });
+    onSave({ name: trimmed, toHit, damage, ...(animation && { animation }) });
   };
 
   return (
@@ -632,6 +657,27 @@ export function PresetEditor({
       </label>
       <DiceField label="To hit" value={toHit} fallback={{ count: 1, sides: 20, modifier: 0 }} onChange={setToHit} />
       <DiceField label="Damage" value={damage} fallback={{ count: 1, sides: 6, modifier: 0 }} onChange={setDamage} />
+      {(library.length > 0 || animation) && (
+        <label>
+          Animation
+          <select
+            value={animationValue}
+            onChange={(e) => {
+              if (e.target.value === CURRENT_ANIMATION) return;
+              // Copied in: later library edits do not change this attack.
+              setAnimation(library.find((a) => a.id === e.target.value)?.def ?? null);
+            }}
+          >
+            <option value="">None</option>
+            {animationValue === CURRENT_ANIMATION && <option value={CURRENT_ANIMATION}>Saved animation</option>}
+            {library.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       {error && (
         <p role="alert" className="error">
           {error}

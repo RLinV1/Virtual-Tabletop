@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
-import { inactiveLabel, pendingDepartures, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
+import { inactiveLabel, pendingDepartures, type Point, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
 import { api } from "../net/api";
 import { libraryAssetId } from "../net/builtinAssets";
 import { useAccount } from "../account/accountStore";
@@ -8,6 +8,7 @@ import type { CommandResult, RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
 import { CheckpointsPanel } from "../panels/CheckpointsPanel";
 import { EncounterPanel } from "../panels/EncounterPanel";
+import { EffectsPanel } from "../panels/EffectsPanel";
 import { PanelSection } from "../ui/PanelSection";
 import { gridsEqual, parseGridDraft, withGridSuggestion, type GridDraft } from "./gridDraft";
 import { GridForm } from "./GridForm";
@@ -37,13 +38,15 @@ interface Props {
   onReviewDeparture: (participantId: string) => void;
   /** What this room offers; a template being edited offers less (ADR 0033). */
   features?: RoomFeatures;
+  /** Lets the GM click a map point, for the nuke's epicenter; resolves null if cancelled. */
+  onPickPoint?: () => Promise<Point | null>;
 }
 
 /** The GM's administration section: departed players to resolve, map and grid setup, fog, then checkpoints. */
 export function GmPanel({
   connection, state, token, onReviewDeparture,
   gridDraft, hasGridDraft, onGridDraftChange, onGridDraftCancel, onGridApply, gridApplying, gridError,
-  features = FULL_ROOM,
+  features = FULL_ROOM, onPickPoint,
 }: Props) {
   const [error, setError] = useState<string | null>(null);
   // The library belongs to the signed-in account (ADR 0017).
@@ -106,6 +109,7 @@ export function GmPanel({
         <>
           <CheckpointsPanel connection={connection} state={state} token={token} />
           <EncounterPanel connection={connection} state={state} />
+          <EffectsPanel connection={connection} state={state} onPickPoint={onPickPoint} />
         </>
       )}
     </>

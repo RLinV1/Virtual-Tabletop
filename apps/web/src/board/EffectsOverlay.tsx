@@ -9,14 +9,13 @@ import {
   CONDITION_VISUALS,
   IMPACT_S,
   SPARK_REACH,
-  STRIKE_FLIGHT_S,
   conditionParticleOptions,
   particleBox,
   particleConditions,
   pickEmitterTokens,
   sparkVectors,
 } from "./effectPresets";
-import { attackPlan, prefersReducedMotion, watchReducedMotion, type AttackEffect } from "./effects";
+import { attackPlan, effectiveReducedMotion, prefersReducedMotion, watchReducedMotion, type AttackEffect } from "./effects";
 
 /** An attack effect the overlay is playing, until its plan duration is over. */
 export interface OverlayEffect {
@@ -54,10 +53,11 @@ function usePageVisible(): boolean {
   return visible;
 }
 
-function useReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(prefersReducedMotion);
-  useEffect(() => watchReducedMotion(setReduced), []);
-  return reduced;
+/** The device preference or the GM's table-wide "Reduced animations" setting; follows both live. */
+function useReducedMotion(tableReduced: boolean): boolean {
+  const [os, setOs] = useState(prefersReducedMotion);
+  useEffect(() => watchReducedMotion(setOs), []);
+  return effectiveReducedMotion({ reducedEffects: tableReduced }, os);
 }
 
 /**
@@ -83,7 +83,7 @@ export default function EffectsOverlay({
 }) {
   const root = useRef<HTMLDivElement>(null);
   const world = useRef<HTMLDivElement>(null);
-  const reduced = useReducedMotion();
+  const reduced = useReducedMotion(state.reducedEffects ?? false);
   /** The board point at the middle of the view, for ranking which tokens get particles. */
   const [centre, setCentre] = useState({ x: 0, y: 0 });
   const lastCentre = useRef(0);
@@ -260,15 +260,24 @@ function AttackEffectView({
     // A token that left the viewer's state, or is hidden from a player, ends the effect at once.
     return token && (isGm || !token.hidden) ? token : null;
   };
-  const target = find(effect.kind === "strike" ? effect.toId : effect.tokenId);
-  const source = effect.kind === "strike" ? find(effect.fromId) : null;
-  if (!target || (effect.kind === "strike" && !source)) return null;
+  // Strikes and the nuke blast are drawn by the Pixi board (fx.ts); the overlay adds the nuke numbers.
+  if (effect.kind === "strike") return null;
+  if (effect.kind === "nuke") {
+    return (
+      <>
+        {effect.tokenIds.map((tokenId) => {
+          const token = find(tokenId);
+          return token ? <Damage key={tokenId} at={token.position} r={radiusOf(token, cell)} amount={effect.amount} reduced={reduced} delay={NUKE_NUMBER_DELAY_S} /> : null;
+        })}
+      </>
+    );
+  }
+  const target = find(effect.tokenId);
+  if (!target) return null;
   const r = radiusOf(target, cell);
   const at = target.position;
 
   switch (effect.kind) {
-    case "strike":
-      return <Strike from={source!.position} to={at} r={r} reduced={reduced} />;
     case "hit":
       return <Hit at={at} r={r} seed={id} reduced={reduced} />;
     case "miss":
@@ -276,62 +285,6 @@ function AttackEffectView({
     case "damage":
       return <Damage at={at} r={r} amount={effect.amount} reduced={reduced} />;
   }
-}
-
-/** Embers shed behind the projectile: a delay in flight time, and a sideways drift in orb widths. */
-const EMBERS = [
-  { lag: 0.04, drift: 0.8 }, { lag: 0.08, drift: -1.1 }, { lag: 0.12, drift: 1.5 }, { lag: 0.16, drift: -0.6 },
-  { lag: 0.2, drift: 1.0 }, { lag: 0.24, drift: -1.4 }, { lag: 0.28, drift: 0.5 }, { lag: 0.32, drift: -0.9 },
-];
-
-function Strike({ from, to, r, reduced }: { from: { x: number; y: number }; to: { x: number; y: number }; r: number; reduced: boolean }) {
-  if (reduced) return <Marker at={to} r={r} color="#fbbf24" />;
-  const dx = to.x - from.x;
-  const dy = to.y - from.y;
-  const dist = Math.hypot(dx, dy) || 1;
-  const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
-  const nx = -dy / dist;
-  const ny = dx / dist;
-  const dot = Math.max(12, r * 0.42);
-  const beam = Math.max(4, r * 0.14);
-  return (
-    <>
-      {/* Muzzle flash at the attacker. */}
-      <motion.div
-        className="effects-orb"
-        style={{ left: from.x, top: from.y, width: r * 1.6, height: r * 1.6, marginLeft: -r * 0.8, marginTop: -r * 0.8, background: "radial-gradient(circle, #fff, rgba(251, 191, 36, 0.8) 40%, rgba(251, 191, 36, 0) 70%)" }}
-        initial={{ scale: 0.2, opacity: 1 }}
-        animate={{ scale: 1.4, opacity: 0 }}
-        transition={{ duration: 0.3, ease: "easeOut" }}
-      />
-      {/* A hot streak that lashes from attacker to target and fades. */}
-      <motion.div
-        className="effects-beam"
-        style={{ left: from.x, top: from.y, width: dist, height: beam, marginTop: -beam / 2, rotate: angle, transformOrigin: "0 50%" }}
-        initial={{ scaleX: 0, opacity: 1 }}
-        animate={{ scaleX: [0, 1, 1], opacity: [1, 1, 0] }}
-        transition={{ duration: STRIKE_FLIGHT_S + 0.2, ease: "easeOut", times: [0, 0.55, 1] }}
-      />
-      {EMBERS.map(({ lag, drift }, i) => (
-        <motion.div
-          key={i}
-          className="effects-orb"
-          style={{ left: from.x, top: from.y, width: dot * 0.45, height: dot * 0.45, marginLeft: -dot * 0.225, marginTop: -dot * 0.225, background: i % 2 ? "#fde047" : "#fb923c", boxShadow: `0 0 ${dot * 0.8}px #f97316` }}
-          initial={{ x: 0, y: 0, opacity: 0 }}
-          animate={{ x: dx + nx * dot * drift, y: dy + ny * dot * drift, opacity: [0, 0.95, 0], scale: [1, 0.8, 0.2] }}
-          transition={{ duration: STRIKE_FLIGHT_S + 0.15, delay: lag, ease: "easeIn", times: [0, 0.4, 1] }}
-        />
-      ))}
-      <motion.div
-        className="effects-orb"
-        style={{ left: from.x, top: from.y, width: dot, height: dot, marginLeft: -dot / 2, marginTop: -dot / 2, background: "radial-gradient(circle, #fff 20%, #fde047 45%, #f97316 75%)", boxShadow: `0 0 ${dot * 2}px ${dot * 0.8}px rgba(249, 115, 22, 0.9)` }}
-        initial={{ x: 0, y: 0, scale: 0.6 }}
-        animate={{ x: dx, y: dy, scale: [0.6, 1.5, 1.2] }}
-        transition={{ duration: STRIKE_FLIGHT_S, ease: [0.5, 0, 0.9, 0.6] }}
-      />
-      <Impact at={to} r={r} seed={3} delay={STRIKE_FLIGHT_S} palette={["#fff7ed", "#fde047", "#fb923c", "#ef4444"]} count={16} slashes={false} />
-    </>
-  );
 }
 
 /**
@@ -464,7 +417,10 @@ function Miss({ at, r, reduced }: { at: { x: number; y: number }; r: number; red
   );
 }
 
-function Damage({ at, r, amount, reduced }: { at: { x: number; y: number }; r: number; amount: number; reduced: boolean }) {
+/** Seconds after the nuke starts before each token's damage number appears. */
+const NUKE_NUMBER_DELAY_S = 0.25;
+
+function Damage({ at, r, amount, reduced, delay = 0 }: { at: { x: number; y: number }; r: number; amount: number; reduced: boolean; delay?: number }) {
   // Bigger blows get a bigger, hotter number.
   const weight = Math.min(1, amount / 20);
   const size = Math.max(28, r * (1.1 + weight * 0.7));
@@ -483,7 +439,7 @@ function Damage({ at, r, amount, reduced }: { at: { x: number; y: number }; r: n
         style={{ left: at.x, top: at.y - r, width: size * 3, height: size * 3, marginLeft: -size * 1.5, marginTop: -size * 1.5, background: `radial-gradient(circle, ${color}aa, transparent 65%)` }}
         initial={{ scale: 0.2, opacity: 0 }}
         animate={{ scale: [0.2, 1, 1.3], opacity: [0, 0.9, 0] }}
-        transition={{ duration: 0.6, ease: "easeOut" }}
+        transition={{ duration: 0.6, delay, ease: "easeOut" }}
       />
       <motion.span
         className="effects-label effects-damage"
@@ -495,7 +451,7 @@ function Damage({ at, r, amount, reduced }: { at: { x: number; y: number }; r: n
           opacity: [0, 1, 1, 0],
           rotate: [-10, 6, -2, 0],
         }}
-        transition={{ duration: 1.4, ease: "easeOut", times: [0, 0.15, 0.7, 1] }}
+        transition={{ duration: 1.4, delay, ease: "easeOut", times: [0, 0.15, 0.7, 1] }}
       >
         −{amount}
       </motion.span>

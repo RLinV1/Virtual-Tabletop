@@ -10,6 +10,7 @@ import { RequireAccount } from "../account/RequireAccount";
 import { GridForm } from "./GridForm";
 import { HudLayout } from "./mapEditor/HudLayout";
 import { LibraryMapEditor } from "./mapEditor/LibraryMapEditor";
+import { AnimationsTab } from "./LibraryAnimations";
 import { CreatureCard, CreatureForm } from "./LibraryCreatures";
 import { EncounterCard } from "./LibraryEncounters";
 import { LibraryPicker } from "./LibraryPicker";
@@ -23,13 +24,14 @@ import { useGridDetection } from "./useGridDetection";
  * Maps and token art are uploaded assets; creatures are reusable token setups (library-creatures);
  * dice are your dice looks, kept in this browser (dice-image-skins).
  */
-type Tab = AssetKind | "creature" | "encounter" | "dice";
+type Tab = AssetKind | "creature" | "encounter" | "animation" | "dice";
 
 const TABS: { tab: Tab; label: string }[] = [
   { tab: "map", label: "Maps" },
   { tab: "token", label: "Token Art" },
   { tab: "creature", label: "Creatures" },
   { tab: "encounter", label: "Encounters" },
+  { tab: "animation", label: "Animations" },
   { tab: "dice", label: "Dice" },
 ];
 
@@ -141,7 +143,7 @@ function Library() {
     return (assets ?? []).filter((a) => a.kind === kind && (!q || a.name.toLowerCase().includes(q)));
   }, [assets, kind, query]);
 
-  const builtins = useMemo(() => (tab === "creature" || tab === "encounter" || tab === "dice" || kind === "map" ? [] : builtinsMatching(kind, query)), [tab, kind, query]);
+  const builtins = useMemo(() => (tab === "creature" || tab === "encounter" || tab === "animation" || tab === "dice" || kind === "map" ? [] : builtinsMatching(kind, query)), [tab, kind, query]);
 
   const shownCreatures = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -203,7 +205,7 @@ function Library() {
           <button type="button" disabled={startingEncounter} onClick={() => setPickingEncounterMap(true)}>
             {startingEncounter ? "Opening…" : "New encounter"}
           </button>
-        ) : (
+        ) : tab === "animation" ? null : (
           <UploadButton
             kind={kind}
             onUploaded={(a) => {
@@ -220,6 +222,8 @@ function Library() {
           <SaveBrowserLooksOffer />
           <DiceLookCards query={query} onEdit={setDiceTarget} />
         </>
+      ) : tab === "animation" ? (
+        <AnimationsTab query={query} onError={setError} />
       ) : tab === "encounter" ? (
         <>
           {!encounters && !error && <p className="muted" aria-busy="true">Loading…</p>}

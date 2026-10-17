@@ -29,7 +29,9 @@ export type BoardTool =
   /** GM only (FR-GM-17, ADR 0016): conceal a rectangle or polygon, or reveal (remove) a fogged region. */
   | { kind: "fog"; mode: FogMode }
   /** Picking whom `attackerId` attacks (attack-targeting). Started from a token's Attack button, not the rail. */
-  | { kind: "attack"; attackerId: string };
+  | { kind: "attack"; attackerId: string }
+  /** Picking one point on the map for a panel, e.g. a nuke's epicenter. Started from the panel, not the rail. */
+  | { kind: "point" };
 
 /** What the Fog tool does: drag a rectangle, click out a polygon, or click a region to remove it. */
 export type FogMode = "rect" | "polygon" | "reveal";

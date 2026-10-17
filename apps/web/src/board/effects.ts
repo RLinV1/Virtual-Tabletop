@@ -1,4 +1,5 @@
-import type { ConditionId, DomainEvent, Participant, RoomState } from "@vtt/shared";
+import type { AnimationDef, AttackStyle, ConditionId, DiceRoll, DomainEvent, Participant, Point, RoomState } from "@vtt/shared";
+import { ATTACK_STYLE_PRESETS, NUKE_PRESET } from "./effectPresets";
 
 /**
  * What the board draws for attacks and conditions (KAN-76). Pure: no Pixi, no DOM beyond
@@ -10,7 +11,8 @@ import type { ConditionId, DomainEvent, Participant, RoomState } from "@vtt/shar
 
 /** An attack animation, naming tokens by id so it follows them while it plays. */
 export type AttackEffect =
-  | { kind: "strike"; fromId: string; toId: string }
+  | { kind: "strike"; fromId: string; toId: string; animation: AnimationDef }
+  | { kind: "nuke"; animation: AnimationDef; origin: Point; amount: number; tokenIds: string[] }
   | { kind: "hit" | "miss"; tokenId: string }
   | { kind: "damage"; tokenId: string; amount: number };
 
@@ -33,7 +35,7 @@ export function attackEffectFor(event: DomainEvent, after: RoomState, viewer: Pa
       if (!actor || !target || !visible(actor.tokenId) || !visible(target.tokenId)) return null;
       // Damage after a to-hit is the same swing: it already struck (no-repeat-strike-on-damage).
       if (event.roll.attack?.kind === "damage" && followsToHit(after, event.roll.id, actor.tokenId, target.tokenId)) return null;
-      return { kind: "strike", fromId: actor.tokenId, toId: target.tokenId };
+      return { kind: "strike", fromId: actor.tokenId, toId: target.tokenId, animation: strikeAnimation(event.roll, after) };
     }
     case "RollRuled": {
       if (!event.verdict) return null;
@@ -45,9 +47,32 @@ export function attackEffectFor(event: DomainEvent, after: RoomState, viewer: Pa
       // "−0" says nothing.
       return tokenId && event.amount > 0 ? { kind: "damage", tokenId, amount: event.amount } : null;
     }
+    case "MapNuked": {
+      // Names no token: the blast hits the viewer's own copy, so a hidden token gets no number (FR-GM-23).
+      const tokenIds = Object.values(after.tokens)
+        .filter((token) => visible(token.id) && token.stats.hp !== null)
+        .map((token) => token.id);
+      return { kind: "nuke", animation: event.animation ?? NUKE_PRESET, origin: event.origin, amount: event.amount, tokenIds };
+    }
     default:
       return null;
   }
+}
+
+/** A target this close (grid cells) is struck in melee when the roll names no style. */
+export const MELEE_REACH_CELLS = 1.5;
+
+/** The roll's own animation, else its style's built-in, else melee or ranged by distance (design Decision 14). */
+export function strikeAnimation(roll: DiceRoll, state: RoomState): AnimationDef {
+  const attack = roll.attack;
+  if (attack?.animation) return attack.animation;
+  if (attack?.style) return ATTACK_STYLE_PRESETS[attack.style];
+  const from = attack?.actor ? state.tokens[attack.actor.tokenId] : undefined;
+  const to = attack?.target ? state.tokens[attack.target.tokenId] : undefined;
+  if (!from || !to) return ATTACK_STYLE_PRESETS.melee;
+  const cells = Math.hypot(to.position.x - from.position.x, to.position.y - from.position.y) / Math.max(1, state.scene.grid.cellSize);
+  const style: AttackStyle = cells <= MELEE_REACH_CELLS ? "melee" : "ranged";
+  return ATTACK_STYLE_PRESETS[style];
 }
 
 /**
@@ -83,11 +108,16 @@ export interface AttackPlan {
   durationMs: number;
 }
 
-/** How long an effect lasts and whether it moves. Every effect is over in 1.5 s or less. */
+/**
+ * How long an effect lasts and whether it moves. Strikes and nukes last as long as their
+ * animation says; the rest are over in 1.5 s or less.
+ */
 export function attackPlan(effect: AttackEffect, reducedMotion: boolean): AttackPlan {
-  if (reducedMotion) return { motion: false, durationMs: effect.kind === "damage" ? 1000 : 600 };
+  if (reducedMotion) return { motion: false, durationMs: effect.kind === "damage" || effect.kind === "nuke" ? 1000 : 600 };
   switch (effect.kind) {
-    case "strike": return { motion: true, durationMs: 1150 };
+    case "strike":
+    case "nuke":
+      return { motion: true, durationMs: Math.round(effect.animation.duration * 1000) };
     case "damage": return { motion: true, durationMs: 1500 };
     default: return { motion: true, durationMs: 900 };
   }
@@ -104,6 +134,14 @@ const mediaQuery = () => (typeof window !== "undefined" && typeof window.matchMe
 
 export function prefersReducedMotion(): boolean {
   return mediaQuery()?.matches ?? false;
+}
+
+/**
+ * Whether animations are reduced for this viewer: the device preference, or the GM turning
+ * reduced animations on for the whole table (`RoomState.reducedEffects`).
+ */
+export function effectiveReducedMotion(state: Pick<RoomState, "reducedEffects">, osPrefers: boolean = prefersReducedMotion()): boolean {
+  return osPrefers || (state.reducedEffects ?? false);
 }
 
 /** Calls `listener` whenever the preference changes; returns the unsubscribe. */

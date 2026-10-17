@@ -200,7 +200,7 @@ describe("attack style and named attack animation (FR-TAC-09, ADR 0038)", () => 
   });
 
   it("refuses a nuke animation on a named attack", () => {
-    const { state, aria } = table();
+    const { aria } = table();
     expect(Command.safeParse({
       type: "token.configure",
       tokenId: aria.id,

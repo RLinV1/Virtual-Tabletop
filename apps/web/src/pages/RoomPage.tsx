@@ -231,6 +231,7 @@ function Room({ roomId, connection, token, features }: {
   const pickTarget = useCallback((attackerId: string, targetId: string) => setAttackPick({ attackerId, targetId }), []);
   // Ending the encounter clears the target and the last roll, but keeps the attacker and named attacks (attack-panel-encounter-reset).
   const attackReset = useEncounterReset(roomId, state, you?.id ?? null, () => setAttackPick((p) => ({ ...p, targetId: null })));
+  const pickPoint = useCallback(() => boardRef.current?.pickPoint() ?? Promise.resolve(null), []);
   const showPing = useCallback((at: Point) => boardRef.current?.showPing(at), []);
   const diceBoard = useMemo<DiceBoard>(
     () => ({
@@ -637,6 +638,7 @@ function Room({ roomId, connection, token, features }: {
               rollThrow={rollThrow}
               onPickOnBoard={pickOnBoard}
               onShowPing={showPing}
+              onPickPoint={pickPoint}
               diceBoard={diceBoard}
               attackVisibility={attackVisibility}
               onAttackVisibility={setAttackVisibility}

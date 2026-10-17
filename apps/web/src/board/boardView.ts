@@ -44,6 +44,7 @@ import {
   watchReducedMotion,
   type AttackEffect,
 } from "./effects";
+import { playNuke, playStrike, type FxHost, type RunningFx } from "./fx";
 import { averageColor, fogPalette, makeFogCanvas, makeFogMaskCanvas, type Rgb } from "./fogTexture";
 import { areaOrigin, areaShape, areaSizeFromDrag, fogDraftPoints, fogRegionAt, formatDistance, hitMark, measure, portalAt, sweepPoints, templateMark, type BoardTool, type FogDraft, type Mark } from "./tools";
 import { aimExpiry, expiredAims } from "./aims";
@@ -85,6 +86,10 @@ export interface BoardCallbacks {
   pickTarget(attackerId: string, targetId: string): void;
   /** The viewer right-clicked while picking a target: stop without attacking. */
   cancelAttack(): void;
+  /** The viewer clicked the map while picking a point (the "point" tool). */
+  pickPoint(at: Point): void;
+  /** The viewer right-clicked while picking a point: stop without one. */
+  cancelPoint(): void;
   /** The GM clicked a square while placing a new token (place-token-on-board). */
   placeToken(at: Point): void;
   /** A press on a token that stayed put (a click, not a drag) selects it; a click on bare map clears (null). */
@@ -395,7 +400,14 @@ export class BoardView {
   private stepSkipped = false;
   /** Attack animations playing (KAN-76), oldest first. */
   private attackFx: AttackFx[] = [];
-  private reducedMotion = prefersReducedMotion();
+  /** The device's reduced-motion preference, and the GM's table-wide setting (`RoomState.reducedEffects`). */
+  private osReduced = prefersReducedMotion();
+  private tableReduced = false;
+  private get reducedMotion() {
+    return this.osReduced || this.tableReduced;
+  }
+  /** Nuke and strike renderers (fx.ts) playing, oldest first. */
+  private fxRuns: Array<{ run: RunningFx; started: number; step: (now: number) => boolean }> = [];
   private stopMotionWatch: (() => void) | null = null;
   /** The condition loop is in `animations`. */
   private loopRegistered = false;
@@ -484,13 +496,8 @@ export class BoardView {
     });
     this.hostObserver.observe(this.host);
     this.stopMotionWatch = watchReducedMotion((reduced) => {
-      this.reducedMotion = reduced;
-      // Effects already playing finish as they are; conditions redraw at once.
-      for (const view of this.tokens.values()) view.drawnKey = "";
-      if (this.state && this.you) this.syncTokens();
-      this.syncConditionLoop();
-      this.syncFogLoop();
-      this.invalidate();
+      this.osReduced = reduced;
+      this.motionChanged();
     });
     document.addEventListener("visibilitychange", this.onVisibilityChange);
     this.invalidate();
@@ -597,6 +604,8 @@ export class BoardView {
     cancelAnimationFrame(this.frame);
     this.frame = 0;
     this.animations.clear();
+    for (const { run } of this.fxRuns) run.destroy();
+    this.fxRuns = [];
     this.attackFx = [];
     this.loopRegistered = false;
     this.stopMotionWatch?.();
@@ -613,9 +622,24 @@ export class BoardView {
     this.initialized = false;
   }
 
+  /** The effective reduced-motion setting changed: conditions redraw at once, effects already playing finish as they are. */
+  private motionChanged() {
+    for (const view of this.tokens.values()) view.drawnKey = "";
+    if (this.state && this.you) this.syncTokens();
+    this.syncConditionLoop();
+    this.syncFogLoop();
+    this.invalidate();
+  }
+
   update(state: RoomState, you: Participant) {
     this.state = state;
     this.you = you;
+    const table = state.reducedEffects ?? false;
+    if (table !== this.tableReduced) {
+      const before = this.reducedMotion;
+      this.tableReduced = table;
+      if (this.reducedMotion !== before) this.motionChanged();
+    }
     this.syncMap();
     this.syncGrid();
     this.syncWalls();
@@ -867,7 +891,8 @@ export class BoardView {
 
   private toolCursor() {
     if (this.placement) return "crosshair";
-    return this.tool.kind === "select" ? "default" : TOOL_CURSORS[this.tool.kind];
+    if (this.tool.kind === "select") return "default";
+    return this.tool.kind === "point" ? "crosshair" : TOOL_CURSORS[this.tool.kind];
   }
 
   // ---------- placing a new token (place-token-on-board) ----------
@@ -1755,12 +1780,15 @@ export class BoardView {
   };
 
   /**
-   * The board's part of an attack effect (KAN-76): a hit shakes the target's art. The projectile,
-   * flash, miss and damage number are drawn by the React effects overlay (board-effects-overlay).
-   * The shake follows the token and never changes its recorded position.
+   * The board's part of an attack effect (KAN-76): strikes and nukes are drawn in Pixi by fx.ts
+   * (ADR 0038), and a hit shakes the target's art. Miss and damage numbers are drawn by the React
+   * effects overlay (board-effects-overlay). Nothing here changes a token's recorded position.
    */
   playAttackEffect(effect: AttackEffect) {
-    if (!this.initialized || !this.state || effect.kind !== "hit") return;
+    if (!this.initialized || !this.state) return;
+    if (effect.kind === "strike") return this.playStrikeFx(effect);
+    if (effect.kind === "nuke") return this.playNukeFx(effect);
+    if (effect.kind !== "hit") return;
     const target = this.tokens.get(effect.tokenId);
     if (!target || target.container.destroyed) return;
     while (this.attackFx.length >= MAX_ATTACK_EFFECTS) this.endAttackFx(this.attackFx[0]!);
@@ -1792,6 +1820,60 @@ export class BoardView {
     this.attackFx.push(fx);
     this.animations.add(fx.step);
     this.invalidate();
+  }
+
+  private fxHost(): FxHost {
+    return {
+      layer: this.fxLayer,
+      shakeTarget: this.world,
+      filterTarget: this.app.stage,
+      screen: { width: this.app.screen.width, height: this.app.screen.height },
+      reducedMotion: this.reducedMotion,
+    };
+  }
+
+  /** Registers a fx.ts run in the frame loop; it is destroyed when it ends or the board does. */
+  private startFx(run: RunningFx) {
+    while (this.fxRuns.length >= MAX_ATTACK_EFFECTS) this.endFx(this.fxRuns[0]!);
+    const entry = { run, started: -1, step: (now: number): boolean => {
+      if (entry.started < 0) entry.started = now;
+      if (run.update((now - entry.started) / 1000)) return true;
+      this.endFx(entry);
+      return false;
+    } };
+    this.fxRuns.push(entry);
+    this.animations.add(entry.step);
+    this.invalidate();
+  }
+
+  private endFx(entry: { run: RunningFx; step: (now: number) => boolean }) {
+    this.animations.delete(entry.step);
+    this.fxRuns = this.fxRuns.filter((e) => e !== entry);
+    entry.run.destroy();
+    this.invalidate();
+  }
+
+  private playStrikeFx(effect: Extract<AttackEffect, { kind: "strike" }>) {
+    const from = this.tokens.get(effect.fromId);
+    const to = this.tokens.get(effect.toId);
+    if (!from || !to || from.container.destroyed || to.container.destroyed) return;
+    this.startFx(
+      playStrike(this.fxHost(), {
+        def: effect.animation,
+        from: { x: from.container.position.x, y: from.container.position.y },
+        to: { x: to.container.position.x, y: to.container.position.y },
+        radius: to.radius,
+      }),
+    );
+  }
+
+  private playNukeFx(effect: Extract<AttackEffect, { kind: "nuke" }>) {
+    const grid = this.state!.scene.grid;
+    const { width, height } = this.boardSize();
+    const o = effect.origin;
+    // Far enough to reach the farthest corner from the epicenter.
+    const extent = Math.hypot(Math.max(o.x, width - o.x), Math.max(o.y, height - o.y));
+    this.startFx(playNuke(this.fxHost(), { def: effect.animation, origin: o, unit: grid.cellSize, extent }));
   }
 
   private endAttackFx(fx: AttackFx) {
@@ -1951,6 +2033,11 @@ export class BoardView {
       }
       // A press on the map or the attacker picks nothing; dragging still pans.
       this.pan = { start: { x: e.global.x, y: e.global.y }, origin: { x: this.world.x, y: this.world.y } };
+      return;
+    }
+    if (this.tool.kind === "point") {
+      if (e.button === 2) return this.callbacks.cancelPoint();
+      if (e.button === 0) return this.callbacks.pickPoint(this.toBoard(e.global));
       return;
     }
     if (this.tool.kind === "fog" && this.tool.mode !== "rect" && e.button === 0) {
