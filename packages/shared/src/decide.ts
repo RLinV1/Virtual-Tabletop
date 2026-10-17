@@ -614,6 +614,13 @@ export function decide(
       return accept({ type: "TokenStatsSet", tokenId: target.id, stats: { ...target.stats, hp }, previous: target.stats }, applied);
     }
 
+    case "room.setReducedEffects": {
+      if (!can.administer(actor)) return forbidden();
+      const previous = state.reducedEffects ?? false;
+      if (previous === command.enabled) return reject("invalid", command.enabled ? "Reduced animations are already on" : "Reduced animations are already off");
+      return accept({ type: "ReducedEffectsSet", enabled: command.enabled, previous });
+    }
+
     case "nuke.detonate": {
       if (!can.administer(actor)) return forbidden();
       const off = presetRefusal(state, { attacks: true });

@@ -306,6 +306,9 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
     case "MapNukeUndone":
       return state;
 
+    case "ReducedEffectsSet":
+      return { ...state, reducedEffects: event.enabled };
+
     default:
       return assertNever(event);
   }

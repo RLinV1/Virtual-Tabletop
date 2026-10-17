@@ -174,6 +174,7 @@ export function filterEventForViewer(
         : pass;
     case "MapNuked":
     case "MapNukeUndone":
+    case "ReducedEffectsSet":
       // Names no token and has no GM-only content: the blast is for the whole table (ADR 0038).
       return pass;
     case "RollRuled":

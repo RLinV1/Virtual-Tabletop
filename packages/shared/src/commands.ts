@@ -215,6 +215,11 @@ export const Command = z.discriminatedUnion("type", [
       })
       .optional(),
   }),
+  /** GM only: play every board animation in its reduced-motion form for the whole table (ADR 0038). */
+  z.object({
+    type: z.literal("room.setReducedEffects"),
+    enabled: z.boolean(),
+  }),
   /** GM only: damage every token with HP and play a map-wide blast (ADR 0038). */
   z.object({
     type: z.literal("nuke.detonate"),

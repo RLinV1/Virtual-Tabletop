@@ -211,6 +211,12 @@ export const DomainEvent = z.discriminatedUnion("type", [
     origin: Point,
     animation: NukeAnimationDef.optional(),
   }),
+  /** The GM turned the table's reduced animations on or off (ADR 0038). */
+  z.object({
+    type: z.literal("ReducedEffectsSet"),
+    enabled: z.boolean(),
+    previous: z.boolean(),
+  }),
   /** Undo of a nuke: the damage was taken back by the `TokenStatsSet`s before it. Plays nothing. */
   z.object({
     type: z.literal("MapNukeUndone"),

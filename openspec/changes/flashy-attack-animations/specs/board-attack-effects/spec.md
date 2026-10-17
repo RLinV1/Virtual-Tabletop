@@ -34,3 +34,26 @@ When a to-hit or damage attack roll is committed while a viewer is connected, an
 #### Scenario: Reload does not replay
 - **WHEN** a viewer reloads after several attack rolls
 - **THEN** no attack animation plays for those earlier rolls
+
+### Requirement: Reduced motion
+When the viewer prefers reduced motion, or the GM has turned on reduced animations for the room, no travelling or looping animation SHALL play. An attack SHALL instead show a brief static marker on the target; hit, miss and damage SHALL show static, short-lived indicators; condition effects SHALL be drawn without motion. The GM SHALL be able to turn reduced animations on and off for the whole room at any time; the setting SHALL be stored with the room, SHALL reach every participant, and SHALL take effect on every board as soon as it changes. Only the GM SHALL be able to change it. Turning it off SHALL NOT override a viewer's own reduced-motion preference.
+
+#### Scenario: Reduced motion attack
+- **WHEN** a viewer with reduced motion enabled sees an attack roll
+- **THEN** no strike travels across the board and a static marker briefly appears on the target
+
+#### Scenario: Reduced motion condition
+- **WHEN** a viewer with reduced motion enabled sees a stunned token
+- **THEN** the stun effect is drawn but does not move
+
+#### Scenario: GM turns animations down for the table
+- **WHEN** the GM turns on reduced animations and a player then rolls an attack
+- **THEN** every board shows only the static marker, including boards of viewers who have no reduced-motion preference
+
+#### Scenario: Only the GM changes it
+- **WHEN** a player sends the command to change reduced animations
+- **THEN** the server rejects it and the setting is unchanged
+
+#### Scenario: Own preference still wins
+- **WHEN** the GM turns reduced animations off and a viewer's system asks for reduced motion
+- **THEN** that viewer's board still plays the reduced forms

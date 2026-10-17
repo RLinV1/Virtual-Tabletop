@@ -120,6 +120,21 @@ describe("GM nuke (FR-TAC-06, FR-TAC-07)", () => {
   });
 });
 
+describe("GM reduced animations setting (ADR 0038)", () => {
+  it("lets only the GM turn it on and off, and reaches players", () => {
+    const state = baseRoom();
+    expect(state.reducedEffects).toBe(false);
+    expect(attempt(state, alice, { type: "room.setReducedEffects", enabled: true })).toMatchObject({ ok: false, code: "forbidden" });
+    const on = act(state, gm, { type: "room.setReducedEffects", enabled: true });
+    expect(on.events).toEqual([{ type: "ReducedEffectsSet", enabled: true, previous: false }]);
+    expect(on.state.reducedEffects).toBe(true);
+    const at = { seq: 9, at: "2026-10-16T00:00:00.000Z", actorId: gm.id, event: on.events[0]! };
+    expect(filterEventForViewer(at, state, alice).kind).toBe("event");
+    expect(attempt(on.state, gm, { type: "room.setReducedEffects", enabled: true })).toMatchObject({ ok: false, code: "invalid" });
+    expect(act(on.state, gm, { type: "room.setReducedEffects", enabled: false }).state.reducedEffects).toBe(false);
+  });
+});
+
 describe("animation definitions (ADR 0038)", () => {
   it("accepts a bounded definition and rejects anything outside the bounds", () => {
     expect(AnimationDef.safeParse(slash).success).toBe(true);
