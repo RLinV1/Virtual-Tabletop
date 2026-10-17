@@ -301,6 +301,11 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
     case "ActionUndone":
       return state;
 
+    // The HP changes are the `TokenStatsSet`s around it; the blast itself is only drawn (ADR 0038).
+    case "MapNuked":
+    case "MapNukeUndone":
+      return state;
+
     default:
       return assertNever(event);
   }

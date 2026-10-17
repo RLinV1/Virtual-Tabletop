@@ -1,4 +1,5 @@
 export * from "./conditions";
+export * from "./animation";
 export * from "./attackPresets";
 export * from "./dice";
 export * from "./geometry";

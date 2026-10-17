@@ -1,3 +1,4 @@
+import { namedAttackFor } from "./attackPresets";
 import { findMentions } from "./chatMentions";
 import type { Command, DepartureAction } from "./commands";
 import { presetOf, tableForPreset } from "./gamePresets";
@@ -543,7 +544,16 @@ export function decide(
         if (target.id === attacker.id) return reject("invalid", "A token can't attack itself");
         // An unowned token under fog is concealed on the roll for good, like a hidden one (ADR 0016).
         const side = (t: Token) => ({ tokenId: t.id, name: t.name, hidden: t.hidden || fogConcealsSide(state, t) });
-        attack = { actor: side(attacker), target: side(target), label: command.attack.label || null, kind: command.attack.kind };
+        // The animation comes from the actor's own named attack, never from the client (ADR 0038).
+        const animation = namedAttackFor(attacker.attacks, command.attack.label, command.attack.kind)?.animation;
+        attack = {
+          actor: side(attacker),
+          target: side(target),
+          label: command.attack.label || null,
+          kind: command.attack.kind,
+          ...(command.attack.style && { style: command.attack.style }),
+          ...(animation && { animation }),
+        };
         const off = presetRefusal(state, { attacks: true });
         if (off) return off;
       }
@@ -602,6 +612,30 @@ export function decide(
       // Nothing to change (no damage, or already at the floor): just mark the roll applied.
       if (hp === target.stats.hp) return accept(applied);
       return accept({ type: "TokenStatsSet", tokenId: target.id, stats: { ...target.stats, hp }, previous: target.stats }, applied);
+    }
+
+    case "nuke.detonate": {
+      if (!can.administer(actor)) return forbidden();
+      const off = presetRefusal(state, { attacks: true });
+      if (off) return off;
+      const map = state.scene.map;
+      if (map && (command.origin.x < 0 || command.origin.y < 0 || command.origin.x > map.width || command.origin.y > map.height)) {
+        return reject("invalid", "Aim the nuke at a point on the map");
+      }
+      // Hidden and fogged tokens fall too; the filters decide who hears about each (ADR 0038).
+      const damaged: DomainEvent[] = [];
+      for (const token of Object.values(state.tokens)) {
+        if (token.stats.hp === null) continue;
+        const hp = Math.max(MIN_HP, token.stats.hp - command.amount);
+        if (hp !== token.stats.hp) damaged.push({ type: "TokenStatsSet", tokenId: token.id, stats: { ...token.stats, hp }, previous: token.stats });
+      }
+      const blast: DomainEvent = {
+        type: "MapNuked",
+        amount: command.amount,
+        origin: command.origin,
+        ...(command.animation && { animation: command.animation }),
+      };
+      return accept(...damaged, blast);
     }
 
     case "template.place": {

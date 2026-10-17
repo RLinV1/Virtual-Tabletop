@@ -115,6 +115,8 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
       const roll = rolledEarlier(event.rollId);
       return `${actorName} applied ${event.amount} damage from ${rollLabel(roll)}${roll?.visibility === "gm" ? " (GM only)" : ""}`;
     }
+    case "MapNuked": return `${actorName} detonated a nuke (${event.amount} damage)`;
+    case "MapNukeUndone": return `${actorName} took back a nuke (${event.amount} damage)`;
     case "RollDamageUnapplied": {
       const roll = rolledEarlier(event.rollId);
       return `${actorName} took back ${event.amount} damage from ${rollLabel(roll)}${roll?.visibility === "gm" ? " (GM only)" : ""}`;

@@ -49,6 +49,8 @@ describe("Human-readable activity formatter (FR-REC-01)", () => {
     TokenImageSet: [{ type: "TokenImageSet", tokenId: token.id, imageUrl: "/uploads/new.png", assetId: null, previous: { imageUrl: null, assetId: null } }, "Mara changed Goblin's image"],
     TemplatePlaced: [{ type: "TemplatePlaced", template: areaTemplate }, "Mara placed a 20 ft cone"],
     TemplateRemoved: [{ type: "TemplateRemoved", template: { ...areaTemplate, gmOnly: true } }, "Mara removed a 20 ft cone (GM only)"],
+    MapNuked: [{ type: "MapNuked", amount: 12, origin: { x: 50, y: 50 } }, "Mara detonated a nuke (12 damage)"],
+    MapNukeUndone: [{ type: "MapNukeUndone", amount: 12, origin: { x: 50, y: 50 } }, "Mara took back a nuke (12 damage)"],
     RollDamageUnapplied: [{ type: "RollDamageUnapplied", rollId: "gone", amount: 7 }, "Mara took back 7 damage from an earlier roll"],
     ChatMessageSent: [{ type: "ChatMessageSent", message: { id: "m1", senderId: alice.id, senderName: "Alice", text: "Watch the door" } }, "Mara said: Watch the door"],
     // An action no longer in the undo history; undo.test.ts covers the named form (ADR 0013).

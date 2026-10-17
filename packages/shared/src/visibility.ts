@@ -172,6 +172,10 @@ export function filterEventForViewer(
       return [e.roll.attack?.actor, e.roll.attack?.target].some((side) => side && (side.hidden || hiddenBefore(side.tokenId)))
         ? { kind: "resync" }
         : pass;
+    case "MapNuked":
+    case "MapNukeUndone":
+      // Names no token and has no GM-only content: the blast is for the whole table (ADR 0038).
+      return pass;
     case "RollRuled":
     case "RollDamageApplied":
     case "RollDamageUnapplied": {

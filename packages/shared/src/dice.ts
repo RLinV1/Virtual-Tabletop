@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AttackStyle, StrikeAnimationDef } from "./animation";
 
 /**
  * Dice expressions of the form `NdX + M` (FR-TAC-09).
@@ -60,6 +61,10 @@ export const AttackContext = z.object({
   label: z.string().min(1).max(MAX_ATTACK_LABEL).nullable(),
   /** Rolls made before ADR 0011 have none and count as to hit. */
   kind: AttackKind.default("toHit"),
+  /** How the attack is drawn when it has no animation of its own (ADR 0038). Older rolls have none. */
+  style: AttackStyle.optional(),
+  /** The actor's named attack's animation, copied here by `decide`; a client cannot set it (ADR 0038). */
+  animation: StrikeAnimationDef.optional(),
 });
 export type AttackContext = z.infer<typeof AttackContext>;
 

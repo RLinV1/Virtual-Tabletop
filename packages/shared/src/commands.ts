@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AttackStyle, MAX_NUKE_DAMAGE, NukeAnimationDef } from "./animation";
 import { TokenAttacks } from "./attackPresets";
 import { ConditionId, EMPTY_STATS, TokenStats } from "./conditions";
 import { AttackKind, DiceVisibility, MAX_ATTACK_LABEL, Verdict } from "./dice";
@@ -209,8 +210,17 @@ export const Command = z.discriminatedUnion("type", [
         label: z.string().trim().max(MAX_ATTACK_LABEL).optional(),
         /** To hit (the GM rules on it) or damage (the GM applies it) (ADR 0011). */
         kind: AttackKind.default("toHit"),
+        /** How the strike is drawn; changes nothing about the roll (ADR 0038). */
+        style: AttackStyle.optional(),
       })
       .optional(),
+  }),
+  /** GM only: damage every token with HP and play a map-wide blast (ADR 0038). */
+  z.object({
+    type: z.literal("nuke.detonate"),
+    amount: z.number().int().min(1).max(MAX_NUKE_DAMAGE),
+    origin: Point,
+    animation: NukeAnimationDef.optional(),
   }),
   /** GM only: mark a to-hit attack roll Hit or Miss, or clear the ruling with null (ADR 0011). */
   z.object({
