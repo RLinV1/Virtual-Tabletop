@@ -14,6 +14,7 @@ import {
   type LibraryAsset,
   type LibraryUsageResponse,
 } from "@vtt/shared";
+import { registerAnimationRoutes } from "./animations";
 import { registerCreatureRoutes } from "./creatures";
 import type { AssetStore } from "../store/assetStore";
 import type { LibraryAssetRecord } from "../store/libraryStore";
@@ -195,6 +196,7 @@ export function registerLibraryRoutes(
   });
 
   registerCreatureRoutes(app, { store, withGm });
+  registerAnimationRoutes(app, { store, withGm });
 
   /** Answers 401 before a large body is read: only a signed-in caller may make the server buffer 1 MB. */
   function signedInOnly(req: Request, res: Response, next: () => void) {

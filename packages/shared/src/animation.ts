@@ -45,3 +45,20 @@ export const NukeAnimationDef = AnimationDef.refine((a) => a.shape === "nuke", {
 export const MAX_NUKE_DAMAGE = 999;
 
 export const AnimationName = z.string().trim().min(1).max(MAX_ANIMATION_NAME);
+
+/** A saved animation as the library API returns it (ADR 0038). The owner stays on the server. */
+export interface LibraryAnimation {
+  id: string;
+  name: string;
+  def: AnimationDef;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const CreateAnimationRequest = z.object({ name: AnimationName, def: AnimationDef });
+export type CreateAnimationRequest = z.infer<typeof CreateAnimationRequest>;
+
+export const UpdateAnimationRequest = z
+  .object({ name: AnimationName.optional(), def: AnimationDef.optional() })
+  .refine((p) => p.name !== undefined || p.def !== undefined, { message: "Nothing to change" });
+export type UpdateAnimationRequest = z.infer<typeof UpdateAnimationRequest>;
