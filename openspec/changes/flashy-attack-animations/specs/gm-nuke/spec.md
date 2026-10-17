@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: GM detonates a map-wide nuke
-The GM SHALL be able to detonate a nuke from the board, choosing a damage amount (a whole number from 1 to 999) and an epicenter on the map (default: the centre of the map). The server SHALL accept the command from the GM only. Accepting it SHALL reduce the HP of every token in the room that has HP by the amount, never below the HP floor, and SHALL leave tokens without HP unchanged. Hidden tokens SHALL take the damage too. Each HP change SHALL be a `TokenStatsSet` carrying the stats it replaced, followed by one `MapNuked` event carrying the amount and epicenter. The command SHALL be refused while the room's presets turn attacks off.
+The GM SHALL be able to detonate a nuke from the board, choosing a damage amount (a whole number from 1 to 999) and an epicenter on the map (default: the centre of the map). The server SHALL accept the command from the GM only. Accepting it SHALL reduce the HP of every token in the room that has HP by the amount, never below the HP floor, and SHALL leave tokens without HP unchanged. Hidden tokens SHALL take the damage too. Each HP change SHALL be a `TokenStatsSet` carrying the stats it replaced, followed by one `MapNuked` event carrying the amount, the epicenter and the optional blast animation. The command SHALL be refused while the room's presets turn attacks off.
 
 #### Scenario: Everyone takes damage
 - **WHEN** the GM detonates a nuke of 12 damage in a room with Aria (HP 30), Goblin (HP 5), a hidden Ogre (HP 40) and a signpost token with no HP
