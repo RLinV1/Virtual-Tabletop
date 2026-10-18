@@ -1,3 +1,5 @@
+import { GridFour, TextAa, Trash, X } from "@phosphor-icons/react";
+import { IconAction } from "../ui/IconAction";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_GRID, normalizeLegacyGridForBoard, type AssetKind, type EncounterSummary, type LibraryAsset, type LibraryCreature } from "@vtt/shared";
 import { Link } from "../Link";
@@ -10,6 +12,7 @@ import { RequireAccount } from "../account/RequireAccount";
 import { GridForm } from "./GridForm";
 import { HudLayout } from "./mapEditor/HudLayout";
 import { LibraryMapEditor } from "./mapEditor/LibraryMapEditor";
+import { AnimationsTab } from "./LibraryAnimations";
 import { CreatureCard, CreatureForm } from "./LibraryCreatures";
 import { EncounterCard } from "./LibraryEncounters";
 import { LibraryPicker } from "./LibraryPicker";
@@ -23,13 +26,14 @@ import { useGridDetection } from "./useGridDetection";
  * Maps and token art are uploaded assets; creatures are reusable token setups (library-creatures);
  * dice are your dice looks, kept in this browser (dice-image-skins).
  */
-type Tab = AssetKind | "creature" | "encounter" | "dice";
+type Tab = AssetKind | "creature" | "encounter" | "animation" | "dice";
 
 const TABS: { tab: Tab; label: string }[] = [
   { tab: "map", label: "Maps" },
   { tab: "token", label: "Token Art" },
   { tab: "creature", label: "Creatures" },
   { tab: "encounter", label: "Encounters" },
+  { tab: "animation", label: "Animations" },
   { tab: "dice", label: "Dice" },
 ];
 
@@ -141,7 +145,7 @@ function Library() {
     return (assets ?? []).filter((a) => a.kind === kind && (!q || a.name.toLowerCase().includes(q)));
   }, [assets, kind, query]);
 
-  const builtins = useMemo(() => (tab === "creature" || tab === "encounter" || tab === "dice" || kind === "map" ? [] : builtinsMatching(kind, query)), [tab, kind, query]);
+  const builtins = useMemo(() => (tab === "creature" || tab === "encounter" || tab === "animation" || tab === "dice" || kind === "map" ? [] : builtinsMatching(kind, query)), [tab, kind, query]);
 
   const shownCreatures = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -203,7 +207,7 @@ function Library() {
           <button type="button" disabled={startingEncounter} onClick={() => setPickingEncounterMap(true)}>
             {startingEncounter ? "Opening…" : "New encounter"}
           </button>
-        ) : (
+        ) : tab === "animation" ? null : (
           <UploadButton
             kind={kind}
             onUploaded={(a) => {
@@ -220,6 +224,8 @@ function Library() {
           <SaveBrowserLooksOffer />
           <DiceLookCards query={query} onEdit={setDiceTarget} />
         </>
+      ) : tab === "animation" ? (
+        <AnimationsTab query={query} onError={setError} />
       ) : tab === "encounter" ? (
         <>
           {!encounters && !error && <p className="muted" aria-busy="true">Loading…</p>}
@@ -529,22 +535,15 @@ function AssetCard(props: {
         </div>
       ) : (
         <div className="row asset-actions">
-          <button type="button" className="link" onClick={() => setEditing(!editing)}>
-            {editing ? "Cancel" : "Rename"}
-          </button>
-          {asset.kind === "map" && (
-            <button type="button" className="link" onClick={props.onEditGrid}>
-              Edit grid
-            </button>
-          )}
-          <button
-            type="button"
-            className="link danger"
+          <IconAction icon={editing ? <X size={16} aria-hidden="true" /> : <TextAa size={16} aria-hidden="true" />} label={editing ? "Cancel" : "Rename"} onClick={() => setEditing(!editing)} />
+          {asset.kind === "map" && <IconAction icon={<GridFour size={16} aria-hidden="true" />} label="Edit grid" onClick={props.onEditGrid} />}
+          <IconAction
+            icon={<Trash size={16} aria-hidden="true" />}
+            label={del.step === "checking" ? "Checking…" : del.step === "deleting" ? "Deleting…" : "Delete"}
+            danger
             disabled={del.step !== "idle"}
             onClick={() => void startDelete()}
-          >
-            {del.step === "checking" ? "Checking…" : del.step === "deleting" ? "Deleting…" : "Delete"}
-          </button>
+          />
         </div>
       )}
     </li>

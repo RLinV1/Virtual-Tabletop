@@ -5,6 +5,7 @@ import {
   ReplayPointsResponse,
   ReplayResponse,
   type AssetKind,
+  type CreateAnimationRequest,
   type CreateCreatureRequest,
   type DiceLookView,
   type DiceLooksResponse,
@@ -22,6 +23,7 @@ import {
   type InviteSeatResponse,
   type LegacySummary,
   type LibraryAsset,
+  type LibraryAnimation,
   type LibraryCreature,
   type LibraryUsageResponse,
   type MeResponse,
@@ -33,6 +35,7 @@ import {
   type SignUpRequest,
   type StartEncounterEditRequest,
   type StartEncounterEditResponse,
+  type UpdateAnimationRequest,
   type UpdateCreatureRequest,
 } from "@vtt/shared";
 import type {
@@ -373,6 +376,17 @@ export const api = {
         accountRequest<LibraryCreature>(`/api/library/creatures/${encodeURIComponent(id)}`, { method: "PATCH", ...jsonBody(patch) }),
       remove: (id: string) =>
         accountRequest<void>(`/api/library/creatures/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    },
+
+    /** The GM's board animations for attacks and nukes (ADR 0038). */
+    animations: {
+      list: () => accountRequest<LibraryAnimation[]>("/api/library/animations"),
+      create: (animation: CreateAnimationRequest) =>
+        accountRequest<LibraryAnimation>("/api/library/animations", { method: "POST", ...jsonBody(animation) }),
+      update: (id: string, patch: UpdateAnimationRequest) =>
+        accountRequest<LibraryAnimation>(`/api/library/animations/${encodeURIComponent(id)}`, { method: "PATCH", ...jsonBody(patch) }),
+      remove: (id: string) =>
+        accountRequest<void>(`/api/library/animations/${encodeURIComponent(id)}`, { method: "DELETE" }),
     },
 
     /** Encounter templates: a room's prepared board saved to the account (encounter-templates, ADR 0024). */

@@ -15,6 +15,8 @@ interface Camera {
   /** Multiple of the fit-to-map scale. */
   zoom: number;
 }
+/** How far past fit the map may be zoomed out, so all of it can be seen with room around it. */
+const MIN_ZOOM = 0.5;
 const FIT: Camera = { cx: Number.NaN, cy: Number.NaN, zoom: 1 };
 interface Pinch { distance: number; zoom: number; point: Point }
 const midpoint = (a: Point, b: Point): Point => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
@@ -102,7 +104,7 @@ export function MapGridPreview({ map, grid, onChange, onPreviewChange, previewEn
     ? Math.min(viewport.width / map.width, viewport.height / map.height) : 1;
   const maxZoom = Math.max(1, MAX_SCALE / fitScale);
   const clamp = (next: Camera): Camera => {
-    const zoom = Math.min(maxZoom, Math.max(1, next.zoom));
+    const zoom = Math.min(maxZoom, Math.max(MIN_ZOOM, next.zoom));
     const scale = fitScale * zoom;
     const halfW = viewport.width / scale / 2;
     const halfH = viewport.height / scale / 2;
@@ -123,7 +125,7 @@ export function MapGridPreview({ map, grid, onChange, onPreviewChange, previewEn
       const fromScale = fitScale * from.zoom;
       const px = from.cx - viewport.width / fromScale / 2 + sx / fromScale;
       const py = from.cy - viewport.height / fromScale / 2 + sy / fromScale;
-      const zoom = Math.min(maxZoom, Math.max(1, from.zoom * factor));
+      const zoom = Math.min(maxZoom, Math.max(MIN_ZOOM, from.zoom * factor));
       const toScale = fitScale * zoom;
       return clamp({ zoom, cx: px - sx / toScale + viewport.width / toScale / 2,
         cy: py - sy / toScale + viewport.height / toScale / 2 });
@@ -275,7 +277,7 @@ export function MapGridPreview({ map, grid, onChange, onPreviewChange, previewEn
     if (firstTouch && secondTouch && startPinch) {
       const mid = midpoint(firstTouch.current, secondTouch.current);
       const rect = e.currentTarget.getBoundingClientRect();
-      const zoom = Math.min(maxZoom, Math.max(1,
+      const zoom = Math.min(maxZoom, Math.max(MIN_ZOOM,
         startPinch.zoom * distance(firstTouch.current, secondTouch.current) / startPinch.distance));
       const nextScale = fitScale * zoom;
       setCamera(clamp({ zoom,
@@ -452,7 +454,7 @@ export function MapGridPreview({ map, grid, onChange, onPreviewChange, previewEn
           ))}
         </div>
         <div className="map-grid-zoom" role="group" aria-label="Zoom">
-          <button type="button" className="secondary" aria-label="Zoom out" disabled={view.zoom <= 1}
+          <button type="button" className="secondary" aria-label="Zoom out" disabled={view.zoom <= MIN_ZOOM}
             onClick={() => zoomAt(1 / BUTTON_STEP)}><MagnifyingGlassMinus size={18} aria-hidden="true" /></button>
           <span className="map-grid-zoom-level">{Math.round(scale * 100)}%</span>
           <button type="button" className="secondary" aria-label="Zoom in" disabled={view.zoom >= maxZoom}

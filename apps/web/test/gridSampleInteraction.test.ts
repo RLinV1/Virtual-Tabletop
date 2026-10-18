@@ -67,12 +67,14 @@ describe("two-click anchors", () => {
     expect(place(selectedB, a)).toEqual({ placement: selectedB, invalid: true });
   });
 
-  it("reinterprets the same sample bounds on count changes and rejects an invalid count", () => {
+  it("keeps the cell size on count changes by resizing the sample, and rejects a count that would leave the map", () => {
+    const before = "sample" in placed ? placed.sample : null;
     const result = transitionPlacement(placed, { type: "count", count: 5 }, 3, DEFAULT_GRID, map);
-    expect(result.grid?.cellSize).toBe(42.075);
-    expect("sample" in placed && "sample" in result.placement && result.placement.sample.corner).toEqual("sample" in placed && placed.sample.corner);
-    const tiny = place(place(EMPTY_PLACEMENT, { x: 0, y: 0 }, 1).placement, { x: 0.1, y: 0.1 }, 1).placement;
-    expect(transitionPlacement(tiny, { type: "count", count: 5 }, 1, DEFAULT_GRID, map)).toEqual({ placement: tiny, invalid: true });
+    expect(result.grid?.cellSize).toBeCloseTo(70.125);
+    expect("sample" in result.placement && result.placement.sample.anchor).toEqual(before?.anchor);
+    expect("sample" in result.placement && result.placement.sample.count).toBe(5);
+    const nearEdge = place(place(EMPTY_PLACEMENT, { x: map.width - 20, y: map.height - 20 }, 1).placement, { x: map.width, y: map.height }, 1).placement;
+    expect(transitionPlacement(nearEdge, { type: "count", count: 5 }, 1, DEFAULT_GRID, map)).toEqual({ placement: nearEdge, invalid: true });
   });
 
   it("adjusts A by image pixels and B by side length along either axis", () => {

@@ -1,4 +1,4 @@
-import type { LibraryMapBoard, AssetKind, EncounterTemplateData, AttackPreset, ConditionId, DieName, GmRoomSummary, GridSpec, LegacySummary } from "@vtt/shared";
+import type { AnimationDef, LibraryMapBoard, AssetKind, EncounterTemplateData, AttackPreset, ConditionId, DieName, GmRoomSummary, GridSpec, LegacySummary } from "@vtt/shared";
 import type { DetectionState } from "./gridDetectionStore";
 
 /** A stored library asset (ADR 0004). `objectKey` is the AssetStore key; it never leaves the server. */
@@ -88,6 +88,23 @@ export class EncounterMapMissingError extends Error {
 export class EncounterLimitError extends Error {
   constructor(readonly limit: number) {
     super(`You can keep at most ${limit} encounter templates`);
+  }
+}
+
+/** A GM's saved animation (ADR 0038). `def` is parsed with `AnimationDef` on every write. */
+export interface LibraryAnimationRecord {
+  id: string;
+  ownerGmId: string;
+  name: string;
+  def: AnimationDef;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** The owner already holds the most animations they may (ADR 0038). */
+export class AnimationLimitError extends Error {
+  constructor(readonly limit: number) {
+    super(`You can keep at most ${limit} animations`);
   }
 }
 
@@ -182,6 +199,15 @@ export interface LibraryStore {
   deleteEncounter(id: string, ownerGmId: string): Promise<boolean>;
   /** The owner's templates whose map is this asset, for the delete warning. */
   encountersUsingMap(assetId: string, ownerGmId: string): Promise<{ id: string; name: string }[]>;
+
+  /** The owner's animations, newest first (ADR 0038). Every read and write is scoped to its owner. */
+  listAnimations(ownerGmId: string): Promise<LibraryAnimationRecord[]>;
+  findAnimation(id: string, ownerGmId: string): Promise<LibraryAnimationRecord | null>;
+  /** Throws `AnimationLimitError` when the owner already holds `maxPerOwner`; count and insert are one step. */
+  createAnimation(animation: LibraryAnimationRecord, maxPerOwner: number): Promise<LibraryAnimationRecord>;
+  /** Null when the owner has no such animation. */
+  updateAnimation(id: string, ownerGmId: string, patch: { name?: string; def?: AnimationDef }, at: string): Promise<LibraryAnimationRecord | null>;
+  deleteAnimation(id: string, ownerGmId: string): Promise<boolean>;
 
   /** What an owner row owns, for the legacy-move offer (ADR 0017 O2). */
   ownedCounts(ownerGmId: string): Promise<LegacySummary>;

@@ -51,6 +51,8 @@ interface Props {
   /** Stable key for the remembered collapse state, e.g. "dice". */
   id: string;
   title: ReactNode;
+  /** Controls at the right of the heading, e.g. Create group. */
+  actions?: ReactNode;
   children: ReactNode;
 }
 
@@ -61,25 +63,28 @@ interface Props {
  * survives a collapse; `hidden` also takes it out of the tab order and the
  * accessibility tree.
  */
-export function PanelSection({ id, title, children }: Props) {
+export function PanelSection({ id, title, actions, children }: Props) {
   const { isCollapsed, toggle } = useContext(SectionCollapseContext);
   const bodyId = `${useId()}-body`;
   const collapsed = isCollapsed(id);
 
   return (
     <section className="panel-section" data-tour={id}>
-      <h2 className="panel-section-heading">
-        <button
-          type="button"
-          className="section-toggle"
-          aria-expanded={!collapsed}
-          aria-controls={bodyId}
-          onClick={() => toggle(id)}
-        >
-          <span className="chevron" aria-hidden />
-          <span className="section-title">{title}</span>
-        </button>
-      </h2>
+      <div className={actions ? "panel-section-head with-actions" : undefined}>
+        <h2 className="panel-section-heading">
+          <button
+            type="button"
+            className="section-toggle"
+            aria-expanded={!collapsed}
+            aria-controls={bodyId}
+            onClick={() => toggle(id)}
+          >
+            <span className="chevron" aria-hidden />
+            <span className="section-title">{title}</span>
+          </button>
+        </h2>
+        {actions}
+      </div>
       <div id={bodyId} className="panel-section-body" hidden={collapsed}>
         {children}
       </div>

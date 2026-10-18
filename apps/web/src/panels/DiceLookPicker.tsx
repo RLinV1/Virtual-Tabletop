@@ -1,3 +1,4 @@
+import { PaintBrush } from "@phosphor-icons/react";
 import { useAccount } from "../account/accountStore";
 import { signInFor } from "../account/safeNext";
 import { loadCredentials } from "../net/identity";
@@ -31,8 +32,9 @@ export function DiceLookPicker({ roomId }: { roomId: string }) {
             </option>
           ))}
         </select>
-        <a href="/library?tab=dice" target="_blank" rel="noopener" className="dice-look-edit">
-          {looks.length > 0 ? "Edit looks" : "Make a look"}
+        <a href="/library?tab=dice" target="_blank" rel="noopener" className="icon-button dice-look-edit"
+          aria-label={looks.length > 0 ? "Edit looks" : "Make a look"} title={looks.length > 0 ? "Edit looks" : "Make a look"}>
+          <PaintBrush size={18} aria-hidden="true" />
         </a>
       </div>
       <p className="muted small-print">

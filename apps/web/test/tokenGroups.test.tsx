@@ -58,17 +58,17 @@ describe("the GM's grouped roster (KAN-82)", () => {
     <TokenRoster connection={connection} state={room()} you={you} token="t" onFocusToken={() => {}} onPlaceToken={() => {}} onDuplicateToken={() => {}} />,
   );
 
-  it("shows group headings with Hide all, Show all, Rename, Delete, collapse and a New group form", () => {
+  it("shows group headings with Add tokens, one Hide/Show all button, Rename, Delete, collapse and a New group form", () => {
     const html = render(gm);
     const t = text(html);
     expect(t.indexOf("Gate guards")).toBeLessThan(t.indexOf("Back room"));
     expect(t.indexOf("Back room")).toBeLessThan(t.indexOf("Ungrouped"));
-    for (const label of ["Hide all of Gate guards", "Show all of Gate guards", "Rename Gate guards", "Delete group Gate guards"]) {
+    for (const label of ["Add tokens to Gate guards", "Hide all of Gate guards", "Rename Gate guards", "Delete group Gate guards"]) {
       expect(html).toContain(`aria-label="${label}"`);
     }
     expect(html).toContain('aria-expanded="true"');
     expect(t).toContain("No tokens in this group yet");
-    expect(t).toContain("Add group");
+    expect(html).toContain(`aria-label="Create group"`);
   });
 
   it("gives players one flat list with no group names", () => {
@@ -77,7 +77,7 @@ describe("the GM's grouped roster (KAN-82)", () => {
       <TokenRoster connection={connection} state={state} you={alice} token="t" onFocusToken={() => {}} onPlaceToken={() => {}} onDuplicateToken={() => {}} />,
     );
     expect(html).not.toContain("Ungrouped");
-    expect(html).not.toContain("Add group");
+    expect(html).not.toContain("Create group");
   });
 });
 
@@ -103,7 +103,7 @@ describe("token editor: group and duplicate (KAN-82)", () => {
     expect(html).toMatch(/<option value="gate" selected="">Gate guards<\/option>/);
     expect(text(html)).toContain("Duplicate");
     expect(text(html)).not.toContain("Copies");
-    expect(text(html)).toContain("Click squares on the board to place copies.");
+    expect(html).toContain("Click squares on the board to place copies.");
   });
 
   it("offers a player neither", () => {

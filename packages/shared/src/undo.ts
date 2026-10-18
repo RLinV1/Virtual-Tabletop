@@ -27,6 +27,7 @@ export const REVERSIBLE_EVENT_TYPES = [
   "TokenStatsSet",
   "RollRuled",
   "RollDamageApplied",
+  "MapNuked",
   "FogAdded",
   "FogRemoved",
   "WallsAdded",
@@ -164,7 +165,7 @@ export function undoableAction(history: readonly UndoEntry[], commandId: string)
 function canUndo(entry: UndoEntry): boolean {
   if (!entry.undoable || entry.events.length === 0) return false;
   const statsEdit = entry.events.some((e) => e.type === "TokenStatsSet");
-  return !statsEdit || entry.events.some((e) => e.type === "RollDamageApplied");
+  return !statsEdit || entry.events.some((e) => e.type === "RollDamageApplied" || e.type === "MapNuked");
 }
 
 /** The compensating events that restore what `event` replaced (invariant 6), in order. */
@@ -224,6 +225,8 @@ function inverseOfOne(event: SingleInverse): DomainEvent {
       return { type: "RollRuled", rollId: event.rollId, verdict: event.previous, previous: event.verdict };
     case "RollDamageApplied":
       return { type: "RollDamageUnapplied", rollId: event.rollId, amount: event.amount };
+    case "MapNuked":
+      return { type: "MapNukeUndone", amount: event.amount, origin: event.origin, ...(event.animation && { animation: event.animation }) };
     case "FogAdded":
       return { type: "FogRemoved", region: event.region };
     case "FogRemoved":
@@ -315,6 +318,8 @@ export function undoConflict(state: RoomState, entry: UndoEntry): string | null 
       if (state.fog[event.region.id]) return "Can't undo: that fog is already back.";
       continue;
     }
+    // The blast has no value of its own to compare: the stats changes in the same action are checked.
+    if (event.type === "MapNuked") continue;
     if (!("tokenId" in event)) {
       // Rulings and applications only exist on rolls still in the state window (ADR 0011).
       const roll = state.rolls.find((r) => r.id === event.rollId);
@@ -462,8 +467,12 @@ export function describeUndo(entry: UndoEntry, tokens: RoomState["tokens"]): { v
   if (applied) {
     return { verb: `damage ${rollOf(applied.rollId)}`, noun: `the ${applied.amount} damage applied from ${rollOf(applied.rollId)}` };
   }
+  const nuked = entry.events.find((e) => e.type === "MapNuked");
+  if (nuked) return { verb: `nuke (${nuked.amount})`, noun: `the nuke for ${nuked.amount} damage` };
   const first = entry.events[0];
   if (!first) return { verb: "last action", noun: "an action" };
+  // Unreachable once `nuked` is handled; narrows `first` for the token cases below.
+  if (first.type === "MapNuked") return { verb: "nuke", noun: "the nuke" };
   if (first.type === "CheckpointRestored") {
     return { verb: `restore of "${first.name}"`, noun: `restoring checkpoint "${first.name}"` };
   }
