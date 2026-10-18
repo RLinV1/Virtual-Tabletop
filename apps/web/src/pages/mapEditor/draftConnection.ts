@@ -4,7 +4,7 @@ import type { CommandResult, EditorConnection, RoomConnection, RoomSnapshot } fr
 import { applyToDraft, draftCommandProblem, DRAFT_ID, withDetectedWalls, type MapDraft } from "./mapDraft";
 
 /** The commands the draft holds; `applyToDraft` handles each. */
-const DRAFT_COMMANDS = new Set<CommandInput["type"]>(["wall.add", "wall.remove", "wall.clear", "portal.set", "fog.add", "fog.remove"]);
+const DRAFT_COMMANDS = new Set<CommandInput["type"]>(["wall.add", "wall.remove", "wall.clear", "portal.set", "fog.add", "fog.remove", "fog.replace"]);
 
 /**
  * The room connection as the map editor's Walls and Fog steps see it (map-editor-drafts): wall and

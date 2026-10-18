@@ -164,6 +164,7 @@ export function presetSummary(preset: AttackPreset): string {
     parts.push(count === 1 && sides === 20 ? (modifier < 0 ? `${modifier}` : `+${modifier}`) : attackExpression(preset.toHit));
   }
   if (preset.damage) parts.push(attackExpression(preset.damage));
+  if (preset.maxTargets !== undefined) parts.push(`up to ${preset.maxTargets} targets`);
   return parts.join(" · ");
 }
 

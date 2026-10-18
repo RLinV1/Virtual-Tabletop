@@ -21,29 +21,43 @@ const state: RoomState = {
   },
 };
 
-function renderPanel() {
+function renderPanel(room = state, you = gm, rolling = false) {
   const command = vi.fn(async (_command: unknown) => ({ ok: true as const, seq: null }));
   const connection = { command, ephemeral: vi.fn(), snapshot: { seq: 0, state: null } } as unknown as RoomConnection;
   render(
     <AttackPanel
-      connection={connection} state={state} you={gm} pick={{ attackerId: "a", targetId: "b" }} onPick={() => {}}
-      reset={{ count: 0, clearedRollId: null }} airborne={new Set()} rolling={false} onLanded={() => {}}
+      connection={connection} state={room} you={you} pick={{ attackerId: "a", targetId: "b" }} onPick={() => {}}
+      reset={{ count: 0, clearedRollId: null }} rolling={rolling}
       onPickOnBoard={() => {}} onShowPing={() => {}} visibility="public" onVisibility={() => {}}
     />,
   );
   return command;
 }
 
-describe("Attack style picker (FR-TAC-09, ADR 0038)", () => {
-  it("offers melee, ranged and magic with none selected", () => {
-    renderPanel();
-    const group = screen.getByRole("group", { name: "Attack style" });
-    const buttons = Array.from(group.querySelectorAll("button"));
-    expect(buttons.map((b) => b.textContent)).toEqual(["Melee", "Ranged", "Magic"]);
-    expect(buttons.every((b) => b.getAttribute("aria-pressed") === "false")).toBe(true);
+describe("Automatic attack style (FR-TAC-09, ADR 0038)", () => {
+  it.each(["gm", "player"] as const)("offers a d20 fallback for a %s with no saved attacks", async (role) => {
+    window.localStorage.clear();
+    const you: Participant = { id: "viewer", role, displayName: role };
+    const room = { ...state, tokens: { a: token("a", { ownerIds: [you.id] }), b: token("b") } };
+    const command = renderPanel(room, you);
+    fireEvent.click(screen.getByRole("button", { name: "Roll to hit" }));
+    await waitFor(() => expect(command).toHaveBeenCalledWith({
+      type: "dice.roll", expression: "1d20", visibility: "public",
+      attack: { actorTokenId: "a", targetTokenId: "b", kind: "toHit" },
+    }));
   });
 
-  it("sends no style when none is chosen", async () => {
+  it("does not allow the fallback while dice are still rolling", () => {
+    window.localStorage.clear();
+    renderPanel({ ...state, tokens: { a: token("a"), b: token("b") } }, gm, true);
+    expect((screen.getByRole("button", { name: "Roll to hit" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+  it("leaves style selection out of the attack panel", () => {
+    renderPanel();
+    expect(screen.queryByRole("group", { name: "Attack style" })).toBeNull();
+  });
+
+  it("leaves named attack rolls to their saved animation or automatic style", async () => {
     const command = renderPanel();
     fireEvent.click(screen.getByRole("button", { name: /Roll Slash/ }));
     await waitFor(() => expect(command).toHaveBeenCalled());
@@ -51,11 +65,4 @@ describe("Attack style picker (FR-TAC-09, ADR 0038)", () => {
     expect(sent.attack).not.toHaveProperty("style");
   });
 
-  it("sends the chosen style on the roll", async () => {
-    const command = renderPanel();
-    fireEvent.click(screen.getByRole("button", { name: "Magic" }));
-    fireEvent.click(screen.getByRole("button", { name: /Roll Slash/ }));
-    await waitFor(() => expect(command).toHaveBeenCalled());
-    expect(command.mock.calls[0]![0]).toMatchObject({ type: "dice.roll", attack: { actorTokenId: "a", targetTokenId: "b", style: "magic" } });
-  });
 });

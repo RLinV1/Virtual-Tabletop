@@ -1,5 +1,6 @@
-import type { AnimationDef, AttackStyle, ConditionId, DiceRoll, DomainEvent, Participant, Point, RoomState } from "@vtt/shared";
-import { ATTACK_STYLE_PRESETS, NUKE_PRESET } from "./effectPresets";
+import type { AnimationDef, ConditionId, DiceRoll, DomainEvent, Participant, Point, RoomState } from "@vtt/shared";
+import { ATTACK_STYLE_PRESETS, NUKE_PRESET, SHAPE_DEFAULTS } from "./effectPresets";
+import { getClientSettings } from "../ui/clientSettings";
 
 /**
  * What the board draws for attacks and conditions (KAN-76). Pure: no Pixi, no DOM beyond
@@ -62,6 +63,15 @@ export function attackEffectFor(event: DomainEvent, after: RoomState, viewer: Pa
 /** A target this close (grid cells) is struck in melee when the roll names no style. */
 export const MELEE_REACH_CELLS = 1.5;
 
+export const RANGED_ATTACK_SHAPES = ["projectile", "volley", "dagger", "fireball", "bolt", "beam"] as const;
+
+/** Unique roll ids vary the default while every viewer chooses the same travelling effect. */
+export function rangedAnimationFor(rollId: string): AnimationDef {
+  let hash = 2166136261;
+  for (let i = 0; i < rollId.length; i++) hash = Math.imul(hash ^ rollId.charCodeAt(i), 16777619);
+  return SHAPE_DEFAULTS[RANGED_ATTACK_SHAPES[(hash >>> 0) % RANGED_ATTACK_SHAPES.length]!];
+}
+
 /** The roll's own animation, else its style's built-in, else melee or ranged by distance (design Decision 14). */
 export function strikeAnimation(roll: DiceRoll, state: RoomState): AnimationDef {
   const attack = roll.attack;
@@ -71,8 +81,7 @@ export function strikeAnimation(roll: DiceRoll, state: RoomState): AnimationDef 
   const to = attack?.target ? state.tokens[attack.target.tokenId] : undefined;
   if (!from || !to) return ATTACK_STYLE_PRESETS.melee;
   const cells = Math.hypot(to.position.x - from.position.x, to.position.y - from.position.y) / Math.max(1, state.scene.grid.cellSize);
-  const style: AttackStyle = cells <= MELEE_REACH_CELLS ? "melee" : "ranged";
-  return ATTACK_STYLE_PRESETS[style];
+  return cells <= MELEE_REACH_CELLS ? ATTACK_STYLE_PRESETS.melee : rangedAnimationFor(roll.id);
 }
 
 /**
@@ -112,12 +121,16 @@ export interface AttackPlan {
  * How long an effect lasts and whether it moves. Strikes and nukes last as long as their
  * animation says; the rest are over in 1.5 s or less.
  */
+/** The nuke's damage numbers start 0.25 s in and play for 1.4 s, so the effect must outlast them. */
+const NUKE_NUMBERS_MS = 1650;
+
 export function attackPlan(effect: AttackEffect, reducedMotion: boolean): AttackPlan {
   if (reducedMotion) return { motion: false, durationMs: effect.kind === "damage" || effect.kind === "nuke" ? 1000 : 600 };
   switch (effect.kind) {
     case "strike":
-    case "nuke":
       return { motion: true, durationMs: Math.round(effect.animation.duration * 1000) };
+    case "nuke":
+      return { motion: true, durationMs: Math.max(NUKE_NUMBERS_MS, Math.round(effect.animation.duration * 1000)) };
     case "damage": return { motion: true, durationMs: 1500 };
     default: return { motion: true, durationMs: 900 };
   }
@@ -141,7 +154,7 @@ export function prefersReducedMotion(): boolean {
  * reduced animations on for the whole table (`RoomState.reducedEffects`).
  */
 export function effectiveReducedMotion(state: Pick<RoomState, "reducedEffects">, osPrefers: boolean = prefersReducedMotion()): boolean {
-  return osPrefers || (state.reducedEffects ?? false);
+  return osPrefers || getClientSettings().reducedAnimations || (state.reducedEffects ?? false);
 }
 
 /** Calls `listener` whenever the preference changes; returns the unsubscribe. */

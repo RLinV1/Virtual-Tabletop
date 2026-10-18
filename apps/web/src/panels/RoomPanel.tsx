@@ -151,8 +151,6 @@ interface Props {
   rollThrow: RollThrow;
   onPickOnBoard: (attackerId: string) => void;
   onShowPing: (at: Point) => void;
-  /** GM: let the GM click one map point (the nuke's epicenter); resolves null if cancelled. */
-  onPickPoint?: () => Promise<Point | null>;
   /** The board, for dice thrown onto it from the Dice panel (throw-dice-on-board). */
   diceBoard?: DiceBoard;
   attackVisibility: DiceVisibility;
@@ -188,7 +186,7 @@ interface Props {
  */
 export function RoomPanel({
   connection, state, you, token, onFocusToken, onPlaceToken, onDuplicateToken,
-  attackPick, onAttackPick, attackReset, rollThrow, onPickOnBoard, onShowPing, onPickPoint, diceBoard, attackVisibility, onAttackVisibility,
+  attackPick, onAttackPick, attackReset, rollThrow, onPickOnBoard, onShowPing, diceBoard, attackVisibility, onAttackVisibility,
   gridDraft, hasGridDraft, onGridDraftChange, onGridDraftCancel, onGridApply, gridApplying, gridError,
   compact, tab, onTab, onReviewDeparture, tabBadges, readOnly, features: roomFeatures = FULL_ROOM,
 }: Props) {
@@ -217,9 +215,7 @@ export function RoomPanel({
           pick={attackPick}
           onPick={onAttackPick}
           reset={attackReset}
-          airborne={rollThrow.airborne}
           rolling={rollThrow.rolling}
-          onLanded={rollThrow.onLanded}
           onPickOnBoard={onPickOnBoard}
           onShowPing={onShowPing}
           visibility={attackVisibility}
@@ -245,7 +241,6 @@ export function RoomPanel({
         gridApplying={gridApplying}
         gridError={gridError}
         features={roomFeatures}
-        onPickPoint={onPickPoint}
       />
     ) : null,
   };

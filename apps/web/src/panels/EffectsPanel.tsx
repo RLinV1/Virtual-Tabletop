@@ -7,7 +7,7 @@ import type { RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
 import { PanelSection } from "../ui/PanelSection";
 
-/** The map's middle: where a nuke goes off unless the GM clicks somewhere else. */
+/** The persisted map origin. Each viewer renders the blast at their own screen centre. */
 export function mapCentre(state: Pick<RoomState, "scene">): Point {
   const size = state.scene.map ?? DEFAULT_BOARD_SIZE;
   return { x: Math.round(size.width / 2), y: Math.round(size.height / 2) };
@@ -24,19 +24,14 @@ const BUILTIN = "builtin";
 export function EffectsPanel({
   connection,
   state,
-  onPickPoint,
 }: {
   connection: RoomConnection;
   state: RoomState;
-  /** Lets the GM click a map point; resolves null when cancelled. Absent: the centre only. */
-  onPickPoint?: () => Promise<Point | null>;
 }) {
   const nukeAllowed = presetOf(state).features.attacks;
   const signedIn = useAccount().status === "signedIn";
   const [library, setLibrary] = useState<LibraryAnimation[]>([]);
   const [amount, setAmount] = useState("10");
-  const [origin, setOrigin] = useState<Point | null>(null);
-  const [picking, setPicking] = useState(false);
   const [animationId, setAnimationId] = useState(BUILTIN);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -65,21 +60,13 @@ export function EffectsPanel({
 
   const amountValue = Number(amount);
   const amountValid = Number.isInteger(amountValue) && amountValue >= 1 && amountValue <= MAX_NUKE_DAMAGE;
-  const epicenter = origin ?? mapCentre(state);
+  // Every board draws the blast in the middle of its own screen; the damage hits every token.
+  const epicenter = mapCentre(state);
   const chosen = library.find((a) => a.id === animationId);
 
   const setReduced = async (enabled: boolean) => {
     const result = await connection.command({ type: "room.setReducedEffects", enabled });
     setError(result.ok ? null : result.message);
-  };
-
-  const pick = async () => {
-    if (!onPickPoint || picking) return;
-    setPicking(true);
-    const at = await onPickPoint();
-    if (!live.current) return;
-    setPicking(false);
-    if (at) setOrigin({ x: Math.round(at.x), y: Math.round(at.y) });
   };
 
   const ask = (e: FormEvent) => {
@@ -96,6 +83,7 @@ export function EffectsPanel({
       origin: epicenter,
       ...(chosen && { animation: chosen.def }),
     });
+    if (!live.current) return;
     setBusy(false);
     setConfirming(false);
     setError(result.ok ? null : result.message);
@@ -105,17 +93,6 @@ export function EffectsPanel({
   return (
     <PanelSection id="gm-effects" title="Table effects">
       <div className="stack">
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            role="switch"
-            checked={state.reducedEffects ?? false}
-            onChange={(e) => void setReduced(e.target.checked)}
-          />
-          Reduced animations
-        </label>
-        <p className="muted small-print">Everyone at the table sees still markers instead of moving effects.</p>
-
         {nukeAllowed && (
           <form className="stack nuke-form" onSubmit={ask} aria-label="Map nuke">
             <h3 className="field-label">Map nuke</h3>
@@ -133,21 +110,6 @@ export function EffectsPanel({
               />
             </label>
             {!amountValid && <p className="error" role="alert">Enter a whole number from 1 to {MAX_NUKE_DAMAGE}.</p>}
-            <div className="row">
-              <span className="muted">
-                Epicenter: {origin ? `x ${epicenter.x}, y ${epicenter.y}` : "map centre"}
-              </span>
-              {onPickPoint && (
-                <button type="button" className="secondary small" disabled={picking} onClick={() => void pick()}>
-                  {picking ? "Click the map…" : "Pick on map"}
-                </button>
-              )}
-              {origin && (
-                <button type="button" className="link" onClick={() => setOrigin(null)}>
-                  Use centre
-                </button>
-              )}
-            </div>
             <label>
               Animation
               <select value={animationId} onChange={(e) => setAnimationId(e.target.value)}>
@@ -164,6 +126,17 @@ export function EffectsPanel({
             </button>
           </form>
         )}
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            role="switch"
+            checked={state.reducedEffects ?? false}
+            onChange={(e) => void setReduced(e.target.checked)}
+          />
+          Reduced animations
+        </label>
+        <p className="muted small-print">Everyone at the table sees still markers instead of moving effects.</p>
+
         {error && <p role="alert" className="error">{error}</p>}
         <p className="sr-only" role="status">{status}</p>
       </div>
@@ -173,12 +146,12 @@ export function EffectsPanel({
           <p>
             Every token with HP, including hidden ones, takes {amountValid ? amountValue : "?"} damage. You can undo it from the activity log.
           </p>
-          <div className="row">
-            <button type="button" className="secondary" onClick={() => setConfirming(false)}>
-              Cancel
-            </button>
+          <div className="row nuke-confirm-actions">
             <button type="button" className="danger-fill" disabled={busy} onClick={() => void detonate()}>
               {busy ? "Detonating…" : "Detonate"}
+            </button>
+            <button type="button" className="secondary" onClick={() => setConfirming(false)}>
+              Cancel
             </button>
           </div>
         </div>

@@ -1,6 +1,7 @@
 import type { Graphics } from "pixi.js";
 import type { AnimationShape, Point } from "@vtt/shared";
 import type { ResolvedAnimation } from "./effectPresets";
+import { graphicsBudget } from "../ui/clientSettings";
 import {
   WHITE, arcPoints, blade, clamp01, easeIn, easeOut, lerp, lerpPoint, lightning, mix, orb, polyline, ring, streak, type Spark,
 } from "./fxKit";
@@ -110,7 +111,7 @@ function cutArc(c: StrikeCtx, e: number, offset: number, delay: number, scale: n
   const centre = { x: c.to.x - c.dir.x * R + c.normal.x * offset, y: c.to.y - c.dir.y * R + c.normal.y * offset };
   const mid = Math.atan2(c.dir.y, c.dir.x);
   const span = 0.5 + c.arc * 1.5;
-  const segments = 30;
+  const segments = graphicsBudget().arcSegments;
   const head = Math.floor(sweep * segments);
   const point = (i: number): Point => {
     const phi = mid + side * (-span + (2 * span * i) / segments);

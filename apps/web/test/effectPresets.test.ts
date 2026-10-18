@@ -9,6 +9,7 @@ import {
   NUKE_PRESET,
   MAX_CONDITION_EMITTERS,
   conditionParticleOptions,
+  conditionTokenInView,
   particleBox,
   particleConditions,
   pickEmitterTokens,
@@ -16,6 +17,14 @@ import {
 } from "../src/board/effectPresets";
 
 describe("effect presets (board-effects-overlay)", () => {
+  it("culls distant condition effects while preserving a margin around the viewport", () => {
+    const view = { x: 500, y: 400, halfWidth: 300, halfHeight: 200 };
+    const token = { position: { x: 100, y: 400 }, size: 1 };
+    expect(conditionTokenInView(token, view, 60)).toBe(true);
+    expect(conditionTokenInView({ ...token, position: { x: 60, y: 400 } }, view, 60)).toBe(false);
+    expect(conditionTokenInView({ ...token, position: { x: 500, y: 721 } }, view, 60)).toBe(false);
+    expect(conditionTokenInView({ ...token, size: 2, position: { x: 60, y: 400 } }, view, 60)).toBe(true);
+  });
   it("has a look for every condition", () => {
     expect(Object.keys(CONDITION_VISUALS).sort()).toEqual(CONDITIONS.map((c) => c.id).sort());
   });

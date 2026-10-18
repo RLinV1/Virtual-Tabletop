@@ -38,7 +38,7 @@ export interface Spark {
 }
 
 /** Sparks alive at once, however many bursts overlap. */
-const MAX_LIVE_SPARKS = 480;
+const MAX_LIVE_SPARKS = 160;
 
 export function burst(list: Spark[], at: Point, count: number, speed: number, size: number, colors: number[], life = 0.7, gravity = 0, spin = 6) {
   for (let i = 0; i < count; i++) {
@@ -54,18 +54,20 @@ export function burst(list: Spark[], at: Point, count: number, speed: number, si
 }
 
 export function stepSparks(list: Spark[], dt: number) {
-  for (let i = list.length - 1; i >= 0; i--) {
+  let live = 0;
+  for (let i = 0; i < list.length; i++) {
     const s = list[i]!;
     s.age += dt;
     if (s.age >= s.life) {
-      list.splice(i, 1);
       continue;
     }
     s.vy += s.gravity * dt;
     s.x += s.vx * dt;
     s.y += s.vy * dt;
     s.rot += s.spin * dt;
+    list[live++] = s;
   }
+  list.length = live;
 }
 
 /** The corners of a star with four points, `outer` from the centre, turned by `rot`. */

@@ -113,6 +113,16 @@ export function centreThrow(
   return { from: { x: to.x - DROP_DIRECTION.x * reach, y: to.y - DROP_DIRECTION.y * reach }, to };
 }
 
+/**
+ * Where the nth throw already on the board's floor leaves room for a new one: the first lands where
+ * aimed, the next ones to its right and left in turn, so rolls made together (one per target of a
+ * multi-target attack) lie side by side instead of on top of each other.
+ */
+export function crowdedOffset(active: number, size: number): Point {
+  const step = Math.ceil(active / 2) * 2.4 * size;
+  return { x: active === 0 ? 0 : active % 2 === 1 ? step : -step, y: 0 };
+}
+
 export function clampToMap(p: Point, map: Pick<MapImage, "width" | "height">): Point {
   const clamp = (v: number, max: number) => Math.min(max - EDGE_MARGIN, Math.max(EDGE_MARGIN, v));
   return { x: clamp(p.x, map.width), y: clamp(p.y, map.height) };

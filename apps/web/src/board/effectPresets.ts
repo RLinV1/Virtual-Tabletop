@@ -11,6 +11,12 @@ import { ANIMATION_SHAPES, type AnimationDef, type AnimationShape, type AttackSt
 /** Tokens that show condition particles at once; the rest keep their badges only. */
 export const MAX_CONDITION_EMITTERS = 12;
 
+/** Include a small margin so glows do not pop out as their token leaves the view. */
+export function conditionTokenInView(token: { position: Point; size: number }, view: { x: number; y: number; halfWidth: number; halfHeight: number }, cell: number): boolean {
+  return Math.abs(token.position.x - view.x) <= view.halfWidth + token.size * cell * 2
+    && Math.abs(token.position.y - view.y) <= view.halfHeight + token.size * cell * 2;
+}
+
 /** How the overlay draws a condition on top of the token's own art change. */
 export type ConditionVisual =
   | { kind: "particles" }
@@ -54,7 +60,7 @@ type Particles = NonNullable<ISourceOptions["particles"]>;
 const BASE = {
   fullScreen: { enable: false },
   fpsLimit: 30,
-  detectRetina: true,
+  detectRetina: false,
   pauseOnBlur: true,
   pauseOnOutsideViewport: true,
   background: { color: { value: "transparent" } },
@@ -233,7 +239,7 @@ export const SHAPE_DEFAULTS: Record<AnimationShape, FullAnimationDef> = {
     { count: 4, spread: 0.6, arc: 0.3, trail: 0.5, spin: 0.5, gravity: 0, rings: 2, particleShape: "ring" }),
   tornado: preset("tornado", { duration: 1.7, primary: "#94a3b8", secondary: "#e2e8f0", accent: "#4ade80", size: 1.4, particles: 40, glow: 0.5, shake: 0.6, flash: 0.2 },
     { count: 3, spread: 0.5, arc: 0.5, trail: 0.6, spin: 0.8, gravity: -0.2, rings: 1, particleShape: "square" }),
-  nuke: preset("nuke", { duration: 1.8, primary: "#ff6a00", secondary: "#fff4d6", accent: "#ffd24a", size: 3, particles: 120, glow: 0.9, shake: 0.9, flash: 0.9 },
+  nuke: preset("nuke", { duration: 4, primary: "#ff6a00", secondary: "#fff4d6", accent: "#ffd24a", size: 3, particles: 120, glow: 0.9, shake: 0.9, flash: 0.9 },
     { count: 1, spread: 0.5, arc: 0.5, trail: 0.5, spin: 0.5, gravity: 0.3, rings: 3, particleShape: "spark" }),
 };
 

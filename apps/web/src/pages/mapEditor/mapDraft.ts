@@ -128,6 +128,7 @@ export function draftCommandProblem(command: CommandInput, map: { width: number;
     if (!wallsFitMap(command.walls, map)) return "Walls must lie on the map.";
   }
   if (command.type === "fog.add" && Math.abs(polygonArea(fogPoints(command.region))) < 1) return "A fog region needs some area.";
+  if (command.type === "fog.replace" && command.add.some((region) => Math.abs(polygonArea(fogPoints(region))) < 1)) return "A fog region needs some area.";
   return null;
 }
 
@@ -167,6 +168,15 @@ export function applyToDraft(draft: MapDraft, command: CommandInput, newId: () =
     case "fog.remove": {
       const fog = { ...draft.fog };
       delete fog[command.regionId];
+      return { ...draft, fog };
+    }
+    case "fog.replace": {
+      const fog = { ...draft.fog };
+      for (const id of command.removeIds) delete fog[id];
+      for (const region of command.add) {
+        const id = newId();
+        fog[id] = { id, shape: region.shape, points: fogPoints(region) };
+      }
       return { ...draft, fog };
     }
     default:

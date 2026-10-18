@@ -1,3 +1,5 @@
+import { Eye, PencilSimple, TextAa, Trash } from "@phosphor-icons/react";
+import { IconAction } from "../ui/IconAction";
 import { useState, type FormEvent } from "react";
 import { MAX_ENCOUNTER_NAME, type EncounterSummary } from "@vtt/shared";
 import { api } from "../net/api";
@@ -95,7 +97,7 @@ export function EncounterCard(props: {
       {confirming ? (
         <div className="confirm" role="alertdialog" aria-label={`Delete ${encounter.name}?`}>
           <p>Delete “{encounter.name}”? Rooms already made from it stay as they are.</p>
-          <div className="row">
+          <div className="row modal-actions">
             <button type="button" className="secondary small" disabled={busy} onClick={() => setConfirming(false)}>Cancel</button>
             <button type="button" className="small danger-fill" disabled={busy} onClick={() => void remove()}>
               {busy ? "Deleting…" : "Delete"}
@@ -107,12 +109,12 @@ export function EncounterCard(props: {
           {/* A template whose map is gone can't be opened (encounter-templates). */}
           {encounter.mapName !== null && (
             <>
-              <button type="button" className="link" disabled={busy} onClick={() => setPreviewing(true)}>Preview</button>
-              <button type="button" className="link" disabled={busy} onClick={() => void edit()}>Edit</button>
+              <IconAction icon={<Eye size={16} aria-hidden="true" />} label="Preview" disabled={busy} onClick={() => setPreviewing(true)} />
+              <IconAction icon={<PencilSimple size={16} aria-hidden="true" />} label="Edit" disabled={busy} onClick={() => void edit()} />
             </>
           )}
-          <button type="button" className="link" onClick={() => setEditing(true)}>Rename</button>
-          <button type="button" className="link danger" onClick={() => setConfirming(true)}>Delete</button>
+          <IconAction icon={<TextAa size={16} aria-hidden="true" />} label="Rename" onClick={() => setEditing(true)} />
+          <IconAction icon={<Trash size={16} aria-hidden="true" />} label="Delete" danger onClick={() => setConfirming(true)} />
         </div>
       )}
       <EncounterPreviewModal templateId={previewing ? encounter.id : null} name={encounter.name} onClose={() => setPreviewing(false)} />

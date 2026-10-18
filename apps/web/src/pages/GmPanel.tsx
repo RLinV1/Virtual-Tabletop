@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
-import { inactiveLabel, pendingDepartures, type Point, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
+import { inactiveLabel, pendingDepartures, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
 import { api } from "../net/api";
 import { libraryAssetId } from "../net/builtinAssets";
 import { useAccount } from "../account/accountStore";
@@ -38,15 +38,13 @@ interface Props {
   onReviewDeparture: (participantId: string) => void;
   /** What this room offers; a template being edited offers less (ADR 0033). */
   features?: RoomFeatures;
-  /** Lets the GM click a map point, for the nuke's epicenter; resolves null if cancelled. */
-  onPickPoint?: () => Promise<Point | null>;
 }
 
 /** The GM's administration section: departed players to resolve, map and grid setup, fog, then checkpoints. */
 export function GmPanel({
   connection, state, token, onReviewDeparture,
   gridDraft, hasGridDraft, onGridDraftChange, onGridDraftCancel, onGridApply, gridApplying, gridError,
-  features = FULL_ROOM, onPickPoint,
+  features = FULL_ROOM,
 }: Props) {
   const [error, setError] = useState<string | null>(null);
   // The library belongs to the signed-in account (ADR 0017).
@@ -109,7 +107,7 @@ export function GmPanel({
         <>
           <CheckpointsPanel connection={connection} state={state} token={token} />
           <EncounterPanel connection={connection} state={state} />
-          <EffectsPanel connection={connection} state={state} onPickPoint={onPickPoint} />
+          <EffectsPanel connection={connection} state={state} />
         </>
       )}
     </>
@@ -520,7 +518,7 @@ function MapSection(props: {
           // A fixed map offers only the steps its editor has (ADR 0033).
           <div className="row button-row" data-tour="gm-grid">
             {OPENERS.filter(({ key }) => steps.some((s) => s.key === key)).map(({ key, label }) => (
-              <button key={key} type="button" className={key === "map" ? "secondary" : undefined} onClick={() => {
+              <button key={key} type="button" className="secondary small" onClick={() => {
                 setStep(key);
                 setEditorOpen(true);
               }}>

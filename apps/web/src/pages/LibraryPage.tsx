@@ -1,3 +1,5 @@
+import { GridFour, TextAa, Trash, X } from "@phosphor-icons/react";
+import { IconAction } from "../ui/IconAction";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_GRID, normalizeLegacyGridForBoard, type AssetKind, type EncounterSummary, type LibraryAsset, type LibraryCreature } from "@vtt/shared";
 import { Link } from "../Link";
@@ -533,22 +535,15 @@ function AssetCard(props: {
         </div>
       ) : (
         <div className="row asset-actions">
-          <button type="button" className="link" onClick={() => setEditing(!editing)}>
-            {editing ? "Cancel" : "Rename"}
-          </button>
-          {asset.kind === "map" && (
-            <button type="button" className="link" onClick={props.onEditGrid}>
-              Edit grid
-            </button>
-          )}
-          <button
-            type="button"
-            className="link danger"
+          <IconAction icon={editing ? <X size={16} aria-hidden="true" /> : <TextAa size={16} aria-hidden="true" />} label={editing ? "Cancel" : "Rename"} onClick={() => setEditing(!editing)} />
+          {asset.kind === "map" && <IconAction icon={<GridFour size={16} aria-hidden="true" />} label="Edit grid" onClick={props.onEditGrid} />}
+          <IconAction
+            icon={<Trash size={16} aria-hidden="true" />}
+            label={del.step === "checking" ? "Checking…" : del.step === "deleting" ? "Deleting…" : "Delete"}
+            danger
             disabled={del.step !== "idle"}
             onClick={() => void startDelete()}
-          >
-            {del.step === "checking" ? "Checking…" : del.step === "deleting" ? "Deleting…" : "Delete"}
-          </button>
+          />
         </div>
       )}
     </li>

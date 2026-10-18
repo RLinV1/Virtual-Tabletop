@@ -1,5 +1,6 @@
+import { IconAction } from "../ui/IconAction";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { ArrowCounterClockwise, CaretDown, CopySimple, PencilSimple, UploadSimple } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, CaretDown, CheckCircle, CopySimple, PencilSimple, Trash, UploadSimple } from "@phosphor-icons/react";
 import type { BodyName } from "../ui/diceGeometry";
 import { BODIES, DICE_PROMPT, SKIN_FILE_TYPES, type DiceSkin } from "../ui/diceSkin";
 import { Link } from "../Link";
@@ -90,17 +91,9 @@ function DiceLookCard({ look, active, onEdit }: { look: DiceSkin; active: boolea
         </div>
       ) : (
         <div className="row asset-actions">
-          {!active && (
-            <button type="button" className="link" onClick={() => setActiveDiceLook(look.id)}>
-              Use
-            </button>
-          )}
-          <button type="button" className="link" onClick={onEdit}>
-            Edit
-          </button>
-          <button type="button" className="link danger" onClick={() => setConfirming(true)}>
-            Delete
-          </button>
+          {!active && <IconAction icon={<CheckCircle size={16} aria-hidden="true" />} label="Use" onClick={() => setActiveDiceLook(look.id)} />}
+          <IconAction icon={<PencilSimple size={16} aria-hidden="true" />} label="Edit" onClick={onEdit} />
+          <IconAction icon={<Trash size={16} aria-hidden="true" />} label="Delete" danger onClick={() => setConfirming(true)} />
         </div>
       )}
     </li>

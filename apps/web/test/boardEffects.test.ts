@@ -10,6 +10,8 @@ import {
   conditionLoopWanted,
   loopFrameDue,
   loopingConditions,
+  rangedAnimationFor,
+  RANGED_ATTACK_SHAPES,
 } from "../src/board/effects";
 import { ATTACK_STYLE_PRESETS, NUKE_PRESET } from "../src/board/effectPresets";
 
@@ -253,12 +255,25 @@ describe("attack animation resolution (FR-TAC-09, ADR 0038)", () => {
 
   it("infers melee at 1 cell and ranged at 6 cells when the roll names no style", () => {
     expect(animationOf(withAttack({}), at(1))).toEqual(ATTACK_STYLE_PRESETS.melee);
-    expect(animationOf(withAttack({}), at(6))).toEqual(ATTACK_STYLE_PRESETS.ranged);
+    expect(animationOf(withAttack({}), at(6))).toEqual(rangedAnimationFor(withAttack({}).id));
   });
 
   it("treats exactly 1.5 cells as melee and just over as ranged", () => {
     expect(animationOf(withAttack({}), at(1.5))).toEqual(ATTACK_STYLE_PRESETS.melee);
-    expect(animationOf(withAttack({}), at(1.6))).toEqual(ATTACK_STYLE_PRESETS.ranged);
+    expect(animationOf(withAttack({}), at(1.6))).toEqual(rangedAnimationFor(withAttack({}).id));
+  });
+  it("treats a diagonal neighbouring cell as melee", () => {
+    const state = at(1);
+    state.tokens.b = { ...state.tokens.b!, position: { x: 100 + cell, y: 100 + cell } };
+    expect(animationOf(withAttack({}), state)).toEqual(ATTACK_STYLE_PRESETS.melee);
+  });
+  it("varies distant rolls across the ranged pool, consistently for every viewer", () => {
+    const shapes = new Set(Array.from({ length: 120 }, (_, i) => rangedAnimationFor("roll-" + i).shape));
+    expect([...shapes].sort()).toEqual([...RANGED_ATTACK_SHAPES].sort());
+    const r = withAttack({});
+    const state = at(6);
+    expect(attackEffectFor(rolled(r), state, player)).toEqual(attackEffectFor(rolled(r), state, gm));
+    expect(rangedAnimationFor("same-roll")).toEqual(rangedAnimationFor("same-roll"));
   });
 
   it("prefers the roll's own animation over its style and the distance", () => {

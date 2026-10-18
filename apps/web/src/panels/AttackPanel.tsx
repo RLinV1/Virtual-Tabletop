@@ -1,44 +1,35 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Crosshair, DiceFive, DotsThree, Eye, EyeSlash, HourglassMedium, Minus, PencilSimple, Plus, SlidersHorizontal, Sword, Target, X } from "@phosphor-icons/react";
+import { Crosshair, DiceFive, DotsThree, Eye, EyeSlash, Minus, PencilSimple, Plus, SlidersHorizontal, Sword, Target, X } from "@phosphor-icons/react";
 import {
-  attackLabel,
   can,
-  formatAttackParties,
-  formatAttackOutcome,
   MAX_ATTACK_LABEL,
+  MAX_ATTACK_TARGETS,
   type AttackKind,
   type AnimationDef,
-  type AttackStyle,
   type DiceRoll,
   type DiceVisibility,
   type Participant,
   type Point,
   type RoomState,
-  type Verdict,
 } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
-import { DiceTray } from "../ui/DiceTray";
 import { PanelSection } from "../ui/PanelSection";
 import { Picker } from "../ui/Picker";
 import { PopoverButton } from "../ui/Popover";
 import { isBoolean, usePersistentState } from "../ui/usePersistentState";
 import {
   attackExpression,
-  attackHeadline,
   clampCount,
   clampModifier,
-  damageAmount,
   DEFAULT_ATTACK,
   DIE_SIDES,
   isSettingsRecord,
   kindOf,
   LAST_USED_KEY,
-  latestAttackRoll,
   MAX_ATTACK_DICE,
   MAX_ATTACK_MODIFIER,
   MAX_PRESETS,
   presetsForToken,
-  presetForRoll,
   presetRollLabel,
   presetSummary,
   shouldPingTarget,
@@ -48,16 +39,13 @@ import {
   type AttackSettings,
 } from "./attackRoll";
 import type { AttackReset } from "./attackSession";
-import { trayRoll } from "./DicePanel";
-import { RulingButtons } from "./RulingButtons";
 import { saveTokenAttacks } from "./tokenAttacks";
+import { BUILTIN_ANIMATIONS } from "../board/effectPresets";
 import { useStrikeAnimations } from "./useLibraryAnimations";
 
 /** The Animation select's value for an animation that is on the attack but not (or no longer) in the library. */
 const CURRENT_ANIMATION = "__current";
-
-/** The styles the picker offers, in order. */
-const ATTACK_STYLES: readonly AttackStyle[] = ["melee", "ranged", "magic"];
+const AUTOMATIC_ANIMATION = "__automatic";
 
 /**
  * Who attacks whom. Held by the room page, so the board's Pick on board can fill it in and the
@@ -82,9 +70,7 @@ export function AttackPanel({
   pick,
   onPick,
   reset,
-  airborne,
   rolling,
-  onLanded,
   onPickOnBoard,
   onShowPing,
   visibility,
@@ -98,11 +84,9 @@ export function AttackPanel({
   /** The last encounter end: the outcome card, custom settings and chosen attack start over. */
   reset: AttackReset;
   /** Rolls whose dice are still in the air on this viewer's screen (throw-dice-on-board). */
-  airborne: ReadonlySet<string>;
   /** The viewer's own dice are still showing: rolling again waits until they're gone. */
   rolling: boolean;
   /** Its dice have landed, on the board or in the private tray. */
-  onLanded: (rollId: string) => void;
   /** Put the board into targeting mode for this attacker. */
   onPickOnBoard: (attackerId: string) => void;
   /** Show a ping on this viewer's own board; the relay doesn't echo it back. */
@@ -118,8 +102,10 @@ export function AttackPanel({
     .filter((t) => can.attackWith(you, t))
     .sort((a, b) => a.name.localeCompare(b.name));
   const activeId = state.initiative?.order[state.initiative.activeIndex] ?? null;
-  const chosen = pick.attackerId ? attackers.find((t) => t.id === pick.attackerId) : undefined;
-  const attacker = chosen ?? attackers.find((t) => t.id === activeId) ?? attackers[0];
+  // In an encounter the token whose turn it is attacks, when you may act for it; otherwise you choose.
+  const inTurn = attackers.find((t) => t.id === activeId);
+  const chosen = inTurn ? undefined : pick.attackerId ? attackers.find((t) => t.id === pick.attackerId) : undefined;
+  const attacker = inTurn ?? chosen ?? attackers[0];
   const target = pick.targetId && pick.targetId !== attacker?.id ? state.tokens[pick.targetId] : undefined;
 
   // A target that vanished (deleted, or hidden from a player) or became the attacker is dropped.
@@ -169,15 +155,11 @@ export function AttackPanel({
           you={you}
           attackers={attackers}
           attackerId={attacker.id}
-          activeId={activeId}
+          inTurn={inTurn !== undefined}
           targetId={target?.id ?? null}
-          clearedRollId={reset.clearedRollId}
-          airborne={airborne}
           rolling={rolling}
-          onLanded={onLanded}
           initial={lastUsed[attacker.id] ?? DEFAULT_ATTACK}
           presets={allPresets[attacker.id] ?? []}
-          allPresets={allPresets}
           customOpen={customOpen}
           onCustomOpen={setCustomOpen}
           visibility={visibility}
@@ -200,15 +182,11 @@ function AttackForm({
   you,
   attackers,
   attackerId,
-  activeId,
+  inTurn,
   targetId,
-  clearedRollId,
-  airborne,
   rolling,
-  onLanded,
   initial,
   presets,
-  allPresets,
   customOpen,
   onCustomOpen,
   visibility,
@@ -225,15 +203,12 @@ function AttackForm({
   you: Participant;
   attackers: RoomState["tokens"][string][];
   attackerId: string;
-  activeId: string | null;
+  /** The attacker is the token whose turn it is, so there is nothing to choose. */
+  inTurn: boolean;
   targetId: string | null;
-  clearedRollId: string | null;
-  airborne: ReadonlySet<string>;
   rolling: boolean;
-  onLanded: (rollId: string) => void;
   initial: AttackSettings;
   presets: AttackPreset[];
-  allPresets: Record<string, AttackPreset[]>;
   customOpen: boolean;
   onCustomOpen: (open: boolean) => void;
   visibility: DiceVisibility;
@@ -255,8 +230,8 @@ function AttackForm({
   const [editing, setEditing] = useState<number | "new" | null>(null);
   /** The named attack the Roll button rolls, picked from the list (attack-panel-encounter-reset). */
   const [selected, setSelected] = useState(0);
-  /** How the next roll is drawn on the board; none leaves it to the attack or the distance (ADR 0038). */
-  const [style, setStyle] = useState<AttackStyle | null>(null);
+  /** Targets picked besides the main one, for an attack that may hit several (multi-target). */
+  const [extraIds, setExtraIds] = useState<string[]>([]);
   const isGm = you.role === "gm";
   const chosen = presets.length > 0 ? presets[Math.min(selected, presets.length - 1)] : undefined;
   const chosenIndex = chosen ? presets.indexOf(chosen) : -1;
@@ -264,6 +239,13 @@ function AttackForm({
   const attacker = state.tokens[attackerId]!;
   const targets = targetsByDistance(state, attackerId);
   const target = targets.find((t) => t.token.id === targetId);
+  // Every target the chosen attack rolls at: the main one plus the extras it allows.
+  const maxTargets = chosen?.maxTargets ?? 1;
+  const extras = extraIds.filter((id) => id !== target?.token.id && targets.some((t) => t.token.id === id)).slice(0, maxTargets - 1);
+  const aimed = target ? [target.token.id, ...extras] : [];
+  // After a Hit with the chosen attack on any aimed target, its one roll button becomes that attack's damage.
+  const hits = chosen?.damage ? aimed.map((id) => hitOn(state.rolls, you.id, attackerId, id, chosen)).filter((r): r is DiceRoll => r !== null) : [];
+  const followUp = hits[0] ?? null;
   const expression = attackExpression(settings);
   const kind = kindOf(settings);
   const update = (changes: Partial<AttackSettings>) => {
@@ -272,41 +254,45 @@ function AttackForm({
     setError(null);
   };
 
-  /** One roll with attack context, then a ping on the target if everyone may see it. */
-  const send = async (roll: { expression: string; kind: AttackKind; label: string; targetId: string; visibility?: DiceVisibility }): Promise<boolean> => {
+  /** One roll with attack context per target, then a ping on each if everyone may see it. */
+  const send = async (roll: { expression: string; kind: AttackKind; label: string; targetId: string; visibility?: DiceVisibility }, alsoTargetIds: readonly string[] = []): Promise<boolean> => {
     if (busy || rolling) return false;
     const rollVisibility = roll.visibility ?? visibility;
     setBusy(true);
-    const result = await connection.command({
-      type: "dice.roll",
-      expression: roll.expression,
-      visibility: rollVisibility,
-      attack: { actorTokenId: attackerId, targetTokenId: roll.targetId, kind: roll.kind, ...(roll.label && { label: roll.label }), ...(style && { style }) },
-    });
+    let allRolled = true;
+    for (const targetId of [roll.targetId, ...alsoTargetIds]) {
+      const result = await connection.command({
+        type: "dice.roll",
+        expression: roll.expression,
+        visibility: rollVisibility,
+        attack: { actorTokenId: attackerId, targetTokenId: targetId, kind: roll.kind, ...(roll.label && { label: roll.label }) },
+      });
+      if (!result.ok) {
+        setError(result.message);
+        allRolled = false;
+        break;
+      }
+      setError(null);
+      // Check the target as it is now, not as it was when the roll was sent: the GM may have
+      // hidden it meanwhile, and every event before the roll arrives ahead of its ack (FR-GM-23).
+      // While a resync is pending the local view can lag the ack; then skip the ping entirely.
+      const snapshot = connection.snapshot;
+      const caughtUp = result.seq !== null && snapshot.seq >= result.seq;
+      const now = snapshot.state?.tokens[targetId];
+      if (caughtUp && now && shouldPingTarget(now, rollVisibility, snapshot.state?.fog ?? {})) {
+        onShowPing(now.position);
+        connection.ephemeral({ type: "ping", at: now.position });
+      }
+    }
     setBusy(false);
-    if (!result.ok) {
-      setError(result.message);
-      return false;
-    }
-    setError(null);
-    // Check the target as it is now, not as it was when the roll was sent: the GM may have
-    // hidden it meanwhile, and every event before the roll arrives ahead of its ack (FR-GM-23).
-    // While a resync is pending the local view can lag the ack; then skip the ping entirely.
-    const snapshot = connection.snapshot;
-    const caughtUp = result.seq !== null && snapshot.seq >= result.seq;
-    const now = snapshot.state?.tokens[roll.targetId];
-    if (caughtUp && now && shouldPingTarget(now, rollVisibility, snapshot.state?.fog ?? {})) {
-      onShowPing(now.position);
-      connection.ephemeral({ type: "ping", at: now.position });
-    }
-    return true;
+    return allRolled;
   };
 
-  /** The chosen attack's to-hit roll, or its damage when it has no to-hit (attack-ux-polish). */
+  /** The chosen attack's to-hit roll, or its damage when it has no to-hit, at every aimed target (attack-ux-polish). */
   const rollPreset = (preset: AttackPreset) => {
     if (!target) return;
     const [dice, rollKind]: [AttackDice, AttackKind] = preset.toHit ? [preset.toHit, "toHit"] : [preset.damage!, "damage"];
-    void send({ expression: attackExpression(dice), kind: rollKind, label: presetRollLabel(preset, rollKind), targetId: target.token.id });
+    void send({ expression: attackExpression(dice), kind: rollKind, label: presetRollLabel(preset, rollKind), targetId: target.token.id }, extras);
   };
 
   const rollCustom = async (e: FormEvent) => {
@@ -316,27 +302,12 @@ function AttackForm({
     if (await send({ expression, kind, label, targetId: target.token.id })) onRolledCustom({ ...settings, label, kind });
   };
 
-  /** After a Hit: that attack's damage in one tap, or the builder set up for it (attack-ux-polish). */
-  const rollDamage = (roll: DiceRoll) => {
-    const rollTarget = roll.attack?.target?.tokenId;
-    const targetNow = rollTarget && state.tokens[rollTarget] ? rollTarget : null;
-    if (targetNow && targetNow !== targetId) onTarget(targetNow);
-    const preset = presetForRoll(allPresets, roll);
-    if (preset?.damage && targetNow) {
-      // Damage is as private as the attack it follows, whatever the checkbox says now.
-      void send({ expression: attackExpression(preset.damage), kind: "damage", label: presetRollLabel(preset, "damage"), targetId: targetNow, visibility: roll.visibility });
-      return;
-    }
-    update({ kind: "damage" });
-    if (roll.visibility === "gm") onVisibility("gm");
-    onCustomOpen(true);
-  };
-
-  const gm = async (command: Parameters<RoomConnection["command"]>[0]) => {
-    setBusy(true);
-    const result = await connection.command(command);
-    setBusy(false);
-    setError(result.ok ? null : result.message);
+  /** After a Hit: that attack's damage in one tap, at every aimed target it hit (attack-ux-polish). */
+  const rollDamage = (preset: AttackPreset, hitRolls: DiceRoll[]) => {
+    const [first, ...rest] = hitRolls.map((r) => r.attack!.target!.tokenId);
+    if (!first || !preset.damage) return;
+    // Damage is as private as the attack it follows, whatever the checkbox says now.
+    void send({ expression: attackExpression(preset.damage), kind: "damage", label: presetRollLabel(preset, "damage"), targetId: first, visibility: hitRolls[0]!.visibility }, rest);
   };
 
   const privateToggle = isGm && (
@@ -356,10 +327,10 @@ function AttackForm({
     <div className="stack attack-panel">
       {/* Who attacks whom: the attacker, then the target (attack-section-compact). */}
       <div className="attack-who">
-        {attackers.length === 1 ? (
+        {attackers.length === 1 || inTurn ? (
           <p className="attack-attacker">
             <Sword size={16} aria-hidden="true" /> <strong>{attacker.name}</strong>
-            {attacker.id === activeId && <span className="badge active-badge">your turn</span>}
+            {inTurn && <span className="badge active-badge">turn</span>}
           </p>
         ) : (
           <Picker
@@ -370,30 +341,61 @@ function AttackForm({
             options={attackers.map((t) => ({
               key: t.id,
               label: `${t.name}${t.hidden ? " (hidden)" : ""}`,
-              ...(t.id === activeId && { detail: "turn" }),
             }))}
           />
         )}
-        <Picker
-          label="Target"
-          icon={<Target size={16} aria-hidden="true" />}
-          placeholder={targets.length === 0 ? "No targets" : "Target"}
-          disabled={targets.length === 0}
-          value={target?.token.id ?? null}
-          onChange={onTarget}
-          options={targets.map((t) => ({ key: t.token.id, label: `${t.token.name}${t.token.hidden ? " (hidden)" : ""}`, detail: t.distance }))}
-        />
+        {maxTargets > 1 ? (
+          <PopoverButton
+            label="Targets"
+            title="Choose targets"
+            align="left"
+            className="attack-targets-button"
+            buttonContent={
+              <span className="attack-targets-summary">
+                <Target size={16} aria-hidden="true" />
+                <strong>{aimed.length === 0 ? (targets.length === 0 ? "No targets" : "Choose targets") : aimed.length === 1 ? target!.token.name : `${aimed.length} targets`}</strong>
+                <span className="muted">of up to {maxTargets}</span>
+              </span>
+            }
+          >
+            {() => (
+              <fieldset className="attack-target-list">
+                <legend className="field-label">Choose up to {maxTargets} targets ({aimed.length} chosen)</legend>
+                {targets.map((t) => {
+                  const on = aimed.includes(t.token.id);
+                  return (
+                    <label key={t.token.id} className="checkbox">
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        disabled={!on && aimed.length >= maxTargets}
+                        onChange={(e) => {
+                          const next = e.target.checked ? [...aimed, t.token.id] : aimed.filter((id) => id !== t.token.id);
+                          onTarget(next[0] ?? null);
+                          setExtraIds(next.slice(1));
+                        }}
+                      />
+                      {t.token.name}{t.token.hidden ? " (hidden)" : ""} <span className="muted">{t.distance}</span>
+                    </label>
+                  );
+                })}
+              </fieldset>
+            )}
+          </PopoverButton>
+        ) : (
+          <Picker
+            label="Target"
+            icon={<Target size={16} aria-hidden="true" />}
+            placeholder={targets.length === 0 ? "No targets" : "Target"}
+            disabled={targets.length === 0}
+            value={target?.token.id ?? null}
+            onChange={onTarget}
+            options={targets.map((t) => ({ key: t.token.id, label: `${t.token.name}${t.token.hidden ? " (hidden)" : ""}`, detail: t.distance }))}
+          />
+        )}
         <button type="button" className="icon-button attack-board-pick" onClick={onPickOnBoard} aria-label="Pick target on board" title="Pick target on board">
           <Crosshair size={18} aria-hidden="true" />
         </button>
-      </div>
-
-      <div className="attack-kind attack-style" role="group" aria-label="Attack style">
-        {ATTACK_STYLES.map((option) => (
-          <button key={option} type="button" className="chip" aria-pressed={style === option} onClick={() => setStyle(style === option ? null : option)}>
-            {option[0]!.toUpperCase() + option.slice(1)}
-          </button>
-        ))}
       </div>
 
       {isGm && visibility === "public" && (attacker.hidden || target?.token.hidden) && (
@@ -487,19 +489,31 @@ function AttackForm({
               )}
             </PopoverButton>
           </div>
-          {!chosen && <p className="muted small-print">Attacks are saved in this browser, per token.</p>}
-          {chosen && (
+          {!chosen && <p className="muted small-print">No saved attacks yet. Roll a d20 to hit, or add a named attack with its own dice and damage.</p>}
+          {!chosen && !customOpen && (
+            <div className="attack-roll-row">
+              <button type="button" className="attack-roll" disabled={!target || busy || rolling}
+                title={rolling ? "Your dice are still on the board" : undefined}
+                onClick={() => target && void send({ expression: "1d20", kind: "toHit", label: "", targetId: target.token.id })}
+              >
+                <DiceFive size={18} aria-hidden="true" />
+                {busy ? "Rolling…" : !target ? "Choose a target" : "Roll to hit"}
+              </button>
+              {privateToggle}
+            </div>
+          )}
+          {chosen && !customOpen && (
             <div className="attack-roll-row">
               <button
                 type="button"
                 className="attack-roll"
                 disabled={!target || busy || rolling}
                 title={rolling ? "Your dice are still on the board" : undefined}
-                onClick={() => rollPreset(chosen)}
-                aria-label={target ? `Roll ${chosen.name} ${chosen.toHit ? "to hit" : "damage to"} ${target.token.name}` : undefined}
+                onClick={() => (followUp ? rollDamage(chosen, hits) : rollPreset(chosen))}
+                aria-label={target ? `Roll ${chosen.name} ${chosen.toHit && !followUp ? "to hit" : "damage to"} ${target.token.name}` : undefined}
               >
                 <DiceFive size={18} aria-hidden="true" />
-                {busy ? "Rolling…" : !target ? "Choose a target" : chosen.toHit ? "Roll to hit" : "Roll damage"}
+                {busy ? "Rolling…" : !target ? "Choose a target" : followUp ? `Roll damage ${attackExpression(chosen.damage!)}` : chosen.toHit ? "Roll to hit" : "Roll damage"}
               </button>
               {privateToggle}
             </div>
@@ -589,22 +603,6 @@ function AttackForm({
         </section>
       )}
 
-      {/* The result after the controls: it is read after rolling (attack-section-compact). */}
-      <LatestAttack
-        state={state}
-        you={you}
-        attackerId={attackerId}
-        clearedRollId={clearedRollId}
-        airborne={airborne}
-        onLanded={onLanded}
-        allPresets={allPresets}
-        busy={busy}
-        rolling={rolling}
-        onRollDamage={rollDamage}
-        onRule={isGm ? (rollId, verdict) => void gm({ type: "roll.rule", rollId, verdict }) : undefined}
-        onApply={isGm ? (rollId) => void gm({ type: "roll.applyDamage", rollId }) : undefined}
-      />
-
       {error && (
         <p role="alert" className="error">
           {error}
@@ -632,13 +630,20 @@ export function PresetEditor({
   const [name, setName] = useState(initial?.name ?? "");
   const [toHit, setToHit] = useState<AttackDice | null>(initial ? initial.toHit : { count: 1, sides: 20, modifier: 0 });
   const [damage, setDamage] = useState<AttackDice | null>(initial ? initial.damage : { count: 1, sides: 6, modifier: 0 });
+  const [multi, setMulti] = useState(initial?.maxTargets !== undefined);
+  const [maxTargets, setMaxTargets] = useState(initial?.maxTargets ?? 3);
+  const [maxTargetsText, setMaxTargetsText] = useState(String(initial?.maxTargets ?? 3));
+  const clampTargets = (n: number) => Math.min(MAX_ATTACK_TARGETS, Math.max(2, Math.round(n) || 2));
   const [error, setError] = useState<string | null>(null);
   /** The attack's own animation: a copy of a library one (ADR 0038). Null leaves the attack's style to decide. */
   const [animation, setAnimation] = useState<AnimationDef | null>(initial?.animation ?? null);
   const library = useStrikeAnimations();
   /** The library entry the animation was copied from, by definition, for the select's value. */
-  const libraryMatch = animation ? library.find((a) => JSON.stringify(a.def) === JSON.stringify(animation)) : undefined;
-  const animationValue = !animation ? "" : libraryMatch ? libraryMatch.id : CURRENT_ANIMATION;
+  // Compared by content: a saved copy may list its fields in another order.
+  const sameAs = (def: AnimationDef) => animation !== null && stableJson(def) === stableJson(animation);
+  const builtins = BUILTIN_ANIMATIONS.filter((b) => b.def.shape !== "nuke");
+  const match = animation ? (library.find((a) => sameAs(a.def)) ?? builtins.find((b) => sameAs(b.def))) : undefined;
+  const animationValue = !animation ? "" : match ? match.id : CURRENT_ANIMATION;
 
   const save = (e: FormEvent) => {
     e.preventDefault();
@@ -646,7 +651,7 @@ export function PresetEditor({
     if (!trimmed) return setError("Give the attack a name.");
     if (taken.some((n) => n.toLocaleLowerCase() === trimmed.toLocaleLowerCase())) return setError(`There is already an attack called ${trimmed}.`);
     if (!toHit && !damage) return setError("An attack needs a to-hit roll, a damage roll, or both.");
-    onSave({ name: trimmed, toHit, damage, ...(animation && { animation }) });
+    onSave({ name: trimmed, toHit, damage, ...(animation && { animation }), ...(multi && { maxTargets }) });
   };
 
   return (
@@ -657,27 +662,34 @@ export function PresetEditor({
       </label>
       <DiceField label="To hit" value={toHit} fallback={{ count: 1, sides: 20, modifier: 0 }} onChange={setToHit} />
       <DiceField label="Damage" value={damage} fallback={{ count: 1, sides: 6, modifier: 0 }} onChange={setDamage} />
-      {(library.length > 0 || animation) && (
+      <label className="checkbox">
+        <input type="checkbox" checked={multi} onChange={(e) => setMulti(e.target.checked)} />
+        Can attack multiple targets
+      </label>
+      {multi && (
         <label>
-          Animation
-          <select
-            value={animationValue}
-            onChange={(e) => {
-              if (e.target.value === CURRENT_ANIMATION) return;
-              // Copied in: later library edits do not change this attack.
-              setAnimation(library.find((a) => a.id === e.target.value)?.def ?? null);
-            }}
-          >
-            <option value="">None</option>
-            {animationValue === CURRENT_ANIMATION && <option value={CURRENT_ANIMATION}>Saved animation</option>}
-            {library.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
+          Most targets at once
+          <input type="number" inputMode="numeric" min={2} max={MAX_ATTACK_TARGETS} step={1} value={maxTargetsText}
+            onChange={(e) => { setMaxTargetsText(e.target.value); if (e.target.value !== "") setMaxTargets(clampTargets(Number(e.target.value))); }}
+            onBlur={() => setMaxTargetsText(String(maxTargets))} />
         </label>
       )}
+      <Picker
+        label="Animation"
+        icon={<Sword size={16} aria-hidden="true" />}
+        value={animationValue === "" ? AUTOMATIC_ANIMATION : animationValue}
+        onChange={(key) => {
+          if (key === CURRENT_ANIMATION) return;
+          // Copied in: later library edits do not change this attack.
+          setAnimation(key === AUTOMATIC_ANIMATION ? null : [...library, ...builtins].find((a) => a.id === key)?.def ?? null);
+        }}
+        options={[
+          { key: AUTOMATIC_ANIMATION, label: "Automatic", detail: "animation" },
+          ...(animationValue === CURRENT_ANIMATION ? [{ key: CURRENT_ANIMATION, label: "Saved animation" }] : []),
+          ...builtins.map((b) => ({ key: b.id, label: b.name, detail: "preset" })),
+          ...library.map((a) => ({ key: a.id, label: a.name, detail: "yours" })),
+        ]}
+      />
       {error && (
         <p role="alert" className="error">
           {error}
@@ -758,96 +770,19 @@ function DiceField({
 }
 
 /**
- * The viewer's latest attack roll, below the attack controls (attack-section-compact): the
- * result once the dice land, with what the GM has made of it (ADR 0011). A public roll's dice
- * are thrown over the board; a private one is thrown here, off the shared view. After a Hit,
- * Roll damage; for the GM, the ruling controls on their own roll. The GM decides; this only shows it.
+ * The to-hit roll that last decided `preset` against `targetId`, if it was a Hit not yet followed by
+ * that attack's damage; the damage button then rolls at that target.
  */
-function LatestAttack({
-  state,
-  you,
-  attackerId,
-  clearedRollId,
-  airborne,
-  onLanded,
-  allPresets,
-  busy,
-  rolling,
-  onRollDamage,
-  onRule,
-  onApply,
-}: {
-  state: RoomState;
-  you: Participant;
-  attackerId: string;
-  clearedRollId: string | null;
-  /** Rolls whose dice are still in the air, on the board or in this card. */
-  airborne: ReadonlySet<string>;
-  onLanded: (rollId: string) => void;
-  allPresets: Record<string, AttackPreset[]>;
-  busy: boolean;
-  /** Your dice are still showing: Roll damage waits until they're gone. */
-  rolling: boolean;
-  onRollDamage: (roll: DiceRoll) => void;
-  /** GM only: rule on their own to-hit roll. */
-  onRule?: (rollId: string, verdict: Verdict) => void;
-  /** GM only: apply their own damage roll. */
-  onApply?: (rollId: string) => void;
-}) {
-  const latest = latestAttackRoll(state.rolls, you.id, clearedRollId);
-  if (!latest?.attack) return null;
-  const throwing = airborne.has(latest.id);
-  const attack = latest.attack;
-  const isPrivate = latest.visibility === "gm";
-  const target = attack.target ? state.tokens[attack.target.tokenId] : undefined;
-  const waiting = !throwing && attack.kind === "toHit" && !latest.verdict;
-  const canFollowUp = !throwing && latest.verdict === "hit" && attack.actor?.tokenId === attackerId;
-  const preset = canFollowUp ? presetForRoll(allPresets, latest) : null;
-  const label = attackLabel(attack);
-  const description = `${formatAttackParties(attack)}${label ? ` · ${label}` : ""}, ${latest.total}`;
-  const { title, meta } = attackHeadline(latest);
-  const outcome = formatAttackOutcome(latest);
-  // The GM's own roll gets the same controls as the Rulings list.
-  const gmToHit = onRule && waiting;
-  const gmDamage = onApply && !throwing && attack.kind === "damage" && !latest.damageApplied && target && target.stats.hp !== null;
-
-  return (
-    <div className={isPrivate ? "attack-latest private" : "attack-latest"} aria-live="polite">
-      {isPrivate && <DiceTray key={latest.id} roll={trayRoll(latest)} throwing={throwing} onLanded={() => onLanded(latest.id)} scale={0.8} />}
-      <div className="attack-latest-main">
-        <div className="attack-latest-text">
-          <p className="attack-result">
-            <strong>{throwing ? "Rolling…" : title}</strong>
-            {!throwing && outcome && <span className={`badge outcome-${outcome.toLowerCase()}`}>{outcome}</span>}
-            {isPrivate && <em className="badge">GM only</em>}
-          </p>
-          <p className="muted attack-latest-meta">{meta}</p>
-        </div>
-        {gmToHit ? (
-          <RulingButtons item={{ kind: "toHit" }} description={description} busy={busy} onRule={(v) => onRule(latest.id, v)} onApply={() => {}} />
-        ) : (
-          gmDamage && (
-            <RulingButtons item={{ kind: "damage", amount: damageAmount(latest) }} description={description} busy={busy} onRule={() => {}} onApply={() => onApply(latest.id)} />
-          )
-        )}
-      </div>
-      {waiting && !gmToHit && (
-        <p className="muted attack-waiting">
-          <HourglassMedium size={14} aria-hidden="true" /> Waiting for the GM
-        </p>
-      )}
-      {canFollowUp && (
-        <button
-          type="button"
-          className="attack-follow-up"
-          disabled={busy || rolling}
-          title={rolling ? "Your dice are still on the board" : undefined}
-          onClick={() => onRollDamage(latest)}
-        >
-          <Sword size={14} aria-hidden="true" />
-          {preset?.damage ? `Roll damage ${attackExpression(preset.damage)}` : "Roll damage"}
-        </button>
-      )}
-    </div>
-  );
+function hitOn(rolls: readonly DiceRoll[], participantId: string, attackerId: string, targetId: string, preset: AttackPreset): DiceRoll | null {
+  const label = (kind: AttackKind) => presetRollLabel(preset, kind);
+  for (let i = rolls.length - 1; i >= 0; i--) {
+    const roll = rolls[i]!;
+    const attack = roll.attack;
+    if (!attack || roll.byParticipantId !== participantId || attack.actor?.tokenId !== attackerId || attack.target?.tokenId !== targetId) continue;
+    if (attack.kind === "damage" && attack.label === label("damage")) return null;
+    if (attack.kind === "toHit" && attack.label === label("toHit")) return roll.verdict === "hit" ? roll : null;
+  }
+  return null;
 }
+
+const stableJson = (value: object) => JSON.stringify(value, (_k, v: unknown) => (v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b))) : v));
