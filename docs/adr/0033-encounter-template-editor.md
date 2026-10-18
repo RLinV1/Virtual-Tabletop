@@ -63,6 +63,7 @@ Every route answers 404 for a room that is not one of the caller's temporary roo
 
 Encounter editing now inherits a library map's saved walls, portals and fog. Template saves
 retain walls and portals and each application gives them fresh ids. Version-one templates
-without a walls field remain readable as having no walls. The fixed-map editor offers Grid,
-Walls and Fog; the redundant Select-only tool rail is hidden while board filters remain.
+without a walls field remain readable as having no walls. The encounter editor offers Grid and Fog;
+wall editing stays in the map editor. The redundant Select-only tool rail is hidden while board
+filters remain.
 Grid save controls appear in the map editor header with the unsaved-change status.

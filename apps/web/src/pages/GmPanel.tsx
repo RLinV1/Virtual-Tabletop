@@ -192,11 +192,10 @@ const STEPS: { key: EditorStep; label: string }[] = [
   { key: "walls", label: "3 · Walls" },
   { key: "fog", label: "4 · Fog" },
 ];
-/** A template's map stays fixed while its grid, walls and fog remain editable. */
+/** Encounter templates inherit walls from their map; only grid and fog are editable here. */
 const FIXED_MAP_STEPS: { key: EditorStep; label: string }[] = [
   { key: "grid", label: "1 · Grid" },
-  { key: "walls", label: "2 · Walls" },
-  { key: "fog", label: "3 · Fog" },
+  { key: "fog", label: "2 · Fog" },
 ];
 
 /**

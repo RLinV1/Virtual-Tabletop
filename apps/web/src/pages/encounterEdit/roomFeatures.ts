@@ -32,7 +32,7 @@ export const FULL_ROOM: RoomFeatures = {
   mapAndWalls: true,
 };
 
-/** A template being edited: Tokens and Manage's grid, walls and fog. */
+/** A template being edited: Tokens and Manage's grid and fog; walls come from the map. */
 export const ENCOUNTER_EDITING: RoomFeatures = {
   tableChrome: false,
   chat: false,
