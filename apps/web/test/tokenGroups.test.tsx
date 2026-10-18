@@ -55,7 +55,7 @@ describe("grouped roster helper (KAN-82)", () => {
 
 describe("the GM's grouped roster (KAN-82)", () => {
   const render = (you: Participant) => renderToStaticMarkup(
-    <TokenRoster connection={connection} state={room()} you={you} token="t" onFocusToken={() => {}} onPlaceToken={() => {}} onDuplicateToken={() => {}} />,
+    <TokenRoster connection={connection} state={room()} you={you} token="t" onFocusToken={() => {}} onPlaceToken={() => {}} onDuplicateToken={() => {}} editingTokenId={null} onEditToken={() => {}} />,
   );
 
   it("shows group headings with Add tokens, one Hide/Show all button, Rename, Delete, collapse and a New group form", () => {
@@ -74,7 +74,7 @@ describe("the GM's grouped roster (KAN-82)", () => {
   it("gives players one flat list with no group names", () => {
     const state = { ...room(), groups: {}, tokenGroups: {} };
     const html = renderToStaticMarkup(
-      <TokenRoster connection={connection} state={state} you={alice} token="t" onFocusToken={() => {}} onPlaceToken={() => {}} onDuplicateToken={() => {}} />,
+      <TokenRoster connection={connection} state={state} you={alice} token="t" onFocusToken={() => {}} onPlaceToken={() => {}} onDuplicateToken={() => {}} editingTokenId={null} onEditToken={() => {}} />,
     );
     expect(html).not.toContain("Ungrouped");
     expect(html).not.toContain("Create group");

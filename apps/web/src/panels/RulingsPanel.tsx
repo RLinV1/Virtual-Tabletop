@@ -4,6 +4,7 @@ import type { RoomConnection } from "../net/roomConnection";
 import { PanelSection } from "../ui/PanelSection";
 import { pendingRulings, type PendingRuling } from "./attackRoll";
 import { RulingButtons } from "./RulingButtons";
+import { useDisplayedHealth } from "../board/nukeHealth";
 
 /**
  * The GM's queue of attack rolls to rule on (attack-rulings, ADR 0011): to-hit rolls waiting for
@@ -21,7 +22,7 @@ export function RulingsPanel({
   /** Rolls whose dice are still in the air on this screen: the total and the controls wait for them. */
   airborne: ReadonlySet<string>;
 }) {
-  const pending = pendingRulings(state);
+  const pending = pendingRulings(useDisplayedHealth(state));
   // One request per roll at a time; the server refuses a second apply anyway.
   const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
   const [error, setError] = useState<string | null>(null);

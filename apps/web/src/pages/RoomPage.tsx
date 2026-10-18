@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { House } from "@phosphor-icons/react";
 import { can, filterStateForViewer, isActive, presetOf, type DiceVisibility, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
 import { Board, type BoardHandle, type DiceBoard } from "../board/Board";
+import { NukeHealthContext, useNukeHealth } from "../board/nukeHealth";
 import { PendingDrops, type DiceDrop } from "../board/diceDrops";
 import type { TokenDraft } from "../board/placement";
 import { Link } from "../Link";
@@ -208,6 +209,7 @@ function Room({ roomId, connection, token, features }: {
     () => (replaying ? replayConnection(connection) : preview ? previewConnection(connection, preview.you.displayName) : connection),
     [connection, replaying, preview?.you.id, preview?.you.displayName],
   );
+  const nukeHealth = useNukeHealth(connection, !replaying && !preview);
 
   // The seat is gone for good, on every tab that shared it: forget it, so the invite link
   // offers the join form rather than bouncing back to a room that refuses us (ADR 0006).
@@ -317,6 +319,13 @@ function Room({ roomId, connection, token, features }: {
   const [guideOpen, setGuideOpen] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
   const guideButtonRef = useRef<HTMLButtonElement>(null);
+  /** The token whose editor is open in the Tokens tab: here, so the board's token card can open it too (token-card-actions). */
+  const [editingTokenId, setEditingTokenId] = useState<string | null>(null);
+  // Forget a token that's gone, or undoing its deletion would bring it back with its editor open.
+  const editingGone = !!editingTokenId && !!state && !state.tokens[editingTokenId];
+  useEffect(() => {
+    if (editingGone) setEditingTokenId(null);
+  }, [editingGone]);
   const closeGuide = useCallback(() => {
     setGuideOpen(false);
     guideButtonRef.current?.focus();
@@ -472,9 +481,24 @@ function Room({ roomId, connection, token, features }: {
   const shownState = replayState ?? preview?.state ?? state;
   const readOnly = !!preview || replaying;
   const shownYou = preview?.you ?? you;
+  /**
+   * Opens a hidden sidebar, then runs `then`. It animates open, and its sections have no width
+   * until it has, so wait out the transition before showing anything in it.
+   */
+  const openSidebar = (then: () => void) => {
+    const wait = collapsed && !matchMedia("(prefers-reduced-motion: reduce)").matches ? 220 : 0;
+    setSidebarCollapsed(false);
+    window.setTimeout(then, wait);
+  };
+  /** The editor lives in the Tokens tab, so editing from the board goes there (token-card-actions). */
+  const editToken = (tokenId: string | null) => {
+    if (tokenId === null) return setEditingTokenId(null);
+    setTab("tokens");
+    openSidebar(() => setEditingTokenId(tokenId));
+  };
 
   return (
-    <div
+    <NukeHealthContext.Provider value={nukeHealth.held}><div
       className={["room", compact && "compact", collapsed && "sidebar-collapsed"].filter(Boolean).join(" ")}
       style={panelWidth !== null && !compact ? ({ "--panel-width": `${clampPanelWidth(panelWidth, window.innerWidth)}px` } as CSSProperties) : undefined}
     >
@@ -541,13 +565,8 @@ function Room({ roomId, connection, token, features }: {
             // Everyone may replay what they could see (FR-PL-07); not while previewing as a player.
             onReplay={preview ? undefined : () => (replaying ? exitReplay() : setReplaying(true))}
             replaying={replaying}
-            onGuide={() => {
-              // The sidebar's steps need it open. It animates open, and its sections have
-              // no width until it has, so wait out the transition before starting.
-              const wait = collapsed && !matchMedia("(prefers-reduced-motion: reduce)").matches ? 220 : 0;
-              setSidebarCollapsed(false);
-              window.setTimeout(() => setGuideOpen(true), wait);
-            }}
+            // The sidebar's steps need it open.
+            onGuide={() => openSidebar(() => setGuideOpen(true))}
           />}
           {features.tableChrome && you.role === "gm" && !readOnly && (
             <ActivityLog open={logOpen} onClose={() => setLogOpen(false)} roomId={state.roomId} token={token} seq={seq} state={state} connection={connection} />
@@ -560,12 +579,14 @@ function Room({ roomId, connection, token, features }: {
           canvas or reset the viewer's zoom and pan. */}
       <Board
         ref={boardRef}
+        onNukeImpact={nukeHealth.impact}
         connection={connection}
         state={shownState!}
         you={shownYou!}
         readOnly={readOnly}
         gridPreview={you.role === "gm" && !readOnly ? gridPreview : null}
         onPickTarget={pickTarget}
+        onEditToken={editToken}
         landedRollId={landedId}
         selectOnly={features.selectOnly}
         notices={features.notices && (
@@ -649,6 +670,8 @@ function Room({ roomId, connection, token, features }: {
               gridError={gridError}
               onPlaceToken={placeToken}
               onDuplicateToken={duplicateToken}
+              editingTokenId={editingTokenId}
+              onEditToken={editToken}
               compact={compact}
               tab={tab}
               onTab={setTab}
@@ -672,7 +695,7 @@ function Room({ roomId, connection, token, features }: {
           onClose={() => setReviewing(null)}
         />
       )}
-    </div>
+    </div></NukeHealthContext.Provider>
   );
 }
 

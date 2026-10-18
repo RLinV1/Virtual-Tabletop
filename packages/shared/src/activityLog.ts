@@ -51,15 +51,17 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
   /** "Aria → Goblin (1d20+5: 17)", with the names the roll recorded. */
   const rollLabel = (roll: DiceRoll | undefined) =>
     roll?.attack ? `${formatAttackParties(roll.attack)} (${roll.expression}: ${roll.total})` : "an earlier roll";
-  /** "20 ft cone", in the room grid's units. */
+  /** "red 20 ft cone", in the room grid's units; no colour word for a template without one. */
   const unit = before.scene.grid.unitLabel;
-  const templateLabel = (t: { shape: string; size: number; width?: number }) => {
-    const label = `${Number(t.size.toFixed(2))} ${unit} ${t.shape}`;
+  const templateLabel = (t: { shape: string; size: number; width?: number; color?: string }) => {
+    const label = `${t.color ? `${t.color} ` : ""}${Number(t.size.toFixed(2))} ${unit} ${t.shape}`;
     // A line says its width when it isn't the usual one cell (KAN-35).
     return t.shape === "line" && t.width !== undefined && t.width !== before.scene.grid.unitsPerCell
       ? `${label}, ${Number(t.width.toFixed(2))} ${unit} wide`
       : label;
   };
+  // "an orange 20 ft circle"; sizes keep "a", as they always have.
+  const withArticle = (label: string) => `${/^[aeiou]/i.test(label) ? "an" : "a"} ${label}`;
   switch (event.type) {
     case "RoomCreated": return `${actorName} created room ${event.name}`;
     case "ParticipantJoined": return `${actorName} joined the room as ${event.participant.role === "gm" ? "GM" : "a player"}`;
@@ -137,8 +139,8 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
       const { text } = event.message;
       return `${actorName} said: ${text.length > 80 ? `${text.slice(0, 79)}…` : text}`;
     }
-    case "TemplatePlaced": return `${actorName} placed a ${templateLabel(event.template)}${event.template.gmOnly ? " (GM only)" : ""}`;
-    case "TemplateRemoved": return `${actorName} removed a ${templateLabel(event.template)}${event.template.gmOnly ? " (GM only)" : ""}`;
+    case "TemplatePlaced": return `${actorName} placed ${withArticle(templateLabel(event.template))}${event.template.gmOnly ? " (GM only)" : ""}`;
+    case "TemplateRemoved": return `${actorName} removed ${withArticle(templateLabel(event.template))}${event.template.gmOnly ? " (GM only)" : ""}`;
     case "FogAdded": return `${actorName} added a fog ${fogLabel(event.region.shape)}`;
     case "FogRemoved": return `${actorName} removed a fog ${fogLabel(event.region.shape)}`;
     case "WallUpdated": return `${actorName} edited a ${event.wall.portal ? "portal" : "wall"}`;

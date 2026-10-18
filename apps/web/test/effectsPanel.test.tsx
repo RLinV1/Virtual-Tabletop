@@ -17,19 +17,6 @@ const connectionWith = () => {
 };
 
 describe("GM table effects (FR-TAC-06, ADR 0038)", () => {
-  it("sends room.setReducedEffects from the Reduced animations switch", async () => {
-    const { connection, command } = connectionWith();
-    render(<EffectsPanel connection={connection} state={emptyRoomState("r")} />);
-    fireEvent.click(screen.getByRole("switch", { name: "Reduced animations" }));
-    await waitFor(() => expect(command).toHaveBeenCalledWith({ type: "room.setReducedEffects", enabled: true }));
-  });
-
-  it("shows the switch on when the table is reduced", () => {
-    const { connection } = connectionWith();
-    render(<EffectsPanel connection={connection} state={{ ...emptyRoomState("r"), reducedEffects: true }} />);
-    expect((screen.getByRole("switch", { name: "Reduced animations" }) as HTMLInputElement).checked).toBe(true);
-  });
-
   it("asks before detonating, then sends nuke.detonate at the map centre", async () => {
     const { connection, command } = connectionWith();
     const state = emptyRoomState("r");

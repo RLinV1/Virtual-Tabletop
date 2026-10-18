@@ -2,7 +2,7 @@
 import { Container, Graphics } from "pixi.js";
 import { describe, expect, it, vi } from "vitest";
 import { playNuke, type FxHost } from "../src/board/fx";
-import { nukeLayout } from "../src/board/fxBudget";
+import { NUKE_DROP_SHARE, nukeLayout } from "../src/board/fxBudget";
 import { NUKE_PRESET } from "../src/board/effectPresets";
 
 vi.hoisted(() => { HTMLCanvasElement.prototype.getContext = () => null; });
@@ -12,15 +12,27 @@ function host(reducedMotion = false): FxHost {
 }
 
 describe("nuke fire and render budget (FR-TAC-06, ADR 0038)", () => {
+  it("reports impact only on the first frame after the falling bomb lands", () => {
+    const onImpact = vi.fn();
+    const fx = playNuke(host(), { def: NUKE_PRESET, origin: { x: 600, y: 400 }, unit: 60, extent: 720, onImpact });
+    const impact = NUKE_PRESET.duration * NUKE_DROP_SHARE;
+    fx.update(impact - 0.04);
+    expect(onImpact).not.toHaveBeenCalled();
+    fx.update(impact + 0.01);
+    expect(onImpact).toHaveBeenCalledTimes(1);
+    fx.update(impact + 0.1);
+    expect(onImpact).toHaveBeenCalledTimes(1);
+    fx.destroy();
+  });
   it("keeps the mushroom cap inside wide and narrow viewports", () => {
     for (const [width, height] of [[1600, 900], [390, 844], [800, 300]]) {
       for (const size of [0.25, 3, 6]) {
         const layout = nukeLayout(width!, height!, size);
         expect(layout.origin).toEqual({ x: width! / 2, y: height! / 2 });
-        expect(layout.origin.y - layout.cloudHeight - layout.capWidth * 0.22).toBeGreaterThan(0);
+        expect(layout.origin.y + layout.baseDrop - layout.cloudHeight - layout.capWidth * 0.22).toBeGreaterThan(0);
         expect(layout.capWidth).toBeLessThan(width!);
         if (size === 3) expect(layout.capWidth).toBeGreaterThan(Math.min(width! * 0.65, height! * 0.9));
-        if (width! > height! && size === 3) expect(layout.cloudHeight).toBeGreaterThan(height! * 0.24);
+        if (width! > height! && size === 3) expect(layout.cloudHeight).toBeGreaterThan(height! * 0.36);
       }
     }
   });

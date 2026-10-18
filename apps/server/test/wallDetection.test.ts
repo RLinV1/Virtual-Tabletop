@@ -221,6 +221,27 @@ describe("automatic wall detection through the queue (FR-GM-11, ADR 0029)", () =
     expect((await wallsOf(room.guestToken, "/uploads/other.png")).status).toBe(404);
   });
 
+  it("passes each wall's confidence to the GM and still applies (wall-review)", async () => {
+    const queue = new StandInQueue();
+    const { room, gm, url } = await roomWithMap(queue);
+    const scored = { ...WALL, confidence: 0.42 };
+    const wallsOf = () => api(room.guestToken, `/api/rooms/${room.roomId}/wall-detection/walls?map=${encodeURIComponent(url)}`);
+    const [jobId] = queue.only();
+    queue.emit({ jobId, kind: "completed", returnvalue: { walls: [scored], preview: PREVIEW } });
+    await expect.poll(async () => (await wallsOf()).status).toBe(200);
+    expect(await (await wallsOf()).json()).toEqual({ resultId: expect.any(String), walls: [scored] });
+    expect(await gm.command({ type: "wall.applyDetected", mapUrl: url })).toMatchObject({ type: "ack" });
+  });
+
+  it("fails a result whose confidence is outside 0..1 (wall-review)", async () => {
+    const queue = new StandInQueue();
+    const { room, gm, url } = await roomWithMap(queue);
+    const [jobId] = queue.only();
+    queue.emit({ jobId, kind: "completed", returnvalue: { walls: [{ ...WALL, confidence: 1.5 }], preview: PREVIEW } });
+    await gm.waitFor((m) => isNotice(m) && m.status.status === "failed");
+    expect((await statusOf(room.guestToken, room.roomId, url)).body).toMatchObject({ status: "failed" });
+  });
+
   it("starts detection on demand, refuses a second run while one is pending, and allows a re-run after", async () => {
     const queue = new StandInQueue();
     const { room, gm, url } = await roomWithMap(queue);

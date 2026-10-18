@@ -58,7 +58,7 @@ describe("GM nuke (FR-TAC-06, FR-TAC-07)", () => {
     expect(after.tokens[goblin.id]!.stats.hp).toBe(-7);
     expect(after.tokens[ogre.id]!.stats.hp).toBe(28);
     expect(after.tokens[sign.id]!.stats.hp).toBeNull();
-    expect(events.at(-1)).toMatchObject({ type: "MapNuked", amount: 12 });
+    expect(events[0]).toMatchObject({ type: "MapNuked", amount: 12 });
     expect(events.filter((e) => e.type === "TokenStatsSet")).toHaveLength(3);
   });
 
@@ -85,7 +85,7 @@ describe("GM nuke (FR-TAC-06, FR-TAC-07)", () => {
   it("takes a nuke animation and refuses any other shape", () => {
     const { state } = table();
     const ok = run(state, gm, { type: "nuke.detonate", amount: 3, origin: { x: 1, y: 1 }, animation: blast });
-    expect(ok.events.at(-1)).toMatchObject({ type: "MapNuked", animation: { shape: "nuke" } });
+    expect(ok.events[0]).toMatchObject({ type: "MapNuked", animation: { shape: "nuke" } });
     expect(Command.safeParse({ type: "nuke.detonate", amount: 3, origin: { x: 1, y: 1 }, animation: slash }).success).toBe(false);
   });
 
@@ -102,7 +102,7 @@ describe("GM nuke (FR-TAC-06, FR-TAC-07)", () => {
     const seen = events.map((e, i) => filterEventForViewer(at(e, 20 + i), state, alice).kind);
     const ogreIndex = events.findIndex((e) => e.type === "TokenStatsSet" && e.tokenId === ogre.id);
     expect(seen[ogreIndex]).toBe("redacted");
-    expect(seen.at(-1)).toBe("event");
+    expect(seen[0]).toBe("event");
   });
 
   it("undoes as one action and refuses once HP changed since", () => {
@@ -112,7 +112,7 @@ describe("GM nuke (FR-TAC-06, FR-TAC-07)", () => {
     expect(describeUndo(entry, nuked.state.tokens).noun).toBe("the nuke for 12 damage");
 
     const undone = act(nuked.state, gm, { type: "history.undo", commandId: nuked.commandId });
-    expect(undone.events.map((e) => e.type)).toEqual(["MapNukeUndone", "TokenStatsSet", "TokenStatsSet", "TokenStatsSet", "ActionUndone"]);
+    expect(undone.events.map((e) => e.type)).toEqual(["TokenStatsSet", "TokenStatsSet", "TokenStatsSet", "MapNukeUndone", "ActionUndone"]);
     expect(undone.state.tokens[aria.id]!.stats.hp).toBe(30);
     expect(undone.state.tokens[goblin.id]!.stats.hp).toBe(5);
 

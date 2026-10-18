@@ -35,7 +35,7 @@ See [verification.md](verification.md) for results, commands and the remaining r
 
 ## 6. Reconcile merged walls, portals and editor (2026-10-13)
 
-- [x] 6.1 Preserve pre-integration branch; reconcile main ec9aa66 with latest KAN-66/KAN-67 b7a8ba1; initially renumber ADRs to 0034/0035 (now 0040/0041 after the main reconciliation below).
+- [x] 6.1 Preserve pre-integration branch; reconcile main ec9aa66 with latest KAN-66/KAN-67 b7a8ba1; initially renumber ADRs to 0034/0035 (now 0042/0041 after the main reconciliation below).
 - [x] 6.2 Preserve typed portals with separate GM-only UVTT metadata, shared blocking and player projections; verify native/generic import/export, portal toggles and exact undo.
 - [x] 6.3 Record walls/fog replacement in one MapSet with full conflict guards and null-map inverse; verify legacy replay, concurrent fog/portal changes, groups and checkpoints.
 - [x] 6.4 Reuse current private editor adapter, detection identities and context guards; preserve metadata through normal Save and KAN-67 choices through import; verify UI and browser workflows.
@@ -43,7 +43,7 @@ See [verification.md](verification.md) for results, commands and the remaining r
 
 ## 7. Reconcile current main (2026-10-14)
 
-- [x] 7.1 Merge main 37441e4, preserve shared token attacks/chat mentions and their undo/filter behavior, and initially renumber our ADRs to 0036/0037 (now 0040/0041).
+- [x] 7.1 Merge main 37441e4, preserve shared token attacks/chat mentions and their undo/filter behavior, and initially renumber our ADRs to 0036/0037 (now 0042/0041).
 - [x] 7.2 Combine the new editor openers and step prompts with private UVTT geometry editing, retained Apply failures, token policy, Undo and focus return; add integration regressions.
 - [x] 7.3 Verify on CI's Node 22 runtime: lint, typecheck, full tests/latency, build, strict OpenSpec validation and isolated server health smoke; record evidence without substituting earlier browser/service results.
 
@@ -52,4 +52,4 @@ See [verification.md](verification.md) for results, commands and the remaining r
 - [x] 8.1 Preserve the published head at `backup/uvtt-before-main-20261018` and reconcile main e5adc64; include the subsequent documentation-only main update 0e6cd26 before publishing.
 - [x] 8.2 Combine authorized UVTT/library geometry parsers, private wall/fog commands, library board copying, current detection availability, checkpoint and animation behavior; preserve UVTT's single Apply event and guarded Undo.
 - [x] 8.3 Reuse strict shared wall fields in owned-library geometry; preserve metadata and source through validation/storage/copy, and ignore JSON object-key order in dirty checks. Record this extension in ADR 0041 and keep architecture approval outstanding.
-- [x] 8.4 Renumber prerequisite/UVTT ADRs to 0040/0041, update references, and verify lint, typecheck, full tests/latency, build, strict OpenSpec and health. Record service/browser/Python limits separately. Leave PR #102 open for the user to merge.
+- [x] 8.4 Renumber prerequisite/UVTT ADRs to 0042/0041, update references, and verify lint, typecheck, full tests/latency, build, strict OpenSpec and health. Record service/browser/Python limits separately. Leave PR #102 open for the user to merge.

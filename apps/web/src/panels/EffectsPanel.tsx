@@ -17,7 +17,7 @@ export function mapCentre(state: Pick<RoomState, "scene">): Point {
 const BUILTIN = "builtin";
 
 /**
- * The GM's table effects (ADR 0038): the table-wide Reduced animations switch, and the map nuke.
+ * The GM's table effects (ADR 0038): the map nuke. Animation preferences live in Settings.
  * The nuke damages every token with HP, so it asks for confirmation first; the server decides
  * everything else, and players never get this section. Undo is in the activity log.
  */
@@ -63,11 +63,6 @@ export function EffectsPanel({
   // Every board draws the blast in the middle of its own screen; the damage hits every token.
   const epicenter = mapCentre(state);
   const chosen = library.find((a) => a.id === animationId);
-
-  const setReduced = async (enabled: boolean) => {
-    const result = await connection.command({ type: "room.setReducedEffects", enabled });
-    setError(result.ok ? null : result.message);
-  };
 
   const ask = (e: FormEvent) => {
     e.preventDefault();
@@ -126,17 +121,6 @@ export function EffectsPanel({
             </button>
           </form>
         )}
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            role="switch"
-            checked={state.reducedEffects ?? false}
-            onChange={(e) => void setReduced(e.target.checked)}
-          />
-          Reduced animations
-        </label>
-        <p className="muted small-print">Everyone at the table sees still markers instead of moving effects.</p>
-
         {error && <p role="alert" className="error">{error}</p>}
         <p className="sr-only" role="status">{status}</p>
       </div>

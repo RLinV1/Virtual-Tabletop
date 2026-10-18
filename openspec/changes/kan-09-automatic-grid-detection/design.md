@@ -38,10 +38,12 @@ The Python/OpenCV service accepts one image body (max 25 MB), verifies decoded d
 
 Each editor starts polling on open and stops on close or map change. A generation guard ignores old responses. Use suggestion changes only draft size and offsets through the existing preview path; Save or Apply alone commits. Room polling is limited to a directly uploaded current map, and its preview stays local to the GM browser. The current accepted grid label replaces the old `Confidence: manual` wording; automatic confidence has its own label.
 
+Only progress and available suggestions appear in the editor. A `no_grid` or `error` result, or a status request error, hides the analysis area without a notice or retry button. The manual draft and controls stay available, including validation and save errors. Internal status and retry APIs retain their existing behavior.
+
 ## Risks / Trade-offs
 
 - Weak or decorative line patterns can lower accuracy → expose confidence, warn below 0.75, and retain full manual correction.
-- Worker or service outage leaves an error → upload remains usable and the editor offers Try again.
+- Worker or service outage leaves an internal error → upload remains usable and the editor quietly leaves alignment to the GM.
 - A restart can leave queued/running work → startup recovery re-enqueues it; attempt checks make duplicate jobs safe.
 - A large compressed image can expand heavily → bound decoded pixel count, body size, and service time.
 

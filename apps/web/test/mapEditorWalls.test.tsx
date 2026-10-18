@@ -207,6 +207,72 @@ describe("map editor walls (FR-GM-09, FR-GM-11)", () => {
     expect(fake.commands.some((c) => c.type === "wall.remove")).toBe(false);
   });
 
+  describe("doubtful walls (wall-review)", () => {
+    /** Seven rows; rows 1, 3 and 4 (y = 150, 350, 450) score below the threshold. */
+    const SCORES = [0.95, 0.4, 0.9, 0.55, 0.3, 0.8, 0.99];
+    const scored = () => detectedRows(7).map((w, i) => ({ ...w, confidence: SCORES[i] }));
+    const detectWithScores = async () => {
+      vi.spyOn(api.walls, "detected").mockResolvedValue({ resultId: "result-a", walls: scored() });
+      const fake = mount();
+      await waitFor(() => expect((screen.getByRole("button", { name: "Detect walls" }) as HTMLButtonElement).disabled).toBe(false));
+      fake.notify({ status: "done", wallCount: 7, width: 800, height: 600 });
+      await screen.findByRole("button", { name: "Apply 7 walls" });
+      await waitFor(() => expect(screen.getByTestId("wall-candidates").children).toHaveLength(7));
+      return fake;
+    };
+
+    it("draws doubtful walls amber and dashed, with a legend and a count", async () => {
+      await detectWithScores();
+      const marked = screen.getByTestId("wall-candidates").querySelectorAll("[data-doubtful='true']");
+      expect(marked).toHaveLength(3);
+      const line = marked[0]!.querySelector("line[stroke-dasharray]")!;
+      expect(line.getAttribute("stroke")).toBe("#ffb020");
+      expect(screen.getByRole("list", { name: "Detected wall colours" })).toBeTruthy();
+      expect(screen.getByText("3 doubtful walls")).toBeTruthy();
+    });
+
+    it("shows no doubtful walls when the result has no confidences", async () => {
+      const fake = mount();
+      await waitFor(() => expect((screen.getByRole("button", { name: "Detect walls" }) as HTMLButtonElement).disabled).toBe(false));
+      fake.notify({ status: "done", wallCount: 7, width: 800, height: 600 });
+      await screen.findByRole("button", { name: "Apply 7 walls" });
+      expect(screen.queryByText(/doubtful/)).toBeNull();
+      expect(screen.queryByRole("button", { name: /confident walls only/ })).toBeNull();
+    });
+
+    it("steps through the doubtful walls, erasing one and keeping another", async () => {
+      const fake = await detectWithScores();
+      fireEvent.click(screen.getByRole("button", { name: "Review doubtful walls" }));
+      expect(screen.getByText("Wall 1 of 3")).toBeTruthy();
+      expect(screen.getByTestId("wall-candidates").querySelector("[data-focus='true']")).toBe(screen.getByTestId("wall-candidates").children[1]);
+      fireEvent.click(screen.getByRole("button", { name: "Erase" }));
+      expect(screen.getByText("Wall 2 of 3")).toBeTruthy();
+      expect(screen.getByText("2 doubtful walls")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Keep" }));
+      fireEvent.click(screen.getByRole("button", { name: "Back" }));
+      expect(screen.getByText("Wall 2 of 3")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Keep" }));
+      fireEvent.click(screen.getByRole("button", { name: "Finish" }));
+      expect(screen.getByRole("button", { name: "Review doubtful walls" })).toBeTruthy();
+      fireEvent.click(await screen.findByRole("button", { name: "Apply 6 walls" }));
+      await waitFor(() => expect(fake.commands).toEqual([
+        { type: "wall.applyDetected", mapUrl: MAP_URL, exclude: { resultId: "result-a", indices: [1] } },
+      ]));
+    });
+
+    it("applies confident walls only by excluding the doubtful and the erased", async () => {
+      const fake = await detectWithScores();
+      fireEvent.click(tool("Erase"));
+      // Erase a confident wall too (row 0), and a doubtful one (row 1).
+      click(canvas(), { x: 135, y: 52 });
+      click(canvas(), { x: 135, y: 152 });
+      fireEvent.click(await screen.findByRole("button", { name: "Apply confident walls only (3)" }));
+      await waitFor(() => expect(fake.commands).toEqual([
+        { type: "wall.applyDetected", mapUrl: MAP_URL, exclude: { resultId: "result-a", indices: [0, 1, 3, 4] } },
+      ]));
+    });
+  });
+
   it("offers Replace when walls already exist", async () => {
     const fake = mount(room({ walls: [{ id: "w1", a: { x: 0, y: 0 }, b: { x: 50, y: 0 } }] }));
     await waitFor(() => expect((screen.getByRole("button", { name: "Detect walls" }) as HTMLButtonElement).disabled).toBe(false));

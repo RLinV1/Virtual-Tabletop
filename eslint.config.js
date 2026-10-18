@@ -5,7 +5,8 @@ import tseslint from 'typescript-eslint';
 export default tseslint.config(
   {
     // .claude/ holds local agent worktrees: full repo copies that are not part of this checkout.
-    ignores: ['**/dist/**', '**/node_modules/**', 'openspec/**', 'apps/server/uploads/**', '.claude/**'],
+    // services/vision/training/ is the git-ignored local model-training workspace (it has a Python venv with vendored JS).
+    ignores: ['**/dist/**', '**/node_modules/**', 'openspec/**', 'apps/server/uploads/**', '.claude/**', 'services/vision/training/**'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

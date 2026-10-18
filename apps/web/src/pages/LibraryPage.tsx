@@ -610,7 +610,6 @@ function LibraryGridEditor({ asset, onCancel, onSaved, saving, onSavingChange }:
         error={error}
         detection={detection.status}
         detectionError={detection.error}
-        onRetryDetection={() => { void detection.retry(); }}
         onUseSuggestion={(candidate) => {
           setDraft(withGridSuggestion(draft, candidate));
           setError(null);

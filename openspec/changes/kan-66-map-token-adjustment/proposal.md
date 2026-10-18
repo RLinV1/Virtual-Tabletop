@@ -26,6 +26,6 @@ Applying a differently sized battle map can leave tokens outside the playable im
 ## Impact
 
 - Shared command/event schemas, pure geometry, decision/reduction, undo, visibility, and activity descriptions; existing Socket.IO append/reduce/broadcast and web preparation flows.
-- Add ADR 0040. Required reviewer: Raymond Lin, Real-Time Architecture owner. Review has not been requested or received; deploy web and server together after review.
+- Add ADR 0042. Required reviewer: Raymond Lin, Real-Time Architecture owner. Review has not been requested or received; deploy web and server together after review.
 - Restore dependencies from the committed lockfile before integration verification. No event rewrite or database migration.
 - Map-specific adjustment supersedes the `scene.setMap` resnap behavior in the unsynced `token-grid-snap` change; `scene.setGrid` and size-change behavior remain intact. The unrelated completed `undo-reversible-actions` change fails strict validation because its activity-log delta omits the existing “Attack roll” scenario. Preserve it and reconcile that omission before later specification consolidation or archival.

@@ -172,7 +172,7 @@ export function decide(
         const token = state.tokens[adjustment.tokenId]!;
         return reject("invalid", `${token.name}'s ${adjustment.footprint} px footprint cannot fit this ${command.map.width} × ${command.map.height} px map. Use a larger map, reduce the grid cell size, or reduce the token's size.`);
       }
-      // Map, effective grid and adjusted positions are one reversible fact (ADR 0040).
+      // Map, effective grid and adjusted positions are one reversible fact (ADR 0042).
       return accept({
         type: "MapSet",
         map: command.map,
@@ -668,7 +668,8 @@ export function decide(
         origin: command.origin,
         ...(command.animation && { animation: command.animation }),
       };
-      return accept(...damaged, blast);
+      // Announce the falling bomb before HP events, so clients can hold their display until impact.
+      return accept(blast, ...damaged);
     }
 
     case "template.place": {
@@ -691,6 +692,7 @@ export function decide(
           toward: command.toward,
           size: command.size,
           ...(width !== undefined && { width }),
+          ...(command.color !== undefined && { color: command.color }),
           ownerId: actor.id,
           gmOnly: command.gmOnly,
         },

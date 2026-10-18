@@ -14,9 +14,20 @@ export const WALL_DETECTION_QUEUE = "wall-detection";
 /** Largest preview image the server accepts from the worker, in bytes after base64 decoding. */
 export const MAX_WALL_PREVIEW_BYTES = 2 * 1024 * 1024;
 
-/** One detected segment, in the map image's own pixels. */
-export const DetectedWall = z.object({ a: Point, b: Point }).strict();
+/**
+ * One detected segment, in the map image's own pixels. `confidence` (0..1) is the learned model's
+ * mean wall probability along the segment (ADR 0038); detectors without a score omit it.
+ */
+export const DetectedWall = z.object({ a: Point, b: Point, confidence: z.number().min(0).max(1).optional() }).strict();
 export type DetectedWall = z.infer<typeof DetectedWall>;
+
+/** Detected walls scoring below this are shown as doubtful in the preview (ADR 0038). */
+export const DOUBTFUL_WALL_CONFIDENCE = 0.6;
+
+/** Whether a detected wall deserves a second look. A wall with no score is not doubtful. */
+export function isDoubtfulWall(wall: Pick<DetectedWall, "confidence">): boolean {
+  return wall.confidence !== undefined && wall.confidence < DOUBTFUL_WALL_CONFIDENCE;
+}
 
 /** What the vision worker returns for one job. */
 export const WallDetectionResult = z.object({

@@ -2,7 +2,7 @@
 
 ## Context
 
-See proposal.md for scope. The initial integration combined main ec9aa66 with KAN-66/KAN-67 b7a8ba1, followed by main 37441e4. The current branch reconciles main e5adc64, preserving its library-map geometry, checkpoint previews, fog reshaping, animation features and learned wall detector alongside UVTT preparation and atomic Apply/Undo. ADRs 0040 (map-token adjustment) and 0041 (UVTT) replace our earlier 0036/0037 numbers, now occupied on main. The common wall editor and owned-library geometry reuse the same optional UVTT fields; no library UVTT file-import workflow is added. Both large geometry routes retain authorized 1 MiB parsers and the global JSON limit stays 64 KiB. Review approvals remain external gates.
+See proposal.md for scope. The initial integration combined main ec9aa66 with KAN-66/KAN-67 b7a8ba1, followed by main 37441e4. The current branch reconciles main e5adc64, preserving its library-map geometry, checkpoint previews, fog reshaping, animation features and learned wall detector alongside UVTT preparation and atomic Apply/Undo. ADRs 0042 (map-token adjustment) and 0041 (UVTT) replace our earlier 0036/0037 numbers, now occupied on main. The common wall editor and owned-library geometry reuse the same optional UVTT fields; no library UVTT file-import workflow is added. Both large geometry routes retain authorized 1 MiB parsers and the global JSON limit stays 64 KiB. Review approvals remain external gates.
 
 ## Goals / Non-Goals
 
@@ -33,4 +33,4 @@ Portal endpoint edits normalize collinear solid overlap both in private draft va
 
 ## Migration Plan
 
-No new database migration beyond the prerequisite wall/account/encounter migrations. Validate OpenSpec strictly and run lint, typecheck, tests including benchmark, build and health smoke. Review ADR 0041 with Raymond Lin alongside the reconciled proposed ADR 0040 and editor context ADR 0031, preserving accepted 0028/0029/0030/0032. PR #94 is merged; #86 remains the prerequisite. Verify memory/disk plus Postgres and the current S3/SeaweedFS storage configuration. Do not rewrite event history during rollback.
+No new database migration beyond the prerequisite wall/account/encounter migrations. Validate OpenSpec strictly and run lint, typecheck, tests including benchmark, build and health smoke. Review ADR 0041 with Raymond Lin alongside the reconciled proposed ADR 0042 and editor context ADR 0031, preserving accepted 0028/0029/0030/0032. PR #94 is merged; #86 remains the prerequisite. Verify memory/disk plus Postgres and the current S3/SeaweedFS storage configuration. Do not rewrite event history during rollback.

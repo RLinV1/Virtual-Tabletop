@@ -4,6 +4,7 @@ import {
   ColorMatrixFilter,
   Container,
   Graphics,
+  Matrix,
   Sprite,
   Text,
   Texture,
@@ -47,7 +48,7 @@ import {
 import { playNuke, playStrike, type FxHost, type RunningFx } from "./fx";
 import { getClientSettings, graphicsBudget, subscribeGraphicsSettings } from "../ui/clientSettings";
 import { averageColor, fogPalette, makeFogCanvas, makeFogMaskCanvas, type Rgb } from "./fogTexture";
-import { areaOrigin, areaShape, areaSizeFromDrag, fogDraftPoints, fogRegionAt, formatDistance, hitMark, measure, portalAt, sweepPoints, templateMark, type BoardTool, type FogDraft, type Mark } from "./tools";
+import { areaColorValue, areaOrigin, areaShape, areaSizeFromDrag, fogDraftPoints, fogRegionAt, formatDistance, hitMark, measure, portalAt, sweepPoints, templateMark, type BoardTool, type FogDraft, type Mark } from "./tools";
 import { aimExpiry, expiredAims } from "./aims";
 import { PING_MS, pingPulse } from "./ping";
 
@@ -58,12 +59,13 @@ import { PING_MS, pingPulse } from "./ping";
 export type GmFogView = "tint" | "off";
 
 /** An area being aimed, as sent to the others (KAN-35); mirrors the `templatePreview` payload. */
-export type AimPreview = { shape: AreaTemplate["shape"]; origin: Point; toward: Point; size: number; width?: number; gmOnly: boolean };
+export type AimPreview = { shape: AreaTemplate["shape"]; origin: Point; toward: Point; size: number; width?: number; color?: AreaTemplate["color"]; gmOnly: boolean };
 
 /** Pixi animations playing at once; the oldest ends first, so a flood of attacks never lags the board. */
 const MAX_FX_RUNS = 4;
 
 export interface BoardCallbacks {
+  nukeImpact?: () => void;
   /** Commit a move. Resolves false if the server rejected it. */
   moveToken(tokenId: string, to: Point): Promise<boolean>;
   /** Every pointer move of a token drag; the connection coalesces them (KAN-39). */
@@ -75,7 +77,7 @@ export interface BoardCallbacks {
   dragEnd(tokenId: string, at: Point | null): void;
   ping(at: Point): void;
   /** Place a shared area template (ADR 0007). Resolves false if the server rejected it. */
-  placeTemplate(template: { shape: AreaTemplate["shape"]; origin: Point; toward: Point; size: number; width?: number; gmOnly: boolean }): Promise<boolean>;
+  placeTemplate(template: { shape: AreaTemplate["shape"]; origin: Point; toward: Point; size: number; width?: number; color?: AreaTemplate["color"]; gmOnly: boolean }): Promise<boolean>;
   /** The area being aimed, as others should see it (KAN-35); the connection coalesces these. */
   aimPreview(preview: AimPreview): void;
   /** Aiming stopped (placed or cancelled): clear it for the others. */
@@ -224,9 +226,9 @@ const MEASURE_COLOR = 0xf1c40f;
  */
 const AIM_COLOR = 0xf4ede4;
 const AIM_EDGE = 0x14171b;
-const AREA_COLOR = 0xe67e22;
-/** GM-only templates, which players never see, are drawn in a colour of their own. */
-const GM_AREA_COLOR = 0x9b59b6;
+/** GM-only areas are hatched (ADR 0040): stripes about a quarter of a cell apart, so they zoom with the map. */
+const HATCH_TILE_PX = 16;
+const HATCH_SPACING_CELLS = 0.25;
 /** Neutral stand-in for a map image that no longer exists (board-asset-fallback). */
 const EMPTY_MAP_FILL = 0x2b2e35;
 
@@ -622,6 +624,8 @@ export class BoardView {
 
   destroy() {
     if (!this.initialized) return;
+    cancelAnimationFrame(this.cameraTween);
+    this.cameraTween = 0;
     cancelAnimationFrame(this.frame);
     this.frame = 0;
     this.animations.clear();
@@ -630,6 +634,8 @@ export class BoardView {
     this.attackFx = [];
     this.loopRegistered = false;
     this.stopMotionWatch?.();
+    this.hatch?.destroy(true);
+    this.hatch = null;
     this.stopSettingsWatch?.();
     document.removeEventListener("visibilitychange", this.onVisibilityChange);
     this.viewListeners.clear();
@@ -822,6 +828,44 @@ export class BoardView {
    * Another participant's area being aimed (KAN-35): a translucent outline with their name at the
    * origin, replaced on each update and gone a second after the last one. Null clears it.
    */
+  /** One striped tile, white so each area's colour tints it; made once, on first use. */
+  private hatch: Texture | null = null;
+  private hatchTexture(): Texture {
+    if (this.hatch) return this.hatch;
+    const size = HATCH_TILE_PX;
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext("2d")!;
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    // Three diagonals, so the stripes run on unbroken across tile edges.
+    for (const k of [-size, 0, size]) {
+      ctx.moveTo(k, size);
+      ctx.lineTo(k + size, 0);
+    }
+    ctx.stroke();
+    const texture = Texture.from(canvas);
+    texture.source.style.addressMode = "repeat";
+    this.hatch = texture;
+    return texture;
+  }
+
+  /**
+   * An area's fill (ADR 0040): translucent in its colour, or hatched in its colour when GM-only.
+   * A plain texture fill, not a FillPattern: Pixi forces a pattern's colour to white, which would
+   * lose the tint. Repeating in global texture space is what a FillPattern does anyway.
+   */
+  private fillArea(g: Graphics, color: number, gmOnly: boolean, alpha: number, grid: GridSpec) {
+    if (!gmOnly) {
+      g.fill({ color, alpha });
+      return;
+    }
+    // A tile's stripes are its width / sqrt(2) apart; scale so that is a quarter of a cell.
+    const scale = (grid.cellSize * HATCH_SPACING_CELLS * Math.SQRT2) / HATCH_TILE_PX;
+    g.fill({ texture: this.hatchTexture(), matrix: new Matrix().scale(scale, scale), textureSpace: "global", color, alpha: Math.min(1, alpha * 2.5) });
+  }
+
   showAimPreview(from: string, preview: AimPreview | null, label: string) {
     if (!preview || !this.state) return this.clearAim(from);
     let aim = this.aims.get(from);
@@ -840,8 +884,9 @@ export class BoardView {
     g.clear();
     if (shape.kind === "circle") g.circle(shape.center.x, shape.center.y, shape.radius);
     else g.poly(shape.points.flatMap((p) => [p.x, p.y]));
-    const color = preview.gmOnly ? GM_AREA_COLOR : AREA_COLOR;
-    g.fill({ color, alpha: 0.1 }).stroke({ width: 2 * px, color, alpha: 0.6 });
+    const color = areaColorValue(preview.color);
+    this.fillArea(g, color, preview.gmOnly, 0.1, grid);
+    g.stroke({ width: 2 * px, color, alpha: 0.6 });
     text.text = `${label} aiming`;
     text.scale.set(px);
     text.position.set(preview.origin.x + 6 * px, preview.origin.y + 6 * px);
@@ -1309,7 +1354,7 @@ export class BoardView {
     const pending = { ...area, origin, free: true, gmOnly };
     this.pendingAreas.push(pending);
     this.callbacks
-      .placeTemplate({ shape: area.shape, origin, toward: area.toward, size: area.size, width: area.width, gmOnly })
+      .placeTemplate({ shape: area.shape, origin, toward: area.toward, size: area.size, width: area.width, color: area.color, gmOnly })
       .then(
         (ok) => {
           // Refused: nothing will arrive to clear, so stop waiting for it.
@@ -1335,11 +1380,11 @@ export class BoardView {
     if (!grid) return null;
     const { from, to, free, dragged } = gesture;
     const origin = areaOrigin(from, grid, free);
-    const size = dragged ? areaSizeFromDrag(origin, to, grid, free) : tool.size;
+    const size = dragged ? areaSizeFromDrag(origin, to, grid, free, tool.shape) : tool.size;
     // A click aims right from the snapped origin, not at the raw press point beside it.
     const toward = dragged ? to : { x: origin.x + 1, y: origin.y };
     const width = tool.shape === "line" ? tool.lineCells * grid.unitsPerCell : undefined;
-    return { kind: "area", shape: tool.shape, size, origin: from, toward, free, gmOnly: tool.gmOnly, width };
+    return { kind: "area", shape: tool.shape, size, origin: from, toward, free, gmOnly: tool.gmOnly, width, color: tool.color };
   }
 
   /** Remove every mark the eraser touches on its way from `from` to `at`. */
@@ -1555,8 +1600,9 @@ export class BoardView {
         if (shape.kind === "circle") g.circle(shape.center.x, shape.center.y, shape.radius);
         else g.poly(shape.points.flatMap((p) => [p.x, p.y]));
         // Translucent, so tokens under the area stay visible.
-        const color = mark.gmOnly ? GM_AREA_COLOR : AREA_COLOR;
-        g.fill({ color, alpha: 0.2 }).stroke({ width: 2 * px, color, alpha: 0.9 });
+        const color = areaColorValue(mark.color);
+        this.fillArea(g, color, !!mark.gmOnly, 0.2, grid);
+        g.stroke({ width: 2 * px, color, alpha: 0.9 });
         g.circle(origin.x, origin.y, 3 * px).fill({ color });
         return;
       }
@@ -1846,7 +1892,8 @@ export class BoardView {
     if (!this.initialized || !this.state) return;
     if (effect.kind === "strike") return this.playStrikeFx(effect);
     if (effect.kind === "nuke") return this.playNukeFx(effect);
-    if (effect.kind !== "hit") return;
+    // The overlay supplies the still hit marker; no canvas frames are needed without a shake.
+    if (effect.kind !== "hit" || this.reducedMotion) return;
     const target = this.tokens.get(effect.tokenId);
     if (!target || target.container.destroyed) return;
     while (this.attackFx.length >= MAX_ATTACK_EFFECTS) this.endAttackFx(this.attackFx[0]!);
@@ -2004,6 +2051,7 @@ export class BoardView {
     const { width, height } = this.app.screen;
     const host = { ...this.fxHost(), layer: this.screenFxLayer };
     this.startFx(playNuke(host, {
+      onImpact: this.callbacks.nukeImpact,
       def: effect.animation,
       origin: { x: width / 2, y: height / 2 },
       unit: Math.min(64, height / 10),
@@ -2216,7 +2264,7 @@ export class BoardView {
         const area = this.areaFromGesture(gesture, this.tool);
         if (area?.kind === "area") {
           const origin = areaOrigin(area.origin, this.state.scene.grid, area.free);
-          this.callbacks.aimPreview({ shape: area.shape, origin, toward: area.toward, size: area.size, width: area.width, gmOnly: this.tool.gmOnly });
+          this.callbacks.aimPreview({ shape: area.shape, origin, toward: area.toward, size: area.size, width: area.width, color: area.color, gmOnly: this.tool.gmOnly });
         }
       }
       this.redrawOverlay();
