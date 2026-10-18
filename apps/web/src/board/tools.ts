@@ -1,4 +1,4 @@
-import { pointInPolygon, snapTokenCenter, type AreaShape, type AreaTemplate, type Command, type FogRegion, type GridSpec, type Point, type Wall } from "@vtt/shared";
+import { DEFAULT_AREA_COLOR, pointInPolygon, snapTokenCenter, type AreaColor, type AreaShape, type AreaTemplate, type Command, type FogRegion, type GridSpec, type Point, type Wall } from "@vtt/shared";
 
 export type { AreaShape };
 
@@ -20,8 +20,10 @@ export type BoardTool =
       shape: AreaShape;
       /** Size for a click without a drag, in grid units, e.g. 20 (ft). */
       size: number;
-      /** A line's width in cells: 1 (5 ft on a 5 ft grid) or 2 (KAN-35). */
-      lineCells: 1 | 2;
+      /** A line's width in whole cells, 1 to `MAX_LINE_WIDTH_CELLS` (KAN-35, aoe-tool-refinements). */
+      lineCells: number;
+      /** The colour everyone sees it in (ADR 0040). */
+      color: AreaColor;
       /** GM only: place it where players can't see it (ADR 0007). */
       gmOnly: boolean;
     }
@@ -124,11 +126,27 @@ export type Mark =
   | { kind: "measure"; from: Point; to: Point; free: boolean }
   | { kind: "draw"; shape: Exclude<DrawShape, "brush">; color: number; from: Point; to: Point }
   | { kind: "stroke"; color: number; points: Point[] }
-  | { kind: "area"; shape: AreaShape; size: number; origin: Point; toward: Point; free: boolean; gmOnly?: boolean; width?: number };
+  | { kind: "area"; shape: AreaShape; size: number; origin: Point; toward: Point; free: boolean; gmOnly?: boolean; width?: number; color?: AreaColor };
 
 /** A placed, shared template as a mark, for drawing and hit testing. Its origin is already snapped. */
 export function templateMark(t: AreaTemplate): Extract<Mark, { kind: "area" }> {
-  return { kind: "area", shape: t.shape, size: t.size, origin: t.origin, toward: t.toward, free: true, gmOnly: t.gmOnly, width: t.width };
+  return { kind: "area", shape: t.shape, size: t.size, origin: t.origin, toward: t.toward, free: true, gmOnly: t.gmOnly, width: t.width, color: t.color };
+}
+
+/** The shade each area colour is drawn in (ADR 0040). Shared state names the colour; the board picks the shade. */
+export const AREA_SHADES: Record<AreaColor, number> = {
+  red: 0xe74c3c,
+  orange: 0xe67e22,
+  yellow: 0xf1c40f,
+  green: 0x2ecc71,
+  blue: 0x3498db,
+  purple: 0x9b59b6,
+  grey: 0x95a5a6,
+};
+
+/** An area's shade; one placed before colours existed is orange. */
+export function areaColorValue(color?: AreaColor): number {
+  return AREA_SHADES[color ?? DEFAULT_AREA_COLOR];
 }
 
 export function snapToCellCenter(p: Point, grid: GridSpec): Point {
@@ -192,8 +210,9 @@ export function areaShape(shape: AreaShape, origin: Point, toward: Point, size: 
     const half = (((width ?? grid.unitsPerCell) / grid.unitsPerCell) * grid.cellSize) / 2;
     return { kind: "polygon", points: [at(0, -half), at(length, -half), at(length, half), at(0, half)] };
   }
+  // A box is centred on its origin, turned to face the aim (ADR 0040).
   const h = length / 2;
-  return { kind: "polygon", points: [at(0, -h), at(length, -h), at(length, h), at(0, h)] };
+  return { kind: "polygon", points: [at(-h, -h), at(h, -h), at(h, h), at(-h, h)] };
 }
 
 /**
@@ -208,11 +227,12 @@ export function areaOrigin(p: Point, grid: GridSpec, free: boolean): Point {
 }
 
 /**
- * An area's size from a drag, in grid units: the distance from the origin to the pointer, so
- * the pointer sits on the shape's far edge. Snapped to whole cells (at least one) unless free.
+ * An area's size from a drag, in grid units, so the pointer sits on the shape's far edge: the
+ * distance from the origin, or twice it for a box, which is centred on its origin (ADR 0040).
+ * Snapped to whole cells (at least one) unless free.
  */
-export function areaSizeFromDrag(origin: Point, to: Point, grid: GridSpec, free: boolean): number {
-  const cells = Math.hypot(to.x - origin.x, to.y - origin.y) / grid.cellSize;
+export function areaSizeFromDrag(origin: Point, to: Point, grid: GridSpec, free: boolean, shape?: AreaShape): number {
+  const cells = (Math.hypot(to.x - origin.x, to.y - origin.y) / grid.cellSize) * (shape === "box" ? 2 : 1);
   if (free) return Math.max(0.1, Math.round(cells * grid.unitsPerCell * 10) / 10);
   return Math.max(1, Math.round(cells)) * grid.unitsPerCell;
 }

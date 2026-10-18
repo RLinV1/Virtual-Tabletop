@@ -672,6 +672,7 @@ export function decide(
           toward: command.toward,
           size: command.size,
           ...(width !== undefined && { width }),
+          ...(command.color !== undefined && { color: command.color }),
           ownerId: actor.id,
           gmOnly: command.gmOnly,
         },

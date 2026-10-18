@@ -111,6 +111,15 @@ export type Token = z.infer<typeof Token>;
 export const AreaShape = z.enum(["circle", "cone", "box", "line"]);
 export type AreaShape = z.infer<typeof AreaShape>;
 
+/**
+ * The colours an area template can be (ADR 0040). Names, not hex: the client owns the shades, so a
+ * theme can change them without touching history. White is left out; its fill vanishes on light maps.
+ */
+export const AreaColor = z.enum(["red", "orange", "yellow", "green", "blue", "purple", "grey"]);
+export type AreaColor = z.infer<typeof AreaColor>;
+/** What a template with no colour, such as one placed before colours existed, is drawn as. */
+export const DEFAULT_AREA_COLOR: AreaColor = "orange";
+
 /** Most area templates a room holds at once, so one client can't grow state without bound. */
 export const MAX_AREA_TEMPLATES = 200;
 /** Widest a line template may be, in cells of the room's grid (KAN-35). */
@@ -130,7 +139,7 @@ export const MAX_PLAYERS_PER_ROOM = 32;
 export const AreaTemplate = z.object({
   id: Id,
   shape: AreaShape,
-  /** Where it was placed: a circle's centre, a cone's apex, the middle of a box's near side. */
+  /** Where it was placed: a circle's or a box's centre (ADR 0040), a cone's apex, a line's start. */
   origin: Point,
   /** The point it was aimed at; equal to `origin` for an unaimed placement (points right). */
   toward: Point,
@@ -141,6 +150,8 @@ export const AreaTemplate = z.object({
    * shapes. Optional so events from before lines still parse.
    */
   width: z.number().positive().max(1000).optional(),
+  /** Its colour (ADR 0040); drawn as `DEFAULT_AREA_COLOR` when absent. Optional so older events still parse. */
+  color: AreaColor.optional(),
   /** Who placed it. They and the GM may remove it. */
   ownerId: Id,
   /** GM-only templates are never sent to players (FR-GM-23), like hidden tokens. */

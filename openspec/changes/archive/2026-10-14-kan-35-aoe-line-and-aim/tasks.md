@@ -1,11 +1,11 @@
 ## 0. Prerequisites
 
-- [ ] 0.1 Confirm with Antonio (KAN-35 owner, and KAN-32 in progress) who takes this, and agree the merge order with KAN-32; verify the agreement is noted on the KAN-35 ticket
+- [x] 0.1 Confirm with Antonio (KAN-35 owner, and KAN-32 in progress) who takes this, and agree the merge order with KAN-32; verify the agreement is noted on the KAN-35 ticket
 - [x] 0.2 Confirm KAN-39 (`connection.preview`) is merged into `main` and rebase this branch on it; verify `RoomConnection.preview` exists
 
 ## 1. ADR
 
-- [ ] 1.1 Write `docs/adr/0021-area-lines-and-aim.md` amending ADR 0007 for the `line` shape, the optional `width`, and the `templatePreview` payload with its relay rules; get Real-Time Architecture owner sign-off; verify ADR 0007 links to it
+- [x] 1.1 Write `docs/adr/0021-area-lines-and-aim.md` amending ADR 0007 for the `line` shape, the optional `width`, and the `templatePreview` payload with its relay rules; get Real-Time Architecture owner sign-off; verify ADR 0007 links to it
 
 ## 2. Shared contract
 

@@ -129,3 +129,33 @@ describe("template aim previews (KAN-35, FR-TAC-06)", () => {
     expect((await gm.waitFor(isEphemeral)).payload).toEqual(aim(false, 140));
   });
 });
+
+describe("area colours over the wire (FR-TAC-06, FR-GM-23, ADR 0040)", () => {
+  const isEphemeral = (m: ServerMessage): m is Extract<ServerMessage, { type: "ephemeral" }> => m.type === "ephemeral";
+
+  it("shows a public area in its colour to everyone, and keeps a GM-only one and its colour from players", async () => {
+    const { gm, alice } = await setup();
+    await gm.command({ type: "scene.setMap", map: { url: "/uploads/m.png", width: 1000, height: 800 } });
+
+    // A GM-only green aim, then a ping as a marker: the player gets the ping and nothing before it.
+    gm.send({ type: "ephemeral", payload: { type: "templatePreview", preview: { shape: "circle", origin: { x: 140, y: 70 }, toward: { x: 141, y: 70 }, size: 20, gmOnly: true, color: "green" } } });
+    gm.send({ type: "ephemeral", payload: { type: "ping", at: { x: 1, y: 10 } } });
+    expect((await alice.waitFor(isEphemeral)).payload).toMatchObject({ type: "ping" });
+
+    await gm.command({ ...cone, shape: "circle", gmOnly: true, color: "green" });
+    const placed = await gm.command({ ...cone, color: "red" });
+    const seq = (placed as { seq: number }).seq;
+    await Promise.all([gm, alice].map((c) => c.waitForSeq(seq)));
+
+    expect(templates(gm).map((t) => t.color).sort()).toEqual(["green", "red"]);
+    expect(templates(alice)).toHaveLength(1);
+    expect(templates(alice)[0]).toMatchObject({ shape: "cone", color: "red" });
+    expect(alice.rawLog.join(" ")).not.toContain("green");
+  });
+
+  it("refuses a colour outside the fixed list", async () => {
+    const { alice } = await setup();
+    expect(await alice.command({ ...cone, color: "white" } as never)).toMatchObject({ type: "rejected" });
+    expect(templates(alice)).toEqual([]);
+  });
+});
