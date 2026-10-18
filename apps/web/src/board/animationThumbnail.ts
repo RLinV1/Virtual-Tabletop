@@ -176,6 +176,6 @@ export function releaseThumbnailRenderer() {
     const pending = rendererPromise;
     rendererPromise = null;
     const rig = await pending;
-    rig?.app.destroy(true, { children: true });
+    rig?.app.destroy({ removeView: true, releaseGlobalResources: false }, { children: true });
   });
 }

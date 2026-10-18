@@ -646,7 +646,9 @@ export class BoardView {
     this.app.canvas.removeEventListener("touchend", this.onTouchEnd);
     this.app.canvas.removeEventListener("dblclick", this.onDoubleClick);
     this.app.canvas.removeEventListener("pointerleave", this.onPointerLeave);
-    this.app.destroy(true, { children: true });
+    // Other boards and animation previews share Pixi pools. Boolean true also releases those
+    // global pools, invalidating the live board when a checkpoint preview closes.
+    this.app.destroy({ removeView: true, releaseGlobalResources: false }, { children: true });
     this.initialized = false;
   }
 
