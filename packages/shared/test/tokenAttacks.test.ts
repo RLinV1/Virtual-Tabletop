@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Command, GAME_PRESETS, decide, filterEventForViewer, type AttackPreset, type CommandInput, type DomainEvent, type Token } from "../src";
+import { AttackPreset as AttackPresetSchema, Command, GAME_PRESETS, decide, filterEventForViewer, type AttackPreset, type CommandInput, type DomainEvent, type Token } from "../src";
 import { committedRoom } from "./committedRoom";
 import { alice, bob, gm } from "./fixtures";
 
@@ -109,5 +109,13 @@ describe("Attack changes alongside ownership (ADR 0034)", () => {
     const { room, goblin } = withGoblin({ ownerIds: [] });
     const { events } = room.run(gm, { type: "token.configure", tokenId: goblin.id, changes: { attacks: [bite], ownerIds: [bob.id] } });
     expect(events.map((e: DomainEvent) => e.type)).toEqual(["TokenAttacksSet", "TokenOwnersSet"]);
+  });
+});
+
+describe("multi-target attacks (FR-TAC-09)", () => {
+  it("accepts a target count of 2 to 10 and rejects the rest, leaving old attacks single-target", () => {
+    expect(AttackPresetSchema.parse(scimitar)).not.toHaveProperty("maxTargets");
+    for (const maxTargets of [2, 5, 10]) expect(AttackPresetSchema.parse({ ...scimitar, maxTargets }).maxTargets).toBe(maxTargets);
+    for (const maxTargets of [0, 1, 11, 2.5, -3]) expect(AttackPresetSchema.safeParse({ ...scimitar, maxTargets }).success).toBe(false);
   });
 });

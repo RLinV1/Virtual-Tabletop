@@ -203,7 +203,8 @@ export function decide(
       }
       if (new Set(command.conditions).size !== command.conditions.length) return reject("invalid", "A condition is listed twice.");
       if (footprintCrossesWall(command.position, command.size, state.scene.grid, blockingWalls(state))) return wallBlocked();
-      return createTokens(state, {
+      if (command.groupId !== undefined && !state.groups[command.groupId]) return notFound("group");
+      const made = createTokens(state, {
         name: command.name,
         position: command.position,
         size: command.size,
@@ -217,6 +218,9 @@ export function decide(
         conditions: command.conditions,
         ...(command.attacks.length > 0 ? { attacks: command.attacks } : {}),
       }, command.count, ctx);
+      if (!made.ok || command.groupId === undefined) return made;
+      const changes = made.events.flatMap((e) => (e.type === "TokenCreated" ? [{ tokenId: e.token.id, previous: null }] : []));
+      return accept(...made.events, { type: "TokensGrouped", groupId: command.groupId, changes });
     }
 
     case "token.duplicate": {
@@ -545,7 +549,8 @@ export function decide(
         // An unowned token under fog is concealed on the roll for good, like a hidden one (ADR 0016).
         const side = (t: Token) => ({ tokenId: t.id, name: t.name, hidden: t.hidden || fogConcealsSide(state, t) });
         // The animation comes from the actor's own named attack, never from the client (ADR 0038).
-        const animation = namedAttackFor(attacker.attacks, command.attack.label, command.attack.kind)?.animation;
+        const named = namedAttackFor(attacker.attacks, command.attack.label, command.attack.kind);
+        const animation = named?.animation;
         attack = {
           actor: side(attacker),
           target: side(target),
@@ -563,7 +568,7 @@ export function decide(
       const random = ctx.random;
       if (!random) return reject("invalid", "Dice are unavailable");
       const { dice, total } = rollDice(parsed.expression, random);
-      return accept({
+      const rolled: DomainEvent = {
         type: "DiceRolled",
         roll: {
           id: ctx.newId(),
@@ -575,7 +580,8 @@ export function decide(
           visibility: command.visibility,
           ...(attack && { attack }),
         },
-      });
+      };
+      return accept(rolled);
     }
 
     case "roll.rule": {

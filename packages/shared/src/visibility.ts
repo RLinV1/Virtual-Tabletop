@@ -274,7 +274,9 @@ function hideAttackSides(roll: DiceRoll, state: RoomState, visible: RoomState["t
   // With the target blanked, "Applied" would still say the hidden token exists with HP (ADR 0011).
   const { damageApplied: _applied, ...withoutApplied } = roll;
   const base = target === null && roll.attack.target !== null ? withoutApplied : roll;
-  return { ...base, attack: { ...roll.attack, actor, target } };
+  // The attacker's saved animation could identify a concealed side, so it goes with the name.
+  const { animation: _animation, ...attack } = roll.attack;
+  return { ...base, attack: { ...attack, actor, target } };
 }
 
 /**

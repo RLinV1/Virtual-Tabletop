@@ -102,6 +102,8 @@ export const Command = z.discriminatedUnion("type", [
     attacks: TokenAttacks.default([]),
     /** Place this many copies in one action, numbered and spread over free squares (KAN-70). */
     count: z.number().int().min(1).max(MAX_TOKENS_PER_CREATE).default(1),
+    /** Put the new tokens in this existing group, in the same action. */
+    groupId: Id.optional(),
   }),
   /**
    * GM copies a token, 1–20 times, onto the nearest free squares beside it (KAN-82), or starting

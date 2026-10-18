@@ -4,6 +4,8 @@ import { MAX_ATTACK_LABEL, type AttackKind } from "./dice";
 
 /** Named rolls copied from a creature into a placed token (KAN-70). */
 export const MAX_TOKEN_ATTACKS = 8;
+/** Most targets one multi-target attack may be rolled at together. */
+export const MAX_ATTACK_TARGETS = 10;
 export const AttackDice = z.object({
   count: z.number().int().min(1).max(20),
   sides: z.number().int().refine((s) => [4, 6, 8, 10, 12, 20, 100].includes(s), { message: "Choose a supported die" }),
@@ -16,6 +18,8 @@ export const AttackPreset = z.object({
   damage: AttackDice.nullable(),
   /** A library animation copied in when the attack was set up; plays instead of the built-in style (ADR 0038). */
   animation: StrikeAnimationDef.optional(),
+  /** Set when the attack may hit several tokens at once: how many at most. Absent means one target. The panel rolls it once per chosen target. */
+  maxTargets: z.number().int().min(2).max(MAX_ATTACK_TARGETS).optional(),
 }).refine((a) => a.toHit !== null || a.damage !== null, { message: "An attack needs a to-hit or damage roll" });
 export type AttackPreset = z.infer<typeof AttackPreset>;
 export const TokenAttacks = z.array(AttackPreset).max(MAX_TOKEN_ATTACKS).refine(
