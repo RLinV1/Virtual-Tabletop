@@ -31,7 +31,7 @@
 
 ## 4. Web: UI
 
-- [x] 4.1 Attack panel: three-way style picker (accessible name "Attack style", none selected by default); verify keyboard focus order and a test that the chosen style is sent
+- [x] 4.1 Attack panel uses the saved attack animation or automatic style; manual Melee/Ranged/Magic controls removed at the user's request.
 - [x] 4.2 GM nuke control (GM only): amount field, click-to-set epicenter (default map centre), animation select (built-in or library), confirm dialog; verify players never see the control
 - [x] 4.3 `net/api.ts` client for library animations; verify typecheck
 - [x] 4.4 Library page Animations tab: list with search, create, rename, duplicate, delete, duplicate-from-built-in; verify a component test for list and search
@@ -42,3 +42,48 @@
 
 - [x] 5.1 Run `npm run lint && npm run typecheck && npm test`; verify all pass
 - [x] 5.2 Verify in the running app with the Playwright MCP: each style plays, a library animation plays for a player, the nuke plays for GM and a player, a hidden token shows no number, reduced motion variant works, undo restores HP, the editor preview plays unsaved values
+
+## 6. Visible nuke drop and animation budget
+
+- [x] 6.1 Show a steel bomb with fins and a radiation band falling into the centre of each viewer's board, followed by an orange mushroom cloud and ground fire.
+- [x] 6.2 Size the blast from the viewport, independently of map size, zoom and pan; replace screen filters and per-frame cloud paths with 52 sprites sharing one cached fire texture.
+- [x] 6.3 Limit heavy effects to 30 fps, one simultaneous nuke, bounded sparks and 12 visible condition emitters with one canvas each; stop particles in hidden tabs and release blast objects on hide/end.
+- [x] 6.4 Delay screen shake and damage labels until impact; place Reduced animations underneath Detonate.
+- [x] 6.5 Verify fire visibility, viewport framing, cleanup, overflow and frame cost in a browser; run lint, typecheck, unit tests and production build.
+
+## 7. Widespread nuclear impact
+
+- [x] 7.1 Widen the mushroom cap to roughly 70% of the board width, thicken the stem and replace the thin ground line with overlapping banks of fire.
+- [x] 7.2 Add a fast-growing fireball, 24 rolling fire/dust clouds expanding across the viewport, a stronger flash and thicker shock rings; keep cached textures and the 30fps budget.
+- [x] 7.3 Verify impact and aftermath visually, remeasure render cost and run relevant tests, lint, typecheck and build.
+
+## 8. Dedicated animation editor
+
+- [x] 8.1 Extract the editor from the narrow library popup into a full-screen map-editor shell with persistent Save/Cancel and Appearance, Timing & power and Motion sections.
+- [x] 8.2 Keep a large two-token preview mounted beside settings, with labelled attacker/target tokens, Play, Stop, reduced preview and idle/30fps rendering.
+- [x] 8.3 Protect unsaved drafts, retain failed saves and support desktop/laptop/phone layouts with no horizontal scrolling.
+- [x] 8.4 Verify two-token playback, unsaved preview, save, cancel and responsive layouts in the browser; run regression tests, lint, typecheck and build.
+
+## 9. Static previews in the animation library
+
+- [x] 9.1 Render one recognizable still per definition into library cards; refresh edited definitions and retain previews across visits.
+- [x] 9.2 Generate visible cards serially with a shared offscreen renderer, yield between requests, bound image caching and safely release the context on exit.
+- [x] 9.3 Verify all 20 shapes, cached revisits, image dimensions and zero per-card canvases in the browser; run cache/UI tests, lint, typecheck and build.
+
+## 10. Rendering budgets and browser settings
+
+- [x] 10.1 Reuse cached particle textures and pooled sprites, compact expired particles in place, and render reduced markers only at appearance/removal.
+- [x] 10.2 Cull condition effects outside the viewport, coalesce camera measurements with a trailing update, use CSS for bounded condition loops, and pause hidden pages.
+- [x] 10.3 Add More → Settings for every viewer, with persistent High/Balanced/Low graphics, local reduced animations, and future music/sound volume preferences.
+- [x] 10.4 Match settings sliders to the existing rust range controls with accessible labels, aligned values, keyboard interaction and narrow-screen layouts.
+- [x] 10.5 Raise the broad mushroom cloud while retaining widespread fire and dust; right-align confirmation actions in Detonate, Cancel order.
+- [x] 10.6 Restore a visible d20 to-hit action for GM/player attackers without named attacks and correct the obsolete browser-only saving message.
+- [x] 10.7 Complete final browser verification, compare render cost, and pass lint, typecheck, full tests and production build.
+
+## 11. Automatic range variety and attack areas
+
+- [x] 11.1 Keep nearby/diagonal default attacks melee; vary distant defaults deterministically by roll id across travelling effects.
+- [x] 11.2 Replace the AoE radius with an optional `maxTargets` (2-10) on saved attacks; no server-copied roll metadata or templates; document in ADR 0039.
+- [x] 11.3 Offer "Can attack multiple targets" and a count in the shared attack editor; show it in attack summaries.
+- [x] 11.4 In the attack panel, let the roller tick extra targets up to the count; roll once per target, and after Hits roll damage at every target that was hit.
+- [ ] 11.5 Verify editor/panel behavior visually, round-trip the contract across clients, and pass lint, typecheck, tests and build.

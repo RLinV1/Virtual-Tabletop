@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Attack animation
-When a to-hit or damage attack roll is committed while a viewer is connected, and that viewer can see both the attacker and the target, the viewer's board SHALL play an animation of a strike from the attacker token to the target token followed by an impact on the target. The strike SHALL depend on the roll's attack style: `melee` plays a glowing slash arc across the target, `ranged` plays a projectile with a trail flying from attacker to target, and `magic` plays a charged bolt from attacker to target that bursts on impact. A roll with no style SHALL be treated as `melee` when the target is within 1.5 grid cells of the attacker and as `ranged` otherwise. The animation SHALL be the same for every token and participant of a given style. A damage roll SHALL NOT play the strike when it follows a to-hit roll: that is, when the latest earlier attack roll in the viewer's copy of the room from the same attacker at the same target is a to-hit roll. Nothing SHALL be played in its place. A damage roll that does not follow a to-hit roll SHALL strike as any other attack roll. Attack rolls the viewer already had when the room loaded, reloaded or resynchronised SHALL NOT animate.
+When a to-hit or damage attack roll is committed while a viewer is connected, and that viewer can see both the attacker and the target, the viewer's board SHALL play an animation of a strike from the attacker token to the target token followed by an impact on the target. The strike SHALL depend on the roll's attack style: `melee` plays a glowing slash arc across the target, `ranged` plays a projectile with a trail flying from attacker to target, and `magic` plays a charged bolt from attacker to target that bursts on impact. A roll with no style or saved animation SHALL use melee within 1.5 grid cells and a varied ranged default otherwise. The default SHALL vary between roll ids and remain the same for all viewers of a given roll. A damage roll SHALL NOT play the strike when it follows a to-hit roll: that is, when the latest earlier attack roll in the viewer's copy of the room from the same attacker at the same target is a to-hit roll. Nothing SHALL be played in its place. A damage roll that does not follow a to-hit roll SHALL strike as any other attack roll. Attack rolls the viewer already had when the room loaded, reloaded or resynchronised SHALL NOT animate.
 
 #### Scenario: Live attack animates
 - **WHEN** Aria's owner rolls a ranged attack on Goblin while the GM and another player, who can see both tokens, are connected
@@ -13,7 +13,15 @@ When a to-hit or damage attack roll is committed while a viewer is connected, an
 
 #### Scenario: Unstyled attack is inferred
 - **WHEN** an attack with no style is rolled against an adjacent target, and another against a target six cells away
-- **THEN** the first plays the melee slash and the second plays the ranged projectile
+- **THEN** the first plays the melee slash and the second plays one of the ranged defaults
+
+### Requirement: Varied automatic ranged attacks
+For an attack without a saved animation or explicit historical style, targets within 1.5 grid cells SHALL use the melee slash, including diagonal neighbouring cells. Farther targets SHALL use a varied travelling effect chosen from projectile, volley, dagger, fireball, bolt and beam. The selection SHALL be stable for the roll id so all viewers see the same effect, without a manual style selector. Saved attack animations SHALL retain precedence.
+
+#### Scenario: Repeated distant attacks
+- **WHEN** several distinct unstyled rolls attack a distant target
+- **THEN** their effects vary across the ranged pool
+- **AND** each individual roll looks the same for every viewer who can see both tokens
 
 #### Scenario: Damage after a to-hit does not strike again
 - **WHEN** Aria's owner rolls to hit Goblin, the GM rules it a Hit, and Aria's owner rolls damage against Goblin
@@ -57,3 +65,4 @@ When the viewer prefers reduced motion, or the GM has turned on reduced animatio
 #### Scenario: Own preference still wins
 - **WHEN** the GM turns reduced animations off and a viewer's system asks for reduced motion
 - **THEN** that viewer's board still plays the reduced forms
+

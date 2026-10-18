@@ -4,7 +4,7 @@ Attacks on the board play one plain animation for every token: a generic strike 
 
 ## What Changes
 
-- **Attack styles.** An attack roll may carry a style: `melee`, `ranged` or `magic`. The attack panel gets a three-way style picker. When none is chosen the client infers it from distance (adjacent target is melee, farther is ranged). Each style plays its own effect: a glowing sword slash arc, a projectile with a trail, and a charged magic bolt with a burst. Hit, miss and damage endings keep their current behaviour.
+- **Attack styles.** An attack roll may carry a style: `melee`, `ranged` or `magic`. The attack panel uses the named attack's saved animation when present, otherwise it infers the effect from distance (adjacent target is melee, farther is ranged). Manual Melee/Ranged/Magic controls are omitted. Each style remains supported for existing rolls and other clients. Hit, miss and damage endings keep their current behaviour.
 - **Pixi effects layer.** The strike part of an attack is drawn by a new `board/fx.ts` module inside the PixiJS board, using `Graphics` and Pixi's built-in `ParticleContainer`, with `pixi-filters` (`AdvancedBloomFilter`) for glow. The DOM `EffectsOverlay` keeps condition effects and the hit, miss and damage-number endings.
 - **GM nuke.** A new GM-only command `nuke.detonate` (amount, epicenter) damages every token that has HP. It emits one `TokenStatsSet` per token (each carrying the stats it replaced) plus a new `MapNuked` event. Every viewer's board then plays a full-map blast: expanding shockwave (`ShockwaveFilter`), bloom, flash, screen shake and a floating damage number on each token the viewer can see.
 - **Animations are data.** Every look is one plain, serializable `AnimationDef` (shape, colours, duration, size, particles, glow, shake, flash). The built-in styles and the nuke are `AnimationDef`s in `effectPresets.ts`, and one renderer in `fx.ts` plays any of them.
@@ -30,6 +30,6 @@ Attacks on the board play one plain animation for every token: a generic strike 
 
 - `packages/shared`: `dice.ts` (`AttackStyle`, `AttackContext.style`), `commands.ts` (`nuke.detonate`, style on the attack roll command), `events.ts` (`MapNuked`, `MapNukeUndone`), `decide.ts`, `reducer.ts`, `undo.ts`, `visibility.ts`, `activityLog.ts`.
 - `apps/server`: library store (memory and Postgres), `/api/library/animations` routes, a Prisma migration, and `decide` attaching a named attack's animation to the roll. Integration tests added.
-- `apps/web`: `board/effectPresets.ts`, `board/effects.ts` (`attackEffectFor` returns the style; add nuke effect), new `board/fx.ts`, `board/boardView.ts`, `EffectsOverlay.tsx` (strike moves out), attack panel style picker, GM nuke control, Animations library tab with editor and preview, `package.json`.
-- Docs: `docs/adr/0038-attack-styles-and-nuke.md`.
+- `apps/web`: `board/effectPresets.ts`, `board/effects.ts` (`attackEffectFor` returns the style; add nuke effect), new `board/fx.ts`, `board/boardView.ts`, `EffectsOverlay.tsx` (strike moves out), attack panel automatic effects, GM nuke control, Animations library tab with editor and preview, `package.json`.
+- Docs: `docs/adr/0038-attack-styles-nuke-and-animations.md`.
 - Risk: `pixi-filters` on the whole world container is costly on weak GPUs, so the filters run only while a nuke plays.

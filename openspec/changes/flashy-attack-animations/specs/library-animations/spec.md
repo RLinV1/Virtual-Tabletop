@@ -94,3 +94,26 @@ The nuke control SHALL let the GM choose a `nuke` animation from the library or 
 #### Scenario: Wrong shape
 - **WHEN** a request detonates a nuke with a slash animation
 - **THEN** the server rejects it and no event is appended
+
+
+### Requirement: Dedicated animation workspace
+Creating or editing an animation SHALL open its own full-screen editor using the map editor's shell. The header SHALL keep Save and Cancel visible. Settings SHALL be split into keyboard-accessible Appearance, Timing & power and Motion sections, with independent scrolling. The large preview SHALL stay mounted and visible while sections change and SHALL show two distinct, labelled tokens: Attacker and Target. Play SHALL use the current unsaved definition; Stop SHALL release the active preview. Preview rendering SHALL be idle when stopped and bounded to 30fps when playing. Hidden tabs and closed editors SHALL stop and clean up the preview. On narrow screens, the preview SHALL sit above the settings without horizontal scrolling.
+
+#### Scenario: Tune an attack between two tokens
+- **WHEN** the GM opens an animation and presses Play
+- **THEN** the animation plays between the visible Attacker and Target tokens
+- **AND** switching settings sections keeps the same preview and unsaved definition
+
+#### Scenario: Protect a draft
+- **WHEN** the GM closes an editor containing unsaved changes
+- **THEN** Keep editing preserves the draft and Discard changes closes without saving
+- **AND** a failed Save reports an error while retaining the draft
+
+
+### Requirement: Static animation card previews
+Every animation card SHALL show a still frame rendered from its own definition using the same effect renderer as the board and editor. The frame SHALL be chosen to show the shape clearly and SHALL refresh when settings change. Images SHALL be cached by definition in a bounded cache and generated serially through one shared offscreen renderer, requested only near the viewport. Cached cards SHALL NOT run animation loops or own WebGL canvases. Leaving the library tab SHALL cancel unneeded rendering and release its renderer after extraction finishes. A render failure SHALL leave card actions usable and show a preview-unavailable state.
+
+#### Scenario: Recognizable previews without looping effects
+- **WHEN** the GM views the Animations tab
+- **THEN** each visible card shows a static image of its animation, including custom colours and the nuke
+- **AND** revisiting unchanged cards reuses the cached images without creating another renderer
