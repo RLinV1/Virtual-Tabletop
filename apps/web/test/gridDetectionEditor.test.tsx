@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_GRID, type GridDetectionStatus } from "@vtt/shared";
 import { api } from "../src/net/api";
+import { GridActionsContext } from "../src/pages/GridActionsContext";
 import { GridForm } from "../src/pages/GridForm";
 import { toGridDraft, withGridSuggestion } from "../src/pages/gridDraft";
 import { useGridDetection } from "../src/pages/useGridDetection";
@@ -107,4 +108,31 @@ describe("GM grid suggestion editor (FR-GM-03)", () => {
     form.rerender(<Editor finished error="Could not save the grid" />);
     expect(screen.getByRole("alert").textContent).toBe("Could not save the grid");
   });
+});
+
+it.each([
+  { submitLabel: "Apply grid", cancelLabel: "Cancel", saveLabel: "Save changes", closeLabel: "Discard" },
+  { submitLabel: "Apply map", cancelLabel: "Close", saveLabel: "Apply map", closeLabel: "Close" },
+  { submitLabel: "Save grid", cancelLabel: "Cancel", saveLabel: "Save grid", closeLabel: "Discard" },
+])("keeps $saveLabel and $closeLabel actions in the header", async ({ submitLabel, cancelLabel, saveLabel, closeLabel }) => {
+  const apply = vi.fn(async () => {});
+  function Editor() {
+    const [slot, setSlot] = useState<HTMLDivElement | null>(null);
+    const [draft, setDraft] = useState(() => toGridDraft(DEFAULT_GRID));
+    return <>
+      <header><div ref={setSlot} /></header>
+      <GridActionsContext.Provider value={slot}>
+        <GridForm grid={DEFAULT_GRID} map={map} draft={draft} hasDraft onChange={setDraft}
+          onApply={apply} onCancel={() => {}} applying={false} error={null} submitLabel={submitLabel} cancelLabel={cancelLabel} />
+      </GridActionsContext.Provider>
+    </>;
+  }
+  render(<Editor />);
+  fireEvent.change(screen.getByLabelText("Distance per square"), { target: { value: "10" } });
+  const save = screen.getByRole("button", { name: saveLabel });
+  expect(screen.getByRole("button", { name: closeLabel }).closest("header")).toBeTruthy();
+  expect(save.closest("header")).toBeTruthy();
+  expect(screen.getByText("Unsaved changes: only you see them").closest("header")).toBeTruthy();
+  fireEvent.click(save);
+  await waitFor(() => expect(apply).toHaveBeenCalledWith(expect.objectContaining({ unitsPerCell: 10 })));
 });

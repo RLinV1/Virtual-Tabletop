@@ -1,3 +1,6 @@
+import { createPortal } from "react-dom";
+import { useContext } from "react";
+import { GridActionsContext } from "./GridActionsContext";
 import { CaretDown } from "@phosphor-icons/react";
 import { type CSSProperties, type FormEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 import { GRID_LINE_WIDTHS, gridLineStyle, type GridDetectionStatus, type GridSpec, type MapImage } from "@vtt/shared";
@@ -32,6 +35,7 @@ export function GridForm({
   allowUnchanged = false,
   advancedOpen = false,
   children,
+  hideActions = false,
 }: {
   grid: GridSpec;
   /** Backdrop for the line-style preview. */
@@ -56,7 +60,10 @@ export function GridForm({
   advancedOpen?: boolean;
   /** Extra actions below the form, e.g. the room's "Save grid to library". */
   children?: ReactNode;
+  hideActions?: boolean;
 }) {
+  const actionSlot = useContext(GridActionsContext);
+  const formId = useId();
   const validDraft = useMemo(() => parseGridDraft(draft, map), [draft, map]);
   const [lastValid, setLastValid] = useState(grid);
   const [advanced, setAdvanced] = useState(false);
@@ -69,6 +76,7 @@ export function GridForm({
   const submitting = useRef(false);
   useEffect(() => { if (validDraft) setLastValid(validDraft); }, [validDraft]);
   const shown = validDraft ?? lastValid;
+  const dirty = allowUnchanged || hasDraft && (!validDraft || !gridsEqual(validDraft, grid));
   const canSave = !!validDraft && (allowUnchanged || !gridsEqual(validDraft, grid));
   const cellSize = Number(draft.cellSize);
   const tooManyLines = draft.cellSize.trim() !== "" && Number.isFinite(cellSize)
@@ -105,6 +113,7 @@ export function GridForm({
 
   return (
     <form
+      id={formId}
       className="grid-editor"
       onSubmit={(e: FormEvent) => {
         e.preventDefault();
@@ -187,10 +196,16 @@ export function GridForm({
           </p>
         )}
         {error && <p className="error grid-message" role="alert">{error}</p>}
-        <div className="grid-actions">
-          <button type="button" className="secondary" disabled={applying} onClick={onCancel}>{cancelLabel}</button>
-          <button type="submit" disabled={!canSave || applying}>{applying ? busyLabel : submitLabel}</button>
-        </div>
+        {!hideActions && (actionSlot ? (dirty ? createPortal(<span className="map-editor-unsaved">
+          {dirty && <span className="map-editor-draft">Unsaved changes: only you see them</span>}
+          <button type="button" className="secondary small" disabled={applying} onClick={onCancel}>{cancelLabel === "Cancel" ? "Discard" : cancelLabel}</button>
+          <button type="submit" form={formId} className="small" disabled={!canSave || applying}>{applying ? busyLabel : submitLabel === "Apply grid" ? "Save changes" : submitLabel}</button>
+        </span>, actionSlot) : null) : (
+          <div className="grid-actions">
+            <button type="button" className="secondary" disabled={applying} onClick={onCancel}>{cancelLabel}</button>
+            <button type="submit" disabled={!canSave || applying}>{applying ? busyLabel : submitLabel}</button>
+          </div>
+        ))}
         {children}
       </div>
     </form>

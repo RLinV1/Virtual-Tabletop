@@ -51,10 +51,19 @@ Every route answers 404 for a room that is not one of the caller's temporary roo
 - Edits are written to the event log until the room is deleted; the sweep bounds how long.
 - A GM still editing after 24 hours loses unsaved changes; saved changes are in the template.
 - The web client hides tools in the editing mode as a convenience only (invariant 7); the server enforces joins, ownership and the map rule.
-- Templates still carry no walls or portals, and a template's map never changes.
+- A template's map never changes. Templates carry walls and portals (see the amendment below).
 
 ## Alternatives considered
 
 - **A room-free editor that sends the board.** Needs a large body limit and client-supplied boards checked for ownership; duplicates the board's token and fog tools.
 - **A `temporary` flag in `RoomCreated`.** Changes a shared event for something only the server and the GM's own browser need.
 - **Keep the temporary room after leaving.** Leaves rooms nobody can see in the GM's storage.
+
+## Amendment: prepared maps and template walls
+
+Encounter editing now inherits a library map's saved walls, portals and fog. Template saves
+retain walls and portals and each application gives them fresh ids. Version-one templates
+without a walls field remain readable as having no walls. The encounter editor offers Grid and Fog;
+wall editing stays in the map editor. The redundant Select-only tool rail is hidden while board
+filters remain.
+Grid save controls appear in the map editor header with the unsaved-change status.

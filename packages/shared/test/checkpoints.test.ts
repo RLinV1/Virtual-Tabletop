@@ -89,6 +89,16 @@ describe("checkpoint commands (KAN-41, FR-REC-02)", () => {
     expect(r.attempt(gm, { type: "checkpoint.create", name: "x".repeat(60) }).ok).toBe(true);
   });
 
+  it("rejects duplicate room names, ignores case and spaces, and frees deleted names", () => {
+    const r = furnished();
+    for (const name of ["Start", " start ", "START"]) {
+      expect(r.attempt(gm, { type: "checkpoint.create", name })).toMatchObject({ ok: false, code: "invalid", message: expect.stringContaining("already exists") });
+    }
+    expect(furnished().state.checkpoints).toHaveLength(1);
+    r.run(gm, { type: "checkpoint.delete", checkpointId: r.state.checkpoints[0]!.id });
+    expect(r.attempt(gm, { type: "checkpoint.create", name: "Start" }).ok).toBe(true);
+  });
+
   it("records the last seq before it was saved", () => {
     const r = furnished();
     const created = r.log.at(-1)!;

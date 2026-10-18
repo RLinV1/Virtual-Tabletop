@@ -24,6 +24,7 @@ import {
   AnimationLimitError,
   CreatureImageMissingError,
   EncounterLimitError,
+  EncounterNameConflictError,
   EncounterMapMissingError,
   type EncounterRecord,
   type EncounterUpdate,
@@ -591,17 +592,27 @@ export class PostgresRoomStore implements RoomStore {
 
   async updateEncounter(id: string, ownerGmId: string, change: EncounterUpdate) {
     if (!UUID.test(id)) return null;
-    const { count } = await this.prisma.encounterTemplate.updateMany({
-      where: { id, ownerGmId },
-      data: { name: change.name, data: change.data as unknown as Prisma.InputJsonValue, updatedAt: new Date(change.updatedAt) },
+    return this.prisma.$transaction(async (tx) => {
+      if (!(await tx.encounterTemplate.findFirst({ where: { id, ownerGmId }, select: { id: true } }))) return null;
+      await assertEncounterName(tx, ownerGmId, change.name, id);
+      const { count } = await tx.encounterTemplate.updateMany({
+        where: { id, ownerGmId },
+        data: { name: change.name, data: change.data as unknown as Prisma.InputJsonValue, updatedAt: new Date(change.updatedAt) },
+      });
+      const row = count === 1 ? await tx.encounterTemplate.findFirst({ where: { id, ownerGmId }, include: WITH_MAP }) : null;
+      return row ? toEncounterRecord(row) : null;
     });
-    return count === 1 ? this.findEncounter(id, ownerGmId) : null;
   }
 
   async renameEncounter(id: string, ownerGmId: string, name: string, at: string) {
     if (!UUID.test(id)) return null;
-    const { count } = await this.prisma.encounterTemplate.updateMany({ where: { id, ownerGmId }, data: { name, updatedAt: new Date(at) } });
-    return count === 1 ? this.findEncounter(id, ownerGmId) : null;
+    return this.prisma.$transaction(async (tx) => {
+      if (!(await tx.encounterTemplate.findFirst({ where: { id, ownerGmId }, select: { id: true } }))) return null;
+      await assertEncounterName(tx, ownerGmId, name, id);
+      const { count } = await tx.encounterTemplate.updateMany({ where: { id, ownerGmId }, data: { name, updatedAt: new Date(at) } });
+      const row = count === 1 ? await tx.encounterTemplate.findFirst({ where: { id, ownerGmId }, include: WITH_MAP }) : null;
+      return row ? toEncounterRecord(row) : null;
+    });
   }
 
   async deleteEncounter(id: string, ownerGmId: string) {
@@ -936,6 +947,7 @@ async function insertEncounter(tx: Prisma.TransactionClient, encounter: NewEncou
   if ((await tx.encounterTemplate.count({ where: { ownerGmId: encounter.ownerGmId } })) >= maxPerOwner) {
     throw new EncounterLimitError(maxPerOwner);
   }
+  await assertEncounterName(tx, encounter.ownerGmId, encounter.name);
   return tx.encounterTemplate.create({
     data: {
       ...encounter,
@@ -945,6 +957,15 @@ async function insertEncounter(tx: Prisma.TransactionClient, encounter: NewEncou
     },
     include: WITH_MAP,
   });
+}
+
+/** Uses the same owner lock as creation so concurrent creates and renames cannot collide. */
+async function assertEncounterName(tx: Prisma.TransactionClient, ownerGmId: string, name: string, exceptId?: string) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`encounter_templates:${ownerGmId}`}))`;
+  const entries = await tx.encounterTemplate.findMany({ where: { ownerGmId }, select: { id: true, name: true } });
+  if (entries.some((entry) => entry.id !== exceptId && entry.name.trim().toLowerCase() === name.trim().toLowerCase())) {
+    throw new EncounterNameConflictError();
+  }
 }
 
 function toEncounterRecord(row: EncounterTemplate & { map: { name: string; url: string } | null }): EncounterRecord {

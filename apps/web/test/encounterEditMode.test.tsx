@@ -51,7 +51,7 @@ describe("template-editing mode shows only map, fog and token tools (encounter-t
     expect(screen.getByRole("button", { name: "Measure" })).toBeTruthy();
   });
 
-  it("offers Edit Grid and Manage Fog, an editor with only those steps, and no checkpoints, templates or walls", () => {
+  it("offers grid and fog, keeping wall editing in the map editor", () => {
     const fake = fakeConnection();
     render(
       <GmPanel
@@ -64,7 +64,6 @@ describe("template-editing mode shows only map, fog and token tools (encounter-t
     );
     expect(screen.queryByText("Checkpoints")).toBeNull();
     expect(screen.queryByText("Encounter templates")).toBeNull();
-    expect(screen.queryByText(/wall/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Change Map" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Manage Walls" })).toBeNull();
     expect(screen.getByRole("button", { name: "Manage Fog" })).toBeTruthy();

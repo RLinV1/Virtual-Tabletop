@@ -34,12 +34,12 @@ test("UVTT preview, alignment, portal edits, cancellation, errors, Apply, Undo a
   const editor = page.getByRole("dialog", { name: "Edit map", exact: true });
   const input = editor.getByLabel("Upload battle map");
 
-  await expect(editor.getByText("Draft map: only you see it until Apply map")).toBeVisible();
+  await expect(editor.getByText(/Draft map: only you see it|Unsaved changes: only you see them/)).toBeVisible();
   await activate(editor.getByRole("tab", { name: /· Walls$/ }));
   await editor.getByLabel("Selected geometry").selectOption("draft:3");
   // One wall splits around the portal, one object line, then the portal.
-  await expect(editor.getByLabel("Portal position X")).toHaveValue("62.5");
-  await expect(editor.getByLabel("Portal position Y")).toHaveValue("-25");
+  await expect(editor.getByLabel("Door position X")).toHaveValue("62.5");
+  await expect(editor.getByLabel("Door position Y")).toHaveValue("-25");
   const canvas = editor.getByRole("application");
   await expect(canvas).toBeVisible();
   await expect(canvas.locator('g[stroke="#ffffff"] line').first()).toHaveAttribute("x1", "12.5");
@@ -67,15 +67,15 @@ test("UVTT preview, alignment, portal edits, cancellation, errors, Apply, Undo a
   await editor.getByLabel("Closed (blocks movement)").check();
   await editor.getByRole("button", { name: "Save geometry" }).click();
   await editor.getByRole("button", { name: "Apply map", exact: true }).click();
-  await expect(editor.getByText("Draft map: only you see it until Apply map")).toHaveCount(0);
+  await expect(editor.getByText(/Draft map: only you see it|Unsaved changes: only you see them/)).toHaveCount(0);
   // Use main's ordinary private Save flow to designate the imported portal; retain its UVTT fields.
-  await editor.getByLabel("Selected geometry").selectOption({ label: "Portal 4" });
+  await editor.getByLabel("Selected geometry").selectOption({ label: "Door 4" });
   await editor.getByLabel("Use as").selectOption("window");
-  await editor.getByLabel("Portal state").selectOption("locked");
+  await editor.getByLabel("Window state").selectOption("locked");
   await editor.getByRole("button", { name: "Save geometry", exact: true }).click();
   await editor.getByRole("button", { name: "Save changes", exact: true }).click();
   await expect(editor.getByRole("button", { name: "Save changes", exact: true })).toHaveCount(0);
-  await expect(editor.getByLabel("Portal position X")).toHaveValue("62.5");
+  await expect(editor.getByLabel("Door position X")).toHaveValue("62.5");
   await editor.getByRole("tab", { name: /· Map$/ }).click();
   const downloadPromise = page.waitForEvent("download");
   await editor.getByRole("button", { name: "Export applied map (UVTT)", exact: true }).click();
@@ -84,7 +84,7 @@ test("UVTT preview, alignment, portal edits, cancellation, errors, Apply, Undo a
   expect(output.format).toBe(0.3); expect(output.portals[0]?.closed).toBe(true);
   expect(output.resolution.map_origin).toEqual({ x: 0.75, y: 0.5 });
   await input.setInputFiles({ name: "roundtrip.uvtt", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(output)) });
-  await expect(editor.getByText("Draft map: only you see it until Apply map")).toBeVisible();
+  await expect(editor.getByText(/Draft map: only you see it|Unsaved changes: only you see them/)).toBeVisible();
   await editor.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("button", { name: "More", exact: true }).click();
   await page.getByRole("button", { name: "Activity log", exact: true }).click();
@@ -94,7 +94,7 @@ test("UVTT preview, alignment, portal edits, cancellation, errors, Apply, Undo a
   await expect(history.getByText(/undid/i).first()).toBeVisible();
   await history.getByRole("button", { name: "Close", exact: true }).click();
   await opener.setInputFiles({ name: "preview-only.uvtt", mimeType: "application/json", buffer: await fixture() });
-  await expect(editor.getByText("Draft map: only you see it until Apply map")).toBeVisible();
+  await expect(editor.getByText(/Draft map: only you see it|Unsaved changes: only you see them/)).toBeVisible();
   await editor.getByRole("tab", { name: /· Map$/ }).click();
   await expect(editor.getByRole("button", { name: "Export applied map (UVTT)" })).toBeDisabled();
   await page.screenshot({ path: testInfo.outputPath(`${browserName}-uvtt-verified.png`), fullPage: true });

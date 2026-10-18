@@ -42,6 +42,7 @@ describe("UVTT upload and review in the asset library (KAN-43/44, FR-GM-06/07/12
   it("accepts a UVTT file without imageSize, opens its saved grid and metadata, and saves geometry edits", async () => {
     const size = vi.spyOn(imageFile, "imageSize");
     const upload = vi.spyOn(api.library, "importUvtt").mockResolvedValue(structuredClone(imported));
+    const saveGrid = vi.spyOn(api.library, "update").mockImplementation(async (_id, change) => ({ ...asset, ...change }));
     render(<LibraryPage />);
     const input = screen.getByLabelText("Upload map") as HTMLInputElement;
     expect(input.accept).toContain(".dd2vtt"); expect(input.accept).toContain(".uvtt"); expect(input.accept).toContain(".df2vtt");
@@ -52,6 +53,7 @@ describe("UVTT upload and review in the asset library (KAN-43/44, FR-GM-06/07/12
     expect(within(editor).getByText(/Imported map saved to your library/)).toBeTruthy();
     expect(within(editor).getByText("1 import warnings")).toBeTruthy();
     expect(within(editor).getByDisplayValue("12.5")).toBeTruthy();
+    fireEvent.change(within(editor).getByLabelText("Distance per square"), { target: { value: "10" } });
     fireEvent.click(within(editor).getByRole("tab", { name: /· Walls$/ }));
     fireEvent.change(await within(editor).findByLabelText("Selected geometry"), { target: { value: "draft:w0" } });
     expect(within(editor).getByLabelText("Rotation (radians)")).toHaveProperty("value", "0.8");
@@ -59,6 +61,9 @@ describe("UVTT upload and review in the asset library (KAN-43/44, FR-GM-06/07/12
     fireEvent.click(within(editor).getByRole("button", { name: "Save geometry" }));
     fireEvent.click(within(editor).getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(api.library.setBoard).toHaveBeenCalledWith(asset.id, { walls: [{ ...board.walls[0], uvttPortal: { ...board.walls[0]!.uvttPortal, closed: true } }], fog: [] }));
+    await waitFor(() => expect(saveGrid).toHaveBeenCalledWith(asset.id, { grid: { ...asset.grid, unitsPerCell: 10 } }));
+    expect(within(editor).getByText("1 import warnings")).toBeTruthy();
+    expect(editor.hasAttribute("open")).toBe(true);
     expect(input.disabled).toBe(false);
   });
 
@@ -86,7 +91,7 @@ describe("reusable UVTT maps from a room (KAN-43, FR-GM-06/12)", () => {
     const fake = mountRoom(); fireEvent.click(screen.getByRole("button", { name: "Change Map" }));
     if (!save) fireEvent.click(screen.getByLabelText("Also save uploads to my library"));
     const selected = file(); fireEvent.change(screen.getByLabelText("Upload battle map"), { target: { files: [selected] } });
-    await screen.findByText(/Draft map: only you see it/);
+    await screen.findByText(/Unsaved changes: only you see them/);
     expect(prepare.mock.calls[0]).toEqual(save ? ["r1", TOKEN, selected, { saveToLibrary: true }] : ["r1", TOKEN, selected]);
     expect(fake.commands).toEqual([]);
   });

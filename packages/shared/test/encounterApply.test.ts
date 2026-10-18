@@ -208,3 +208,15 @@ describe("applying a template keeps GM secrets from players (FR-GM-13, invariant
     expect(JSON.stringify(seen)).not.toContain("Ambusher");
   });
 });
+
+describe("template walls", () => {
+  it("assigns fresh wall ids on every application and retains portal state", () => {
+    const walls = [{ a: { x: 0, y: 0 }, b: { x: 70, y: 0 }, portal: { kind: "door" as const, state: "closed" as const } }];
+    let id = 0;
+    const first = encounterTable({ ...ENCOUNTER, walls }, () => `fresh-${++id}`);
+    const second = encounterTable({ ...ENCOUNTER, walls }, () => `fresh-${++id}`);
+    expect(Object.values(first.walls ?? {})).toEqual([expect.objectContaining(walls[0]!)]);
+    expect(Object.keys(first.walls ?? {})).not.toEqual(Object.keys(second.walls ?? {}));
+    expect(encounterTable(ENCOUNTER, () => `fresh-${++id}`).walls).toEqual({});
+  });
+});

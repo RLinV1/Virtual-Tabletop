@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, describe, expect, it } from "vitest";
 import { DEFAULT_GRID, ENCOUNTER_TEMPLATE_VERSION } from "@vtt/shared";
-import { CreatureImageMissingError, EncounterLimitError, EncounterMapMissingError, type LibraryAssetRecord, type NewCreatureRecord, type NewEncounterRecord } from "../src/store/libraryStore";
+import { CreatureImageMissingError, EncounterNameConflictError, EncounterLimitError, EncounterMapMissingError, type LibraryAssetRecord, type NewCreatureRecord, type NewEncounterRecord } from "../src/store/libraryStore";
 import { MemoryRoomStore } from "../src/store/memoryRoomStore";
 import { PostgresRoomStore } from "../src/store/postgresRoomStore";
 import type { RoomStore } from "../src/store/roomStore";
@@ -238,6 +238,25 @@ for (const [label, store] of stores) {
       expect(await s().encountersUsingMap(map.id, a)).toEqual([{ id: e.id, name: "Goblin ambush" }]);
     });
 
+    it("keeps names unique per owner across concurrent saves, renames and updates", async () => {
+      const [gm, other] = [await s().registerGm(randomUUID()), await s().registerGm(randomUUID())];
+      const map = asset(gm);
+      const otherMap = asset(other);
+      await s().createAsset(map);
+      await s().createAsset(otherMap);
+      const results = await Promise.allSettled(["Ambush", " ambush ", "AMBUSH"].map((name) => s().createEncounter(encounter(gm, map.id, { name }), 50)));
+      expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      for (const result of results) if (result.status === "rejected") expect(result.reason).toBeInstanceOf(EncounterNameConflictError);
+      const second = encounter(gm, map.id, { name: "Other" });
+      await s().createEncounter(second, 50);
+      const at = new Date().toISOString();
+      await expect(s().renameEncounter(second.id, gm, "ambush", at)).rejects.toBeInstanceOf(EncounterNameConflictError);
+      await expect(s().updateEncounter(second.id, gm, { name: "AMBUSH", data: second.data, updatedAt: at })).rejects.toBeInstanceOf(EncounterNameConflictError);
+      expect(await s().renameEncounter(randomUUID(), gm, "ambush", at)).toBeNull();
+      expect(await s().updateEncounter(randomUUID(), gm, { name: "ambush", data: second.data, updatedAt: at })).toBeNull();
+      await expect(s().createEncounter(encounter(other, otherMap.id, { name: "Ambush" }), 50)).resolves.toBeTruthy();
+    });
+
     it("renames and deletes an encounter template, newest listed first", async () => {
       const gm = await s().registerGm(randomUUID());
       const map = asset(gm);
@@ -294,7 +313,7 @@ for (const [label, store] of stores) {
       expect(await s().findEditSession(fresh, gm)).toEqual({ editsEncounterId: null });
       expect(await s().findEditSession(editing, other)).toBeNull();
       expect(await s().findEditSession(normal, gm)).toBeNull();
-      const first = encounter(gm, map.id);
+      const first = encounter(gm, map.id, { name: "New encounter" });
       expect(await s().createEncounterForEditRoom(fresh, first, 50)).toMatchObject({ created: { id: first.id } });
       expect(await s().findEditSession(fresh, gm)).toEqual({ editsEncounterId: first.id });
 
@@ -314,8 +333,8 @@ for (const [label, store] of stores) {
       const gm = await s().registerGm(randomUUID());
       const map = asset(gm);
       await s().createAsset(map);
-      for (let i = 0; i < 2; i++) await s().createEncounter(encounter(gm, map.id), 3);
-      const results = await Promise.allSettled([0, 1, 2, 3].map(() => s().createEncounter(encounter(gm, map.id), 3)));
+      for (let i = 0; i < 2; i++) await s().createEncounter(encounter(gm, map.id, { name: `Existing ${i}` }), 3);
+      const results = await Promise.allSettled([0, 1, 2, 3].map((i) => s().createEncounter(encounter(gm, map.id, { name: `Concurrent ${i}` }), 3)));
       expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
       for (const r of results) if (r.status === "rejected") expect(r.reason).toBeInstanceOf(EncounterLimitError);
       expect(await s().countEncounters(gm)).toBe(3);
@@ -369,7 +388,7 @@ for (const [label, store] of stores) {
       await s().createEncounter(e, 50);
       await s().deleteAsset(map.id, gm);
       expect(await s().findEncounter(e.id, gm)).toMatchObject({ id: e.id, mapAssetId: null, mapName: null, mapUrl: null });
-      await expect(s().createEncounter(encounter(gm, randomUUID()), 50)).rejects.toBeInstanceOf(EncounterMapMissingError);
+      await expect(s().createEncounter(encounter(gm, randomUUID(), { name: "Missing map" }), 50)).rejects.toBeInstanceOf(EncounterMapMissingError);
     });
   });
 }

@@ -18,3 +18,15 @@ Automatic wall detection is room-scoped and is not offered in the library editor
 ## Consequences
 
 No `Command`, `DomainEvent` or `RoomState` schema changes. A library map's walls and fog are a copy-on-place template, so they can drift from what a room later edits. Encounter templates still save walls and fog from a room, not from the library map.
+
+## Amendment: one library editor draft
+
+Grid, walls and fog now stay in one editor session across tab changes. The header shows a single
+Unsaved changes status with Discard and Save changes. Saving updates the grid and board without
+closing the editor. Each successful write advances its own baseline, so a partial failure retains
+only the remaining unsaved work and can be retried safely.
+
+Closing with unsaved changes opens the same in-app Save changes? modal used for encounter editing,
+with Save, Discard and Keep editing. Only Save from this close prompt saves and then exits.
+The editor no longer uses a browser confirm dialog. A new encounter waiting for its map's grid
+starts after the editor is explicitly closed, rather than on a normal save.

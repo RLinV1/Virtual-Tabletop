@@ -145,7 +145,7 @@ export function CheckpointsPanel({ connection, state, token }: { connection: Roo
             {!previewState && !previewError && <p className="muted" role="status">Loading the saved board…</p>}
             {previewState && gm && readOnlyConnection && (
               <div className="checkpoint-preview-board">
-                <Board connection={readOnlyConnection} state={previewState} you={gm} gridPreview={null} readOnly />
+                <Board connection={readOnlyConnection} state={previewState} you={gm} gridPreview={null} readOnly suppressLiveEffects />
               </div>
             )}
             <div className="row button-row">

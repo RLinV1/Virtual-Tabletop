@@ -15,7 +15,7 @@ import type { RoomLifecycle } from "../domain/roomLifecycle";
 import type { RoomRegistry } from "../domain/roomRegistry";
 import { requireAccount } from "../identity/middleware";
 import type { SignedIn } from "../identity/sessions";
-import { EncounterLimitError, EncounterMapMissingError } from "../store/libraryStore";
+import { EncounterNameConflictError, EncounterLimitError, EncounterMapMissingError } from "../store/libraryStore";
 import type { RoomStore } from "../store/roomStore";
 import { mapDeletedMessage, toSummary } from "./encounters";
 
@@ -63,10 +63,11 @@ export function registerEncounterEditRoutes(
         if (!map || map.kind !== "map" || !map.grid) {
           return void res.status(400).json({ error: "Choose one of your library maps with a saved grid." });
         }
+        const board = await store.findAssetBoard(map.id, gmId);
         created = await rooms.createRoomWithSeat({
           ...seat,
           roomName: NEW_ENCOUNTER_ROOM_NAME,
-          scene: { map: { url: map.url, width: map.width, height: map.height, assetId: map.id }, grid: map.grid },
+          scene: { map: { url: map.url, width: map.width, height: map.height, assetId: map.id }, grid: map.grid, board },
         });
       }
       const response: StartEncounterEditResponse = { roomId: created.roomId, participantId: created.participantId };
@@ -163,6 +164,10 @@ export function registerEncounterEditRoutes(
       if (!account) return;
       await handler(account);
     } catch (err) {
+      if (err instanceof EncounterNameConflictError) {
+        if (!res.headersSent) res.status(409).json({ error: err.message });
+        return;
+      }
       console.error("[vtt] encounter edit route failed", err);
       if (!res.headersSent) res.status(500).json({ error: "Internal error" });
     }

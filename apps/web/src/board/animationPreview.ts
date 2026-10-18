@@ -84,7 +84,7 @@ export class AnimationPreview {
     }
     // Torn down while the renderer was starting.
     if (this.destroyed) {
-      this.app.destroy(true, { children: true });
+      this.app.destroy({ removeView: true, releaseGlobalResources: false }, { children: true });
       return false;
     }
     this.app.canvas.style.display = "block";
@@ -214,6 +214,6 @@ export class AnimationPreview {
     this.stopSettingsWatch?.();
     this.observer?.disconnect();
     document.removeEventListener("visibilitychange", this.onVisibilityChange);
-    if (this.ready) this.app.destroy(true, { children: true });
+    if (this.ready) this.app.destroy({ removeView: true, releaseGlobalResources: false }, { children: true });
   }
 }

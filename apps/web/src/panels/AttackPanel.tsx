@@ -41,6 +41,7 @@ import {
 import type { AttackReset } from "./attackSession";
 import { saveTokenAttacks } from "./tokenAttacks";
 import { BUILTIN_ANIMATIONS } from "../board/effectPresets";
+import { SearchablePicker } from "../ui/SearchablePicker";
 import { useStrikeAnimations } from "./useLibraryAnimations";
 
 /** The Animation select's value for an animation that is on the attack but not (or no longer) in the library. */
@@ -669,9 +670,8 @@ export function PresetEditor({
             onBlur={() => setMaxTargetsText(String(maxTargets))} />
         </label>
       )}
-      <Picker
+      <SearchablePicker
         label="Animation"
-        icon={<Sword size={16} aria-hidden="true" />}
         value={animationValue === "" ? AUTOMATIC_ANIMATION : animationValue}
         onChange={(key) => {
           if (key === CURRENT_ANIMATION) return;

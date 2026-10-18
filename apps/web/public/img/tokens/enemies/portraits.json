@@ -1,0 +1,46 @@
+[
+  {
+    "slug": "goblin-spearman",
+    "name": "Goblin Spearman",
+    "file": "goblin-spearman.svg",
+    "width": 400,
+    "height": 400,
+    "artist": "OpenAI image generation",
+    "license": "Project asset",
+    "source": "Original generated artwork for this project",
+    "original": "source/goblin-spearman.png"
+  },
+  {
+    "slug": "goblin-guard",
+    "name": "Goblin Guard",
+    "file": "goblin-guard.svg",
+    "width": 400,
+    "height": 400,
+    "artist": "OpenAI image generation",
+    "license": "Project asset",
+    "source": "Original generated artwork for this project",
+    "original": "source/goblin-guard.png"
+  },
+  {
+    "slug": "human-swordsman",
+    "name": "Human Swordsman",
+    "file": "human-swordsman.svg",
+    "width": 400,
+    "height": 400,
+    "artist": "OpenAI image generation",
+    "license": "Project asset",
+    "source": "Original generated artwork for this project",
+    "original": "source/human-swordsman.png"
+  },
+  {
+    "slug": "human-mage",
+    "name": "Human Mage",
+    "file": "human-mage.svg",
+    "width": 400,
+    "height": 400,
+    "artist": "OpenAI image generation",
+    "license": "Project asset",
+    "source": "Original generated artwork for this project",
+    "original": "source/human-mage.png"
+  }
+]

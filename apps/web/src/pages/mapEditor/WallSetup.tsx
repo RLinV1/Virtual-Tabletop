@@ -274,8 +274,8 @@ export function WallSetup({ connection, state, token, detection: detectionEnable
           <p className="muted small-print">{HINTS[mode]}</p>
           <label className="stack">Selected geometry
             <select value={state.walls[selected] ? selected : ""} onChange={(e) => setSelected(e.target.value)}>
-              <option value="">Select a wall or portal</option>
-              {Object.values(state.walls).map((wall, i) => <option key={wall.id} value={wall.id}>{wall.portal || wall.uvttPortal ? "Portal" : "Wall"} {i + 1}</option>)}
+              <option value="">Select a wall, door or window</option>
+              {Object.values(state.walls).map((wall, i) => <option key={wall.id} value={wall.id}>{wall.portal?.kind === "window" ? "Window" : wall.portal || wall.uvttPortal ? "Door" : "Wall"} {i + 1}</option>)}
             </select>
           </label>
           {state.walls[selected] && <WallProperties key={JSON.stringify(state.walls[selected])} wall={state.walls[selected]!} map={map} disabled={busy} onSave={async (wall) => {

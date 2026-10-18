@@ -934,6 +934,7 @@ export function decide(
       const name = command.name.trim();
       if (!name) return reject("invalid", "Give the checkpoint a name.");
       if (name.length > MAX_CHECKPOINT_NAME) return reject("invalid", `Checkpoint names are at most ${MAX_CHECKPOINT_NAME} characters.`);
+      if (state.checkpoints.some((checkpoint) => checkpoint.name.trim().toLowerCase() === name.toLowerCase())) return reject("invalid", "A checkpoint with this name already exists in this room. Choose another name.");
       if (ctx.lastSeq === undefined) return reject("invalid", "Checkpoints can't be saved here.");
       return accept({ type: "CheckpointCreated", checkpoint: { id: ctx.newId(), name, seq: ctx.lastSeq } });
     }

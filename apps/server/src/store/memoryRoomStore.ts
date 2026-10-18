@@ -13,6 +13,7 @@ import {
   AnimationLimitError,
   CreatureImageMissingError,
   EncounterLimitError,
+  EncounterNameConflictError,
   EncounterMapMissingError,
   type EncounterRecord,
   type EncounterUpdate,
@@ -674,6 +675,7 @@ export class MemoryRoomStore implements RoomStore {
     if ([...this.encounters.values()].filter((e) => e.ownerGmId === encounter.ownerGmId).length >= maxPerOwner) {
       throw new EncounterLimitError(maxPerOwner);
     }
+    this.assertEncounterName(encounter.ownerGmId, encounter.name);
     if (encounter.mapAssetId !== null && !this.assets.has(encounter.mapAssetId)) throw new EncounterMapMissingError();
     this.encounters.set(encounter.id, structuredClone(encounter));
     return this.withMap(encounter);
@@ -682,6 +684,7 @@ export class MemoryRoomStore implements RoomStore {
   async updateEncounter(id: string, ownerGmId: string, change: EncounterUpdate) {
     const encounter = this.encounters.get(id);
     if (!encounter || encounter.ownerGmId !== ownerGmId) return null;
+    this.assertEncounterName(ownerGmId, change.name, id);
     const next = { ...encounter, name: change.name, data: structuredClone(change.data), updatedAt: change.updatedAt };
     this.encounters.set(id, next);
     return this.withMap(next);
@@ -690,9 +693,16 @@ export class MemoryRoomStore implements RoomStore {
   async renameEncounter(id: string, ownerGmId: string, name: string, at: string) {
     const encounter = this.encounters.get(id);
     if (!encounter || encounter.ownerGmId !== ownerGmId) return null;
+    this.assertEncounterName(ownerGmId, name, id);
     const next = { ...encounter, name, updatedAt: at };
     this.encounters.set(id, next);
     return this.withMap(next);
+  }
+
+  private assertEncounterName(ownerGmId: string, name: string, exceptId?: string) {
+    if ([...this.encounters.values()].some((entry) => entry.ownerGmId === ownerGmId && entry.id !== exceptId && entry.name.trim().toLowerCase() === name.trim().toLowerCase())) {
+      throw new EncounterNameConflictError();
+    }
   }
 
   async deleteEncounter(id: string, ownerGmId: string) {

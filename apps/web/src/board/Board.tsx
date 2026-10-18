@@ -1,6 +1,6 @@
 import { CornersOut } from "@phosphor-icons/react";
 import { Suspense, forwardRef, lazy, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
-import { DEFAULT_TOKEN_COLOR, EMPTY_STATS, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
+import { DEFAULT_TOKEN_COLOR, EMPTY_STATS, type ReplayFrame, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { guardedConnection } from "../net/previewConnection";
 import { DEFAULT_TOOL_OPTIONS, ToolRail, toolFor, type ToolOptions } from "../ui/ToolRail";
@@ -22,6 +22,7 @@ import { TokenCard } from "./TokenCard";
 const EffectsOverlay = lazy(() => import("./EffectsOverlay"));
 
 interface Props {
+  replayFrame?: ReplayFrame | null;
   onNukeImpact?: () => void;
   connection: RoomConnection;
   state: RoomState;
@@ -29,6 +30,8 @@ interface Props {
   gridPreview: GridSpec | null;
   /** The GM is previewing as a player (gm-view-as-player): no tool, drag, placement or targeting. Pan and zoom still work. */
   readOnly?: boolean;
+  /** Hide events from the live room while displaying a historical board. */
+  suppressLiveEffects?: boolean;
   /** Plain React controls shown top left, before Fit (e.g. the participants button). */
   toolbar?: ReactNode;
   /** Notices pinned to the top right of the board, e.g. the GM's "Sam left the table". */
@@ -136,7 +139,7 @@ function isTyping(target: EventTarget | null) {
 }
 
 /** The PixiJS board plus its React toolbar and notices; Pixi objects stay inside `BoardView`. */
-export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, readOnly = false, toolbar, notices, overlay, landedRollId, onPickTarget, onNukeImpact, selectOnly = false, onEditToken }, ref) {
+export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame, connection, state, you, gridPreview, readOnly = false, suppressLiveEffects = false, toolbar, notices, overlay, landedRollId, onPickTarget, onNukeImpact, selectOnly = false, onEditToken }, ref) {
   const renderedState = useDisplayedHealth(state);
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<BoardView | null>(null);
@@ -151,8 +154,8 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   const hasWalls = Object.values(state.walls).some((wall) => !wall.portal);
   /** Strikes waiting for their thrown dice to land, by roll id, oldest first (KAN-76). */
   const waitingStrikes = useRef(new Map<string, { effect: AttackEffect; timer: number }>());
-  const latest = useRef({ state, renderedState, you, gridPreview, onPickTarget, onNukeImpact, gmFog: "tint" as GmFogView, showWalls: true, showPortals: true, readOnly: false });
-  latest.current = { state, renderedState, you, gridPreview, onPickTarget, onNukeImpact, gmFog, showWalls, showPortals, readOnly };
+  const latest = useRef({ state, renderedState, you, gridPreview, onPickTarget, onNukeImpact, gmFog: "tint" as GmFogView, showWalls: true, showPortals: true, readOnly: false, suppressLiveEffects: false });
+  latest.current = { state, renderedState, you, gridPreview, onPickTarget, onNukeImpact, gmFog, showWalls, showPortals, readOnly, suppressLiveEffects };
   // Sends nothing while previewing as a player, whatever the board is asked to do. Stable for as
   // long as the connection is, so entering and leaving a preview never rebuilds the board view.
   const guarded = useMemo(() => guardedConnection(connection, () => latest.current.readOnly), [connection]);
@@ -316,6 +319,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       view.setPlacement(ghostRef.current);
     });
     const stopEphemeral = connection.onEphemeral((_from, payload) => {
+      if (latest.current.suppressLiveEffects) return;
       if (payload.type === "ping") view.showPing(payload.at, 0x3498db);
       else if (payload.type === "tokenDragPreview") view.showDragPreview(payload.tokenId, payload.at);
       else if (payload.type === "templatePreview") {
@@ -325,6 +329,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
 
     // Live events only, already filtered for this viewer; a snapshot never gets here (KAN-76).
     const stopCommitted = connection.onCommitted((committed, _before, after) => {
+      if (latest.current.suppressLiveEffects) return;
       const viewer = latest.current.you;
       const effect = attackEffectFor(committed.event, after, viewer);
       if (!effect) return;
@@ -366,6 +371,12 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   useEffect(() => {
     viewRef.current?.update(renderedState, you);
   }, [renderedState, you]);
+
+  useEffect(() => {
+    if (replayFrame?.kind !== "event") return;
+    const effect = attackEffectFor(replayFrame.committed.event, latest.current.state, latest.current.you);
+    if (effect) playEffectRef.current(effect);
+  }, [replayFrame]);
 
   // Landing a roll releases its own strike. Each roll is thrown on its own, so the others keep
   // waiting for their dice, or for the fallback timer if a landing never reaches us.
@@ -578,7 +589,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
         )}
       </div>
       {gridPreview && <p className="grid-preview-label" role="status">Preview · Not applied</p>}
-      {!readOnly && (
+      {!readOnly && !selectOnly && (
       <ToolRail
         active={tool.kind}
         options={toolOptions}

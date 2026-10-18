@@ -646,7 +646,9 @@ export class BoardView {
     this.app.canvas.removeEventListener("touchend", this.onTouchEnd);
     this.app.canvas.removeEventListener("dblclick", this.onDoubleClick);
     this.app.canvas.removeEventListener("pointerleave", this.onPointerLeave);
-    this.app.destroy(true, { children: true });
+    // Other boards and animation previews share Pixi pools. Boolean true also releases those
+    // global pools, invalidating the live board when a checkpoint preview closes.
+    this.app.destroy({ removeView: true, releaseGlobalResources: false }, { children: true });
     this.initialized = false;
   }
 
@@ -1688,7 +1690,7 @@ export class BoardView {
     const { width, height } = this.boardSize();
     const key = JSON.stringify([
       g.cellSize, g.offsetX, g.offsetY, g.lineColor, g.lineWidth, g.lineOpacity,
-      width, height, this.mapMissing, !!this.gridPreview,
+      width, height, this.state!.scene.map?.url ?? null, this.mapMissing, !!this.gridPreview,
     ]);
     if (key === this.gridKey) return;
     this.gridKey = key;

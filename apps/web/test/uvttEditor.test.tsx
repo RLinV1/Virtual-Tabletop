@@ -36,7 +36,7 @@ function mount(state = room()) {
 async function importFile() {
   fireEvent.click(screen.getByRole("button", { name: "Change Map" }));
   fireEvent.change(screen.getByLabelText("Upload battle map"), { target: { files: [new File(["json"], "map.dd2vtt")] } });
-  await screen.findByText(/Draft map: only you see it/);
+  await screen.findByText(/Unsaved changes: only you see them/);
 }
 
 describe("private UVTT editor (FR-GM-06/07/09/12)", () => {
@@ -69,7 +69,7 @@ describe("private UVTT editor (FR-GM-06/07/09/12)", () => {
     expect(screen.getByText("1 import warnings")).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: /· Walls$/ }));
     fireEvent.change(screen.getByLabelText("Selected geometry"), { target: { value: "draft:0" } });
-    expect((screen.getByLabelText("Portal position X") as HTMLInputElement).value).toBe("40");
+    expect((screen.getByLabelText("Door position X") as HTMLInputElement).value).toBe("40");
     fireEvent.click(screen.getByLabelText("Closed (blocks movement)"));
     fireEvent.change(screen.getByLabelText("End B X"), { target: { value: "250" } });
     fireEvent.click(screen.getByRole("button", { name: "Save geometry" }));
@@ -127,7 +127,7 @@ describe("private UVTT editor (FR-GM-06/07/09/12)", () => {
     fireEvent.click(within(prompt).getByRole("button", { name: "Apply map" }));
     expect(await within(prompt).findByRole("alert")).toHaveProperty("textContent", "Import refused. Draft kept.");
     expect(screen.getByRole("tab", { name: /· Grid$/ }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByText(/Draft map: only you see it/)).toBeTruthy();
+    expect(screen.getByText(/Unsaved changes: only you see them/)).toBeTruthy();
     fireEvent.click(within(prompt).getByRole("button", { name: "Apply map" }));
     await waitFor(() => expect(screen.getByRole("tab", { name: /· Fog$/ }).getAttribute("aria-selected")).toBe("true"));
     expect(screen.queryByRole("dialog", { name: "Apply this map?" })).toBeNull();
@@ -145,7 +145,7 @@ describe("private UVTT editor (FR-GM-06/07/09/12)", () => {
     fireEvent.click(screen.getByRole("tab", { name: /· Walls$/ }));
     fireEvent.change(screen.getByLabelText("Selected geometry"), { target: { value: "draft:0" } });
     fireEvent.change(screen.getByLabelText("Use as"), { target: { value: "window" } });
-    fireEvent.change(screen.getByLabelText("Portal state"), { target: { value: "locked" } });
+    fireEvent.change(screen.getByLabelText("Window state"), { target: { value: "locked" } });
     fireEvent.click(screen.getByRole("button", { name: "Save geometry" }));
     expect(fake.commands).toEqual([]);
     const revise = vi.spyOn(api.uvtt, "revise").mockImplementation(async (_room, _token, _id, edit) => ({ ...preparation, ...edit, revision: 2 }));
@@ -170,11 +170,11 @@ describe("private UVTT editor (FR-GM-06/07/09/12)", () => {
   it.each([["X", "Y", "60"], ["Y", "X", "40"]])("omits a cleared position in %s/%s order and rejects incomplete coordinates", (first, second, remaining) => {
     const save = vi.fn();
     render(<WallProperties map={preparation.map} wall={{ ...preparation.walls[0]!, id: "p" }} onSave={save} />);
-    fireEvent.change(screen.getByLabelText(`Portal position ${first}`), { target: { value: "" } });
-    expect(screen.getByLabelText(`Portal position ${second}`)).toHaveProperty("value", remaining);
+    fireEvent.change(screen.getByLabelText(`Door position ${first}`), { target: { value: "" } });
+    expect(screen.getByLabelText(`Door position ${second}`)).toHaveProperty("value", remaining);
     fireEvent.click(screen.getByRole("button", { name: "Save geometry" }));
     expect(save).not.toHaveBeenCalled();
-    fireEvent.change(screen.getByLabelText(`Portal position ${second}`), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText(`Door position ${second}`), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "Save geometry" }));
     expect(save).toHaveBeenCalledTimes(1);
     expect(save.mock.calls[0]?.[0].uvttPortal).toStrictEqual({ rotation: 1.3, closed: true, freestanding: true });
@@ -182,9 +182,9 @@ describe("private UVTT editor (FR-GM-06/07/09/12)", () => {
   it("preserves numeric portal edits including zero and negative coordinates", () => {
     const save = vi.fn();
     render(<WallProperties map={preparation.map} wall={{ id: "p", a: { x: 1, y: 1 }, b: { x: 2, y: 2 }, uvttPortal: { closed: true, freestanding: true } }} onSave={save} />);
-    fireEvent.change(screen.getByLabelText("Portal position X"), { target: { value: "0" } });
-    expect(screen.getByLabelText("Portal position Y")).toHaveProperty("value", "0");
-    fireEvent.change(screen.getByLabelText("Portal position Y"), { target: { value: "-25.5" } });
+    fireEvent.change(screen.getByLabelText("Door position X"), { target: { value: "0" } });
+    expect(screen.getByLabelText("Door position Y")).toHaveProperty("value", "0");
+    fireEvent.change(screen.getByLabelText("Door position Y"), { target: { value: "-25.5" } });
     fireEvent.change(screen.getByLabelText("Rotation (radians)"), { target: { value: "0" } });
     fireEvent.click(screen.getByRole("button", { name: "Save geometry" }));
     expect(save).toHaveBeenCalledTimes(1);
