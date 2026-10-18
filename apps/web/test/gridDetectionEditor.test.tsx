@@ -125,9 +125,9 @@ it("saves grid changes from the header while the form stays in the editor body",
   }
   render(<Editor />);
   fireEvent.change(screen.getByLabelText("Distance per square"), { target: { value: "10" } });
-  const save = screen.getByRole("button", { name: "Save grid" });
+  const save = screen.getByRole("button", { name: "Save changes" });
   expect(save.closest("header")).toBeTruthy();
-  expect(screen.getByText("Unsaved grid changes").closest("header")).toBeTruthy();
+  expect(screen.getByText("Unsaved changes: only you see them").closest("header")).toBeTruthy();
   fireEvent.click(save);
   await waitFor(() => expect(apply).toHaveBeenCalledWith(expect.objectContaining({ unitsPerCell: 10 })));
 });

@@ -94,7 +94,7 @@ export function GmPanel({
             hasDraft={hasGridDraft}
             onChange={onGridDraftChange}
             onCancel={close}
-            onApply={async (grid) => { if (await onGridApply(grid)) close(); }}
+            onApply={async (grid) => { await onGridApply(grid); }}
             applying={gridApplying}
             error={gridError}
           >

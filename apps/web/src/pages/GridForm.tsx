@@ -35,6 +35,7 @@ export function GridForm({
   allowUnchanged = false,
   advancedOpen = false,
   children,
+  hideActions = false,
 }: {
   grid: GridSpec;
   /** Backdrop for the line-style preview. */
@@ -59,6 +60,7 @@ export function GridForm({
   advancedOpen?: boolean;
   /** Extra actions below the form, e.g. the room's "Save grid to library". */
   children?: ReactNode;
+  hideActions?: boolean;
 }) {
   const actionSlot = useContext(GridActionsContext);
   const formId = useId();
@@ -74,6 +76,7 @@ export function GridForm({
   const submitting = useRef(false);
   useEffect(() => { if (validDraft) setLastValid(validDraft); }, [validDraft]);
   const shown = validDraft ?? lastValid;
+  const dirty = allowUnchanged || hasDraft && (!validDraft || !gridsEqual(validDraft, grid));
   const canSave = !!validDraft && (allowUnchanged || !gridsEqual(validDraft, grid));
   const cellSize = Number(draft.cellSize);
   const tooManyLines = draft.cellSize.trim() !== "" && Number.isFinite(cellSize)
@@ -193,16 +196,16 @@ export function GridForm({
           </p>
         )}
         {error && <p className="error grid-message" role="alert">{error}</p>}
-        {actionSlot ? createPortal(<span className="map-editor-unsaved">
-          {(hasDraft && !gridsEqual(validDraft ?? grid, grid) || allowUnchanged) && <span className="map-editor-draft">Unsaved grid changes</span>}
-          <button type="button" className="secondary small" disabled={applying} onClick={onCancel}>{cancelLabel}</button>
-          <button type="submit" form={formId} className="small" disabled={!canSave || applying}>{applying ? busyLabel : submitLabel}</button>
-        </span>, actionSlot) : (
+        {!hideActions && (actionSlot ? (dirty ? createPortal(<span className="map-editor-unsaved">
+          {dirty && <span className="map-editor-draft">Unsaved changes: only you see them</span>}
+          <button type="button" className="secondary small" disabled={applying} onClick={onCancel}>Discard</button>
+          <button type="submit" form={formId} className="small" disabled={!canSave || applying}>{applying ? busyLabel : "Save changes"}</button>
+        </span>, actionSlot) : null) : (
           <div className="grid-actions">
             <button type="button" className="secondary" disabled={applying} onClick={onCancel}>{cancelLabel}</button>
             <button type="submit" disabled={!canSave || applying}>{applying ? busyLabel : submitLabel}</button>
           </div>
-        )}
+        ))}
         {children}
       </div>
     </form>

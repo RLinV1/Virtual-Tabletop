@@ -1,7 +1,7 @@
 import { GridFour, TextAa, Trash, X } from "@phosphor-icons/react";
 import { IconAction } from "../ui/IconAction";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { DEFAULT_GRID, normalizeLegacyGridForBoard, type AssetKind, type EncounterSummary, type LibraryAsset, type LibraryCreature } from "@vtt/shared";
+import { useEffect, useMemo, useState } from "react";
+import { type AssetKind, type EncounterSummary, type LibraryAsset, type LibraryCreature } from "@vtt/shared";
 import { Link } from "../Link";
 import { api } from "../net/api";
 import { builtinsMatching } from "../net/builtinAssets";
@@ -9,8 +9,6 @@ import { imageSize, nameFromFile } from "../net/imageFile";
 import { Modal } from "../ui/Modal";
 import { AccountMenu } from "../account/AccountPages";
 import { RequireAccount } from "../account/RequireAccount";
-import { GridForm } from "./GridForm";
-import { HudLayout } from "./mapEditor/HudLayout";
 import { LibraryMapEditor } from "./mapEditor/LibraryMapEditor";
 import { AnimationsTab } from "./LibraryAnimations";
 import { CreatureCard, CreatureForm } from "./LibraryCreatures";
@@ -19,8 +17,6 @@ import { LibraryPicker } from "./LibraryPicker";
 import { startEncounterEdit } from "./encounterEdit/startEdit";
 import { DiceLookCards, DiceLookModal, DiceSignInLine, SaveBrowserLooksOffer } from "./DiceLooks";
 import { createDiceLook } from "../ui/diceSkinStore";
-import { toGridDraft, withGridSuggestion } from "./gridDraft";
-import { useGridDetection } from "./useGridDetection";
 
 /**
  * Maps and token art are uploaded assets; creatures are reusable token setups (library-creatures);
@@ -96,7 +92,6 @@ function Library() {
   const [diceTarget, setDiceTarget] = useState<string | null>(null);
   /** The owned map whose grid is open in the editor. */
   const [gridTarget, setGridTarget] = useState<LibraryAsset | null>(null);
-  const [gridSaving, setGridSaving] = useState(false);
   /** New encounter: choosing its map (ADR 0033). */
   const [pickingEncounterMap, setPickingEncounterMap] = useState(false);
   /** The map a new encounter waits on while its grid is set up first. */
@@ -335,32 +330,12 @@ function Library() {
       </Modal>
       <LibraryMapEditor
         asset={gridTarget}
-        blockClose={gridSaving}
-        onClose={() => {
+        onSaved={(saved) => { replace(saved); setGridTarget(saved); }}
+        onClose={(saved) => {
           setGridTarget(null);
           setEncounterMapAwaitingGrid(null);
+          if (encounterMapAwaitingGrid === saved.id && saved.grid) void newEncounterOn(saved);
         }}
-        gridStep={(close) => gridTarget && (
-          <HudLayout className="map-editor-grid">
-            <LibraryGridEditor
-              key={JSON.stringify([gridTarget.id, gridTarget.url, gridTarget.width, gridTarget.height, gridTarget.grid])}
-              asset={gridTarget}
-              saving={gridSaving}
-              onSavingChange={setGridSaving}
-              onCancel={close}
-              onSaved={(saved, currentEditor) => {
-                replace(saved);
-                // Closing asks first when walls or fog are unsaved; a new encounter waiting for this
-                // map's grid opens only once the editor has closed.
-                const closed = currentEditor ? close() : true;
-                if (closed && encounterMapAwaitingGrid === saved.id && saved.grid) {
-                  setEncounterMapAwaitingGrid(null);
-                  void newEncounterOn(saved);
-                }
-              }}
-            />
-          </HudLayout>
-        )}
       />
     </main>
   );
@@ -548,80 +523,5 @@ function AssetCard(props: {
         </div>
       )}
     </li>
-  );
-}
-
-/**
- * A library map's grid, edited without a room (asset-library: Edit a map's grid in the
- * library). Saving writes only the library copy; rooms keep the grid they placed.
- */
-function LibraryGridEditor({ asset, onCancel, onSaved, saving, onSavingChange }: {
-  asset: LibraryAsset;
-  onCancel: () => void;
-  onSaved: (asset: LibraryAsset, currentEditor: boolean) => void;
-  saving: boolean;
-  onSavingChange: (saving: boolean) => void;
-}) {
-  const saved = asset.grid ?? DEFAULT_GRID;
-  // An older grid too fine to draw starts at the smallest drawable size, as placement does.
-  const [draft, setDraft] = useState(() => toGridDraft(normalizeLegacyGridForBoard(saved, asset)));
-  const savingRef = useRef(false);
-  const active = useRef(true);
-  const [error, setError] = useState<string | null>(null);
-  // Library maps are read as the signed-in account, so no device token is needed (ADR 0017).
-  const detection = useGridDetection("library", "", asset.id);
-
-  // A delayed upload can replace this editor while its PATCH is still pending.
-  useEffect(() => {
-    active.current = true;
-    return () => {
-      active.current = false;
-      onSavingChange(false);
-    };
-  }, [onSavingChange]);
-
-  return (
-    <div className="stack">
-      <GridForm
-        grid={saved}
-        map={asset}
-        draft={draft}
-        hasDraft
-        onChange={(next) => {
-          setDraft(next);
-          setError(null);
-        }}
-        onCancel={onCancel}
-        onApply={async (grid) => {
-          if (savingRef.current) return;
-          savingRef.current = true;
-          onSavingChange(true);
-          setError(null);
-          try {
-            const saved = await api.library.update(asset.id, { grid });
-            onSaved(saved, active.current);
-          } catch (err) {
-            if (active.current) setError(err instanceof Error ? err.message : "Could not save the grid");
-          } finally {
-            savingRef.current = false;
-            if (active.current) onSavingChange(false);
-          }
-        }}
-        applying={saving}
-        error={error}
-        detection={detection.status}
-        detectionError={detection.error}
-        onUseSuggestion={(candidate) => {
-          setDraft(withGridSuggestion(draft, candidate));
-          setError(null);
-        }}
-        advancedOpen
-        submitLabel="Save grid"
-        busyLabel="Saving…"
-        cancelLabel={asset.grid ? "Cancel" : "Set up later"}
-        allowUnchanged={!asset.grid}
-      />
-      <p className="muted small-print">Rooms already using this map keep their grid. New placements use this one.</p>
-    </div>
   );
 }
