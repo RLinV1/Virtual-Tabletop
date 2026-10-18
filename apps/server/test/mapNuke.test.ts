@@ -46,7 +46,7 @@ describe("map nuke over the wire (FR-TAC-06, FR-TAC-07, FR-GM-15, FR-GM-23, ADR 
     expect(gm.state.tokens[shadow.id]?.stats.hp).toBe(8);
     expect(alice.state.tokens[aria.id]?.stats.hp).toBe(18);
     expect(alice.state.tokens[goblin.id]?.stats.hp).toBe(3);
-    expect(messages.some((m) => m.type === "event" && m.committed.event.type === "MapNuked")).toBe(true);
+    expect(messages[0]).toMatchObject({ type: "event", committed: { event: { type: "MapNuked" } } });
   });
 
   it("never tells a player about the hidden token", async () => {

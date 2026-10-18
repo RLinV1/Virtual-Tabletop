@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyRoomState, type Participant, type RoomState, type Token } from "@vtt/shared";
 import type { RoomConnection } from "../src/net/roomConnection";
 import { AttackPanel } from "../src/panels/AttackPanel";
 
 afterEach(cleanup);
+beforeEach(() => window.localStorage.clear());
 
 const gm: Participant = { id: "gm", role: "gm", displayName: "GM" };
 const token = (id: string, over: Partial<Token> = {}): Token => ({
@@ -35,22 +36,30 @@ function renderPanel(room = state, you = gm, rolling = false) {
 }
 
 describe("Automatic attack style (FR-TAC-09, ADR 0038)", () => {
-  it.each(["gm", "player"] as const)("offers a d20 fallback for a %s with no saved attacks", async (role) => {
+  it.each(["gm", "player"] as const)("guides a %s with no saved attacks to create one or use custom dice", async (role) => {
     window.localStorage.clear();
     const you: Participant = { id: "viewer", role, displayName: role };
     const room = { ...state, tokens: { a: token("a", { ownerIds: [you.id] }), b: token("b") } };
     const command = renderPanel(room, you);
-    fireEvent.click(screen.getByRole("button", { name: "Roll to hit" }));
+    expect(screen.queryByRole("button", { name: "Roll to hit" })).toBeNull();
+    expect(screen.getByText(/Create an attack or use Custom roll/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add an attack" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Custom roll" }));
+    expect(command).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Damage" }));
+    fireEvent.click(screen.getByRole("button", { name: "d6" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Roll 1d6/ }));
     await waitFor(() => expect(command).toHaveBeenCalledWith({
-      type: "dice.roll", expression: "1d20", visibility: "public",
-      attack: { actorTokenId: "a", targetTokenId: "b", kind: "toHit" },
+      type: "dice.roll", expression: "1d6", visibility: "public",
+      attack: { actorTokenId: "a", targetTokenId: "b", kind: "damage" },
     }));
   });
 
-  it("does not allow the fallback while dice are still rolling", () => {
+  it("lets players configure a custom roll while dice are rolling, but waits to roll again", () => {
     window.localStorage.clear();
     renderPanel({ ...state, tokens: { a: token("a"), b: token("b") } }, gm, true);
-    expect((screen.getByRole("button", { name: "Roll to hit" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Custom roll" }));
+    expect((screen.getByRole("button", { name: /^Roll 1d20/ }) as HTMLButtonElement).disabled).toBe(true);
   });
   it("leaves style selection out of the attack panel", () => {
     renderPanel();

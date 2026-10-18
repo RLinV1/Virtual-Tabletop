@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { House } from "@phosphor-icons/react";
 import { can, filterStateForViewer, isActive, presetOf, type DiceVisibility, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
 import { Board, type BoardHandle, type DiceBoard } from "../board/Board";
+import { NukeHealthContext, useNukeHealth } from "../board/nukeHealth";
 import { PendingDrops, type DiceDrop } from "../board/diceDrops";
 import type { TokenDraft } from "../board/placement";
 import { Link } from "../Link";
@@ -208,6 +209,7 @@ function Room({ roomId, connection, token, features }: {
     () => (replaying ? replayConnection(connection) : preview ? previewConnection(connection, preview.you.displayName) : connection),
     [connection, replaying, preview?.you.id, preview?.you.displayName],
   );
+  const nukeHealth = useNukeHealth(connection, !replaying && !preview);
 
   // The seat is gone for good, on every tab that shared it: forget it, so the invite link
   // offers the join form rather than bouncing back to a room that refuses us (ADR 0006).
@@ -496,7 +498,7 @@ function Room({ roomId, connection, token, features }: {
   };
 
   return (
-    <div
+    <NukeHealthContext.Provider value={nukeHealth.held}><div
       className={["room", compact && "compact", collapsed && "sidebar-collapsed"].filter(Boolean).join(" ")}
       style={panelWidth !== null && !compact ? ({ "--panel-width": `${clampPanelWidth(panelWidth, window.innerWidth)}px` } as CSSProperties) : undefined}
     >
@@ -577,6 +579,7 @@ function Room({ roomId, connection, token, features }: {
           canvas or reset the viewer's zoom and pan. */}
       <Board
         ref={boardRef}
+        onNukeImpact={nukeHealth.impact}
         connection={connection}
         state={shownState!}
         you={shownYou!}
@@ -692,7 +695,7 @@ function Room({ roomId, connection, token, features }: {
           onClose={() => setReviewing(null)}
         />
       )}
-    </div>
+    </div></NukeHealthContext.Provider>
   );
 }
 

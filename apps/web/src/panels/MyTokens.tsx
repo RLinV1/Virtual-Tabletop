@@ -2,6 +2,7 @@ import { hpFraction, type Participant, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { ConditionMarker } from "./ConditionMarker";
 import { PanelSection } from "../ui/PanelSection";
+import { useDisplayedHealth } from "../board/nukeHealth";
 
 /**
  * The player's own characters, promoted above everything else (FR-PL-03).
@@ -23,6 +24,7 @@ export function MyTokens({
   you: Participant;
   onFocusToken: (tokenId: string) => void;
 }) {
+  const displayed = useDisplayedHealth(state);
   const mine = Object.values(state.tokens)
     .filter((t) => t.ownerIds.includes(you.id))
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -43,7 +45,8 @@ export function MyTokens({
       ) : (
       <ul className="plain my-tokens">
         {mine.map((token) => {
-          const fraction = hpFraction(token.stats);
+          const stats = displayed.tokens[token.id]!.stats;
+          const fraction = hpFraction(stats);
           const isActive = token.id === activeId;
           return (
             <li key={token.id} className={isActive ? "my-token active" : "my-token"}>
@@ -57,7 +60,7 @@ export function MyTokens({
                 <p className="my-token-stats">
                   {token.stats.hp !== null && (
                     <span className="hp">
-                      {token.stats.hp}
+                      {stats.hp}
                       {token.stats.maxHp !== null && `/${token.stats.maxHp}`} HP
                     </span>
                   )}
@@ -71,7 +74,7 @@ export function MyTokens({
                   role="meter"
                   aria-valuemin={0}
                   aria-valuemax={token.stats.maxHp ?? 0}
-                  aria-valuenow={token.stats.hp ?? 0}
+                  aria-valuenow={stats.hp ?? 0}
                   aria-label={`${token.name} hit points`}
                 >
                   <span style={{ width: `${fraction * 100}%` }} data-level={level(fraction)} />

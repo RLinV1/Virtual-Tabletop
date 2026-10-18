@@ -69,10 +69,11 @@ export function playNuke(host: FxHost, params: NukeFxParams): RunningFx {
   // A static marker leaves the map readable and allocates no fire texture.
   if (host.reducedMotion) {
     root.addChild(new Graphics().circle(origin.x, origin.y, Math.max(22, unit)).stroke({ color: hex(def.primary), width: 4 }));
+    params.onImpact?.();
     return { animated: false, duration: 0.8, update: (elapsed) => !destroyed && elapsed < 0.8, destroy };
   }
 
-  const { cloudHeight: H, capWidth: W } = nukeLayout(host.screen.width, host.screen.height, def.size);
+  const { cloudHeight: H, capWidth: W, baseDrop } = nukeLayout(host.screen.width, host.screen.height, def.size);
   const shade = new Graphics().rect(origin.x - extent, origin.y - extent, extent * 2, extent * 2).fill(0x410900);
   const flash = new Graphics().rect(origin.x - extent, origin.y - extent, extent * 2, extent * 2).fill(0xffedbd);
   shade.alpha = flash.alpha = 0;
@@ -160,6 +161,7 @@ export function playNuke(host: FxHost, params: NukeFxParams): RunningFx {
       }
       if (!sparked) {
         sparked = true;
+        params.onImpact?.();
         burst(sparks, origin, Math.min(64, graphicsBudget().particles, def.particles), W * 1.3, 2, [hex(def.primary), hex(def.secondary), 0xffbb41], blastLen * 0.65, def.gravity * 120, 2);
       }
       const expansion = easeOut(t / 0.56);
@@ -186,16 +188,17 @@ export function playNuke(host: FxHost, params: NukeFxParams): RunningFx {
       for (const p of billows) {
         const { sprite, u, phase } = p;
         const churn = since * (1 + def.spin) + phase;
-        const capY = origin.y - H * rise;
+        const baseY = origin.y + baseDrop * rise;
+        const capY = baseY - H * rise;
         let x: number, y: number, diameter: number;
         if (p.kind === "ground") {
           x = origin.x + (u - 0.5) * W * 1.15 * easeOut(t / 0.4);
-          y = origin.y + Math.sin(phase) * H * 0.3;
+          y = baseY + Math.sin(phase) * H * 0.3;
           diameter = W * (0.36 + 0.05 * Math.sin(phase)) * (0.45 + rise * 0.55);
           sprite.scale.set(diameter / texture.width, diameter * 0.8 / texture.height);
         } else if (p.kind === "stem") {
           x = origin.x + Math.sin(churn) * W * 0.045 * (1 - u * 0.4);
-          y = lerp(origin.y, capY + W * 0.05, u);
+          y = lerp(baseY, capY + W * 0.05, u);
           diameter = W * (0.29 - u * 0.08) * (0.5 + rise * 0.5);
           sprite.scale.set(diameter / texture.width, diameter * 1.2 / texture.height);
         } else {

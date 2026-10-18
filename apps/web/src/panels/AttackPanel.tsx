@@ -489,17 +489,12 @@ function AttackForm({
               )}
             </PopoverButton>
           </div>
-          {!chosen && <p className="muted small-print">No saved attacks yet. Roll a d20 to hit, or add a named attack with its own dice and damage.</p>}
+          {!chosen && <p className="muted small-print">Create an attack or use Custom roll to choose your attack and damage dice.</p>}
           {!chosen && !customOpen && (
             <div className="attack-roll-row">
-              <button type="button" className="attack-roll" disabled={!target || busy || rolling}
-                title={rolling ? "Your dice are still on the board" : undefined}
-                onClick={() => target && void send({ expression: "1d20", kind: "toHit", label: "", targetId: target.token.id })}
-              >
-                <DiceFive size={18} aria-hidden="true" />
-                {busy ? "Rolling…" : !target ? "Choose a target" : "Roll to hit"}
+              <button type="button" className="secondary" onClick={() => onCustomOpen(true)}>
+                <SlidersHorizontal size={18} aria-hidden="true" /> Custom roll
               </button>
-              {privateToggle}
             </div>
           )}
           {chosen && !customOpen && (

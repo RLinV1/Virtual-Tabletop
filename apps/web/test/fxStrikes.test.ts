@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 import { Container } from "pixi.js";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ANIMATION_SHAPES } from "@vtt/shared";
 import { SHAPE_DEFAULTS } from "../src/board/effectPresets";
 import { playStrike, type FxHost } from "../src/board/fx";
+import { SparkRenderer } from "../src/board/fxParticles";
+import { DEFAULT_CLIENT_SETTINGS, QUALITY, setClientSettings } from "../src/ui/clientSettings";
 
 function host(reducedMotion: boolean): FxHost {
   return { layer: new Container(), shakeTarget: new Container(), filterTarget: new Container(), screen: { width: 800, height: 600 }, reducedMotion };
@@ -15,6 +17,36 @@ vi.hoisted(() => {
 });
 
 const strikeShapes = ANIMATION_SHAPES.filter((s) => s !== "nuke");
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  setClientSettings(DEFAULT_CLIENT_SETTINGS);
+});
+
+describe("live strike particle budgets (FR-TAC-06)", () => {
+  for (const quality of ["low", "balanced", "high"] as const) {
+    it(`keeps overlapping trails and impacts inside the ${quality} budget`, () => {
+      setClientSettings({ graphicsQuality: quality });
+      vi.spyOn(Math, "random").mockReturnValue(0.1);
+      let peak = 0;
+      const draw = vi.spyOn(SparkRenderer.prototype, "draw").mockImplementation((sparks) => {
+        peak = Math.max(peak, sparks.length);
+      });
+      for (const shape of strikeShapes) {
+        const def = { ...SHAPE_DEFAULTS[shape], count: 12, particles: 120, trail: 1 };
+        const fx = playStrike(host(false), { def, from: { x: 0, y: 0 }, to: { x: 400, y: 200 }, radius: 24 });
+        try {
+          for (let t = 0; t < def.duration; t += 1 / 30) fx.update(t);
+        } finally {
+          fx.destroy();
+        }
+      }
+      expect(draw).toHaveBeenCalled();
+      expect(peak).toBeGreaterThan(0);
+      expect(peak).toBeLessThanOrEqual(QUALITY[quality].particles);
+    });
+  }
+});
 
 describe("every strike shape plays and cleans up (library-animations, ADR 0038)", () => {
   for (const shape of strikeShapes) {
