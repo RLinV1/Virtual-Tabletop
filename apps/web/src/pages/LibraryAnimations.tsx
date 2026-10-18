@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
-import { ANIMATION_SHAPES, AnimationDef, MAX_ANIMATION_NAME, type LibraryAnimation } from "@vtt/shared";
-import { BUILTIN_ANIMATIONS, ATTACK_STYLE_PRESETS } from "../board/effectPresets";
+import { ANIMATION_SHAPES, AnimationDef, MAX_ANIMATION_NAME, PARTICLE_SHAPES, type LibraryAnimation, type ParticleShape } from "@vtt/shared";
+import { BUILTIN_ANIMATIONS, SHAPE_DEFAULTS, withDefaults } from "../board/effectPresets";
 import { prefersReducedMotion } from "../board/effects";
 import { api } from "../net/api";
 import { AnimationPreviewStage } from "../ui/AnimationPreviewStage";
@@ -10,13 +10,27 @@ import { Modal } from "../ui/Modal";
 const SHAPE_LABELS: Record<AnimationDef["shape"], string> = {
   slash: "Slash (melee)",
   claw: "Claw rake (melee)",
+  whirlwind: "Whirlwind (melee)",
+  slam: "Ground slam (melee)",
+  shadow: "Shadow strike (melee)",
   projectile: "Projectile (ranged)",
+  volley: "Arrow volley (ranged)",
+  dagger: "Thrown daggers (ranged)",
   fireball: "Fireball (ranged)",
   meteor: "Meteor (falls on target)",
+  explosion: "Explosion (delayed blast)",
   bolt: "Bolt (magic)",
+  chain: "Chain lightning (magic)",
   beam: "Beam (magic)",
+  frost: "Frost spikes (magic)",
+  poison: "Poison cloud (magic)",
+  smite: "Smite (pillar of light)",
+  sonic: "Sonic wave (cone)",
+  tornado: "Tornado (travels to target)",
   nuke: "Nuke (map blast)",
 };
+
+const PARTICLE_LABELS: Record<ParticleShape, string> = { spark: "Spark", star: "Star", square: "Square", shard: "Shard", ring: "Ring" };
 
 const NEW_ANIMATION_NAME = "New animation";
 
@@ -229,16 +243,21 @@ const seconds = (v: number) => `${v.toFixed(1)} s`;
 const times = (v: number) => `×${v.toFixed(1)}`;
 const count = (v: number) => `${v}`;
 const percent = (v: number) => `${Math.round(v * 100)}%`;
+const signed = (v: number) => `${v > 0 ? "+" : ""}${Math.round(v * 100)}%`;
+const round2 = (v: number) => Math.round(v * 100) / 100;
 
 /** New or Edit animation: every field of the definition, and a preview that plays the values as they are now. */
 function AnimationEditor({ animation, onSaved, onCancel }: { animation: LibraryAnimation | null; onSaved: (animation: LibraryAnimation) => void; onCancel: () => void }) {
   const [name, setName] = useState(animation?.name ?? NEW_ANIMATION_NAME);
-  const [def, setDef] = useState<AnimationDef>(animation?.def ?? ATTACK_STYLE_PRESETS.melee);
+  const [def, setDef] = useState<AnimationDef>(animation?.def ?? SHAPE_DEFAULTS.slash);
   const [previewReduced, setPreviewReduced] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const set = <K extends keyof AnimationDef>(key: K, value: AnimationDef[K]) => setDef((d) => ({ ...d, [key]: value }));
   const parsed = AnimationDef.safeParse(def);
+  // What the form shows: the stored fields, with the shape's defaults for any the definition leaves out.
+  const v = withDefaults(def);
+  const loadDefaults = (shape: AnimationDef["shape"]) => setDef(SHAPE_DEFAULTS[shape]);
 
   const save = async (e: FormEvent) => {
     e.preventDefault();
@@ -265,7 +284,7 @@ function AnimationEditor({ animation, onSaved, onCancel }: { animation: LibraryA
       </label>
       <label>
         Shape
-        <select value={def.shape} onChange={(e) => set("shape", e.target.value as AnimationDef["shape"])}>
+        <select value={def.shape} onChange={(e) => loadDefaults(e.target.value as AnimationDef["shape"])}>
           {ANIMATION_SHAPES.map((shape) => (
             <option key={shape} value={shape}>{SHAPE_LABELS[shape]}</option>
           ))}
@@ -280,6 +299,27 @@ function AnimationEditor({ animation, onSaved, onCancel }: { animation: LibraryA
           Secondary colour
           <input type="color" value={def.secondary} onChange={(e) => set("secondary", e.target.value)} />
         </label>
+        <label>
+          Accent colour
+          <input type="color" value={def.accent ?? SHAPE_DEFAULTS[def.shape].accent} disabled={def.accent === undefined} onChange={(e) => set("accent", e.target.value)} />
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={def.accent !== undefined}
+            onChange={(e) => set("accent", e.target.checked ? SHAPE_DEFAULTS[def.shape].accent : undefined)}
+          />
+          Use accent
+        </label>
+        <label>
+          Particle look
+          <select value={v.particleShape} onChange={(e) => set("particleShape", e.target.value as ParticleShape)}>
+            {PARTICLE_SHAPES.map((look) => (
+              <option key={look} value={look}>{PARTICLE_LABELS[look]}</option>
+            ))}
+          </select>
+        </label>
+        <button type="button" className="secondary small" onClick={() => loadDefaults(def.shape)}>Reset to shape default</button>
       </div>
       <div className="animation-sliders">
         <fieldset>
@@ -293,6 +333,16 @@ function AnimationEditor({ animation, onSaved, onCancel }: { animation: LibraryA
           <Slider label="Glow" value={def.glow} min={0} max={1} step={0.05} format={percent} onChange={(v) => set("glow", Math.round(v * 100) / 100)} />
           <Slider label="Shake" value={def.shake} min={0} max={1} step={0.05} format={percent} onChange={(v) => set("shake", Math.round(v * 100) / 100)} />
           <Slider label="Flash" value={def.flash} min={0} max={1} step={0.05} format={percent} onChange={(v) => set("flash", Math.round(v * 100) / 100)} />
+        </fieldset>
+        <fieldset>
+          <legend>Motion</legend>
+          <Slider label="Count" value={v.count} min={1} max={12} step={1} format={count} onChange={(n) => set("count", n)} />
+          <Slider label="Spread" value={v.spread} min={0} max={1} step={0.05} format={percent} onChange={(n) => set("spread", round2(n))} />
+          <Slider label="Arc" value={v.arc} min={0} max={1} step={0.05} format={percent} onChange={(n) => set("arc", round2(n))} />
+          <Slider label="Trail" value={v.trail} min={0} max={1} step={0.05} format={percent} onChange={(n) => set("trail", round2(n))} />
+          <Slider label="Spin" value={v.spin} min={0} max={1} step={0.05} format={percent} onChange={(n) => set("spin", round2(n))} />
+          <Slider label="Gravity" value={v.gravity} min={-1} max={1} step={0.05} format={signed} onChange={(n) => set("gravity", round2(n))} />
+          <Slider label="Rings" value={v.rings} min={0} max={5} step={1} format={count} onChange={(n) => set("rings", n)} />
         </fieldset>
       </div>
 
