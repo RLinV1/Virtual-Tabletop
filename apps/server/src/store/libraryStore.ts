@@ -84,6 +84,13 @@ export class EncounterMapMissingError extends Error {
   }
 }
 
+/** Names are unique within an owner's encounter library. */
+export class EncounterNameConflictError extends Error {
+  constructor() {
+    super("An encounter template with this name already exists. Choose another name.");
+  }
+}
+
 /** The owner already holds the most encounter templates they may (ADR 0024). */
 export class EncounterLimitError extends Error {
   constructor(readonly limit: number) {

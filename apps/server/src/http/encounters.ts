@@ -13,7 +13,7 @@ import {
 import { boardFromRoom, resolveEncounter } from "../domain/encounterTemplates";
 import type { RoomRegistry } from "../domain/roomRegistry";
 import { requireAccountOwner, resolveOwner, type Owner } from "../ownership/resolveOwner";
-import { EncounterLimitError, EncounterMapMissingError, type EncounterRecord } from "../store/libraryStore";
+import { EncounterNameConflictError, EncounterLimitError, EncounterMapMissingError, type EncounterRecord } from "../store/libraryStore";
 import type { RoomStore } from "../store/roomStore";
 
 const IdParam = z.uuid();
@@ -124,6 +124,10 @@ export function registerEncounterRoutes(app: Express, deps: { store: RoomStore; 
       if (!owner) return void res.status(401).json({ error: "Sign in to do that" });
       await handler(owner.ownerId, owner);
     } catch (err) {
+      if (err instanceof EncounterNameConflictError) {
+        if (!res.headersSent) res.status(409).json({ error: err.message });
+        return;
+      }
       console.error("[vtt] encounter route failed", err);
       if (!res.headersSent) res.status(500).json({ error: "Internal error" });
     }

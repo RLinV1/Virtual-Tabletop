@@ -93,6 +93,20 @@ describe("edit encounter templates in temporary rooms (encounter-templates, FR-G
     expect(await list(cookie)).toHaveLength(1);
   });
 
+  it("rejects a duplicate name from a different edit room without linking it", async () => {
+    server = await startServer();
+    const { cookie } = await server.signUp();
+    const map = await upload(cookie, "Crypt");
+    const first = await editing(cookie, { mapAssetId: map.id });
+    const second = await editing(cookie, { mapAssetId: map.id });
+    expect((await save(cookie, first.roomId, { name: "Guards" })).status).toBe(201);
+    const duplicate = await save(cookie, second.roomId, { name: " guards " });
+    expect(duplicate.status).toBe(409);
+    expect(await duplicate.json()).toMatchObject({ error: expect.stringContaining("already exists") });
+    expect(await session(cookie, second.roomId)).toMatchObject({ templateId: null });
+    expect((await save(cookie, second.roomId, { name: "Other guards" })).status).toBe(201);
+  });
+
   it("inherits saved map walls, portals and fog and preserves them through template saves", async () => {
     server = await startServer();
     const { cookie } = await server.signUp();

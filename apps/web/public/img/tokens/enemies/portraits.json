@@ -5,10 +5,10 @@
     "file": "goblin-spearman.svg",
     "width": 400,
     "height": 400,
-    "artist": "bera(Bora Orcal);Kathrin Polikeit(Kitty)",
-    "license": "GPL-2.0-or-later",
-    "source": "https://github.com/wesnoth/wesnoth/blob/e08adeecd17fe020381256613829a621382e24ab/data/core/images/portraits/goblins/spearman.webp",
-    "original": "source/goblins-spearman.webp"
+    "artist": "OpenAI image generation",
+    "license": "Project asset",
+    "source": "Original generated artwork for this project",
+    "original": "source/goblin-spearman.png"
   },
   {
     "slug": "goblin-guard",
@@ -16,31 +16,31 @@
     "file": "goblin-guard.svg",
     "width": 400,
     "height": 400,
-    "artist": "bera(Bora Orcal)",
-    "license": "GPL-2.0-or-later",
-    "source": "https://github.com/wesnoth/wesnoth/blob/e08adeecd17fe020381256613829a621382e24ab/data/core/images/portraits/goblins/impaler.webp",
-    "original": "source/goblins-impaler.webp"
+    "artist": "OpenAI image generation",
+    "license": "Project asset",
+    "source": "Original generated artwork for this project",
+    "original": "source/goblin-guard.png"
   },
   {
     "slug": "human-swordsman",
-    "name": "Human Swordsman",
+    "name": "Human Traveler",
     "file": "human-swordsman.svg",
     "width": 400,
     "height": 400,
-    "artist": "Emilien Rotival(LordBob)",
-    "license": "GPL-2.0-or-later",
-    "source": "https://github.com/wesnoth/wesnoth/blob/e08adeecd17fe020381256613829a621382e24ab/data/core/images/portraits/humans/swordsman.webp",
-    "original": "source/humans-swordsman.webp"
+    "artist": "Hyptosis",
+    "license": "CC0-1.0",
+    "source": "https://opengameart.org/content/200-free-lorestrome-portraits",
+    "original": "source/human-swordsman.png"
   },
   {
     "slug": "human-mage",
-    "name": "Human Mage",
+    "name": "Human Scout",
     "file": "human-mage.svg",
     "width": 400,
     "height": 400,
-    "artist": "Kathrin Polikeit(Kitty)",
-    "license": "GPL-2.0-or-later",
-    "source": "https://github.com/wesnoth/wesnoth/blob/e08adeecd17fe020381256613829a621382e24ab/data/core/images/portraits/humans/mage+female.webp",
-    "original": "source/humans-mage-female.webp"
+    "artist": "Hyptosis",
+    "license": "CC0-1.0",
+    "source": "https://opengameart.org/content/200-free-lorestrome-portraits",
+    "original": "source/human-mage.png"
   }
 ]

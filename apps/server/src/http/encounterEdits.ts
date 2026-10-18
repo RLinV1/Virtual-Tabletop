@@ -15,7 +15,7 @@ import type { RoomLifecycle } from "../domain/roomLifecycle";
 import type { RoomRegistry } from "../domain/roomRegistry";
 import { requireAccount } from "../identity/middleware";
 import type { SignedIn } from "../identity/sessions";
-import { EncounterLimitError, EncounterMapMissingError } from "../store/libraryStore";
+import { EncounterNameConflictError, EncounterLimitError, EncounterMapMissingError } from "../store/libraryStore";
 import type { RoomStore } from "../store/roomStore";
 import { mapDeletedMessage, toSummary } from "./encounters";
 
@@ -164,6 +164,10 @@ export function registerEncounterEditRoutes(
       if (!account) return;
       await handler(account);
     } catch (err) {
+      if (err instanceof EncounterNameConflictError) {
+        if (!res.headersSent) res.status(409).json({ error: err.message });
+        return;
+      }
       console.error("[vtt] encounter edit route failed", err);
       if (!res.headersSent) res.status(500).json({ error: "Internal error" });
     }
