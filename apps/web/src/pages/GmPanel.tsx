@@ -571,7 +571,7 @@ function MapSection(props: {
               </button>
             ))}
             <span ref={setGridActionSlot} hidden={step !== "grid"} style={{ marginLeft: "auto" }} />
-            {prep && <span className="map-editor-draft">Draft map: only you see it until Apply map</span>}
+            {prep && step !== "grid" && <span className="map-editor-draft">Draft map: only you see it until Apply map</span>}
             {!prep && unsaved && (
               <span className="map-editor-unsaved">
                 <span className="map-editor-draft">Unsaved changes: only you see them</span>
@@ -645,6 +645,7 @@ function MapSection(props: {
                   applying={applyingMap}
                   error={prepError}
                   submitLabel="Apply map"
+                  cancelLabel="Close"
                   busyLabel="Applying map…"
                   allowUnchanged
                 />

@@ -590,6 +590,7 @@ function Room({ roomId, connection, token, features }: {
         state={shownState!}
         you={shownYou!}
         readOnly={readOnly}
+        suppressLiveEffects={replaying}
         gridPreview={you.role === "gm" && !readOnly ? gridPreview : null}
         onPickTarget={pickTarget}
         onEditToken={editToken}

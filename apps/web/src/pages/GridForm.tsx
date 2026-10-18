@@ -198,8 +198,8 @@ export function GridForm({
         {error && <p className="error grid-message" role="alert">{error}</p>}
         {!hideActions && (actionSlot ? (dirty ? createPortal(<span className="map-editor-unsaved">
           {dirty && <span className="map-editor-draft">Unsaved changes: only you see them</span>}
-          <button type="button" className="secondary small" disabled={applying} onClick={onCancel}>Discard</button>
-          <button type="submit" form={formId} className="small" disabled={!canSave || applying}>{applying ? busyLabel : "Save changes"}</button>
+          <button type="button" className="secondary small" disabled={applying} onClick={onCancel}>{cancelLabel === "Cancel" ? "Discard" : cancelLabel}</button>
+          <button type="submit" form={formId} className="small" disabled={!canSave || applying}>{applying ? busyLabel : submitLabel === "Apply grid" ? "Save changes" : submitLabel}</button>
         </span>, actionSlot) : null) : (
           <div className="grid-actions">
             <button type="button" className="secondary" disabled={applying} onClick={onCancel}>{cancelLabel}</button>

@@ -110,7 +110,11 @@ describe("GM grid suggestion editor (FR-GM-03)", () => {
   });
 });
 
-it("saves grid changes from the header while the form stays in the editor body", async () => {
+it.each([
+  { submitLabel: "Apply grid", cancelLabel: "Cancel", saveLabel: "Save changes", closeLabel: "Discard" },
+  { submitLabel: "Apply map", cancelLabel: "Close", saveLabel: "Apply map", closeLabel: "Close" },
+  { submitLabel: "Save grid", cancelLabel: "Cancel", saveLabel: "Save grid", closeLabel: "Discard" },
+])("keeps $saveLabel and $closeLabel actions in the header", async ({ submitLabel, cancelLabel, saveLabel, closeLabel }) => {
   const apply = vi.fn(async () => {});
   function Editor() {
     const [slot, setSlot] = useState<HTMLDivElement | null>(null);
@@ -119,13 +123,14 @@ it("saves grid changes from the header while the form stays in the editor body",
       <header><div ref={setSlot} /></header>
       <GridActionsContext.Provider value={slot}>
         <GridForm grid={DEFAULT_GRID} map={map} draft={draft} hasDraft onChange={setDraft}
-          onApply={apply} onCancel={() => {}} applying={false} error={null} submitLabel="Save grid" />
+          onApply={apply} onCancel={() => {}} applying={false} error={null} submitLabel={submitLabel} cancelLabel={cancelLabel} />
       </GridActionsContext.Provider>
     </>;
   }
   render(<Editor />);
   fireEvent.change(screen.getByLabelText("Distance per square"), { target: { value: "10" } });
-  const save = screen.getByRole("button", { name: "Save changes" });
+  const save = screen.getByRole("button", { name: saveLabel });
+  expect(screen.getByRole("button", { name: closeLabel }).closest("header")).toBeTruthy();
   expect(save.closest("header")).toBeTruthy();
   expect(screen.getByText("Unsaved changes: only you see them").closest("header")).toBeTruthy();
   fireEvent.click(save);

@@ -14,6 +14,8 @@ it("searches animations in a separate dialog and selects the filtered result", (
   ]} />);
   fireEvent.click(screen.getByRole("button", { name: "Animation" }));
   expect(screen.getByRole("dialog", { name: "Choose attack animation" })).toBeTruthy();
+  expect(document.activeElement).toBe(screen.getByRole("searchbox", { name: "Search animations" }));
+  expect(fireEvent.keyDown(screen.getByRole("searchbox", { name: "Search animations" }), { key: "Enter", code: "Enter" })).toBe(false);
   fireEvent.change(screen.getByRole("searchbox", { name: "Search animations" }), { target: { value: "FIRE" } });
   expect(screen.queryByRole("button", { name: "Ice bolt" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Fireball (preset)" }));

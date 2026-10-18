@@ -51,7 +51,7 @@ Every route answers 404 for a room that is not one of the caller's temporary roo
 - Edits are written to the event log until the room is deleted; the sweep bounds how long.
 - A GM still editing after 24 hours loses unsaved changes; saved changes are in the template.
 - The web client hides tools in the editing mode as a convenience only (invariant 7); the server enforces joins, ownership and the map rule.
-- Templates still carry no walls or portals, and a template's map never changes.
+- A template's map never changes. Templates carry walls and portals (see the amendment below).
 
 ## Alternatives considered
 
