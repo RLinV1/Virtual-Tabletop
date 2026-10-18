@@ -480,6 +480,12 @@ export function playNuke(host: FxHost, params: NukeFxParams): RunningFx {
       // Fireball: swells fast, then cools and fades.
       const swell = easeOut(clamp01(elapsed / (0.45 * duration)));
       const fade = 1 - easeIn(clamp01((elapsed - 0.3 * duration) / (0.7 * duration)));
+      // The firestorm: a wall of fire that rolls out over the whole map, then burns down to a scorch.
+      const storm = easeOut(clamp01(elapsed / (0.5 * duration)));
+      const burn = 1 - easeIn(clamp01((elapsed - 0.35 * duration) / (0.65 * duration)));
+      g.circle(origin.x, origin.y, extent * 1.1 * storm).fill({ color: secondary, alpha: 0.32 * burn });
+      g.circle(origin.x, origin.y, extent * 0.85 * storm).fill({ color: primary, alpha: 0.38 * burn });
+      g.circle(origin.x, origin.y, extent * 0.5 * storm).fill({ color: mix(primary, WHITE, 0.45), alpha: 0.4 * burn });
       g.circle(origin.x, origin.y, R * 1.5 * swell).fill({ color: secondary, alpha: 0.28 * fade });
       g.circle(origin.x, origin.y, R * 1.05 * swell).fill({ color: primary, alpha: 0.55 * fade });
       g.circle(origin.x, origin.y, R * 0.6 * swell).fill({ color: mix(primary, WHITE, 0.6), alpha: 0.8 * fade });
@@ -489,12 +495,12 @@ export function playNuke(host: FxHost, params: NukeFxParams): RunningFx {
       for (let i = 0; i < 3; i++) {
         const k = clamp01((elapsed - i * 0.07 * duration) / (0.75 * duration));
         if (k <= 0) continue;
-        ring(g, origin, R * 0.5 + easeOut(k) * extent * 0.8, Math.max(3, unit * (0.28 - i * 0.07) * (1 - k)), i === 0 ? WHITE : i === 1 ? primary : secondary, (1 - k) * 0.9);
+        ring(g, origin, R * 0.5 + easeOut(k) * extent * 1.15, Math.max(3, unit * (0.28 - i * 0.07) * (1 - k)), i === 0 ? WHITE : i === 1 ? primary : secondary, (1 - k) * 0.9);
       }
 
       // Ember ring riding the main wave, embers drifting up as they cool.
       const ringK = clamp01(elapsed / (0.8 * duration));
-      const ringR = R * 0.6 + easeOut(ringK) * extent * 0.55;
+      const ringR = R * 0.6 + easeOut(ringK) * extent * 0.95;
       for (const e of embers) {
         const rad = ringR * e.speed;
         const flicker = 0.6 + 0.4 * Math.sin(elapsed * 30 + e.angle * 9);
@@ -510,7 +516,7 @@ export function playNuke(host: FxHost, params: NukeFxParams): RunningFx {
 
       if (def.shake > 0) {
         const k = clamp01(elapsed / (0.5 * duration));
-        const amp = def.shake * 16 * (1 - k) ** 2;
+        const amp = def.shake * 28 * (1 - k) ** 2;
         setShake(host.shakeTarget, key, k >= 1 ? null : { x: Math.sin(elapsed * 97) * amp, y: Math.cos(elapsed * 89) * amp });
       }
       return true;

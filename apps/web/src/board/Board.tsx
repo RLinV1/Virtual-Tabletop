@@ -9,6 +9,7 @@ import { BoardFilters } from "./BoardFilters";
 import { canAnimateDice, type TrayRoll } from "../ui/Die3D";
 import { ThrownDice, type ActiveThrow } from "./ThrownDice";
 import { BoardView, type GmFogView } from "./boardView";
+import { shakeScreen } from "./screenShake";
 import { MAX_ATTACK_EFFECTS, attackEffectFor, attackPlan, effectiveReducedMotion, type AttackEffect } from "./effects";
 import type { OverlayEffect } from "./EffectsOverlay";
 import { boardDieSize, centreThrow, onMap, throwLanding, type BoardThrow, type BoardTransform } from "./diceThrow";
@@ -205,6 +206,8 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   /** The hit shake is the board's; everything else is the overlay's. */
   const playEffect = (effect: AttackEffect) => {
     viewRef.current?.playAttackEffect(effect);
+    // A nuke shakes the whole page, not just the board.
+    if (effect.kind === "nuke" && !effectiveReducedMotion(latest.current.state)) shakeScreen(effect.animation);
     const id = nextEffectId.current++;
     setOverlayEffects((all) => [...all, { id, effect }].slice(-MAX_ATTACK_EFFECTS));
     // Also removed here, so an effect that waited for the overlay to load never plays late.

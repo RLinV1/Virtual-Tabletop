@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
 import { ANIMATION_SHAPES, AnimationDef, MAX_ANIMATION_NAME, type LibraryAnimation } from "@vtt/shared";
 import { BUILTIN_ANIMATIONS, ATTACK_STYLE_PRESETS } from "../board/effectPresets";
 import { prefersReducedMotion } from "../board/effects";
@@ -200,15 +200,31 @@ function AnimationCard(props: {
 }
 
 /** A labelled slider with its value shown, for one numeric field of the definition. */
-function Slider(props: { label: string; value: number; min: number; max: number; step: number; onChange: (value: number) => void }) {
+function Slider(props: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  /** How the value reads beside the label: "1.3 s", "×1.5", "72%". */
+  format: (value: number) => string;
+  onChange: (value: number) => void;
+}) {
+  // The filled part of the track, as a share of the range.
+  const fill = ((props.value - props.min) / (props.max - props.min)) * 100;
   return (
-    <label className="animation-slider">
-      <span>{props.label}</span>
+    <label className="animation-slider" style={{ "--fill": `${fill}%` } as CSSProperties}>
+      <span className="animation-slider-label">{props.label}</span>
+      <output className="animation-slider-value">{props.format(props.value)}</output>
       <input type="range" min={props.min} max={props.max} step={props.step} value={props.value} onChange={(e) => props.onChange(Number(e.target.value))} />
-      <output>{props.value}</output>
     </label>
   );
 }
+
+const seconds = (v: number) => `${v.toFixed(1)} s`;
+const times = (v: number) => `×${v.toFixed(1)}`;
+const count = (v: number) => `${v}`;
+const percent = (v: number) => `${Math.round(v * 100)}%`;
 
 /** New or Edit animation: every field of the definition, and a preview that plays the values as they are now. */
 function AnimationEditor({ animation, onSaved, onCancel }: { animation: LibraryAnimation | null; onSaved: (animation: LibraryAnimation) => void; onCancel: () => void }) {
@@ -261,12 +277,20 @@ function AnimationEditor({ animation, onSaved, onCancel }: { animation: LibraryA
           <input type="color" value={def.secondary} onChange={(e) => set("secondary", e.target.value)} />
         </label>
       </div>
-      <Slider label="Duration (seconds)" value={def.duration} min={0.2} max={4} step={0.1} onChange={(v) => set("duration", Math.round(v * 10) / 10)} />
-      <Slider label="Size" value={def.size} min={0.5} max={3} step={0.1} onChange={(v) => set("size", Math.round(v * 10) / 10)} />
-      <Slider label="Particles" value={def.particles} min={0} max={120} step={1} onChange={(v) => set("particles", v)} />
-      <Slider label="Glow" value={def.glow} min={0} max={1} step={0.05} onChange={(v) => set("glow", Math.round(v * 100) / 100)} />
-      <Slider label="Shake" value={def.shake} min={0} max={1} step={0.05} onChange={(v) => set("shake", Math.round(v * 100) / 100)} />
-      <Slider label="Flash" value={def.flash} min={0} max={1} step={0.05} onChange={(v) => set("flash", Math.round(v * 100) / 100)} />
+      <div className="animation-sliders">
+        <fieldset>
+          <legend>Timing and size</legend>
+          <Slider label="Duration" value={def.duration} min={0.2} max={4} step={0.1} format={seconds} onChange={(v) => set("duration", Math.round(v * 10) / 10)} />
+          <Slider label="Size" value={def.size} min={0.5} max={3} step={0.1} format={times} onChange={(v) => set("size", Math.round(v * 10) / 10)} />
+          <Slider label="Particles" value={def.particles} min={0} max={120} step={1} format={count} onChange={(v) => set("particles", v)} />
+        </fieldset>
+        <fieldset>
+          <legend>Intensity</legend>
+          <Slider label="Glow" value={def.glow} min={0} max={1} step={0.05} format={percent} onChange={(v) => set("glow", Math.round(v * 100) / 100)} />
+          <Slider label="Shake" value={def.shake} min={0} max={1} step={0.05} format={percent} onChange={(v) => set("shake", Math.round(v * 100) / 100)} />
+          <Slider label="Flash" value={def.flash} min={0} max={1} step={0.05} format={percent} onChange={(v) => set("flash", Math.round(v * 100) / 100)} />
+        </fieldset>
+      </div>
 
       <AnimationPreviewStage def={parsed.success ? parsed.data : def} reducedMotion={prefersReducedMotion() || previewReduced} />
       <label className="checkbox">
