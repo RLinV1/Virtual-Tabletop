@@ -93,7 +93,11 @@ export function ToolRail({
       aria-expanded={!collapsed}
       aria-label={collapsed ? "Show board tools" : "Hide board tools"}
       title={collapsed ? "Show board tools" : "Hide board tools"}
-      onClick={() => setCollapsed((c) => !c)}
+      onClick={() => {
+        // Hiding the rail goes back to Select, so a hidden Draw or Fog tool can't keep catching clicks.
+        if (!collapsed) onSelect("select");
+        setCollapsed((c) => !c);
+      }}
     >
       {collapsed ? <CaretDoubleRight size={14} aria-hidden="true" /> : <CaretDoubleLeft size={14} aria-hidden="true" />}
     </button>

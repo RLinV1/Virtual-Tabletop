@@ -38,7 +38,7 @@ export function prepCommand(prep: MapPrep, tokenPolicy?: MapTokenPolicy): Extrac
   return grid ? { type: "scene.setMap", map: prep.map, grid, ...(tokenPolicy ? { tokenPolicy } : {}) } : null;
 }
 
-/** The choices for tokens already on a map that is about to be replaced (KAN-67, ADR 0036). */
+/** The choices for tokens already on a map that is about to be replaced (KAN-67, ADR 0040). */
 export const TOKEN_POLICY_CHOICES: readonly { value: MapTokenPolicy; label: string; hint: string }[] = [
   { value: "scale", label: "Scale to fit", hint: "Move tokens in proportion to the size of the new map." },
   { value: "keep", label: "Keep positions", hint: "Leave tokens where they are; any off the new map move to its edge." },

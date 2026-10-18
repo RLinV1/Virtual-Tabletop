@@ -7,7 +7,7 @@ import { CheckpointsPanel } from "../src/panels/CheckpointsPanel";
 import { panelTabs } from "../src/panels/RoomPanel";
 
 const connection = { command: async () => ({ ok: true }) } as unknown as RoomConnection;
-const render = (state: RoomState) => renderToStaticMarkup(<CheckpointsPanel connection={connection} state={state} />);
+const render = (state: RoomState) => renderToStaticMarkup(<CheckpointsPanel connection={connection} state={state} token="t" />);
 const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
 
 describe("the GM's Checkpoints section (KAN-41, FR-REC-02)", () => {
@@ -28,6 +28,13 @@ describe("the GM's Checkpoints section (KAN-41, FR-REC-02)", () => {
     expect(html).toContain('aria-label="Restore Start"');
     expect(html).toContain('aria-label="Restore Before the ambush"');
     expect(html).toContain('role="status"');
+  });
+
+  it("gives each checkpoint only Restore and Delete; Restore opens the preview (ADR 0036)", () => {
+    const html = render({ ...emptyRoomState("r1"), checkpoints: [{ id: "c1", name: "Start", seq: 4 }] });
+    expect(html).toContain('aria-label="Restore Start"');
+    expect(html).toContain('aria-label="Delete Start"');
+    expect(html).not.toContain('aria-label="Preview Start"');
   });
 
   it("lives in the GM's Manage tab, which players never get", () => {

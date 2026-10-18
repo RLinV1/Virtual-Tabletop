@@ -138,7 +138,9 @@ export async function buildApp({
   app.use(attachAccount(sessions));
   app.use(requireSameOrigin(sessions, clientOrigin.split(",").map((o) => o.trim())));
   registerUvttRoutes(app, { store, registry, sessions, assets: assetStore, preparations, pool, uploadDir, builtinImageDir, now });
-  app.use(express.json({ limit: "64kb" }));
+  // UVTT draft edits authorize and parse above; library geometry has its own authorized 1 MiB parser.
+  const json = express.json({ limit: "64kb" });
+  app.use((req, res, next) => (/^\/api\/library\/[^/]+\/board$/.test(req.path) ? next() : json(req, res, next)));
   // Uploaded pictures are drawn on other people's screens (dice looks, ADR 0018): never let a
   // browser second-guess their type into something that runs.
   app.use("/uploads", (_req, res, next) => {

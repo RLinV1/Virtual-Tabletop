@@ -49,6 +49,9 @@ describe("Human-readable activity formatter (FR-REC-01)", () => {
     TokenImageSet: [{ type: "TokenImageSet", tokenId: token.id, imageUrl: "/uploads/new.png", assetId: null, previous: { imageUrl: null, assetId: null } }, "Mara changed Goblin's image"],
     TemplatePlaced: [{ type: "TemplatePlaced", template: areaTemplate }, "Mara placed a 20 ft cone"],
     TemplateRemoved: [{ type: "TemplateRemoved", template: { ...areaTemplate, gmOnly: true } }, "Mara removed a 20 ft cone (GM only)"],
+    ReducedEffectsSet: [{ type: "ReducedEffectsSet", enabled: true, previous: false }, "Mara turned reduced animations on for the table"],
+    MapNuked: [{ type: "MapNuked", amount: 12, origin: { x: 50, y: 50 } }, "Mara detonated a nuke (12 damage)"],
+    MapNukeUndone: [{ type: "MapNukeUndone", amount: 12, origin: { x: 50, y: 50 } }, "Mara took back a nuke (12 damage)"],
     RollDamageUnapplied: [{ type: "RollDamageUnapplied", rollId: "gone", amount: 7 }, "Mara took back 7 damage from an earlier roll"],
     ChatMessageSent: [{ type: "ChatMessageSent", message: { id: "m1", senderId: alice.id, senderName: "Alice", text: "Watch the door" } }, "Mara said: Watch the door"],
     // An action no longer in the undo history; undo.test.ts covers the named form (ADR 0013).
@@ -59,6 +62,7 @@ describe("Human-readable activity formatter (FR-REC-01)", () => {
     WallsRemoved: [{ type: "WallsRemoved", walls: [wall] }, "Mara removed 1 wall"],
     PortalChanged: [{ type: "PortalChanged", wallId: wall.id, from: { kind: "door", state: "locked" }, to: { kind: "door", state: "closed" } }, "Mara unlocked a door"],
     CheckpointCreated: [{ type: "CheckpointCreated", checkpoint: { id: "c1", name: "Before the ambush", seq: 4 } }, 'Mara saved checkpoint "Before the ambush"'],
+    CheckpointDeleted: [{ type: "CheckpointDeleted", checkpoint: { id: "c1", name: "Before the ambush", seq: 3 } }, 'Mara deleted checkpoint "Before the ambush"'],
     CheckpointRestored: [{ type: "CheckpointRestored", checkpointId: "c1", name: "Before the ambush", restored: tableOf(state), previous: tableOf(state) }, 'Mara restored checkpoint "Before the ambush"'],
     EncounterApplied: [{ type: "EncounterApplied", templateId: "t1", name: "Goblin ambush", applied: tableOf(state), previous: tableOf(state) }, 'Mara applied encounter template "Goblin ambush"'],
     ActionUndone: [{ type: "ActionUndone", commandId: "gone" }, "Mara undid an action"],

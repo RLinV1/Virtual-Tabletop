@@ -262,6 +262,10 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
     case "CheckpointCreated":
       return { ...state, checkpoints: [...state.checkpoints, event.checkpoint].slice(-MAX_CHECKPOINTS) };
 
+    case "CheckpointDeleted":
+      required(state.checkpoints.find((c) => c.id === event.checkpoint.id), event);
+      return { ...state, checkpoints: state.checkpoints.filter((c) => c.id !== event.checkpoint.id) };
+
     case "CheckpointRestored":
       // Only the board changes: participants, rolls, chat and history stay (ADR 0019). A table
       // from before walls existed had none (ADR 0029).
@@ -308,6 +312,14 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
     // Its compensating events already restored the values; `reduce` updates the history.
     case "ActionUndone":
       return state;
+
+    // The HP changes are the `TokenStatsSet`s around it; the blast itself is only drawn (ADR 0038).
+    case "MapNuked":
+    case "MapNukeUndone":
+      return state;
+
+    case "ReducedEffectsSet":
+      return { ...state, reducedEffects: event.enabled };
 
     default:
       return assertNever(event);

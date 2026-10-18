@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { memo, useEffect, useId, useMemo, useRef, useState } from "react";
 import { MAX_FOG_POINTS, type Command, type FogRegion, type GridSpec, type MapImage, type Point } from "@vtt/shared";
 import { FOG_TEXTURE_SIZE, averageColor, fogPalette, makeFogCanvas, type Rgb } from "../../board/fogTexture";
 import { fogRegionAt } from "../../board/tools";
@@ -6,9 +6,14 @@ import { MapCanvas } from "./MapCanvas";
 
 /** A polygon closes when a click lands this close to its first corner, in screen pixels. */
 const CLOSE_PX = 12;
+/** A corner handle is grabbed within this distance, in screen pixels. */
+const HANDLE_PX = 10;
 
-/** Drag a rectangle, click out a polygon, click a region to reveal it, or pan. */
-export type FogCanvasMode = "rect" | "polygon" | "reveal";
+/** The region being dragged: moved whole, or by one corner. */
+type FogDrag = { kind: "move"; start: Point } | { kind: "corner"; index: number };
+
+/** Drag a rectangle, click out a polygon, click a region to reveal it, move or reshape one, or pan. */
+export type FogCanvasMode = "rect" | "polygon" | "reveal" | "edit";
 export type FogAdd = Extract<Command, { type: "fog.add" }>["region"];
 
 const clamp = (p: Point, map: MapImage): Point => ({
@@ -43,8 +48,25 @@ const rgbCss = ([r, g, b]: Rgb) => `rgb(${Math.round(r)}, ${Math.round(g)}, ${Ma
  * Fog as players see it: the board's two drifting cloud layers, as SVG patterns. Each pattern
  * moves by exactly one tile per loop, so the drift never jumps. Still when motion is reduced.
  */
+/**
+ * The fog texture as a data URL, made once per map colour. Drawing and encoding it takes long
+ * enough to stall the click that turns Player view on, so it is made ahead of time, when the map's
+ * colour is known, and kept for the next toggle.
+ */
+const textureCache = new Map<string, string>();
+const textureKey = (base: Rgb | null) => (base ? base.map((c) => Math.round(c)).join(",") : "default");
+function fogTextureUrl(base: Rgb | null): string {
+  const key = textureKey(base);
+  let url = textureCache.get(key);
+  if (!url) {
+    url = makeFogCanvas(base).toDataURL();
+    textureCache.set(key, url);
+  }
+  return url;
+}
+
 function PlayerFog({ id, base }: { id: string; base: Rgb | null }) {
-  const href = useMemo(() => makeFogCanvas(base).toDataURL(), [base]);
+  const href = useMemo(() => fogTextureUrl(base), [base]);
   const still = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
   const size = FOG_TEXTURE_SIZE;
   const layer = (key: string, transform: string, to: string, dur: string) => (
@@ -61,13 +83,57 @@ function PlayerFog({ id, base }: { id: string; base: Rgb | null }) {
   );
 }
 
-export function FogCanvas({ map, grid, fog, mode, onAdd, onRemove, onNotice, busy, playerView = false }: {
+/** One path of every region's outline, so Player view paints two shapes, not two per region. */
+const outline = (fog: Record<string, FogRegion>) =>
+  Object.values(fog).map((r) => `M${r.points.map((p) => `${p.x},${p.y}`).join("L")}Z`).join("");
+
+/**
+ * The fog regions. Memoised: pointer moves redraw the canvas many times a second, and the fog
+ * (its patterns animate) must not be rebuilt for each one.
+ */
+const FogRegions = memo(function FogRegions({ fog, playerView, tint, fogId, revealingId, px }: {
+  fog: Record<string, FogRegion>;
+  playerView: boolean;
+  tint: string;
+  fogId: string;
+  revealingId: string | null;
+  px: number;
+}) {
+  const all = useMemo(() => outline(fog), [fog]);
+  if (playerView) {
+    return (
+      <>
+        <path d={all} fill={`url(#${fogId}-base)`} />
+        <path d={all} fill={`url(#${fogId}-wisps)`} fillOpacity={0.55} pointerEvents="none" />
+      </>
+    );
+  }
+  return (
+    <>
+      {Object.values(fog).map((region) => (
+        <polygon
+          key={region.id}
+          points={region.points.map((p) => `${p.x},${p.y}`).join(" ")}
+          fill={tint}
+          fillOpacity={0.62}
+          stroke={revealingId === region.id ? "#e74c3c" : "#9aa4b2"}
+          strokeWidth={(revealingId === region.id ? 3 : 1.5) * px}
+          strokeDasharray={`${6 * px} ${4 * px}`}
+        />
+      ))}
+    </>
+  );
+});
+
+export function FogCanvas({ map, grid, fog, mode, onAdd, onRemove, onUpdate, onNotice, busy, playerView = false }: {
   map: MapImage;
   grid: GridSpec;
   fog: Record<string, FogRegion>;
   mode: FogCanvasMode;
   onAdd: (region: FogAdd) => void;
   onRemove: (regionId: string) => void;
+  /** A region moved or reshaped: its new corners. */
+  onUpdate: (regionId: string, points: Point[]) => void;
   /** A message for the GM, such as the corner limit. */
   onNotice: (text: string) => void;
   busy: boolean;
@@ -77,15 +143,58 @@ export function FogCanvas({ map, grid, fog, mode, onAdd, onRemove, onNotice, bus
   const fogId = useId().replace(/:/g, "");
   const base = useMapColor(map.url);
   const tint = rgbCss(fogPalette(base).dark);
+  // Make the Player view texture while the GM is still drawing, once the map's colour is known.
+  useEffect(() => {
+    const warm = () => { fogTextureUrl(base); };
+    if (typeof requestIdleCallback === "function") {
+      const handle = requestIdleCallback(warm);
+      return () => cancelIdleCallback(handle);
+    }
+    const handle = setTimeout(warm, 200);
+    return () => clearTimeout(handle);
+  }, [base]);
   const [corners, setCorners] = useState<Point[]>([]);
   const [anchor, setAnchor] = useState<Point | null>(null);
   const [hover, setHover] = useState<Point | null>(null);
+  /** Edit tool: the chosen region, what is being dragged, and where its corners would be now. */
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [drag, setDrag] = useState<FogDrag | null>(null);
+  const [preview, setPreview] = useState<Point[] | null>(null);
+  /** Corners just sent, so the selection can follow the region to the new id it gets. */
+  const sent = useRef<Point[] | null>(null);
+  const selected = selectedId ? fog[selectedId] ?? null : null;
+
+  // After a move or reshape the region comes back under a new id: follow it by its corners. A region
+  // that is simply gone (revealed, or replaced by another edit) is let go.
+  useEffect(() => {
+    const key = (points: Point[]) => points.map((p) => `${p.x},${p.y}`).join(" ");
+    if (sent.current) {
+      const wanted = key(sent.current);
+      const moved = Object.values(fog).find((r) => key(r.points) === wanted);
+      sent.current = null;
+      if (moved) return setSelectedId(moved.id);
+    }
+    if (selectedId && !fog[selectedId]) setSelectedId(null);
+  }, [fog, selectedId]);
+
+  /** The selected region's corners with the drag applied, kept on the map. */
+  const draggedPoints = (region: FogRegion, dragging: FogDrag, at: Point): Point[] => {
+    if (dragging.kind === "corner") return region.points.map((p, i) => (i === dragging.index ? clamp(at, map) : p));
+    const xs = region.points.map((p) => p.x);
+    const ys = region.points.map((p) => p.y);
+    const dx = Math.min(map.width - Math.max(...xs), Math.max(-Math.min(...xs), at.x - dragging.start.x));
+    const dy = Math.min(map.height - Math.max(...ys), Math.max(-Math.min(...ys), at.y - dragging.start.y));
+    return region.points.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+  };
 
   // A new tool starts clean: no half-drawn region carried over.
   useEffect(() => {
     setCorners([]);
     setAnchor(null);
     setHover(null);
+    setDrag(null);
+    setPreview(null);
+    if (mode !== "edit") setSelectedId(null);
   }, [mode]);
 
   const onMap = (p: Point) => p.x >= 0 && p.y >= 0 && p.x <= map.width && p.y <= map.height;
@@ -100,13 +209,39 @@ export function FogCanvas({ map, grid, fog, mode, onAdd, onRemove, onNotice, bus
       grid={grid}
       mode={mode}
       pan={false}
-      label="Map fog. Drag a rectangle, click out a polygon, or click fog to reveal it; the wheel or a pinch zooms, and two fingers pan."
-      onMove={(p) => setHover(p)}
-      onCancel={() => setAnchor(null)}
+      label="Map fog. Drag a rectangle, click out a polygon, click fog to reveal it, or select fog to move or reshape it; the wheel or a pinch zooms, and two fingers pan."
+      onMove={(p) => {
+        // Hover only drives the reveal highlight and the draft being drawn; elsewhere a pointer
+        // move must not redraw the canvas.
+        if (mode === "edit" && drag && selected && p) setPreview(draggedPoints(selected, drag, p));
+        else if (mode === "reveal" || anchor || (mode === "polygon" && corners.length > 0)) setHover(p);
+        else if (hover) setHover(null);
+      }}
+      onCancel={() => { setAnchor(null); setDrag(null); setPreview(null); }}
       onSecondary={() => { setCorners([]); setAnchor(null); }}
-      onPress={(p) => { if (mode === "rect" && !busy) setAnchor(clamp(p, map)); }}
+      onPress={(p, _event, view) => {
+        if (busy) return;
+        if (mode === "rect") setAnchor(clamp(p, map));
+        if (mode !== "edit") return;
+        // A corner of the chosen region first, then any region under the pointer.
+        const corner = selected?.points.findIndex((c) => Math.hypot(c.x - p.x, c.y - p.y) <= HANDLE_PX * view.px) ?? -1;
+        if (selected && corner >= 0) return setDrag({ kind: "corner", index: corner });
+        const under = fogRegionAt(fog, p);
+        setSelectedId(under?.id ?? null);
+        if (under) setDrag({ kind: "move", start: p });
+      }}
       onRelease={(p, _event, moved, view) => {
         if (busy) return;
+        if (mode === "edit") {
+          if (drag && selected && moved) {
+            const points = draggedPoints(selected, drag, p);
+            sent.current = points;
+            onUpdate(selected.id, points);
+          }
+          setDrag(null);
+          setPreview(null);
+          return;
+        }
         if (mode === "rect") {
           const from = anchor;
           setAnchor(null);
@@ -136,6 +271,12 @@ export function FogCanvas({ map, grid, fog, mode, onAdd, onRemove, onNotice, bus
           closePolygon();
           e.preventDefault();
           e.stopPropagation();
+        } else if (e.key === "Escape" && (drag || selectedId)) {
+          setDrag(null);
+          setPreview(null);
+          setSelectedId(null);
+          e.preventDefault();
+          e.stopPropagation();
         } else if ((e.key === "Enter" || e.key === "Escape") && (corners.length > 0 || anchor)) {
           // Escape drops a half-drawn region; with none, it is left to close the editor.
           setCorners([]);
@@ -148,26 +289,22 @@ export function FogCanvas({ map, grid, fog, mode, onAdd, onRemove, onNotice, bus
       {(view) => {
         const px = view.px;
         const revealing = mode === "reveal" && hover ? fogRegionAt(fog, hover) : null;
+        // While a region is dragged, it is drawn where it would land.
+        const shownFog = selected && preview ? { ...fog, [selected.id]: { ...selected, points: preview } } : fog;
+        const handles = mode === "edit" && selected ? (preview ?? selected.points) : [];
         const draft = anchor && hover ? clamp(hover, map) : null;
         return (
           <>
             {playerView && <PlayerFog id={fogId} base={base} />}
-            {Object.values(fog).map((region) => {
-              const points = region.points.map((p) => `${p.x},${p.y}`).join(" ");
-              return (
-                <g key={region.id}>
-                  <polygon
-                    points={points}
-                    fill={playerView ? `url(#${fogId}-base)` : tint}
-                    fillOpacity={playerView ? 1 : 0.62}
-                    stroke={revealing?.id === region.id ? "#e74c3c" : playerView ? "none" : "#9aa4b2"}
-                    strokeWidth={(revealing?.id === region.id ? 3 : 1.5) * px}
-                    strokeDasharray={`${6 * px} ${4 * px}`}
-                  />
-                  {playerView && <polygon points={points} fill={`url(#${fogId}-wisps)`} fillOpacity={0.55} pointerEvents="none" />}
-                </g>
-              );
-            })}
+            <FogRegions fog={shownFog} playerView={playerView} tint={tint} fogId={fogId} revealingId={revealing?.id ?? null} px={px} />
+            {mode === "edit" && selected && (
+              <g>
+                <polygon points={(preview ?? selected.points).map((p) => `${p.x},${p.y}`).join(" ")} fill="none" stroke="#ffd166" strokeWidth={2.5 * px} pointerEvents="none" />
+                {handles.map((p, i) => (
+                  <circle key={i} cx={p.x} cy={p.y} r={6 * px} fill="#fff" stroke="#111" strokeWidth={1.5 * px} pointerEvents="none" />
+                ))}
+              </g>
+            )}
             {anchor && draft && (
               <rect
                 x={Math.min(anchor.x, draft.x)} y={Math.min(anchor.y, draft.y)}

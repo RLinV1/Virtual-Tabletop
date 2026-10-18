@@ -1,15 +1,19 @@
 import {
   UvttPreparation, UvttIssue, type UvttDraftEdit,
   GM_TOKEN_HEADER,
+  CheckpointPreviewResponse,
   HistoryResponse,
   ReplayPointsResponse,
   ReplayResponse,
   type AssetKind,
+  type CreateAnimationRequest,
   type CreateCreatureRequest,
   type DiceLookView,
   type DiceLooksResponse,
   type DieName,
   type EncounterEditSession,
+  type EncounterPreview,
+  type LibraryMapBoard,
   type EncounterSummary,
   type GridSpec,
   GridDetectionStatus,
@@ -20,6 +24,7 @@ import {
   type InviteSeatResponse,
   type LegacySummary,
   type LibraryAsset,
+  type LibraryAnimation,
   type LibraryCreature,
   type LibraryUsageResponse,
   type MeResponse,
@@ -31,6 +36,7 @@ import {
   type SignUpRequest,
   type StartEncounterEditRequest,
   type StartEncounterEditResponse,
+  type UpdateAnimationRequest,
   type UpdateCreatureRequest,
 } from "@vtt/shared";
 import type {
@@ -166,6 +172,15 @@ export const api = {
     });
     if (!res.ok) throw await errorFrom(res);
     return HistoryResponse.parse(await res.json());
+  },
+
+  /** A checkpoint's saved board, for the GM to look at before restoring it (FR-REC-02, ADR 0036). */
+  async checkpointPreview(roomId: string, token: string, checkpointId: string, signal?: AbortSignal) {
+    const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/checkpoints/${encodeURIComponent(checkpointId)}/preview`, {
+      headers: { authorization: `Bearer ${token}` }, signal,
+    });
+    if (!res.ok) throw await errorFrom(res);
+    return CheckpointPreviewResponse.parse(await res.json());
   },
 
   /** Where this participant can start a replay of the room (FR-PL-07, ADR 0025). */
@@ -369,6 +384,11 @@ export const api = {
     update: (id: string, patch: { name?: string; grid?: GridSpec }) =>
       accountRequest<LibraryAsset>(`/api/library/${encodeURIComponent(id)}`, { method: "PATCH", ...jsonBody(patch) }),
 
+    /** The walls and fog prepared on a library map (ADR 0037). */
+    board: (id: string) => accountRequest<LibraryMapBoard>(`/api/library/${encodeURIComponent(id)}/board`),
+    setBoard: (id: string, board: LibraryMapBoard) =>
+      accountRequest<LibraryMapBoard>(`/api/library/${encodeURIComponent(id)}/board`, { method: "PUT", ...jsonBody(board) }),
+
     usage: (id: string) => accountRequest<LibraryUsageResponse>(`/api/library/${encodeURIComponent(id)}/usage`),
 
     remove: (id: string) => accountRequest<void>(`/api/library/${encodeURIComponent(id)}`, { method: "DELETE" }),
@@ -384,6 +404,17 @@ export const api = {
         accountRequest<void>(`/api/library/creatures/${encodeURIComponent(id)}`, { method: "DELETE" }),
     },
 
+    /** The GM's board animations for attacks and nukes (ADR 0038). */
+    animations: {
+      list: () => accountRequest<LibraryAnimation[]>("/api/library/animations"),
+      create: (animation: CreateAnimationRequest) =>
+        accountRequest<LibraryAnimation>("/api/library/animations", { method: "POST", ...jsonBody(animation) }),
+      update: (id: string, patch: UpdateAnimationRequest) =>
+        accountRequest<LibraryAnimation>(`/api/library/animations/${encodeURIComponent(id)}`, { method: "PATCH", ...jsonBody(patch) }),
+      remove: (id: string) =>
+        accountRequest<void>(`/api/library/animations/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    },
+
     /** Encounter templates: a room's prepared board saved to the account (encounter-templates, ADR 0024). */
     encounters: {
       list: () => accountRequest<EncounterSummary[]>("/api/library/encounters"),
@@ -393,6 +424,7 @@ export const api = {
         accountRequest<EncounterSummary>(`/api/library/encounters/${encodeURIComponent(id)}`, { method: "PATCH", ...jsonBody({ name }) }),
       remove: (id: string) =>
         accountRequest<void>(`/api/library/encounters/${encodeURIComponent(id)}`, { method: "DELETE" }),
+      preview: (id: string) => accountRequest<EncounterPreview>(`/api/library/encounters/${encodeURIComponent(id)}/preview`),
       /** Rebuilds a template from a room the GM owns, keeping its id and name (ADR 0033). */
       replaceFromRoom: (id: string, roomId: string) =>
         accountRequest<EncounterSummary>(`/api/library/encounters/${encodeURIComponent(id)}/from-room`, { method: "PUT", ...jsonBody({ roomId }) }),

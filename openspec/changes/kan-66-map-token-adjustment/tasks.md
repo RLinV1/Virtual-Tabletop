@@ -4,7 +4,7 @@
 
 - [x] 1.1 Create the requested branch and CLI-scaffolded proposal/design/specs/tasks; verify strict validation for this change and preserve untracked skills.
 - [x] 1.2 Restore dependencies using the committed lockfile and generate Prisma; verify server tests can collect without the missing image-size dependency.
-- [x] 1.3 Add ADR 0036 covering contract, geometry, atomicity, undo guards, filtering, compatibility, KAN-67, and joint deployment; verify the artifact records Raymond Lin review as not requested/received and the unrelated undo-spec dependency.
+- [x] 1.3 Add ADR 0040 covering contract, geometry, atomicity, undo guards, filtering, compatibility, KAN-67, and joint deployment; verify the artifact records Raymond Lin review as not requested/received and the unrelated undo-spec dependency.
 
 ## 2. Shared behavior
 

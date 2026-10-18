@@ -174,6 +174,11 @@ export function filterEventForViewer(
       return [e.roll.attack?.actor, e.roll.attack?.target].some((side) => side && (side.hidden || hiddenBefore(side.tokenId)))
         ? { kind: "resync" }
         : pass;
+    case "MapNuked":
+    case "MapNukeUndone":
+    case "ReducedEffectsSet":
+      // Names no token and has no GM-only content: the blast is for the whole table (ADR 0038).
+      return pass;
     case "RollRuled":
     case "RollDamageApplied":
     case "RollDamageUnapplied": {
@@ -216,6 +221,7 @@ export function filterEventForViewer(
       // GM-only: a player learns only that a seq passed (KAN-82, ADR 0026).
       return redacted;
     case "CheckpointCreated":
+    case "CheckpointDeleted":
       // Checkpoints are the GM's; a player learns only that a seq passed (ADR 0019).
       return redacted;
     case "CheckpointRestored":
@@ -223,7 +229,7 @@ export function filterEventForViewer(
       return { kind: "resync" };
     case "MapSet":
       // Nested changes contain hidden IDs and prior positions. Only the filtered result
-      // reaches players, including inverse first-map removal and empty adjustments (ADR 0036).
+      // reaches players, including inverse first-map removal and empty adjustments (ADR 0040).
       return e.tokenChanges !== undefined || e.wallChange !== undefined || e.fogChange !== undefined ? { kind: "resync" } : pass;
     case "EncounterApplied":
       // Both boards hold hidden tokens, fog and owners; a filtered snapshot carries the rest (ADR 0024).
@@ -273,7 +279,9 @@ function hideAttackSides(roll: DiceRoll, state: RoomState, visible: RoomState["t
   // With the target blanked, "Applied" would still say the hidden token exists with HP (ADR 0011).
   const { damageApplied: _applied, ...withoutApplied } = roll;
   const base = target === null && roll.attack.target !== null ? withoutApplied : roll;
-  return { ...base, attack: { ...roll.attack, actor, target } };
+  // The attacker's saved animation could identify a concealed side, so it goes with the name.
+  const { animation: _animation, ...attack } = roll.attack;
+  return { ...base, attack: { ...attack, actor, target } };
 }
 
 /**

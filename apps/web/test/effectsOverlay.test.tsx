@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { emptyRoomState, type RoomState, type Token } from "@vtt/shared";
+import { ATTACK_STYLE_PRESETS, NUKE_PRESET } from "../src/board/effectPresets";
 import EffectsOverlay, { type OverlayEffect } from "../src/board/EffectsOverlay";
 
 const token = (id: string, over: Partial<Token> = {}): Token => ({
@@ -58,10 +59,18 @@ describe("effects overlay (board-effects-overlay)", () => {
     expect(html).not.toContain("−3");
   });
 
-  it("draws a strike only when both ends are visible", () => {
-    const state = room([token("a", { hidden: true }), token("b")]);
-    const strike: OverlayEffect[] = [{ id: 1, effect: { kind: "strike", fromId: "a", toId: "b" } }];
+  it("leaves the strike to the Pixi board and draws no DOM motion for it (ADR 0038)", () => {
+    const state = room([token("a"), token("b")]);
+    const strike: OverlayEffect[] = [{ id: 1, effect: { kind: "strike", fromId: "a", toId: "b", animation: ATTACK_STYLE_PRESETS.melee } }];
+    expect(render(state, strike, true)).not.toContain("effects-orb");
     expect(render(state, strike, false)).not.toContain("effects-orb");
-    expect(render(state, strike, true)).toContain("effects-orb");
+  });
+
+  it("shows a damage number on each token a nuke names, only where visible (ADR 0038, FR-GM-23)", () => {
+    const state = room([token("a"), token("b", { hidden: true })]);
+    const nuke: OverlayEffect[] = [{ id: 1, effect: { kind: "nuke", animation: NUKE_PRESET, origin: { x: 0, y: 0 }, amount: 12, tokenIds: ["a", "b"] } }];
+    const player = render(state, nuke, false);
+    expect(player.match(/−12/g)).toHaveLength(1);
+    expect(render(state, nuke, true).match(/−12/g)).toHaveLength(2);
   });
 });

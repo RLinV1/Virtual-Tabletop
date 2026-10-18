@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AttackStyle, MAX_NUKE_DAMAGE, NukeAnimationDef } from "./animation";
 import { TokenAttacks } from "./attackPresets";
 import { ConditionId, EMPTY_STATS, TokenStats } from "./conditions";
 import { AttackKind, DiceVisibility, MAX_ATTACK_LABEL, Verdict } from "./dice";
@@ -104,6 +105,8 @@ export const Command = z.discriminatedUnion("type", [
     attacks: TokenAttacks.default([]),
     /** Place this many copies in one action, numbered and spread over free squares (KAN-70). */
     count: z.number().int().min(1).max(MAX_TOKENS_PER_CREATE).default(1),
+    /** Put the new tokens in this existing group, in the same action. */
+    groupId: Id.optional(),
   }),
   /**
    * GM copies a token, 1–20 times, onto the nearest free squares beside it (KAN-82), or starting
@@ -212,8 +215,22 @@ export const Command = z.discriminatedUnion("type", [
         label: z.string().trim().max(MAX_ATTACK_LABEL).optional(),
         /** To hit (the GM rules on it) or damage (the GM applies it) (ADR 0011). */
         kind: AttackKind.default("toHit"),
+        /** How the strike is drawn; changes nothing about the roll (ADR 0038). */
+        style: AttackStyle.optional(),
       })
       .optional(),
+  }),
+  /** GM only: play every board animation in its reduced-motion form for the whole table (ADR 0038). */
+  z.object({
+    type: z.literal("room.setReducedEffects"),
+    enabled: z.boolean(),
+  }),
+  /** GM only: damage every token with HP and play a map-wide blast (ADR 0038). */
+  z.object({
+    type: z.literal("nuke.detonate"),
+    amount: z.number().int().min(1).max(MAX_NUKE_DAMAGE),
+    origin: Point,
+    animation: NukeAnimationDef.optional(),
   }),
   /** GM only: mark a to-hit attack roll Hit or Miss, or clear the ruling with null (ADR 0011). */
   z.object({
@@ -363,6 +380,11 @@ export const Command = z.discriminatedUnion("type", [
   /** GM puts the board back as it was at a checkpoint (FR-REC-02, ADR 0019). */
   z.object({
     type: z.literal("checkpoint.restore"),
+    checkpointId: Id,
+  }).strict(),
+  /** GM removes a checkpoint from the list; the board and history are untouched (FR-REC-02, ADR 0036). */
+  z.object({
+    type: z.literal("checkpoint.delete"),
     checkpointId: Id,
   }).strict(),
   /** GM replaces the board with one of their saved encounter templates (FR-GM-13, ADR 0024). */

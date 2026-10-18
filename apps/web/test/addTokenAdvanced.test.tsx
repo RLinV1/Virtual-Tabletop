@@ -42,6 +42,6 @@ describe("Add Token advanced settings (KAN-63)", () => {
     vi.mocked(presetOf).mockReturnValue({ ...actual, features: { ...actual.features, conditions: false } });
     open();
     expect(screen.queryByRole("group", { name: "Starting conditions" })).toBeNull();
-    expect(advanced().contains(screen.getByLabelText("Colour without art"))).toBe(true);
+    expect(screen.queryByLabelText("Colour without art")).toBeNull();
   });
 });

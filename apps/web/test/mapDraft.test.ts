@@ -143,3 +143,16 @@ describe("UVTT metadata in the existing private editor (FR-GM-06/09)", () => {
     expect(Object.values(draft.walls).filter((w) => !w.uvttPortal)).toEqual([expect.objectContaining({ a: { x: 100, y: 0 }, b: { x: 200, y: 0 } })]);
   });
 });
+
+describe("moving and reshaping fog in the draft (map editor Fog step)", () => {
+  it("swaps one region for its new corners in one step, and Save sends it as a fog.replace", () => {
+    const moved = [{ x: 100, y: 100 }, { x: 170, y: 100 }, { x: 170, y: 170 }, { x: 100, y: 170 }];
+    const draft = applyToDraft(fresh(), { type: "fog.replace", removeIds: ["f1"], add: [{ shape: "polygon", points: moved }] }, newId)!;
+    expect(Object.keys(draft.fog)).toHaveLength(1);
+    expect(draft.fog.f1).toBeUndefined();
+    expect(Object.values(draft.fog)[0]?.points).toEqual(moved);
+    const plan = planDraftSave(room, draft);
+    expect(plan.map((c) => c.type)).toEqual(["fog.replace"]);
+    expect(plan[0]).toMatchObject({ removeIds: ["f1"] });
+  });
+});

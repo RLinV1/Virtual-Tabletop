@@ -330,6 +330,12 @@ export class RoomConnection {
 }
 
 /** Subscribe a component to the room's Zustand store. */
-export function useRoomSnapshot(connection: RoomConnection): RoomSnapshot {
+/**
+ * What the map editor's steps need of a connection: commands, wall-detection notices and the
+ * snapshot store. A room's `RoomConnection` has all three, and so does the library editor's local one.
+ */
+export type EditorConnection = Pick<RoomConnection, "command" | "onWallDetection" | "store">;
+
+export function useRoomSnapshot(connection: Pick<RoomConnection, "store">): RoomSnapshot {
   return useStore(connection.store);
 }

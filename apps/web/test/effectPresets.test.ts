@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { CONDITIONS } from "@vtt/shared";
+import { ANIMATION_SHAPES, AnimationDef, CONDITIONS, NukeAnimationDef, StrikeAnimationDef } from "@vtt/shared";
 import {
+  ATTACK_STYLE_PRESETS,
+  SHAPE_DEFAULTS,
+  withDefaults,
+  BUILTIN_ANIMATIONS,
   CONDITION_VISUALS,
+  NUKE_PRESET,
   MAX_CONDITION_EMITTERS,
   conditionParticleOptions,
+  conditionTokenInView,
   particleBox,
   particleConditions,
   pickEmitterTokens,
@@ -11,6 +17,14 @@ import {
 } from "../src/board/effectPresets";
 
 describe("effect presets (board-effects-overlay)", () => {
+  it("culls distant condition effects while preserving a margin around the viewport", () => {
+    const view = { x: 500, y: 400, halfWidth: 300, halfHeight: 200 };
+    const token = { position: { x: 100, y: 400 }, size: 1 };
+    expect(conditionTokenInView(token, view, 60)).toBe(true);
+    expect(conditionTokenInView({ ...token, position: { x: 60, y: 400 } }, view, 60)).toBe(false);
+    expect(conditionTokenInView({ ...token, position: { x: 500, y: 721 } }, view, 60)).toBe(false);
+    expect(conditionTokenInView({ ...token, size: 2, position: { x: 60, y: 400 } }, view, 60)).toBe(true);
+  });
   it("has a look for every condition", () => {
     expect(Object.keys(CONDITION_VISUALS).sort()).toEqual(CONDITIONS.map((c) => c.id).sort());
   });
@@ -62,5 +76,72 @@ describe("effect presets (board-effects-overlay)", () => {
     const box = particleBox(30);
     expect(box.height).toBeGreaterThan(60);
     expect(box.offsetY).toBeLessThan(-30);
+  });
+});
+
+describe("built-in attack and nuke animations (FR-TAC-09, ADR 0038)", () => {
+  it("parses every style preset as an AnimationDef that can be used for an attack", () => {
+    for (const [style, def] of Object.entries(ATTACK_STYLE_PRESETS)) {
+      expect(AnimationDef.safeParse(def).success, style).toBe(true);
+      expect(StrikeAnimationDef.safeParse(def).success, style).toBe(true);
+    }
+  });
+
+  it("gives melee a slash, ranged a projectile and magic a bolt", () => {
+    expect(ATTACK_STYLE_PRESETS.melee.shape).toBe("slash");
+    expect(ATTACK_STYLE_PRESETS.ranged.shape).toBe("projectile");
+    expect(ATTACK_STYLE_PRESETS.magic.shape).toBe("bolt");
+  });
+
+  it("parses the nuke preset as a nuke animation", () => {
+    expect(NukeAnimationDef.safeParse(NUKE_PRESET).success).toBe(true);
+    expect(NUKE_PRESET).toMatchObject({ shape: "nuke", size: 3, particles: 120 });
+  });
+
+  it("lists a built-in for every shape for the library, each valid", () => {
+    expect(BUILTIN_ANIMATIONS).toHaveLength(ANIMATION_SHAPES.length);
+    // Every shape has a starting point.
+    expect(new Set(BUILTIN_ANIMATIONS.map((b) => b.def.shape))).toEqual(new Set(ANIMATION_SHAPES));
+    for (const b of BUILTIN_ANIMATIONS) expect(AnimationDef.safeParse(b.def).success, b.name).toBe(true);
+  });
+});
+
+
+describe("a default preset for every shape (library-animations, ADR 0038)", () => {
+  it("parses every shape default as a full definition of that shape", () => {
+    for (const shape of ANIMATION_SHAPES) {
+      const def = SHAPE_DEFAULTS[shape];
+      expect(def.shape).toBe(shape);
+      const parsed = AnimationDef.safeParse(def);
+      expect(parsed.success, shape).toBe(true);
+      // Every field is filled in.
+      for (const key of ["accent", "particleShape", "count", "spread", "arc", "trail", "spin", "gravity", "rings"] as const) {
+        expect(def[key], `${shape}.${key}`).not.toBeUndefined();
+      }
+      expect(shape === "nuke" ? NukeAnimationDef.safeParse(def).success : StrikeAnimationDef.safeParse(def).success, shape).toBe(true);
+    }
+  });
+
+  it("keeps the style and nuke defaults on their shapes", () => {
+    expect(ATTACK_STYLE_PRESETS.melee).toBe(SHAPE_DEFAULTS.slash);
+    expect(ATTACK_STYLE_PRESETS.ranged).toBe(SHAPE_DEFAULTS.projectile);
+    expect(ATTACK_STYLE_PRESETS.magic).toBe(SHAPE_DEFAULTS.bolt);
+    expect(NUKE_PRESET).toBe(SHAPE_DEFAULTS.nuke);
+  });
+
+  it("lists the default of every shape once, with a name", () => {
+    expect(BUILTIN_ANIMATIONS.map((b) => b.def.shape)).toEqual([...ANIMATION_SHAPES]);
+    expect(new Set(BUILTIN_ANIMATIONS.map((b) => b.id)).size).toBe(ANIMATION_SHAPES.length);
+    for (const b of BUILTIN_ANIMATIONS) expect(b.name.length, b.id).toBeGreaterThan(0);
+  });
+
+  it("reads a definition without the later fields with the defaults of its shape", () => {
+    const old = AnimationDef.parse({ shape: "claw", duration: 0.9, primary: "#e11d48", secondary: "#fda4af", size: 1.3, particles: 30, glow: 0.6, shake: 0.55, flash: 0.35 });
+    const read = withDefaults(old);
+    expect(read).toMatchObject({ count: SHAPE_DEFAULTS.claw.count, rings: SHAPE_DEFAULTS.claw.rings, particleShape: SHAPE_DEFAULTS.claw.particleShape, gravity: SHAPE_DEFAULTS.claw.gravity });
+    // No accent stays no accent.
+    expect(read.accent).toBeUndefined();
+    // Fields it does have win over the defaults.
+    expect(withDefaults({ ...old, count: 9, gravity: -1 })).toMatchObject({ count: 9, gravity: -1 });
   });
 });

@@ -7,9 +7,10 @@ import {
   RenameEncounterRequest,
   ReplaceEncounterFromRoomRequest,
   SaveEncounterRequest,
+  type EncounterPreview,
   type EncounterSummary,
 } from "@vtt/shared";
-import { boardFromRoom } from "../domain/encounterTemplates";
+import { boardFromRoom, resolveEncounter } from "../domain/encounterTemplates";
 import type { RoomRegistry } from "../domain/roomRegistry";
 import { requireAccountOwner, resolveOwner, type Owner } from "../ownership/resolveOwner";
 import { EncounterLimitError, EncounterMapMissingError, type EncounterRecord } from "../store/libraryStore";
@@ -28,6 +29,19 @@ export function registerEncounterRoutes(app: Express, deps: { store: RoomStore; 
   app.get("/api/library/encounters", (req, res) => {
     void withOwner(req, res, async (gmId) => {
       res.json((await store.listEncounters(gmId)).map(toSummary));
+    });
+  });
+
+  // The saved board as the GM would see it, for a read-only preview in the library (hidden tokens included).
+  app.get("/api/library/encounters/:id/preview", (req, res) => {
+    void withOwner(req, res, async (gmId) => {
+      const id = IdParam.safeParse(req.params.id);
+      if (!id.success) return void res.status(404).json({ error: "Template not found" });
+      const resolved = await resolveEncounter(store, gmId, id.data);
+      if (!resolved.ok) return void res.status(resolved.reason === "missing" ? 404 : 409).json({ error: resolved.message });
+      const { name, scene, tokens, fog } = resolved.encounter;
+      const preview: EncounterPreview = { name, map: scene.map!, grid: scene.grid, tokens, fog };
+      res.json(preview);
     });
   });
 

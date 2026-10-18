@@ -1,5 +1,6 @@
-import type { RefObject } from "react";
-import { ClockCounterClockwise, DotsThree, Rewind } from "@phosphor-icons/react";
+import { useRef, useState, type RefObject } from "react";
+import { ClockCounterClockwise, DotsThree, Rewind, GearSix } from "@phosphor-icons/react";
+import { SettingsMenu } from "./SettingsMenu";
 import { GuideIcon } from "./GuideTour";
 import { PopoverButton } from "./Popover";
 
@@ -17,19 +18,26 @@ export function RoomMenu({ onActivityLog, onReplay, replaying, onGuide, buttonRe
   /** The menu button, so the guide can hand focus back to it. */
   buttonRef?: RefObject<HTMLButtonElement | null>;
 }) {
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const ownButtonRef = useRef<HTMLButtonElement>(null);
+  const menuButtonRef = buttonRef ?? ownButtonRef;
   return (
+    <>
     <PopoverButton
       label="More"
       title="More"
       align="right"
       tourId="guide"
-      buttonRef={buttonRef}
+      buttonRef={menuButtonRef}
       buttonContent={<><DotsThree size={16} weight="bold" aria-hidden="true" /> More</>}
     >
       {(close) => {
         const item = (action: () => void) => () => { close(); action(); };
         return (
           <div className="room-menu">
+            <button type="button" className="tool-button" onClick={item(() => setSettingsOpen(true))}>
+              <GearSix size={16} aria-hidden="true" /> Settings
+            </button>
             {onActivityLog && (
               <button type="button" className="tool-button" onClick={item(onActivityLog)}>
                 <ClockCounterClockwise size={16} aria-hidden="true" />
@@ -50,5 +58,7 @@ export function RoomMenu({ onActivityLog, onReplay, replaying, onGuide, buttonRe
         );
       }}
     </PopoverButton>
+    <SettingsMenu open={settingsOpen} onClose={() => setSettingsOpen(false)} onAfterClose={() => menuButtonRef.current?.focus()} />
+    </>
   );
 }

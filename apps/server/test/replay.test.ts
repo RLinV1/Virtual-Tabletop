@@ -57,6 +57,19 @@ describe("Encounter replay API (FR-PL-07)", () => {
     }
   });
 
+  it("limits each participant to 30 replay requests a minute, shared by both routes", async () => {
+    const { owner, alice } = await table();
+    for (let i = 0; i < 30; i++) {
+      const path = i % 2 ? `/api/rooms/${owner.roomId}/replay/start` : `/api/rooms/${owner.roomId}/replay`;
+      expect((await get(path, alice.guestToken)).status).toBe(200);
+    }
+    const refused = await get(`/api/rooms/${owner.roomId}/replay/start`, alice.guestToken);
+    expect(refused.status).toBe(429);
+    expect(refused.headers.get("retry-after")).toBeTruthy();
+    // Another participant has their own budget.
+    expect((await get(`/api/rooms/${owner.roomId}/replay`, owner.guestToken)).status).toBe(200);
+  });
+
   it("filters a player's replay and gives the GM everything", async () => {
     const { owner, alice, dragonId } = await table();
     const forPlayer = await get(`/api/rooms/${owner.roomId}/replay/start`, alice.guestToken);

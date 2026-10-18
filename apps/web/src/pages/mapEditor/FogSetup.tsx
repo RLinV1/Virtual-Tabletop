@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Eye, Polygon, Rectangle, UserFocus } from "@phosphor-icons/react";
+import { ArrowsOutCardinal, Eye, Polygon, Rectangle, UserFocus } from "@phosphor-icons/react";
 import type { RoomState } from "@vtt/shared";
-import type { RoomConnection } from "../../net/roomConnection";
+import type { EditorConnection } from "../../net/roomConnection";
 import { FogControls } from "./FogControls";
 import { FogCanvas, type FogAdd, type FogCanvasMode } from "./FogCanvas";
 import { HudLayout } from "./HudLayout";
@@ -10,12 +10,14 @@ const MODES: { key: FogCanvasMode; label: string; icon: typeof Eye }[] = [
   { key: "rect", label: "Rectangle", icon: Rectangle },
   { key: "polygon", label: "Polygon", icon: Polygon },
   { key: "reveal", label: "Reveal", icon: Eye },
+  { key: "edit", label: "Move & reshape", icon: ArrowsOutCardinal },
 ];
 
 const HINTS: Record<FogCanvasMode, string> = {
   rect: "Drag to fog a rectangle.",
   polygon: "Click each corner. Click the first corner or press Enter to close it. Esc or right-click drops it.",
   reveal: "Click a fogged region to reveal what it covers.",
+  edit: "Click fog to select it. Drag it to move it, or drag a corner to reshape it. Esc deselects.",
 };
 
 /**
@@ -23,7 +25,7 @@ const HINTS: Record<FogCanvasMode, string> = {
  * and the same controls as Manage › Fog of war. It sends the board Fog tool's `fog.add` and
  * `fog.remove`, so players see no difference.
  */
-export function FogSetup({ connection, state }: { connection: RoomConnection; state: RoomState }) {
+export function FogSetup({ connection, state }: { connection: EditorConnection; state: RoomState }) {
   const map = state.scene.map;
   const [mode, setMode] = useState<FogCanvasMode>("rect");
   const [busy, setBusy] = useState(false);
@@ -32,7 +34,7 @@ export function FogSetup({ connection, state }: { connection: RoomConnection; st
 
   if (!map) return <p className="map-editor-empty">Apply a map in the Map step first, then set up its fog here.</p>;
 
-  const send = async (command: { type: "fog.add"; region: FogAdd } | { type: "fog.remove"; regionId: string }) => {
+  const send = async (command: { type: "fog.add"; region: FogAdd } | { type: "fog.remove"; regionId: string } | { type: "fog.replace"; removeIds: string[]; add: FogAdd[] }) => {
     setBusy(true);
     const result = await connection.command(command);
     setBusy(false);
@@ -50,6 +52,7 @@ export function FogSetup({ connection, state }: { connection: RoomConnection; st
         busy={busy}
         onAdd={(region) => void send({ type: "fog.add", region })}
         onRemove={(regionId) => void send({ type: "fog.remove", regionId })}
+        onUpdate={(regionId, points) => void send({ type: "fog.replace", removeIds: [regionId], add: [{ shape: "polygon", points }] })}
         onNotice={(text) => setMessage({ text, error: true })}
         playerView={playerView}
       />

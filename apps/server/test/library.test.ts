@@ -50,8 +50,40 @@ async function uploadOk(gmToken: string, fields: Parameters<typeof upload>[1], f
   return (await res.json()) as LibraryAsset;
 }
 
+/** The caller's uploads: every account's library also holds the seeded shipped maps (ADR 0036). */
+const uploadsOnly = (list: LibraryAsset[]) => list.filter((a) => !a.url.startsWith("/img/"));
+
 const usage = async (gmToken: string, id: string) =>
   ((await (await gmFetch(gmToken, `/api/library/${id}/usage`)).json()) as LibraryUsageResponse).rooms;
+
+describe("shipped maps in every library (builtin-library-assets, ADR 0036)", () => {
+  it("seeds the shipped maps once with their own grids, and a deleted one stays deleted", async () => {
+    const gm = await newGm();
+    const first = (await (await gmFetch(gm, "/api/library")).json()) as LibraryAsset[];
+    expect(first.filter((a) => a.kind === "map").map((a) => a.name).sort()).toEqual(
+      ["Hollowfrost Keep", "Temple of the Green Sun", "The Broken Span"],
+    );
+    expect(first.find((a) => a.name === "Hollowfrost Keep")).toMatchObject({
+      url: "/img/map-ice.webp", width: 3269, height: 1882, grid: { cellSize: 70, offsetX: 47, offsetY: 46 },
+    });
+    expect(JSON.stringify(first)).not.toContain("objectKey");
+
+    expect(((await (await gmFetch(gm, "/api/library")).json()) as LibraryAsset[])).toHaveLength(3);
+    const frost = first.find((a) => a.name === "Hollowfrost Keep")!;
+    expect((await gmFetch(gm, `/api/library/${frost.id}`, { method: "DELETE" })).status).toBe(204);
+    const after = (await (await gmFetch(gm, "/api/library")).json()) as LibraryAsset[];
+    expect(after.map((a) => a.name)).not.toContain("Hollowfrost Keep");
+    expect(after).toHaveLength(2);
+  });
+
+  it("deletes only the row of a seeded map; the shipped image URL is not a stored object", async () => {
+    const gm = await newGm();
+    const [row] = (await (await gmFetch(gm, "/api/library")).json()) as LibraryAsset[];
+    expect(row!.url.startsWith("/img/")).toBe(true);
+    expect((await gmFetch(gm, `/api/library/${row!.id}`, { method: "DELETE" })).status).toBe(204);
+    expect(((await (await gmFetch(gm, "/api/library")).json()) as LibraryAsset[]).some((a) => a.id === row!.id)).toBe(false);
+  });
+});
 
 describe("owners: accounts, and legacy device identities (gm-home, ADR 0017)", () => {
   it("rejects GM endpoints with no session and no known device token", async () => {
@@ -101,7 +133,7 @@ describe("library upload and management (asset-library)", () => {
     const token = await uploadOk(gm, { kind: "token", name: "Goblin", width: 256, height: 256 });
     expect(token.grid).toBeNull();
 
-    const list = (await (await gmFetch(gm, "/api/library")).json()) as LibraryAsset[];
+    const list = uploadsOnly((await (await gmFetch(gm, "/api/library")).json()) as LibraryAsset[]);
     expect(list.map((a) => a.name).sort()).toEqual(["Goblin", "Goblin Cave"]);
     expect(JSON.stringify(list)).not.toContain("objectKey");
   });
@@ -120,7 +152,7 @@ describe("library upload and management (asset-library)", () => {
       bytes: new Uint8Array(25 * 1024 * 1024 + 1), type: "image/png", filename: "huge.png",
     });
     expect(huge.status).toBe(413);
-    expect(await (await gmFetch(gm, "/api/library")).json()).toEqual([]);
+    expect(uploadsOnly((await (await gmFetch(gm, "/api/library")).json()) as LibraryAsset[])).toEqual([]);
   });
 
   it("rejects bad metadata", async () => {
@@ -158,8 +190,8 @@ describe("library upload and management (asset-library)", () => {
     expect((await gmFetch(gmB, `/api/library/${a.id}/usage`)).status).toBe(404);
     expect((await gmFetch(gmB, `/api/library/${a.id}`, { method: "DELETE" })).status).toBe(404);
     expect((await gmFetch(gmB, `/api/library/not-a-uuid`, { method: "DELETE" })).status).toBe(404);
-    expect(await (await gmFetch(gmB, "/api/library")).json()).toEqual([]);
-    expect(((await (await gmFetch(gmA, "/api/library")).json()) as LibraryAsset[])[0]?.name).toBe("Mine");
+    expect(uploadsOnly((await (await gmFetch(gmB, "/api/library")).json()) as LibraryAsset[])).toEqual([]);
+    expect(uploadsOnly((await (await gmFetch(gmA, "/api/library")).json()) as LibraryAsset[])[0]?.name).toBe("Mine");
   });
 
   it("deletes the stored image so its URL answers 404 (board-asset-fallback)", async () => {
@@ -168,7 +200,7 @@ describe("library upload and management (asset-library)", () => {
     expect((await fetch(server.base + a.url)).status).toBe(200);
     expect((await gmFetch(gm, `/api/library/${a.id}`, { method: "DELETE" })).status).toBe(204);
     expect((await fetch(server.base + a.url)).status).toBe(404);
-    expect(await (await gmFetch(gm, "/api/library")).json()).toEqual([]);
+    expect(uploadsOnly((await (await gmFetch(gm, "/api/library")).json()) as LibraryAsset[])).toEqual([]);
   });
 });
 

@@ -3,11 +3,12 @@ import { sameValue, inactiveLabel, pendingDepartures, undoableAction, type Comma
 import { api } from "../net/api";
 import { libraryAssetId } from "../net/builtinAssets";
 import { useAccount } from "../account/accountStore";
-import { imageSize } from "../net/imageFile";
+import { imageSize, nameFromFile } from "../net/imageFile";
 import type { CommandResult, RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
 import { CheckpointsPanel } from "../panels/CheckpointsPanel";
 import { EncounterPanel } from "../panels/EncounterPanel";
+import { EffectsPanel } from "../panels/EffectsPanel";
 import { PanelSection } from "../ui/PanelSection";
 import { gridsEqual, parseGridDraft, withGridSuggestion, type GridDraft } from "./gridDraft";
 import { GridForm } from "./GridForm";
@@ -19,6 +20,7 @@ import { WallSetup } from "./mapEditor/WallSetup";
 import { draftConnection } from "./mapEditor/draftConnection";
 import { draftDirty, draftFrom, planDraftSave, type MapDraft } from "./mapEditor/mapDraft";
 import { adjustedMessage, offersTokenPolicy, prepCommand, prepDirty, startPrep, startUvttPrep, TOKEN_POLICY_CHOICES, type MapPrep } from "./mapPrep";
+import { commandsForBoard } from "./mapEditor/libraryBoardDraft";
 import { FULL_ROOM, type RoomFeatures } from "./encounterEdit/roomFeatures";
 
 interface Props {
@@ -104,18 +106,33 @@ export function GmPanel({
       />
       {features.tableAdmin && (
         <>
-          <CheckpointsPanel connection={connection} state={state} />
+          <CheckpointsPanel connection={connection} state={state} token={token} />
           <EncounterPanel connection={connection} state={state} />
+          <EffectsPanel connection={connection} state={state} />
         </>
       )}
     </>
   );
 }
 
-function RoomGridEditor(props: ComponentProps<typeof GridForm> & {
+function RoomGridEditor({ libraryDetectionId, ...props }: ComponentProps<typeof GridForm> & {
   roomId: string; token: string; directMap: boolean;
+  /** A library map just uploaded here: its grid analysis, like a direct upload's. */
+  libraryDetectionId?: string | null;
 }) {
+  if (libraryDetectionId) return <LibraryMapGridEditor {...props} assetId={libraryDetectionId} advancedOpen />;
   return props.directMap ? <DirectMapGridEditor {...props} advancedOpen /> : <GridForm {...props} advancedOpen />;
+}
+
+function LibraryMapGridEditor({ assetId, ...props }: ComponentProps<typeof GridForm> & { assetId: string }) {
+  const detection = useGridDetection("library", "", assetId);
+  return <GridForm
+    {...props}
+    detection={detection.status}
+    detectionError={detection.error}
+    onRetryDetection={() => { void detection.retry(); }}
+    onUseSuggestion={(candidate) => props.onChange(withGridSuggestion(props.draft, candidate))}
+  />;
 }
 
 function DirectMapGridEditor(props: ComponentProps<typeof RoomGridEditor>) {
@@ -244,6 +261,10 @@ function MapSection(props: {
   const emptyUploadRef = useRef<HTMLInputElement>(null);
   const editMapRef = useRef<HTMLButtonElement>(null);
   const gridOpenerRef = useRef<HTMLButtonElement>(null);
+  /** Whether a map uploaded here is also kept in the account's library (on by default, ADR 0004). */
+  const [saveToLibrary, setSaveToLibrary] = useState(true);
+  /** The library row made by this editor's latest upload, whose grid analysis the Grid step shows. */
+  const [uploadedAssetId, setUploadedAssetId] = useState<string | null>(null);
   /** Bumped when a library map is picked, so an upload still in flight can't replace that draft. */
   const prepGeneration = useRef(0);
   /**
@@ -436,7 +457,11 @@ function MapSection(props: {
         const command = prepCommand(prep, askPolicy ? policy : undefined);
         if (command) applied = await props.onSetMap(command, setPrepError);
       }
-      if (applied) { setChangedMapUrl(askPolicy ? prep.map.url : null); setUndoError(null); discardPrep(); setStep("walls"); }
+      if (applied) {
+        setChangedMapUrl(askPolicy ? prep.map.url : null); setUndoError(null); discardPrep();
+        if (!prep.uvtt) void copyLibraryBoard(prep.map);
+        setStep("walls");
+      }
       return applied;
     } catch (err) {
       setPrepError(err instanceof Error ? err.message : "Could not apply the map. Your draft has been kept.");
@@ -453,6 +478,23 @@ function MapSection(props: {
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (err) { setPrepError(err instanceof Error ? err.message : "Export failed."); }
     finally { setExporting(false); }
+  };
+  /**
+   * A library map brings the walls and fog prepared on it (ADR 0037), adding to the walls and fog the
+   * room already has. A map with none leaves them as they are.
+   */
+  const copyLibraryBoard = async (placed: MapImage) => {
+    if (!placed.assetId || !props.hasLibrary) return;
+    try {
+      const board = await api.library.board(placed.assetId);
+      if (board.walls.length === 0 && board.fog.length === 0) return;
+      for (const command of commandsForBoard(board, placed.url)) {
+        const result = await props.connection.command(command);
+        if (!result.ok) throw new Error(result.message);
+      }
+    } catch (err) {
+      props.onError(`The map was applied, but its saved walls and fog could not be added: ${err instanceof Error ? err.message : "unknown error"}`);
+    }
   };
   // A grid being edited belongs to the map it was edited for.
   const previousMap = useRef(props.mapUrl);
@@ -477,13 +519,19 @@ function MapSection(props: {
       }
       // Read the size first: a map upload carries it so the server can analyze it (grid-detection).
       const { width, height } = await imageSize(file);
-      const { url } = await api.upload(file, props.token, { width, height });
+      // Saved to the library, the map is a library row the room links to, so it can be reused and
+      // saved in encounters; otherwise it is a direct upload that only this room knows.
+      const asset = props.hasLibrary && saveToLibrary
+        ? await api.library.upload(file, { kind: "map", name: nameFromFile(file), width, height })
+        : null;
+      const { url } = asset ?? (await api.upload(file, props.token, { width, height }));
       // Another map was chosen meanwhile: keep that draft and its grid edits.
       if (generation !== prepGeneration.current) return;
       // Nothing is sent yet: the upload becomes a private draft (KAN-59).
       props.onError(null);
       if (prep?.uvtt) void api.uvtt.discard(props.roomId, props.token, prep.uvtt.id).catch(() => {});
-      setPrep(startPrep({ url, width, height }, undefined, props.currentGrid));
+      setUploadedAssetId(asset?.id ?? null);
+      setPrep(startPrep({ url, width, height, ...(asset && { assetId: asset.id }) }, undefined, props.currentGrid));
       setStep("grid");
       // An upload from the Manage tab opens the editor to line up its grid.
       setEditorOpen(true);
@@ -510,7 +558,10 @@ function MapSection(props: {
     // From the Manage tab: the library map already has its grid, so it goes straight to the table.
     const command = prepCommand(next);
     if (!command) return setPickError("This map's saved grid isn't valid. Upload it, or fix it in your library.");
-    if (await props.onSetMap(command, setPickError)) setPicking(false);
+    if (await props.onSetMap(command, setPickError)) {
+      setPicking(false);
+      void copyLibraryBoard(map);
+    }
   };
 
   const shown = prep?.map ?? props.map;
@@ -528,7 +579,7 @@ function MapSection(props: {
           // A fixed map offers only the steps its editor has (ADR 0033).
           <div className="row button-row" data-tour="gm-grid">
             {OPENERS.filter(({ key }) => steps.some((s) => s.key === key)).map(({ key, label }) => (
-              <button key={key} ref={key === "grid" ? gridOpenerRef : undefined} type="button" className={key === "map" ? "secondary" : undefined} onClick={(e) => {
+              <button key={key} ref={key === "grid" ? gridOpenerRef : undefined} type="button" className="secondary small" onClick={(e) => {
                 editMapRef.current = e.currentTarget;
                 e.currentTarget.focus();
                 setStep(key);
@@ -609,6 +660,12 @@ function MapSection(props: {
                 <aside className="map-editor-hud" aria-label="Map">
                   <h3 className="map-editor-heading">Battle map</h3>
                   <p className="muted">Upload a map image, or place one from your library. It stays private until you apply it with its grid.</p>
+                  {props.hasLibrary && (
+                    <label className="inline">
+                      <input type="checkbox" checked={saveToLibrary} disabled={busy} onChange={(e) => setSaveToLibrary(e.target.checked)} />
+                      <span>Also save uploads to my library</span>
+                    </label>
+                  )}
                   <label className="upload-button">
                     <span>{busy ? "Uploading…" : "Upload map"}</span>
                     <input
@@ -662,6 +719,7 @@ function MapSection(props: {
                   roomId={props.roomId}
                   token={props.token}
                   directMap={!prep.uvtt && !prep.map.assetId}
+                  libraryDetectionId={prep.map.assetId && prep.map.assetId === uploadedAssetId ? uploadedAssetId : null}
                   grid={prep.initial}
                   map={prep.map}
                   draft={prep.draft}
@@ -700,7 +758,7 @@ function MapSection(props: {
               <p className="map-editor-empty">Choose a map in the Map step first.</p>
             ))}
             {step === "walls" && (importedState ? <div className="map-editor-import">
-              <WallSetup key={prep?.uvtt?.id} connection={importEdits} state={importedState} token={props.token} allowDetection={false} initialMode="select" />
+              <WallSetup key={prep?.uvtt?.id} connection={importEdits} state={importedState} token={props.token} detection={false} initialMode="select" />
               <div className="map-editor-import-apply"><button type="button" disabled={applyingMap} onClick={() => void applyPrep()}>{applyingMap ? "Applying map…" : "Apply map"}</button>{prepError && <p role="alert" className="error">{prepError}</p>}</div>
             </div> : prep ? <p className="map-editor-empty">Apply this map before setting up its walls.</p> : <Fragment key={`${editorGeneration}:${liveMapUrl}`}>{props.walls(draftEdits, draftState)}</Fragment>)}
             {step === "fog" && (prep

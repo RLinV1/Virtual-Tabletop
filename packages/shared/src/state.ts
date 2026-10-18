@@ -198,7 +198,7 @@ export const Wall = z.object({
   b: Point,
   /** Set when the wall is a door or window (FR-GM-18, ADR 0030). Absent: a plain wall. */
   portal: Portal.optional(),
-  /** Imported generic portal metadata; never part of a player projection (ADR 0037). */
+  /** Imported generic portal metadata; never part of a player projection (ADR 0041). */
   uvttPortal: UvttPortal.optional(),
   source: z.enum(["line_of_sight", "objects_line_of_sight"]).optional(),
 });
@@ -344,6 +344,11 @@ export interface RoomState {
    * outlive a deleted token, so undoing the deletion puts it back in its group. GM-only.
    */
   tokenGroups: Record<Id, Id>;
+  /**
+   * The GM turned board animations down for the whole table (ADR 0038): every viewer plays the
+   * reduced-motion version, as if each had asked for it. Public. Older rooms read as false.
+   */
+  reducedEffects: boolean;
 }
 
 export function emptyRoomState(roomId: Id): RoomState {
@@ -364,5 +369,6 @@ export function emptyRoomState(roomId: Id): RoomState {
     undo: [],
     groups: {},
     tokenGroups: {},
+    reducedEffects: false,
   };
 }

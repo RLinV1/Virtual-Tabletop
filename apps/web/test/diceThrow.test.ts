@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BOARD_THROW_MAX_DICE, boardDiePaths, boardDieSize, centreThrow, clientToBoard, holdEvent, releaseVelocity, throwBlocker, throwLanding } from "../src/board/diceThrow";
+import { BOARD_THROW_MAX_DICE, boardDiePaths, boardDieSize, centreThrow, clientToBoard, crowdedOffset, holdEvent, releaseVelocity, throwBlocker, throwLanding } from "../src/board/diceThrow";
 
 const canvas = { left: 100, top: 50, width: 800, height: 600 };
 const map = { width: 1400, height: 1000 };
@@ -160,5 +160,15 @@ describe("holding the die (throw-dice-on-board, FR-TAC-09)", () => {
     expect(holdEvent(null, e("pointermove"))).toBe("ignore");
     // Capture is released right after a release too; by then nothing is held.
     expect(holdEvent(null, e("lostpointercapture", 0))).toBe("ignore");
+  });
+});
+
+describe("rolls made together lie apart (multi-target attacks, FR-TAC-09)", () => {
+  it("lands the first where aimed and the rest to its right and left, never on one another", () => {
+    const size = 70;
+    const xs = [0, 1, 2, 3].map((n) => crowdedOffset(n, size).x);
+    expect(xs[0]).toBe(0);
+    expect(new Set(xs).size).toBe(4);
+    for (const a of xs) for (const b of xs) if (a !== b) expect(Math.abs(a - b)).toBeGreaterThanOrEqual(size * 2);
   });
 });

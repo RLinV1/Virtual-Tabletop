@@ -27,7 +27,7 @@ describe("creature form advanced settings (library-creatures)", () => {
     expect(screen.getByLabelText("AC")).toBeTruthy();
     expect(advanced().open).toBe(false);
     expect(advanced().contains(startingHp())).toBe(true);
-    expect(advanced().contains(screen.getByLabelText("Colour without art"))).toBe(true);
+    expect(screen.queryByLabelText("Colour without art")).toBeNull();
     // The conditions open and close with Advanced settings: no section of their own.
     expect(advanced().contains(startingConditions())).toBe(true);
     expect(advanced().querySelector("details")).toBeNull();
@@ -63,11 +63,11 @@ describe("creature form advanced settings (library-creatures)", () => {
     expect(screen.getByRole("alert").textContent).toBe("Starting HP cannot exceed Max HP.");
 
     fireEvent.change(startingHp(), { target: { value: "8" } });
-    fireEvent.input(screen.getByLabelText("Colour without art"), { target: { value: "#112233" } });
     fireEvent.click(screen.getByRole("checkbox", { name: /Prone/ }));
     fireEvent.click(screen.getByRole("button", { name: "Create creature" }));
 
     await waitFor(() => expect(create).toHaveBeenCalledOnce());
-    expect(create.mock.calls[0]?.[0]).toMatchObject({ name: "Ogre", hp: 8, maxHp: 10, color: "#112233", conditions: ["prone"] });
+    expect(create.mock.calls[0]?.[0]).toMatchObject({ name: "Ogre", hp: 8, maxHp: 10, conditions: ["prone"] });
+    expect(create.mock.calls[0]?.[0].color).toMatch(/^#[0-9a-f]{6}$/i);
   });
 });

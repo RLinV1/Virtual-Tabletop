@@ -44,6 +44,8 @@ import {
   watchReducedMotion,
   type AttackEffect,
 } from "./effects";
+import { playNuke, playStrike, type FxHost, type RunningFx } from "./fx";
+import { getClientSettings, graphicsBudget, subscribeGraphicsSettings } from "../ui/clientSettings";
 import { averageColor, fogPalette, makeFogCanvas, makeFogMaskCanvas, type Rgb } from "./fogTexture";
 import { areaOrigin, areaShape, areaSizeFromDrag, fogDraftPoints, fogRegionAt, formatDistance, hitMark, measure, portalAt, sweepPoints, templateMark, type BoardTool, type FogDraft, type Mark } from "./tools";
 import { aimExpiry, expiredAims } from "./aims";
@@ -57,6 +59,9 @@ export type GmFogView = "tint" | "off";
 
 /** An area being aimed, as sent to the others (KAN-35); mirrors the `templatePreview` payload. */
 export type AimPreview = { shape: AreaTemplate["shape"]; origin: Point; toward: Point; size: number; width?: number; gmOnly: boolean };
+
+/** Pixi animations playing at once; the oldest ends first, so a flood of attacks never lags the board. */
+const MAX_FX_RUNS = 4;
 
 export interface BoardCallbacks {
   /** Commit a move. Resolves false if the server rejected it. */
@@ -145,6 +150,13 @@ const BRUSH_STEP_PX = 2;
  * DOM canvas, and Firefox resolves `system-ui` to a narrower font offscreen, which crops the
  * end of long token names (fix-token-label-clipping).
  */
+/** The smallest a token's name is drawn on screen, in CSS pixels. */
+const MIN_LABEL_SCREEN_PX = 12;
+/** Auto-focus on an attack: the closest it zooms, and how long the glide takes. */
+const MAX_FIGHT_ZOOM = 2;
+const FIGHT_FOCUS_MS = 450;
+/** Strikes this soon after a focus are part of the same attack and keep its framing. */
+const FIGHT_REFOCUS_MS = 2500;
 const BOARD_FONT = '"Helvetica Neue", Arial, sans-serif';
 /** Longest brush stroke, in points, so one stroke can't grow without bound. */
 const MAX_STROKE_POINTS = 2000;
@@ -271,6 +283,10 @@ export class BoardView {
   /** Token highlighted from the roster (FR-GM-24). */
   private focusedId: string | null = null;
   private world = new Container();
+  /** Untransformed parent of the map world; screen-space blasts are its sibling. */
+  private screenLayer = new Container();
+  /** Screen-space blasts never inherit the map zoom or huge offscreen map bounds. */
+  private screenFxLayer = new Container();
   private mapSprite = new Sprite(Texture.EMPTY);
   private grid = new Graphics();
   /**
@@ -395,8 +411,16 @@ export class BoardView {
   private stepSkipped = false;
   /** Attack animations playing (KAN-76), oldest first. */
   private attackFx: AttackFx[] = [];
-  private reducedMotion = prefersReducedMotion();
+  /** The device's reduced-motion preference, and the GM's table-wide setting (`RoomState.reducedEffects`). */
+  private osReduced = prefersReducedMotion();
+  private tableReduced = false;
+  private get reducedMotion() {
+    return this.osReduced || this.tableReduced || getClientSettings().reducedAnimations;
+  }
+  /** Nuke and strike renderers (fx.ts) playing, oldest first. */
+  private fxRuns: Array<{ run: RunningFx; started: number; timer: number; step: (now: number) => boolean }> = [];
   private stopMotionWatch: (() => void) | null = null;
+  private stopSettingsWatch: (() => void) | null = null;
   /** The condition loop is in `animations`. */
   private loopRegistered = false;
   private lastLoopDraw = 0;
@@ -417,7 +441,7 @@ export class BoardView {
       antialias: true,
       autoDensity: true,
       // Beyond 2x the extra pixels are not visible on a map, but they cost fill rate.
-      resolution: Math.min(window.devicePixelRatio, 2),
+      resolution: Math.min(window.devicePixelRatio || 1, graphicsBudget().resolution),
       // No continuous render loop; see `invalidate`.
       autoStart: false,
     });
@@ -441,7 +465,8 @@ export class BoardView {
     this.portalGraphics.eventMode = "none";
     this.world.addChild(this.mapSprite, this.grid, this.fogLayer, this.wallGraphics, this.portalGraphics, this.tokenLayer, this.markLayer, this.fxLayer);
     this.fxLayer.addChild(this.ghostFootprint);
-    this.app.stage.addChild(this.world);
+    this.screenLayer.addChild(this.world);
+    this.app.stage.addChild(this.screenLayer, this.screenFxLayer);
 
     const stage = this.app.stage;
     stage.eventMode = "static";
@@ -484,15 +509,17 @@ export class BoardView {
     });
     this.hostObserver.observe(this.host);
     this.stopMotionWatch = watchReducedMotion((reduced) => {
-      this.reducedMotion = reduced;
-      // Effects already playing finish as they are; conditions redraw at once.
-      for (const view of this.tokens.values()) view.drawnKey = "";
-      if (this.state && this.you) this.syncTokens();
-      this.syncConditionLoop();
-      this.syncFogLoop();
-      this.invalidate();
+      this.osReduced = reduced;
+      this.motionChanged();
     });
     document.addEventListener("visibilitychange", this.onVisibilityChange);
+    this.stopSettingsWatch = subscribeGraphicsSettings(() => {
+      // Keep world coordinates and camera unchanged when only pixel density changes.
+      this.app.renderer.resize(this.app.screen.width, this.app.screen.height, Math.min(window.devicePixelRatio || 1, graphicsBudget().resolution));
+      for (const entry of [...this.fxRuns]) this.endFx(entry);
+      this.motionChanged();
+      this.invalidate();
+    });
     this.invalidate();
   }
 
@@ -573,6 +600,7 @@ export class BoardView {
   /** The board point in the middle of the canvas, or null before the board is ready. */
   visibleCentre(): Point | null {
     if (!this.initialized) return null;
+    if (this.focusCentre) return this.focusCentre;
     const canvas = this.app.canvas.getBoundingClientRect();
     return this.clientToBoard(canvas.left + canvas.width / 2, canvas.top + canvas.height / 2);
   }
@@ -597,9 +625,12 @@ export class BoardView {
     cancelAnimationFrame(this.frame);
     this.frame = 0;
     this.animations.clear();
+    for (const { run, timer } of this.fxRuns) { window.clearTimeout(timer); run.destroy(); }
+    this.fxRuns = [];
     this.attackFx = [];
     this.loopRegistered = false;
     this.stopMotionWatch?.();
+    this.stopSettingsWatch?.();
     document.removeEventListener("visibilitychange", this.onVisibilityChange);
     this.viewListeners.clear();
     this.hostObserver?.disconnect();
@@ -613,9 +644,24 @@ export class BoardView {
     this.initialized = false;
   }
 
+  /** The effective reduced-motion setting changed: conditions redraw at once, effects already playing finish as they are. */
+  private motionChanged() {
+    for (const view of this.tokens.values()) view.drawnKey = "";
+    if (this.state && this.you) this.syncTokens();
+    this.syncConditionLoop();
+    this.syncFogLoop();
+    this.invalidate();
+  }
+
   update(state: RoomState, you: Participant) {
     this.state = state;
     this.you = you;
+    const table = state.reducedEffects ?? false;
+    if (table !== this.tableReduced) {
+      const before = this.reducedMotion;
+      this.tableReduced = table;
+      if (this.reducedMotion !== before) this.motionChanged();
+    }
     this.syncMap();
     this.syncGrid();
     this.syncWalls();
@@ -881,7 +927,8 @@ export class BoardView {
 
   private toolCursor() {
     if (this.placement) return "crosshair";
-    return this.tool.kind === "select" ? "default" : TOOL_CURSORS[this.tool.kind];
+    if (this.tool.kind === "select") return "default";
+    return TOOL_CURSORS[this.tool.kind];
   }
 
   // ---------- placing a new token (place-token-on-board) ----------
@@ -1529,7 +1576,25 @@ export class BoardView {
     if (screen.width === 0 || screen.height === 0) return;
     const scale = Math.min(screen.width / width, screen.height / height) * 0.95;
     this.world.scale.set(scale);
+    this.syncTextSharpness();
     this.world.position.set((screen.width - width * scale) / 2, (screen.height - height * scale) / 2);
+  }
+
+  /**
+   * Token names live in board space, so zooming scales them. Keep them readable (never under
+   * MIN_LABEL_SCREEN_PX on screen) and rasterised at the pixels they are shown at, so they stay sharp.
+   */
+  private sharpenLabel(label: Text) {
+    const zoom = this.world.scale.x;
+    const fontSize = Number(label.style.fontSize) || 14;
+    const boost = Math.max(1, MIN_LABEL_SCREEN_PX / (fontSize * zoom));
+    const resolution = Math.min(4, Math.max(1, Math.ceil(this.app.renderer.resolution * Math.max(1, zoom * boost) * 2) / 2));
+    if (label.scale.x !== boost) label.scale.set(boost);
+    if (label.resolution !== resolution) label.resolution = resolution;
+  }
+
+  private syncTextSharpness() {
+    for (const view of this.tokens.values()) this.sharpenLabel(view.label);
   }
 
   // ---------- sync from state ----------
@@ -1689,6 +1754,7 @@ export class BoardView {
     view.label.style.fontSize = fontSize;
     view.label.style.stroke = { color: 0x000000, width: tokenLabelStroke(fontSize) };
     view.label.position.set(0, r + 2);
+    this.sharpenLabel(view.label);
 
     this.drawDecor(view, token, r, focused, active, owned);
     this.drawConditions(view, token.conditions, r);
@@ -1734,7 +1800,10 @@ export class BoardView {
   /** A page that becomes visible again restarts any loop that stopped while it was hidden. */
   private onVisibilityChange = () => {
     // Browsers pause animation frames in a hidden tab, so the drift clock must not count the pause.
-    if (document.visibilityState === "hidden") this.lastFogDraw = 0;
+    if (document.visibilityState === "hidden") {
+      this.lastFogDraw = 0;
+      for (const entry of [...this.fxRuns]) this.endFx(entry);
+    }
     this.syncConditionLoop();
     this.syncFogLoop();
   };
@@ -1769,12 +1838,15 @@ export class BoardView {
   };
 
   /**
-   * The board's part of an attack effect (KAN-76): a hit shakes the target's art. The projectile,
-   * flash, miss and damage number are drawn by the React effects overlay (board-effects-overlay).
-   * The shake follows the token and never changes its recorded position.
+   * The board's part of an attack effect (KAN-76): strikes and nukes are drawn in Pixi by fx.ts
+   * (ADR 0038), and a hit shakes the target's art. Miss and damage numbers are drawn by the React
+   * effects overlay (board-effects-overlay). Nothing here changes a token's recorded position.
    */
   playAttackEffect(effect: AttackEffect) {
-    if (!this.initialized || !this.state || effect.kind !== "hit") return;
+    if (!this.initialized || !this.state) return;
+    if (effect.kind === "strike") return this.playStrikeFx(effect);
+    if (effect.kind === "nuke") return this.playNukeFx(effect);
+    if (effect.kind !== "hit") return;
     const target = this.tokens.get(effect.tokenId);
     if (!target || target.container.destroyed) return;
     while (this.attackFx.length >= MAX_ATTACK_EFFECTS) this.endAttackFx(this.attackFx[0]!);
@@ -1806,6 +1878,137 @@ export class BoardView {
     this.attackFx.push(fx);
     this.animations.add(fx.step);
     this.invalidate();
+  }
+
+  private fxHost(): FxHost {
+    return {
+      layer: this.fxLayer,
+      shakeTarget: this.world,
+      filterTarget: this.screenLayer,
+      screen: { width: this.app.screen.width, height: this.app.screen.height },
+      reducedMotion: this.reducedMotion,
+    };
+  }
+
+  /** Registers a fx.ts run in the frame loop; it is destroyed when it ends or the board does. */
+  private startFx(run: RunningFx) {
+    while (this.fxRuns.length >= MAX_FX_RUNS) this.endFx(this.fxRuns[0]!);
+    let lastFrame = -Infinity;
+    const entry = { run, started: -1, timer: 0, step: (now: number): boolean => {
+      if (entry.started < 0) entry.started = now;
+      if (now - lastFrame < graphicsBudget().frameMs - 1) {
+        this.stepSkipped = true;
+        return true;
+      }
+      lastFrame = now;
+      if (run.update((now - entry.started) / 1000)) return true;
+      this.endFx(entry);
+      return false;
+    } };
+    this.fxRuns.push(entry);
+    if (run.animated === false && run.duration !== undefined) entry.timer = window.setTimeout(() => this.endFx(entry), run.duration * 1000);
+    else this.animations.add(entry.step);
+    this.invalidate();
+  }
+
+  private endFx(entry: { run: RunningFx; timer: number; step: (now: number) => boolean }) {
+    window.clearTimeout(entry.timer);
+    this.animations.delete(entry.step);
+    this.fxRuns = this.fxRuns.filter((e) => e !== entry);
+    entry.run.destroy();
+    this.invalidate();
+  }
+
+  /** Frames the two fighters, over a short glide (or at once with reduced motion); the viewer's own pan or zoom still wins afterwards. */
+  /**
+   * Called as an attack's roll is committed, before its dice are thrown, so the dice land where the
+   * camera is going. Attacks made together (one per target) keep the first one's framing.
+   */
+  focusStrike(effect: { fromId: string; toId: string }) {
+    if (!this.initialized || !getClientSettings().autoFocusAttacks) return;
+    const from = this.tokens.get(effect.fromId);
+    const to = this.tokens.get(effect.toId);
+    if (!from || !to || from.container.destroyed || to.container.destroyed) return;
+    const now = performance.now();
+    // Strikes that follow closely are one attack at several targets: the frame grows to hold them all.
+    if (now - this.lastFocusAt >= FIGHT_REFOCUS_MS) this.fighters = [];
+    this.lastFocusAt = now;
+    this.fighters.push({ x: from.container.position.x, y: from.container.position.y }, { x: to.container.position.x, y: to.container.position.y });
+    this.focusFight(this.fighters, to.radius);
+  }
+
+  private fighters: Point[] = [];
+  private lastFocusAt = -Infinity;
+  /** Where the camera is gliding to, while it glides; the dice thrown meanwhile land there. */
+  private focusCentre: Point | null = null;
+
+  private focusFight(points: readonly Point[], radius: number) {
+    const screen = this.app.screen;
+    if (screen.width === 0 || screen.height === 0) return;
+    const margin = Math.max(radius * 3, (this.state?.scene.grid.cellSize ?? 70) * 3);
+    const xs = points.map((p) => p.x);
+    const ys = points.map((p) => p.y);
+    const left = Math.min(...xs);
+    const right = Math.max(...xs);
+    const top = Math.min(...ys);
+    const bottom = Math.max(...ys);
+    const width = right - left + margin * 2;
+    const height = bottom - top + margin * 2;
+    const scale = Math.min(MAX_FIGHT_ZOOM, MAX_ZOOM, Math.max(MIN_ZOOM, Math.min(screen.width / width, screen.height / height)));
+    const centre = { x: (left + right) / 2, y: (top + bottom) / 2 };
+    this.focusCentre = centre;
+    const from = { scale: this.world.scale.x, x: this.world.x, y: this.world.y };
+    const to = { scale, x: screen.width / 2 - centre.x * scale, y: screen.height / 2 - centre.y * scale };
+    this.autoFit = false;
+    if (this.cameraTween) cancelAnimationFrame(this.cameraTween);
+    const apply = (t: number) => {
+      const k = t * t * (3 - 2 * t);
+      this.world.scale.set(from.scale + (to.scale - from.scale) * k);
+      this.world.position.set(from.x + (to.x - from.x) * k, from.y + (to.y - from.y) * k);
+      this.syncTextSharpness();
+      this.invalidate();
+    };
+    if (this.reducedMotion) {
+      this.focusCentre = null;
+      return apply(1);
+    }
+    const started = performance.now();
+    const step = (now: number) => {
+      const t = Math.min(1, (now - started) / FIGHT_FOCUS_MS);
+      apply(t);
+      this.cameraTween = t < 1 ? requestAnimationFrame(step) : 0;
+      if (t >= 1) this.focusCentre = null;
+    };
+    this.cameraTween = requestAnimationFrame(step);
+  }
+
+  private cameraTween = 0;
+
+  private playStrikeFx(effect: Extract<AttackEffect, { kind: "strike" }>) {
+    const from = this.tokens.get(effect.fromId);
+    const to = this.tokens.get(effect.toId);
+    if (!from || !to || from.container.destroyed || to.container.destroyed) return;
+    this.startFx(
+      playStrike(this.fxHost(), {
+        def: effect.animation,
+        from: { x: from.container.position.x, y: from.container.position.y },
+        to: { x: to.container.position.x, y: to.container.position.y },
+        radius: to.radius,
+      }),
+    );
+  }
+
+  private playNukeFx(effect: Extract<AttackEffect, { kind: "nuke" }>) {
+    // One large blast at a time: repeated clicks replace the previous effect and free its objects.
+    for (const entry of [...this.fxRuns]) this.endFx(entry);
+    const { width, height } = this.app.screen;
+    const host = { ...this.fxHost(), layer: this.screenFxLayer };
+    this.startFx(playNuke(host, {
+      def: effect.animation,
+      origin: { x: width / 2, y: height / 2 },
+      unit: Math.min(64, height / 10),
+      extent: Math.hypot(width, height) / 2,
+    }));
   }
 
   private endAttackFx(fx: AttackFx) {
@@ -2165,6 +2368,7 @@ export class BoardView {
     };
     if (pinchIsManual(this.pinch.start, midpoint, this.world.scale.x, scale)) this.autoFit = false;
     this.world.scale.set(scale);
+    this.syncTextSharpness();
     this.world.position.set(midpoint.x - anchor.x * scale, midpoint.y - anchor.y * scale);
     this.pinch = { ...this.pinch, distance, midpoint, scale };
     this.invalidate();
@@ -2206,6 +2410,7 @@ export class BoardView {
     const scale = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, this.world.scale.x * factor));
     if (zoomChangesScale(this.world.scale.x, scale)) this.autoFit = false;
     this.world.scale.set(scale);
+    this.syncTextSharpness();
     this.world.position.set(screenPoint.x - before.x * scale, screenPoint.y - before.y * scale);
     this.invalidate();
   };

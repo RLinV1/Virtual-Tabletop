@@ -6,10 +6,14 @@ import {
   artStyleFor,
   attackEffectFor,
   attackPlan,
+  effectiveReducedMotion,
   conditionLoopWanted,
   loopFrameDue,
   loopingConditions,
+  rangedAnimationFor,
+  RANGED_ATTACK_SHAPES,
 } from "../src/board/effects";
+import { ATTACK_STYLE_PRESETS, NUKE_PRESET } from "../src/board/effectPresets";
 
 const gm: Participant = { id: "gm", role: "gm", displayName: "GM" };
 const player: Participant = { id: "p1", role: "player", displayName: "Aria" };
@@ -39,8 +43,8 @@ const applied = (amount = 7): DomainEvent => ({ type: "RollDamageApplied", rollI
 
 describe("attackEffectFor: which events animate (KAN-76)", () => {
   it("strikes from the attacker to the target for a visible attack roll", () => {
-    expect(attackEffectFor(rolled(roll()), room(), gm)).toEqual({ kind: "strike", fromId: "a", toId: "b" });
-    expect(attackEffectFor(rolled(roll()), room(), player)).toEqual({ kind: "strike", fromId: "a", toId: "b" });
+    expect(attackEffectFor(rolled(roll()), room(), gm)).toMatchObject({ kind: "strike", fromId: "a", toId: "b" });
+    expect(attackEffectFor(rolled(roll()), room(), player)).toMatchObject({ kind: "strike", fromId: "a", toId: "b" });
   });
 
   it("strikes for a damage roll too", () => {
@@ -97,11 +101,11 @@ describe("attackEffectFor: damage after a to-hit does not strike again (KAN-76, 
   });
 
   it("still strikes for damage with no earlier attack roll (a damage-only attack)", () => {
-    expect(strikeFor([attack("r2", "damage")])).toEqual({ kind: "strike", fromId: "a", toId: "b" });
+    expect(strikeFor([attack("r2", "damage")])).toMatchObject({ kind: "strike", fromId: "a", toId: "b" });
   });
 
   it("still strikes for damage against a different target than the to-hit", () => {
-    expect(strikeFor([attack("r1", "toHit", "b"), attack("r2", "damage", "c")])).toEqual({ kind: "strike", fromId: "a", toId: "c" });
+    expect(strikeFor([attack("r1", "toHit", "b"), attack("r2", "damage", "c")])).toMatchObject({ kind: "strike", fromId: "a", toId: "c" });
   });
 
   it("goes by the latest roll for the pair: damage after damage strikes", () => {
@@ -166,7 +170,7 @@ describe("attackEffectFor: rulings and damage (KAN-76)", () => {
 
 describe("attack plans under reduced motion (KAN-76)", () => {
   const effects = [
-    { kind: "strike", fromId: "a", toId: "b" },
+    { kind: "strike", fromId: "a", toId: "b", animation: ATTACK_STYLE_PRESETS.melee },
     { kind: "hit", tokenId: "b" },
     { kind: "miss", tokenId: "b" },
     { kind: "damage", tokenId: "b", amount: 3 },
@@ -232,5 +236,104 @@ describe("condition loop budget (KAN-76)", () => {
     expect(loopFrameDue(1016, 1000)).toBe(false);
     expect(loopFrameDue(1030, 1000)).toBe(false);
     expect(loopFrameDue(1034, 1000)).toBe(true);
+  });
+});
+
+describe("attack animation resolution (FR-TAC-09, ADR 0038)", () => {
+  const cell = emptyRoomState("r").scene.grid.cellSize;
+  const at = (cells: number): RoomState => room({ tokens: [token("a"), { ...token("b"), position: { x: 100 + cells * cell, y: 100 } }] });
+  const withAttack = (attack: Partial<NonNullable<DiceRoll["attack"]>>) =>
+    roll({ attack: { actor: side("a"), target: side("b"), label: null, kind: "toHit", ...attack } });
+  const animationOf = (r: DiceRoll, state: RoomState) => {
+    const effect = attackEffectFor(rolled(r), state, gm);
+    return effect?.kind === "strike" ? effect.animation : null;
+  };
+
+  it.each([["melee"], ["ranged"], ["magic"]] as const)("uses the %s built-in for a roll with that style", (style) => {
+    expect(animationOf(withAttack({ style }), at(6))).toEqual(ATTACK_STYLE_PRESETS[style]);
+  });
+
+  it("infers melee at 1 cell and ranged at 6 cells when the roll names no style", () => {
+    expect(animationOf(withAttack({}), at(1))).toEqual(ATTACK_STYLE_PRESETS.melee);
+    expect(animationOf(withAttack({}), at(6))).toEqual(rangedAnimationFor(withAttack({}).id));
+  });
+
+  it("treats exactly 1.5 cells as melee and just over as ranged", () => {
+    expect(animationOf(withAttack({}), at(1.5))).toEqual(ATTACK_STYLE_PRESETS.melee);
+    expect(animationOf(withAttack({}), at(1.6))).toEqual(rangedAnimationFor(withAttack({}).id));
+  });
+  it("treats a diagonal neighbouring cell as melee", () => {
+    const state = at(1);
+    state.tokens.b = { ...state.tokens.b!, position: { x: 100 + cell, y: 100 + cell } };
+    expect(animationOf(withAttack({}), state)).toEqual(ATTACK_STYLE_PRESETS.melee);
+  });
+  it("varies distant rolls across the ranged pool, consistently for every viewer", () => {
+    const shapes = new Set(Array.from({ length: 120 }, (_, i) => rangedAnimationFor("roll-" + i).shape));
+    expect([...shapes].sort()).toEqual([...RANGED_ATTACK_SHAPES].sort());
+    const r = withAttack({});
+    const state = at(6);
+    expect(attackEffectFor(rolled(r), state, player)).toEqual(attackEffectFor(rolled(r), state, gm));
+    expect(rangedAnimationFor("same-roll")).toEqual(rangedAnimationFor("same-roll"));
+  });
+
+  it("prefers the roll's own animation over its style and the distance", () => {
+    const custom = { ...ATTACK_STYLE_PRESETS.magic, primary: "#00ff00" };
+    expect(animationOf(withAttack({ animation: custom, style: "melee" }), at(1))).toEqual(custom);
+  });
+
+  it("prefers the style over the distance", () => {
+    expect(animationOf(withAttack({ style: "ranged" }), at(1))).toEqual(ATTACK_STYLE_PRESETS.ranged);
+  });
+
+  it("lasts as long as the animation says", () => {
+    const effect = attackEffectFor(rolled(withAttack({ style: "magic" })), at(3), gm)!;
+    expect(attackPlan(effect, false).durationMs).toBe(ATTACK_STYLE_PRESETS.magic.duration * 1000);
+  });
+});
+
+describe("nuke effect (FR-TAC-06, ADR 0038)", () => {
+  const nuked: DomainEvent = { type: "MapNuked", amount: 9, origin: { x: 50, y: 60 } };
+  const noHp: Token = { ...token("c"), stats: { hp: null, maxHp: null, ac: null } };
+  const state = room({ tokens: [token("a"), token("b", true), noHp] });
+
+  it("names the tokens with HP the GM can see, hidden ones included", () => {
+    expect(attackEffectFor(nuked, state, gm)).toEqual({
+      kind: "nuke", animation: NUKE_PRESET, origin: { x: 50, y: 60 }, amount: 9, tokenIds: ["a", "b"],
+    });
+  });
+
+  it("leaves a hidden token out for a player (FR-GM-23)", () => {
+    expect(attackEffectFor(nuked, state, player)).toMatchObject({ kind: "nuke", tokenIds: ["a"] });
+  });
+
+  it("uses the event's animation when it has one", () => {
+    const custom = { ...NUKE_PRESET, primary: "#0000ff" };
+    expect(attackEffectFor({ ...nuked, animation: custom } as DomainEvent, state, gm)).toMatchObject({ animation: custom });
+  });
+
+  it("plays nothing for an undone nuke", () => {
+    expect(attackEffectFor({ type: "MapNukeUndone", amount: 9, origin: { x: 0, y: 0 } } as DomainEvent, state, gm)).toBeNull();
+  });
+
+  it("lasts as long as its animation, and is a short still tint when reduced", () => {
+    const effect = attackEffectFor(nuked, state, gm)!;
+    expect(attackPlan(effect, false)).toEqual({ motion: true, durationMs: NUKE_PRESET.duration * 1000 });
+    expect(attackPlan(effect, true).motion).toBe(false);
+  });
+});
+
+describe("table-wide reduced animations (ADR 0038)", () => {
+  it("is reduced when the GM turned it on, even if the device allows motion", () => {
+    expect(effectiveReducedMotion({ reducedEffects: true }, false)).toBe(true);
+    const strike = { kind: "strike", fromId: "a", toId: "b", animation: ATTACK_STYLE_PRESETS.melee } as const;
+    expect(attackPlan(strike, effectiveReducedMotion({ reducedEffects: true }, false)).motion).toBe(false);
+  });
+
+  it("is reduced when the device asks for it, whatever the table says", () => {
+    expect(effectiveReducedMotion({ reducedEffects: false }, true)).toBe(true);
+  });
+
+  it("moves normally when neither asks for reduced motion", () => {
+    expect(effectiveReducedMotion({ reducedEffects: false }, false)).toBe(false);
   });
 });

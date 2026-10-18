@@ -7,6 +7,8 @@ import type { CommandResult } from "../src/net/roomConnection";
 import { GmPanel } from "../src/pages/GmPanel";
 import { toGridDraft } from "../src/pages/gridDraft";
 import { WallProperties } from "../src/pages/mapEditor/WallProperties";
+import { draftConnection } from "../src/pages/mapEditor/draftConnection";
+import { draftFrom, planDraftSave } from "../src/pages/mapEditor/mapDraft";
 import { startUvttPrep, prepDirty } from "../src/pages/mapPrep";
 import { fakeConnection, room, stubMapEditorEnvironment, TOKEN } from "./mapEditorHarness";
 vi.mock("../src/panels/CheckpointsPanel", () => ({ CheckpointsPanel: () => null }));
@@ -38,6 +40,24 @@ async function importFile() {
 }
 
 describe("private UVTT editor (FR-GM-06/07/09/12)", () => {
+  it("keeps full wall edits and fog reshaping in the same private room draft", async () => {
+    const state = room({ walls: [{ ...preparation.walls[0]!, id: "wall" }], fog: [{ id: "fog", shape: "rect", points: [{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 50 }, { x: 0, y: 50 }] }] });
+    const before = structuredClone(state);
+    const fake = fakeConnection();
+    let draft = draftFrom(state);
+    const local = draftConnection(fake.connection, (change) => { draft = change(draft); }, async () => { throw new Error("Detection is not needed."); }, state.scene.map!.url, state.scene.map!, () => true);
+    const wall = { ...draft.walls.wall!, b: { x: 210, y: 100 } };
+    const points = [{ x: 10, y: 10 }, { x: 70, y: 10 }, { x: 60, y: 60 }, { x: 10, y: 50 }];
+    expect(await local.command({ type: "wall.update", wall })).toMatchObject({ ok: true });
+    expect(await local.command({ type: "fog.replace", removeIds: ["fog"], add: [{ shape: "polygon", points }] })).toMatchObject({ ok: true });
+    expect(fake.commands).toEqual([]);
+    expect(state).toEqual(before);
+    expect(draft.walls.wall).toEqual(wall);
+    expect(draft.walls.wall!.uvttPortal).toEqual(preparation.walls[0]!.uvttPortal);
+    expect(draft.fog.fog).toBeUndefined();
+    expect(Object.values(draft.fog)).toEqual([expect.objectContaining({ shape: "polygon", points })]);
+    expect(planDraftSave(state, draft).map((command) => command.type)).toEqual(["wall.update", "fog.replace"]);
+  });
   it("preserves validated fractional offsets without legacy normalization and tracks geometry edits", () => {
     const prep = startUvttPrep(preparation); expect(prep.initial).toEqual(preparation.grid); expect(prepDirty(prep)).toBe(false);
     prep.walls = {}; expect(prepDirty(prep)).toBe(true);
