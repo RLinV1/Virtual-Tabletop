@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AnimationDef, CONDITIONS, NukeAnimationDef, StrikeAnimationDef } from "@vtt/shared";
+import { ANIMATION_SHAPES, AnimationDef, CONDITIONS, NukeAnimationDef, StrikeAnimationDef } from "@vtt/shared";
 import {
   ATTACK_STYLE_PRESETS,
   BUILTIN_ANIMATIONS,
@@ -88,7 +88,9 @@ describe("built-in attack and nuke animations (FR-TAC-09, ADR 0038)", () => {
   });
 
   it("lists all four built-ins for the library, each valid", () => {
-    expect(BUILTIN_ANIMATIONS).toHaveLength(4);
+    expect(BUILTIN_ANIMATIONS).toHaveLength(8);
+    // Every shape has a starting point.
+    expect(new Set(BUILTIN_ANIMATIONS.map((b) => b.def.shape))).toEqual(new Set(ANIMATION_SHAPES));
     for (const b of BUILTIN_ANIMATIONS) expect(AnimationDef.safeParse(b.def).success, b.name).toBe(true);
   });
 });

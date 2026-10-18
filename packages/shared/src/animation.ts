@@ -5,7 +5,7 @@ import { z } from "zod";
  * from any client, a GM can edit it in a form, and one renderer plays every look. The built-in
  * attack styles and the nuke are values of this type too.
  */
-export const ANIMATION_SHAPES = ["slash", "projectile", "bolt", "nuke"] as const;
+export const ANIMATION_SHAPES = ["slash", "claw", "projectile", "fireball", "meteor", "bolt", "beam", "nuke"] as const;
 export const AnimationShape = z.enum(ANIMATION_SHAPES);
 export type AnimationShape = z.infer<typeof AnimationShape>;
 

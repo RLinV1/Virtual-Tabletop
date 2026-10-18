@@ -191,10 +191,20 @@ export const NUKE_PRESET: AnimationDef = {
   shape: "nuke", duration: 1.8, primary: "#ff6a00", secondary: "#fff4d6", size: 3, particles: 120, glow: 0.9, shake: 0.9, flash: 0.9,
 };
 
+/** Starting points for the other shapes; they are only used once a GM copies one into the library. */
+const CLAW_PRESET: AnimationDef = { shape: "claw", duration: 0.9, primary: "#e11d48", secondary: "#fda4af", size: 1.3, particles: 30, glow: 0.6, shake: 0.55, flash: 0.35 };
+const FIREBALL_PRESET: AnimationDef = { shape: "fireball", duration: 1.4, primary: "#f97316", secondary: "#fde68a", size: 1.4, particles: 70, glow: 0.9, shake: 0.6, flash: 0.7 };
+const METEOR_PRESET: AnimationDef = { shape: "meteor", duration: 1.5, primary: "#ea580c", secondary: "#fcd34d", size: 1.6, particles: 80, glow: 0.85, shake: 0.85, flash: 0.75 };
+const BEAM_PRESET: AnimationDef = { shape: "beam", duration: 1.4, primary: "#22d3ee", secondary: "#cffafe", size: 1.2, particles: 40, glow: 0.95, shake: 0.3, flash: 0.4 };
+
 /** Every built-in with a display name, for the library's "Start from built-in" and the nuke picker. */
 export const BUILTIN_ANIMATIONS: ReadonlyArray<{ id: string; name: string; def: AnimationDef }> = [
   { id: "builtin-melee", name: "Melee slash", def: ATTACK_STYLE_PRESETS.melee },
+  { id: "builtin-claw", name: "Claw rake", def: CLAW_PRESET },
   { id: "builtin-ranged", name: "Ranged projectile", def: ATTACK_STYLE_PRESETS.ranged },
+  { id: "builtin-fireball", name: "Fireball", def: FIREBALL_PRESET },
+  { id: "builtin-meteor", name: "Meteor", def: METEOR_PRESET },
   { id: "builtin-magic", name: "Magic bolt", def: ATTACK_STYLE_PRESETS.magic },
+  { id: "builtin-beam", name: "Arcane beam", def: BEAM_PRESET },
   { id: "builtin-nuke", name: "Nuke", def: NUKE_PRESET },
 ];

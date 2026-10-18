@@ -1,6 +1,6 @@
-import { Container, Graphics, Rectangle, type Filter } from "pixi.js";
-import { AdvancedBloomFilter, ShockwaveFilter } from "pixi-filters";
-import type { AnimationDef, Point } from "@vtt/shared";
+import { BlurFilter, Container, Graphics, Rectangle, type Filter } from "pixi.js";
+import { ShockwaveFilter } from "pixi-filters";
+import type { AnimationDef, AnimationShape, Point } from "@vtt/shared";
 
 /**
  * The one renderer for every `AnimationDef` (ADR 0038): the board and the library editor's preview
@@ -55,6 +55,12 @@ export const REDUCED_FX_S = 0.6;
 
 /** Particle ceiling per effect, whatever the definition asks for. */
 const MAX_PARTICLES = 120;
+
+type StrikeShape = Exclude<AnimationShape, "nuke">;
+/** When each strike shape lands on the target, as a share of its duration. */
+const LAND_AT: Record<StrikeShape, number> = { slash: 0.3, claw: 0.3, beam: 0.25, projectile: 0.55, fireball: 0.5, meteor: 0.55, bolt: 0.6 };
+/** How big each shape's impact is, against the target token. */
+const BIGNESS: Record<StrikeShape, number> = { slash: 1, claw: 1, beam: 1, projectile: 1, fireball: 2.2, meteor: 1.8, bolt: 1.5 };
 
 const hex = (color: string) => parseInt(color.slice(1), 16);
 const WHITE = 0xffffff;
@@ -148,7 +154,7 @@ function stepSparks(list: Spark[], dt: number) {
   }
 }
 
-/** Each spark is a hot core with a soft halo; the bloom filter on the layer does the rest. */
+/** Each spark is a hot core with a soft halo; the blurred halo copy of the layer does the rest. */
 function drawSparks(g: Graphics, list: readonly Spark[]) {
   for (const s of list) {
     const a = 1 - s.age / s.life;
@@ -200,7 +206,7 @@ function lightning(g: Graphics, a: Point, b: Point, pieces: number, jitter: numb
 /** The display objects and filters one effect owns, so ending it can remove them all. */
 interface FxScene {
   root: Container;
-  /** Drawn through the bloom filter, additive. */
+  /** Drawn additively, with a blurred copy underneath for glow. */
   g: Graphics;
   /** Drawn plainly, over `g`. */
   top: Graphics;
@@ -213,13 +219,21 @@ function makeScene(host: FxHost, def: AnimationDef, bloomed: boolean): FxScene {
   const glowLayer = new Container();
   const g = new Graphics();
   g.blendMode = "add";
-  glowLayer.addChild(g);
   const top = new Graphics();
-  let bloom: AdvancedBloomFilter | null = null;
+  // Glow: a blurred, additive copy of `g` drawn under it. It shares `g`'s geometry, so every frame
+  // drawn into `g` glows too. A blur of transparent pixels stays transparent, so unlike a bloom
+  // filter it never leaves a grey box around the effect.
+  let blur: BlurFilter | null = null;
+  let halo: Graphics | null = null;
   if (bloomed && def.glow > 0.05) {
-    bloom = new AdvancedBloomFilter({ threshold: 0.15, bloomScale: 0.4 + def.glow * 1.4, brightness: 1, blur: 3 + def.glow * 6, quality: 4 });
-    glowLayer.filters = [bloom];
+    halo = new Graphics(g.context);
+    halo.blendMode = "add";
+    halo.alpha = 0.5 + def.glow * 0.5;
+    blur = new BlurFilter({ strength: 4 + def.glow * 10, quality: 3 });
+    halo.filters = [blur];
+    glowLayer.addChild(halo);
   }
+  glowLayer.addChild(g);
   root.addChild(glowLayer, top);
   host.layer.addChild(root);
   let disposed = false;
@@ -228,8 +242,9 @@ function makeScene(host: FxHost, def: AnimationDef, bloomed: boolean): FxScene {
     dispose() {
       if (disposed) return;
       disposed = true;
-      glowLayer.filters = null;
-      bloom?.destroy();
+      if (halo) halo.filters = null;
+      blur?.destroy();
+      // The halo borrows `g`'s context, so only `g` (its owner) destroys it.
       root.destroy({ children: true });
     },
   };
@@ -268,17 +283,22 @@ export function playStrike(host: FxHost, params: StrikeFxParams): RunningFx {
   const sparks: Spark[] = [];
   const palette = [primary, secondary, mix(primary, WHITE, 0.6)];
   const shape = def.shape === "nuke" ? "projectile" : def.shape;
+  /** Shapes that cut across the target instead of flying into it. */
+  const cut = shape === "slash" || shape === "claw";
   /** When the strike lands, as a share of the duration. */
-  const landAt = (shape === "slash" ? 0.3 : shape === "projectile" ? 0.55 : 0.6) * duration;
+  const landAt = LAND_AT[shape] * duration;
   const impactLen = Math.max(0.1, duration - landAt);
-  const bigness = shape === "bolt" ? 1.5 : 1;
+  const bigness = BIGNESS[shape];
+  /** A meteor falls from high above the target, whoever cast it. */
+  const sky = { x: to.x - r * 4, y: to.y - r * 11 };
   let landed = false;
   let last = 0;
 
   const pathAt = (u: number): Point => {
+    if (shape === "meteor") return { x: lerp(sky.x, to.x, u), y: lerp(sky.y, to.y, u) };
     const x = from.x + dx * u;
     const y = from.y + dy * u;
-    if (shape === "projectile") {
+    if (shape === "projectile" || shape === "fireball") {
       const lift = Math.sin(Math.PI * u) * Math.min(dist * 0.2, r * 3) * side;
       return { x: x + normal.x * lift, y: y + normal.y * lift };
     }
@@ -294,6 +314,19 @@ export function playStrike(host: FxHost, params: StrikeFxParams): RunningFx {
     g.circle(to.x, to.y, r * (0.6 + e * 0.8) * bigness).fill({ color: primary, alpha: fade * 0.5 });
     ring(g, to, r * (0.4 + e * 1.7) * bigness, Math.max(2, r * 0.16 * fade), secondary, fade);
     ring(g, to, r * (0.2 + e * 1.1) * bigness, Math.max(2, r * 0.1 * fade), WHITE, fade * 0.8);
+    if (shape === "fireball" || shape === "meteor") {
+      // A rolling ball of fire, then scorch.
+      g.circle(to.x, to.y, r * (0.8 + e * 1.4) * bigness).fill({ color: secondary, alpha: fade * 0.35 });
+      g.circle(to.x, to.y, r * (0.5 + e * 0.9) * bigness).fill({ color: mix(primary, WHITE, 0.4), alpha: fade * 0.6 });
+    }
+    if (shape === "meteor") {
+      // Debris thrown out of the crater.
+      for (let i = 0; i < 9; i++) {
+        const a = (i / 9) * Math.PI * 2 + 0.3;
+        const d = r * (0.6 + e * 2.4);
+        g.circle(to.x + Math.cos(a) * d, to.y + Math.sin(a) * d * 0.6 - Math.sin(Math.PI * e) * r, Math.max(2, r * 0.12 * fade)).fill({ color: primary, alpha: fade });
+      }
+    }
     if (shape === "bolt") {
       for (let i = 0; i < 7; i++) {
         const a = (i / 7) * Math.PI * 2 + 0.4;
@@ -303,26 +336,50 @@ export function playStrike(host: FxHost, params: StrikeFxParams): RunningFx {
     }
   };
 
+  /** One glowing arc sweeping across the target, `offset` to one side, starting `delay` seconds late. */
+  const drawArc = (elapsed: number, offset: number, delay: number, scale: number) => {
+    const t = elapsed - delay;
+    if (t <= 0) return;
+    const sweep = clamp01(t / (0.4 * duration));
+    const fadeOut = t > 0.55 * duration ? clamp01(1 - (t - 0.55 * duration) / (0.45 * duration)) : 1;
+    const R = r * 1.5 * scale;
+    const centre = { x: to.x - dir.x * R + normal.x * offset, y: to.y - dir.y * R + normal.y * offset };
+    const mid = Math.atan2(dir.y, dir.x);
+    const span = 1.15;
+    const segments = 30;
+    const head = Math.floor(sweep * segments);
+    const point = (i: number): Point => {
+      const phi = mid + side * (-span + (2 * span * i) / segments);
+      return { x: centre.x + Math.cos(phi) * R, y: centre.y + Math.sin(phi) * R };
+    };
+    for (let i = 0; i < head; i++) {
+      const age = (head - i) / segments;
+      const taper = Math.sin((Math.PI * (i + 0.5)) / segments);
+      streak(g, point(i), point(i + 1), Math.max(2, r * 0.42 * taper * scale), primary, secondary, Math.max(0, 1 - age * 1.4) * fadeOut);
+    }
+    if (head > 0 && fadeOut > 0) orb(g, point(head), r * 0.22 * scale, WHITE, primary, fadeOut);
+  };
+
   const draw = (elapsed: number) => {
-    if (shape === "slash") {
-      const sweep = clamp01(elapsed / (0.4 * duration));
-      const fadeOut = elapsed > 0.55 * duration ? clamp01(1 - (elapsed - 0.55 * duration) / (0.45 * duration)) : 1;
-      const R = r * 1.5;
-      const centre = { x: to.x - dir.x * R, y: to.y - dir.y * R };
-      const mid = Math.atan2(dir.y, dir.x);
-      const span = 1.15;
-      const segments = 30;
-      const head = Math.floor(sweep * segments);
-      const point = (i: number): Point => {
-        const phi = mid + side * (-span + (2 * span * i) / segments);
-        return { x: centre.x + Math.cos(phi) * R, y: centre.y + Math.sin(phi) * R };
-      };
-      for (let i = 0; i < head; i++) {
-        const age = (head - i) / segments;
-        const taper = Math.sin((Math.PI * (i + 0.5)) / segments);
-        streak(g, point(i), point(i + 1), Math.max(2, r * 0.42 * taper), primary, secondary, Math.max(0, 1 - age * 1.4) * fadeOut);
+    if (shape === "slash") return drawArc(elapsed, 0, 0, 1);
+    if (shape === "claw") {
+      // Three raking cuts, side by side, a beat apart.
+      for (let i = -1; i <= 1; i++) drawArc(elapsed, i * r * 0.6, (i + 1) * 0.06 * duration, 1.15);
+      return;
+    }
+    if (shape === "beam") {
+      // A beam that shoots out, holds and burns, then thins away.
+      const reach = easeOut(clamp01(elapsed / landAt));
+      const hold = elapsed < 0.7 * duration ? 1 : clamp01(1 - (elapsed - 0.7 * duration) / (0.3 * duration));
+      if (hold <= 0) return;
+      const end = { x: from.x + dx * reach, y: from.y + dy * reach };
+      const flicker = 0.85 + 0.15 * Math.sin(elapsed * 55);
+      streak(g, from, end, Math.max(3, r * 0.5 * flicker * hold), primary, secondary, hold);
+      orb(g, from, r * 0.32 * hold, primary, secondary, hold);
+      if (landed) {
+        orb(g, to, r * 0.45 * flicker * hold, primary, secondary, hold);
+        if (sparkCount > 0 && Math.random() < 0.9) burst(sparks, to, 2, r * 2.5, Math.max(1.5, r * 0.05), palette, 0.4);
       }
-      if (head > 0 && fadeOut > 0) orb(g, point(head), r * 0.22, WHITE, primary, fadeOut);
       return;
     }
     const charge = shape === "bolt" ? 0.25 * duration : 0;
@@ -342,14 +399,16 @@ export function playStrike(host: FxHost, params: StrikeFxParams): RunningFx {
     if (elapsed < landAt) {
       const u = easeIn((elapsed - charge) / flight) * 0.6 + clamp01((elapsed - charge) / flight) * 0.4;
       const head = pathAt(u);
-      if (shape === "projectile") {
-        const steps = 14;
+      if (shape === "projectile" || shape === "fireball" || shape === "meteor") {
+        // Fireballs and meteors are fatter and leave a longer, hotter tail.
+        const heavy = shape !== "projectile";
+        const steps = heavy ? 20 : 14;
         for (let k = 0; k < steps; k++) {
           const a = pathAt(Math.max(0, u - k * 0.03));
           const b = pathAt(Math.max(0, u - (k + 1) * 0.03));
-          streak(g, a, b, Math.max(2, r * 0.3 * (1 - k / steps)), primary, secondary, 1 - k / steps);
+          streak(g, a, b, Math.max(2, r * (heavy ? 0.55 : 0.3) * (1 - k / steps)), primary, secondary, 1 - k / steps);
         }
-        orb(g, head, r * 0.3, primary, secondary);
+        orb(g, head, r * (shape === "meteor" ? 0.6 : heavy ? 0.5 : 0.3), primary, secondary);
         if (sparkCount > 0 && Math.random() < 0.7) burst(sparks, head, 1, r * 1.2, Math.max(1.5, r * 0.05), palette, 0.5, r * 2);
       } else {
         // Bolt: a jagged line from the attacker to the head, redrawn every frame.
@@ -374,8 +433,8 @@ export function playStrike(host: FxHost, params: StrikeFxParams): RunningFx {
         if (sparkCount > 0) burst(sparks, to, sparkCount, r * 4 * bigness, Math.max(1.5, r * 0.06), palette, 0.9, r * 2.5);
       }
       draw(elapsed);
-      if (landed && shape !== "slash") drawImpact(clamp01((elapsed - landAt) / impactLen));
-      if (shape === "slash" && landed) {
+      if (landed && !cut && shape !== "beam") drawImpact(clamp01((elapsed - landAt) / impactLen));
+      if (cut && landed) {
         // The cut leaves a flash at the target as the sweep passes it.
         const k = clamp01((elapsed - landAt) / impactLen);
         if (def.flash > 0) top.circle(to.x, to.y, r * (0.8 + easeOut(k) * 0.6)).fill({ color: WHITE, alpha: def.flash * 0.6 * (1 - k) ** 2 });

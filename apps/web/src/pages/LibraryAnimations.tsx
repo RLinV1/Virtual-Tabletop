@@ -9,8 +9,12 @@ import { Modal } from "../ui/Modal";
 /** What the Animations tab shows for a shape. */
 const SHAPE_LABELS: Record<AnimationDef["shape"], string> = {
   slash: "Slash (melee)",
+  claw: "Claw rake (melee)",
   projectile: "Projectile (ranged)",
+  fireball: "Fireball (ranged)",
+  meteor: "Meteor (falls on target)",
   bolt: "Bolt (magic)",
+  beam: "Beam (magic)",
   nuke: "Nuke (map blast)",
 };
 

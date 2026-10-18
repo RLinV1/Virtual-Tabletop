@@ -26,7 +26,7 @@
 - [ ] 3.1 `npm install pixi-filters --workspace=@vtt/web`; verify `npm run typecheck` with Pixi 8
 - [ ] 3.2 `effectPresets.ts`: built-in `AnimationDef`s for melee, ranged, magic and the nuke; verify a unit test that each parses as `AnimationDef`
 - [ ] 3.3 `effects.ts`: `attackEffectFor` returns the animation (roll animation, else style built-in, else inferred) and a nuke effect for `MapNuked`; verify unit tests for each style, inference at 1 and 6 cells, custom animation precedence, hidden-token rules and reload no-replay
-- [ ] 3.4 New `board/fx.ts`: one renderer for `slash`, `projectile`, `bolt` and `nuke` shapes (`Graphics`, `ParticleContainer`, `ShockwaveFilter`, `AdvancedBloomFilter`, flash, shake); filters removed on end; reduced-motion variants; wire into `BoardView`; verify filters are gone after a blast and token positions are unchanged
+- [ ] 3.4 New `board/fx.ts`: one renderer for every shape (`Graphics`, a blurred additive copy for glow, `ShockwaveFilter`, flash, shake); filters removed on end; reduced-motion variants; wire into `BoardView`; verify filters are gone after a blast and token positions are unchanged
 - [ ] 3.5 `EffectsOverlay.tsx`: stop drawing the old DOM strike, keep hit/miss/damage numbers and conditions; add nuke damage numbers from before/after HP of visible tokens; verify existing overlay tests still pass
 
 ## 4. Web: UI
