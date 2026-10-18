@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { ANIMATION_SHAPES, AnimationDef, CONDITIONS, NukeAnimationDef, StrikeAnimationDef } from "@vtt/shared";
 import {
   ATTACK_STYLE_PRESETS,
+  SHAPE_DEFAULTS,
+  withDefaults,
   BUILTIN_ANIMATIONS,
   CONDITION_VISUALS,
   NUKE_PRESET,
@@ -87,10 +89,50 @@ describe("built-in attack and nuke animations (FR-TAC-09, ADR 0038)", () => {
     expect(NUKE_PRESET).toMatchObject({ shape: "nuke", size: 3, particles: 120 });
   });
 
-  it("lists all four built-ins for the library, each valid", () => {
-    expect(BUILTIN_ANIMATIONS).toHaveLength(8);
+  it("lists a built-in for every shape for the library, each valid", () => {
+    expect(BUILTIN_ANIMATIONS).toHaveLength(ANIMATION_SHAPES.length);
     // Every shape has a starting point.
     expect(new Set(BUILTIN_ANIMATIONS.map((b) => b.def.shape))).toEqual(new Set(ANIMATION_SHAPES));
     for (const b of BUILTIN_ANIMATIONS) expect(AnimationDef.safeParse(b.def).success, b.name).toBe(true);
+  });
+});
+
+
+describe("a default preset for every shape (library-animations, ADR 0038)", () => {
+  it("parses every shape default as a full definition of that shape", () => {
+    for (const shape of ANIMATION_SHAPES) {
+      const def = SHAPE_DEFAULTS[shape];
+      expect(def.shape).toBe(shape);
+      const parsed = AnimationDef.safeParse(def);
+      expect(parsed.success, shape).toBe(true);
+      // Every field is filled in.
+      for (const key of ["accent", "particleShape", "count", "spread", "arc", "trail", "spin", "gravity", "rings"] as const) {
+        expect(def[key], `${shape}.${key}`).not.toBeUndefined();
+      }
+      expect(shape === "nuke" ? NukeAnimationDef.safeParse(def).success : StrikeAnimationDef.safeParse(def).success, shape).toBe(true);
+    }
+  });
+
+  it("keeps the style and nuke defaults on their shapes", () => {
+    expect(ATTACK_STYLE_PRESETS.melee).toBe(SHAPE_DEFAULTS.slash);
+    expect(ATTACK_STYLE_PRESETS.ranged).toBe(SHAPE_DEFAULTS.projectile);
+    expect(ATTACK_STYLE_PRESETS.magic).toBe(SHAPE_DEFAULTS.bolt);
+    expect(NUKE_PRESET).toBe(SHAPE_DEFAULTS.nuke);
+  });
+
+  it("lists the default of every shape once, with a name", () => {
+    expect(BUILTIN_ANIMATIONS.map((b) => b.def.shape)).toEqual([...ANIMATION_SHAPES]);
+    expect(new Set(BUILTIN_ANIMATIONS.map((b) => b.id)).size).toBe(ANIMATION_SHAPES.length);
+    for (const b of BUILTIN_ANIMATIONS) expect(b.name.length, b.id).toBeGreaterThan(0);
+  });
+
+  it("reads a definition without the later fields with the defaults of its shape", () => {
+    const old = AnimationDef.parse({ shape: "claw", duration: 0.9, primary: "#e11d48", secondary: "#fda4af", size: 1.3, particles: 30, glow: 0.6, shake: 0.55, flash: 0.35 });
+    const read = withDefaults(old);
+    expect(read).toMatchObject({ count: SHAPE_DEFAULTS.claw.count, rings: SHAPE_DEFAULTS.claw.rings, particleShape: SHAPE_DEFAULTS.claw.particleShape, gravity: SHAPE_DEFAULTS.claw.gravity });
+    // No accent stays no accent.
+    expect(read.accent).toBeUndefined();
+    // Fields it does have win over the defaults.
+    expect(withDefaults({ ...old, count: 9, gravity: -1 })).toMatchObject({ count: 9, gravity: -1 });
   });
 });

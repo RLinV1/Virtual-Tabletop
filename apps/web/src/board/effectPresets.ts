@@ -1,5 +1,5 @@
 import type { ISourceOptions } from "@tsparticles/engine";
-import type { AnimationDef, AttackStyle, ConditionId, Point } from "@vtt/shared";
+import { ANIMATION_SHAPES, type AnimationDef, type AnimationShape, type AttackStyle, type ConditionId, type Point } from "@vtt/shared";
 
 /**
  * The look of every effect the overlay draws (board-effects-overlay). Pure data and arithmetic: no
@@ -179,32 +179,123 @@ export const IMPACT_S = 0.5;
 
 // ---------- built-in attack and nuke animations (ADR 0038) ----------
 
+/** A definition with every optional field filled in. */
+export type FullAnimationDef = Required<AnimationDef>;
+
+type Look = Pick<FullAnimationDef, "duration" | "primary" | "secondary" | "accent" | "size" | "particles" | "glow" | "shake" | "flash">;
+type Tuning = Pick<FullAnimationDef, "count" | "spread" | "arc" | "trail" | "spin" | "gravity" | "rings" | "particleShape">;
+
+function preset(shape: AnimationShape, look: Look, tuning: Tuning): FullAnimationDef {
+  return { shape, ...look, ...tuning };
+}
+
+/**
+ * One tuned default preset per shape: the look a shape has when nobody has edited it. Choosing a
+ * shape in the library editor loads its preset, an attack style with no animation plays one, and a
+ * stored definition that lacks the later fields reads with the missing ones from here.
+ */
+export const SHAPE_DEFAULTS: Record<AnimationShape, FullAnimationDef> = {
+  slash: preset("slash", { duration: 0.9, primary: "#ff8a1f", secondary: "#ffd24a", accent: "#fff1b8", size: 1.4, particles: 28, glow: 0.7, shake: 0.5, flash: 0.45 },
+    { count: 1, spread: 0.3, arc: 0.45, trail: 0.6, spin: 0.3, gravity: 0.5, rings: 2, particleShape: "spark" }),
+  claw: preset("claw", { duration: 0.9, primary: "#e11d48", secondary: "#fda4af", accent: "#fff1f2", size: 1.3, particles: 30, glow: 0.6, shake: 0.55, flash: 0.35 },
+    { count: 3, spread: 0.35, arc: 0.45, trail: 0.55, spin: 0.3, gravity: 0.5, rings: 1, particleShape: "shard" }),
+  whirlwind: preset("whirlwind", { duration: 1.4, primary: "#38bdf8", secondary: "#e0f2fe", accent: "#a7f3d0", size: 1.3, particles: 30, glow: 0.7, shake: 0.4, flash: 0.3 },
+    { count: 4, spread: 0.45, arc: 0.5, trail: 0.6, spin: 0.7, gravity: 0.2, rings: 2, particleShape: "shard" }),
+  slam: preset("slam", { duration: 1.2, primary: "#b45309", secondary: "#fcd34d", accent: "#fef3c7", size: 1.4, particles: 40, glow: 0.55, shake: 0.9, flash: 0.5 },
+    { count: 8, spread: 0.6, arc: 0.6, trail: 0.5, spin: 0.3, gravity: 0.7, rings: 3, particleShape: "square" }),
+  shadow: preset("shadow", { duration: 1, primary: "#7c3aed", secondary: "#c4b5fd", accent: "#f0abfc", size: 1.2, particles: 30, glow: 0.8, shake: 0.35, flash: 0.35 },
+    { count: 5, spread: 0.5, arc: 0.5, trail: 0.7, spin: 0.2, gravity: -0.1, rings: 1, particleShape: "shard" }),
+  projectile: preset("projectile", { duration: 1, primary: "#9ad7ff", secondary: "#e8f6ff", accent: "#ffffff", size: 1.1, particles: 22, glow: 0.65, shake: 0.25, flash: 0.35 },
+    { count: 1, spread: 0.3, arc: 0.4, trail: 0.55, spin: 0.4, gravity: 0.4, rings: 2, particleShape: "spark" }),
+  volley: preset("volley", { duration: 1.3, primary: "#a3e635", secondary: "#ecfccb", accent: "#fef08a", size: 1.1, particles: 24, glow: 0.5, shake: 0.3, flash: 0.25 },
+    { count: 7, spread: 0.6, arc: 0.7, trail: 0.5, spin: 0.2, gravity: 0.5, rings: 1, particleShape: "square" }),
+  dagger: preset("dagger", { duration: 1, primary: "#cbd5e1", secondary: "#f8fafc", accent: "#fb7185", size: 1.1, particles: 24, glow: 0.55, shake: 0.3, flash: 0.3 },
+    { count: 3, spread: 0.5, arc: 0.4, trail: 0.5, spin: 0.7, gravity: 0.4, rings: 1, particleShape: "shard" }),
+  fireball: preset("fireball", { duration: 1.4, primary: "#f97316", secondary: "#fde68a", accent: "#fff7ed", size: 1.4, particles: 70, glow: 0.9, shake: 0.6, flash: 0.7 },
+    { count: 1, spread: 0.3, arc: 0.35, trail: 0.7, spin: 0.5, gravity: -0.3, rings: 2, particleShape: "spark" }),
+  meteor: preset("meteor", { duration: 1.5, primary: "#ea580c", secondary: "#fcd34d", accent: "#fef9c3", size: 1.6, particles: 80, glow: 0.85, shake: 0.85, flash: 0.75 },
+    { count: 1, spread: 0.4, arc: 0.45, trail: 0.75, spin: 0.6, gravity: 0.6, rings: 3, particleShape: "square" }),
+  explosion: preset("explosion", { duration: 1.5, primary: "#ef4444", secondary: "#fde047", accent: "#f97316", size: 1.5, particles: 70, glow: 0.9, shake: 0.8, flash: 0.8 },
+    { count: 6, spread: 0.6, arc: 0.5, trail: 0.5, spin: 0.5, gravity: 0.6, rings: 3, particleShape: "square" }),
+  bolt: preset("bolt", { duration: 1.3, primary: "#a855f7", secondary: "#e9b8ff", accent: "#ffffff", size: 1.3, particles: 44, glow: 0.9, shake: 0.4, flash: 0.55 },
+    { count: 1, spread: 0.3, arc: 0.55, trail: 0.5, spin: 0.3, gravity: 0, rings: 2, particleShape: "star" }),
+  chain: preset("chain", { duration: 1.5, primary: "#facc15", secondary: "#fef9c3", accent: "#60a5fa", size: 1.1, particles: 40, glow: 0.95, shake: 0.35, flash: 0.5 },
+    { count: 4, spread: 0.6, arc: 0.5, trail: 0.5, spin: 0.3, gravity: 0, rings: 1, particleShape: "star" }),
+  beam: preset("beam", { duration: 1.4, primary: "#22d3ee", secondary: "#cffafe", accent: "#ffffff", size: 1.2, particles: 40, glow: 0.95, shake: 0.3, flash: 0.4 },
+    { count: 1, spread: 0.3, arc: 0.2, trail: 0.67, spin: 0.5, gravity: -0.2, rings: 2, particleShape: "spark" }),
+  frost: preset("frost", { duration: 1.4, primary: "#38bdf8", secondary: "#e0f2fe", accent: "#ffffff", size: 1.3, particles: 50, glow: 0.7, shake: 0.4, flash: 0.4 },
+    { count: 7, spread: 0.55, arc: 0.3, trail: 0.6, spin: 0.4, gravity: 0.1, rings: 2, particleShape: "shard" }),
+  poison: preset("poison", { duration: 1.6, primary: "#22c55e", secondary: "#bef264", accent: "#a3e635", size: 1.3, particles: 40, glow: 0.7, shake: 0.15, flash: 0.2 },
+    { count: 8, spread: 0.5, arc: 0.5, trail: 0.6, spin: 0.4, gravity: -0.5, rings: 1, particleShape: "ring" }),
+  smite: preset("smite", { duration: 1.5, primary: "#fbbf24", secondary: "#fffbeb", accent: "#fde68a", size: 1.4, particles: 50, glow: 1, shake: 0.5, flash: 0.8 },
+    { count: 1, spread: 0.4, arc: 0.2, trail: 0.6, spin: 0.5, gravity: -0.7, rings: 3, particleShape: "star" }),
+  sonic: preset("sonic", { duration: 1.2, primary: "#2dd4bf", secondary: "#ccfbf1", accent: "#ffffff", size: 1.2, particles: 24, glow: 0.7, shake: 0.7, flash: 0.3 },
+    { count: 4, spread: 0.6, arc: 0.3, trail: 0.5, spin: 0.5, gravity: 0, rings: 2, particleShape: "ring" }),
+  tornado: preset("tornado", { duration: 1.7, primary: "#94a3b8", secondary: "#e2e8f0", accent: "#4ade80", size: 1.4, particles: 40, glow: 0.5, shake: 0.6, flash: 0.2 },
+    { count: 3, spread: 0.5, arc: 0.5, trail: 0.6, spin: 0.8, gravity: -0.2, rings: 1, particleShape: "square" }),
+  nuke: preset("nuke", { duration: 1.8, primary: "#ff6a00", secondary: "#fff4d6", accent: "#ffd24a", size: 3, particles: 120, glow: 0.9, shake: 0.9, flash: 0.9 },
+    { count: 1, spread: 0.5, arc: 0.5, trail: 0.5, spin: 0.5, gravity: 0.3, rings: 3, particleShape: "spark" }),
+};
+
+/** A definition ready to draw: every field filled; the accent stays missing when the definition has none (a tint of the primary is used). */
+export type ResolvedAnimation = Omit<FullAnimationDef, "accent"> & { accent?: string };
+
+/** `def` with every field it leaves out taken from the default preset of its shape. */
+export function withDefaults(def: AnimationDef): ResolvedAnimation {
+  const base = SHAPE_DEFAULTS[def.shape];
+  return {
+    ...def,
+    particleShape: def.particleShape ?? base.particleShape,
+    count: def.count ?? base.count,
+    spread: def.spread ?? base.spread,
+    arc: def.arc ?? base.arc,
+    trail: def.trail ?? base.trail,
+    spin: def.spin ?? base.spin,
+    gravity: def.gravity ?? base.gravity,
+    rings: def.rings ?? base.rings,
+  };
+}
+
 /** Built-in look of each attack style, used when an attack names no animation of its own. */
 export const ATTACK_STYLE_PRESETS: Record<AttackStyle, AnimationDef> = {
-  melee: { shape: "slash", duration: 0.9, primary: "#ff8a1f", secondary: "#ffd24a", size: 1.4, particles: 28, glow: 0.7, shake: 0.5, flash: 0.45 },
-  ranged: { shape: "projectile", duration: 1, primary: "#9ad7ff", secondary: "#e8f6ff", size: 1.1, particles: 22, glow: 0.65, shake: 0.25, flash: 0.35 },
-  magic: { shape: "bolt", duration: 1.3, primary: "#a855f7", secondary: "#e9b8ff", size: 1.3, particles: 44, glow: 0.9, shake: 0.4, flash: 0.55 },
+  melee: SHAPE_DEFAULTS.slash,
+  ranged: SHAPE_DEFAULTS.projectile,
+  magic: SHAPE_DEFAULTS.bolt,
 };
 
 /** The nuke's built-in blast: orange fire with a white flash and a heavy shake. */
-export const NUKE_PRESET: AnimationDef = {
-  shape: "nuke", duration: 1.8, primary: "#ff6a00", secondary: "#fff4d6", size: 3, particles: 120, glow: 0.9, shake: 0.9, flash: 0.9,
+export const NUKE_PRESET: AnimationDef = SHAPE_DEFAULTS.nuke;
+
+/** Display name of each shape's built-in, for the library's "Start from built-in" and the nuke picker. */
+const BUILTIN_NAMES: Record<AnimationShape, string> = {
+  slash: "Melee slash",
+  claw: "Claw rake",
+  whirlwind: "Whirlwind blades",
+  slam: "Ground slam",
+  shadow: "Shadow strike",
+  projectile: "Ranged projectile",
+  volley: "Arrow volley",
+  dagger: "Thrown daggers",
+  fireball: "Fireball",
+  meteor: "Meteor",
+  explosion: "Explosion",
+  bolt: "Magic bolt",
+  chain: "Chain lightning",
+  beam: "Arcane beam",
+  frost: "Frost spikes",
+  poison: "Poison cloud",
+  smite: "Holy smite",
+  sonic: "Sonic wave",
+  tornado: "Tornado",
+  nuke: "Nuke",
 };
 
-/** Starting points for the other shapes; they are only used once a GM copies one into the library. */
-const CLAW_PRESET: AnimationDef = { shape: "claw", duration: 0.9, primary: "#e11d48", secondary: "#fda4af", size: 1.3, particles: 30, glow: 0.6, shake: 0.55, flash: 0.35 };
-const FIREBALL_PRESET: AnimationDef = { shape: "fireball", duration: 1.4, primary: "#f97316", secondary: "#fde68a", size: 1.4, particles: 70, glow: 0.9, shake: 0.6, flash: 0.7 };
-const METEOR_PRESET: AnimationDef = { shape: "meteor", duration: 1.5, primary: "#ea580c", secondary: "#fcd34d", size: 1.6, particles: 80, glow: 0.85, shake: 0.85, flash: 0.75 };
-const BEAM_PRESET: AnimationDef = { shape: "beam", duration: 1.4, primary: "#22d3ee", secondary: "#cffafe", size: 1.2, particles: 40, glow: 0.95, shake: 0.3, flash: 0.4 };
+/** Ids the first built-ins had before every shape got one; saved links and tests use them. */
+const BUILTIN_IDS: Partial<Record<AnimationShape, string>> = { slash: "builtin-melee", projectile: "builtin-ranged", bolt: "builtin-magic" };
 
-/** Every built-in with a display name, for the library's "Start from built-in" and the nuke picker. */
-export const BUILTIN_ANIMATIONS: ReadonlyArray<{ id: string; name: string; def: AnimationDef }> = [
-  { id: "builtin-melee", name: "Melee slash", def: ATTACK_STYLE_PRESETS.melee },
-  { id: "builtin-claw", name: "Claw rake", def: CLAW_PRESET },
-  { id: "builtin-ranged", name: "Ranged projectile", def: ATTACK_STYLE_PRESETS.ranged },
-  { id: "builtin-fireball", name: "Fireball", def: FIREBALL_PRESET },
-  { id: "builtin-meteor", name: "Meteor", def: METEOR_PRESET },
-  { id: "builtin-magic", name: "Magic bolt", def: ATTACK_STYLE_PRESETS.magic },
-  { id: "builtin-beam", name: "Arcane beam", def: BEAM_PRESET },
-  { id: "builtin-nuke", name: "Nuke", def: NUKE_PRESET },
-];
+/** Every shape's default preset with a display name, in shape order. */
+export const BUILTIN_ANIMATIONS: ReadonlyArray<{ id: string; name: string; def: AnimationDef }> = ANIMATION_SHAPES.map((shape) => ({
+  id: BUILTIN_IDS[shape] ?? `builtin-${shape}`,
+  name: BUILTIN_NAMES[shape],
+  def: SHAPE_DEFAULTS[shape],
+}));
