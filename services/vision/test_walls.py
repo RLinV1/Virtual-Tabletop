@@ -4,11 +4,13 @@ import base64
 import math
 import os
 import unittest
+from unittest import mock
 
 import cv2
 import numpy as np
 
-from walls import MAX_WALLS, analyze, decode, detect_walls
+import walls
+from walls import MAX_WALLS, analyze, decode, detect_model, detect_walls
 
 CELL = 70
 SIZE = (980, 1400)  # height, width
@@ -120,6 +122,12 @@ ROOM_PERIMETER = sum(2 * (x2 - x1) + 2 * (y2 - y1) for x1, y1, x2, y2 in ROOMS)
 
 
 class WallDetectionTest(unittest.TestCase):
+    def setUp(self):
+        # These tests cover the rule-based detector, so keep the learned model (models/walls.onnx) out of them.
+        patcher = mock.patch.object(walls, "_load_model", return_value=None)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def assert_finds_rooms(self, img: np.ndarray):
         walls = detect_walls(img, CELL)["walls"]
         self.assertTrue(walls)
@@ -252,6 +260,64 @@ class WallDetectionTest(unittest.TestCase):
             decode(b"", 10, 10)
         with self.assertRaises(ValueError):
             decode(encode(floor(1)), 20_000, 20_000)
+
+
+@unittest.skipUnless(os.path.exists(walls.MODEL_PATH), "models/walls.onnx is not present")
+class ShippedModel(unittest.TestCase):
+    """The ONNX model that ships in models/ loads on the CPU and finds the rooms of a clean ink map."""
+
+    def test_the_shipped_model_finds_the_rooms_of_an_ink_map(self):
+        result = detect_model(ink_dungeon(), CELL)
+        found = result["walls"]
+        self.assertTrue(found)
+        on_rooms = [w for w in found if near_room_edge(w)]
+        self.assertGreaterEqual(total_length(on_rooms) / total_length(found), 0.8)
+        self.assertGreaterEqual(total_length(on_rooms) / ROOM_PERIMETER, 0.6)
+
+
+class WallConfidence(unittest.TestCase):
+    """Per-wall confidence from the learned model (wall-review, ADR 0038)."""
+
+    def test_confidence_is_the_mean_probability_along_a_segment(self):
+        probability = np.zeros((100, 100), np.float32)
+        probability[40:60, :] = 0.9
+        self.assertAlmostEqual(walls._confidence(probability, (5, 50, 95, 50)), 0.9, places=2)
+        self.assertEqual(walls._confidence(probability, (5, 10, 95, 10)), 0.0)
+        # Crossing the band covers a fifth of the samples; an end past the edge is clamped, not an error.
+        self.assertTrue(0.1 < walls._confidence(probability, (50, 0, 50, 99)) < 0.3)
+        self.assertIsInstance(walls._confidence(probability, (-5, 50, 120, 50)), float)
+
+    def test_model_walls_carry_confidence_and_a_weak_wall_scores_lower(self):
+        image = floor(7)
+
+        def probability(work, _net):
+            p = np.zeros(work.shape[:2], np.float32)
+            p[90:110, 40:400] = 0.95  # a clear wall
+            p[60:380, 490:510] = 0.5  # a faint one
+            return p
+
+        with mock.patch.object(walls, "_load_model", return_value=object()), mock.patch.object(walls, "_wall_probability", probability):
+            result = detect_model(image, CELL, threshold=0.4)
+        self.assertTrue(result["walls"])
+        for wall in result["walls"]:
+            self.assertGreaterEqual(wall["confidence"], 0.0)
+            self.assertLessEqual(wall["confidence"], 1.0)
+            self.assertEqual(set(wall), {"a", "b", "confidence"})
+        horizontal = [w for w in result["walls"] if abs(w["a"]["y"] - w["b"]["y"]) < 5]
+        vertical = [w for w in result["walls"] if abs(w["a"]["x"] - w["b"]["x"]) < 5]
+        self.assertTrue(horizontal and vertical)
+        self.assertGreater(min(w["confidence"] for w in horizontal), 0.85)
+        self.assertLess(max(w["confidence"] for w in vertical), 0.6)
+
+    def test_rule_based_walls_have_no_confidence(self):
+        result = detect_walls(ink_dungeon(), CELL, style="dark")
+        self.assertTrue(result["walls"])
+        self.assertTrue(all("confidence" not in w for w in result["walls"]))
+
+    def test_analyze_keeps_confidence_through_the_minimum_length_filter(self):
+        with mock.patch.object(walls, "detect_walls", return_value={"walls": [{"a": {"x": 0, "y": 0}, "b": {"x": 400, "y": 0}, "confidence": 0.4}], "mask": "model", "score": 1}):
+            result = analyze(encode(floor(3)), SIZE[1], SIZE[0], CELL, min_length=1)
+        self.assertEqual(result["walls"][0]["confidence"], 0.4)
 
 
 if __name__ == "__main__":
