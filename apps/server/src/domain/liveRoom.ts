@@ -15,6 +15,9 @@ import {
   replayTo,
   tableOf,
   referencedAssetIds,
+  LibraryMapBoard,
+  EMPTY_LIBRARY_BOARD,
+  type ResolvedLibraryMap,
   type Command,
   type CommittedEvent,
   type DetectedWallsResponse,
@@ -238,6 +241,22 @@ export class LiveRoom {
         encounterTemplate = (id) => (encounter && encounter.id === id ? encounter : null);
       }
       let lease: UvttLease | undefined;
+      let libraryMap: ResolvedLibraryMap | null | undefined;
+      if (command.type === "scene.setMap" && command.includeLibraryBoard) {
+        if (!can.administer(actor)) return { ok: false, code: "forbidden", message: "Only the GM can apply a library map." };
+        try {
+          const member = await this.store.findMemberByParticipant(this.roomId, actorId);
+          const user = member ? await this.store.findUserById(member.userId) : null;
+          const asset = user && command.map.assetId ? await this.store.findAsset(command.map.assetId, user.ownerId) : null;
+          const board = LibraryMapBoard.safeParse(asset?.board ?? EMPTY_LIBRARY_BOARD);
+          libraryMap = asset?.kind === "map" && board.success ? {
+            map: { url: asset.url, width: asset.width, height: asset.height, assetId: asset.id },
+            grid: asset.grid, board: board.data,
+          } : null;
+        } catch {
+          return { ok: false, code: "invalid", message: "Could not read your library map. Your draft has been kept; try Apply again." };
+        }
+      }
       if (command.type === "scene.importUVTT") {
         if (!can.administer(actor)) return { ok: false, code: "forbidden", message: "Only the GM can import a map." };
         lease = this.hooks.uvttLease?.(this.roomId, actorId, command.importId, command.revision);
@@ -249,6 +268,7 @@ export class LiveRoom {
         const decision = decide(this.state, actor, command, {
           newId: randomUUID,
           preparedUvtt: lease?.ok ? lease.scene : undefined,
+          libraryMap,
           random: secureRandom,
           ownedDiceLook,
           lastSeq: this.seq,
@@ -268,6 +288,7 @@ export class LiveRoom {
           console.error("[vtt] uvtt application failed", { code: "append_failed" });
           return { ok: false, code: "invalid", message: "Could not save the imported scene. Your draft has been kept; try Apply again." };
         }
+        if (command.type === "scene.setMap" && command.includeLibraryBoard) return { ok: false, code: "invalid", message: "Could not save the library map. Your draft has been kept; try Apply again." };
         throw error;
       } finally {
         if (lease?.ok) lease.finish?.();

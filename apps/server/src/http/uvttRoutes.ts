@@ -1,20 +1,22 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { rm } from "node:fs/promises";
 import path from "node:path";
 import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import multer from "multer";
-import { MAX_UVTT_BYTES, UvttDraftEdit, UvttError } from "@vtt/shared";
+import { DEFAULT_GRID, UvttDraftEdit, UvttError } from "@vtt/shared";
 import { hashToken } from "../domain/credentials";
 import type { LiveRoom } from "../domain/liveRoom";
 import type { RoomRegistry } from "../domain/roomRegistry";
 import { RateLimiter } from "../identity/rateLimit";
 import type { Sessions } from "../identity/sessions";
+import { requireAccount } from "../identity/middleware";
 import type { AssetStore } from "../store/assetStore";
+import type { LibraryAssetRecord } from "../store/libraryStore";
 import type { RoomStore } from "../store/roomStore";
 import { exportUvttScene } from "../uvtt/exportScene";
 import type { UvttPreparations } from "../uvtt/preparations";
 import type { UvttValidationPool } from "../uvtt/validationPool";
+import { createUvttLibraryMap, receiveUvtt, writeUvttImage } from "../uvtt/uploads";
+import { toWire } from "./library";
 
 interface Deps { store: RoomStore; registry: RoomRegistry; sessions: Sessions; assets: AssetStore; preparations: UvttPreparations; pool: UvttValidationPool; uploadDir: string; builtinImageDir: string | null; now: () => number }
 interface Auth { room: LiveRoom; actorId: string; roomId: string }
@@ -24,14 +26,37 @@ const expired = "This preparation expired or the server restarted. Re-import the
 export function registerUvttRoutes(app: Express, deps: Deps) {
   const auths = new WeakMap<Request, Auth>();
   const attempts = new RateLimiter(5, 60_000, deps.now);
-  const upload = multer({ dest: os.tmpdir(), limits: { fileSize: MAX_UVTT_BYTES, files: 1, fields: 0, parts: 1 },
-    fileFilter: (_req, file, cb) => cb(null, /\.(?:uvtt|dd2vtt|df2vtt)$/i.test(file.originalname)),
-  }).single("file");
   const base = "/api/rooms/:roomId/uvtt";
   const failure = (res: Response, error: unknown) => {
-    if (error instanceof UvttError) res.status(error.issues[0]?.code === "revision_conflict" ? 409 : error.issues[0]?.code === "validation_busy" ? 503 : 422).json({ error: error.message, issues: error.issues });
+    if (error instanceof multer.MulterError) res.status(error.code === "LIMIT_FILE_SIZE" ? 413 : 400).json({ error: "Use one UVTT file, at most 40 MiB, without additional fields." });
+    else if (error instanceof UvttError) res.status(error.issues[0]?.code === "unsupported_file" ? 415 : error.issues[0]?.code === "revision_conflict" ? 409 : error.issues[0]?.code === "validation_busy" ? 503 : 422).json({ error: error.message, issues: error.issues });
     else res.status(500).json({ error: "Could not process this map. Try again." });
   };
+  // The library saves immediately, like image uploads. There is no room or transient draft to publish.
+  app.post("/api/library/uvtt/imports", (req, res) => {
+    void (async () => {
+      const account = requireAccount(res);
+      if (!account) return;
+      res.setHeader("Cache-Control", "no-store");
+      attempts.sweep();
+      const limit = attempts.hit(`library:${account.user.ownerId}`);
+      if (!limit.ok) { res.setHeader("Retry-After", limit.retryAfterSec); res.status(429).json({ error: "Too many import attempts. Try again in a minute." }); return; }
+      const started = deps.now();
+      let code = "rejected";
+      try {
+        const { validated, filename } = await receiveUvtt(req, res, deps.pool, DEFAULT_GRID);
+        if (!await deps.sessions.isLive(account.session.tokenHash)) { res.status(401).json({ error: "Your sign-in ended during validation. Sign in and upload again." }); return; }
+        const asset = await createUvttLibraryMap(deps.store, deps.assets, deps.uploadDir, account.user.ownerId, filename, validated);
+        code = "saved";
+        res.status(201).json({ asset: toWire(asset), diagnostics: validated.diagnostics });
+      } catch (error) {
+        code = error instanceof UvttError ? error.issues[0]?.code ?? "validation_failed" : error instanceof multer.MulterError ? error.code : "storage_failed";
+        failure(res, error);
+      } finally {
+        console.info("[vtt] library uvtt validation", { code, durationMs: Math.max(0, deps.now() - started) });
+      }
+    })().catch((error: unknown) => { if (!res.headersSent) failure(res, error); });
+  });
   const authorize = async (req: Request): Promise<Auth | null> => {
     const roomId = req.params.roomId;
     const header = req.headers.authorization;
@@ -51,6 +76,12 @@ export function registerUvttRoutes(app: Express, deps: Deps) {
   app.post(`${base}/imports`, guard, (req, res) => {
     void (async () => {
       const auth = auths.get(req)!;
+      const account = req.query.saveToLibrary === "1" ? requireAccount(res) : null;
+      if (req.query.saveToLibrary === "1") {
+        if (!account) return;
+        const member = await deps.store.findMemberByParticipant(auth.roomId, auth.actorId);
+        if (member?.userId !== account.user.id) { res.status(403).json({ error: "Sign in as this room's GM to save uploads to your library." }); return; }
+      }
       attempts.sweep();
       const limit = attempts.hit(`${auth.roomId}:${auth.actorId}`);
       if (!limit.ok) { res.setHeader("Retry-After", limit.retryAfterSec); res.status(429).json({ error: "Too many import attempts. Try again in a minute." }); return; }
@@ -58,42 +89,41 @@ export function registerUvttRoutes(app: Express, deps: Deps) {
       deps.preparations.assertCanCreate(auth.roomId, auth.actorId, ownerId);
       const baseline = await auth.room.captureScene(auth.actorId);
       if (!baseline) { res.status(403).json({ error: "Your GM seat ended." }); return; }
-      let rawPath: string | undefined;
       let imagePath: string | undefined;
       let key: string | undefined;
+      let libraryAsset: LibraryAssetRecord | undefined;
       let retained = false;
       let validationCode = "rejected";
       const started = deps.now();
       try {
-        await new Promise<void>((resolve, reject) => upload(req, res, (error: unknown) => error ? reject(error) : resolve()));
-        rawPath = req.file?.path;
-        if (!req.file) { validationCode = "unsupported_file"; res.status(415).json({ error: "Choose a .uvtt, .dd2vtt or .df2vtt file." }); return; }
-        const validated = await deps.pool.validate(req.file.path, baseline.grid);
+        const { validated, filename } = await receiveUvtt(req, res, deps.pool, baseline.grid);
         // Authorization can end while the worker runs; do not retain an orphaned upload.
         if (!await authorize(req)) { validationCode = "credential_ended"; res.status(403).json({ error: "Your GM credential ended during validation." }); return; }
-        key = `${randomUUID()}.${validated.contentType === "image/png" ? "png" : "webp"}`;
-        await mkdir(deps.uploadDir, { recursive: true });
-        imagePath = path.join(deps.uploadDir, key);
-        await writeFile(imagePath, validated.image, { flag: "wx" });
-        const url = await deps.assets.put(imagePath, key, validated.contentType);
-        await deps.store.recordRoomUpload(auth.roomId, key, "map", validated.width, validated.height);
-        // Skip grid detection for a UVTT map, whose grid is already supplied.
-        const target = { scope: "room" as const, roomId: auth.roomId, objectKey: key };
-        await deps.store.markDetectionRunning(target, 1);
-        await deps.store.finishDetection(target, 1, { status: "no_grid" });
+        if (account && !await deps.sessions.isLive(account.session.tokenHash)) { validationCode = "credential_ended"; res.status(401).json({ error: "Your sign-in ended during validation." }); return; }
+        let url: string;
+        if (account) {
+          libraryAsset = await createUvttLibraryMap(deps.store, deps.assets, deps.uploadDir, account.user.ownerId, filename, validated);
+          key = libraryAsset.objectKey; imagePath = path.join(deps.uploadDir, key); url = libraryAsset.url;
+        } else {
+          const image = await writeUvttImage(deps.assets, deps.uploadDir, validated);
+          key = image.key; imagePath = image.imagePath; url = image.url;
+          await deps.store.recordRoomUpload(auth.roomId, key, "map", validated.width, validated.height);
+          // Skip grid detection for a UVTT map, whose grid is already supplied.
+          const target = { scope: "room" as const, roomId: auth.roomId, objectKey: key };
+          await deps.store.markDetectionRunning(target, 1);
+          await deps.store.finishDetection(target, 1, { status: "no_grid" });
+        }
         const preparation = deps.preparations.create(auth.roomId, auth.actorId, {
-          map: { url, width: validated.width, height: validated.height }, grid: validated.grid,
+          map: { url, width: validated.width, height: validated.height, ...(libraryAsset && { assetId: libraryAsset.id }) }, grid: validated.grid,
           walls: validated.walls, diagnostics: validated.diagnostics,
         }, baseline, ownerId);
         retained = true;
         res.status(201).json(preparation);
       } catch (error) {
         validationCode = error instanceof UvttError ? error.issues[0]?.code ?? "validation_failed" : error instanceof multer.MulterError ? error.code : "storage_failed";
-        if (error instanceof multer.MulterError) res.status(error.code === "LIMIT_FILE_SIZE" ? 413 : 400).json({ error: "Use one UVTT file, at most 40 MiB, without additional fields." });
-        else failure(res, error);
+        failure(res, error);
       } finally {
-        rawPath ??= req.file?.path;
-        if (rawPath) await rm(rawPath, { force: true });
+        if (!retained && libraryAsset) await deps.store.deleteAsset(libraryAsset.id, libraryAsset.ownerGmId).catch(() => {});
         if (!retained && key) await deps.assets.delete(key).catch(() => {});
         if (!retained && imagePath) await rm(imagePath, { force: true });
         // Bounded operational metadata only; no names, paths, JSON or image data.

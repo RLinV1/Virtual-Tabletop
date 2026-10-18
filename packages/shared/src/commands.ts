@@ -82,6 +82,8 @@ export const Command = z.discriminatedUnion("type", [
     map: MapImage,
     /** A library map's saved grid, copied into the room in the same event (ADR 0004). */
     grid: GridSpec.optional(),
+    /** Resolve the owned map's saved geometry on the server and apply it in the same MapSet. */
+    includeLibraryBoard: z.boolean().optional(),
   }),
   z.object({ type: z.literal("scene.importUVTT"), importId: Id, revision: z.number().int().positive(), tokenPolicy: z.enum(MAP_TOKEN_POLICIES).optional() }).strict(),
   z.object({

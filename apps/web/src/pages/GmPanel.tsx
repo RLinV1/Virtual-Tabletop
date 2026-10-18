@@ -20,7 +20,6 @@ import { WallSetup } from "./mapEditor/WallSetup";
 import { draftConnection } from "./mapEditor/draftConnection";
 import { draftDirty, draftFrom, planDraftSave, type MapDraft } from "./mapEditor/mapDraft";
 import { adjustedMessage, offersTokenPolicy, prepCommand, prepDirty, startPrep, startUvttPrep, TOKEN_POLICY_CHOICES, type MapPrep } from "./mapPrep";
-import { commandsForBoard } from "./mapEditor/libraryBoardDraft";
 import { FULL_ROOM, type RoomFeatures } from "./encounterEdit/roomFeatures";
 
 interface Props {
@@ -457,7 +456,6 @@ function MapSection(props: {
       }
       if (applied) {
         setChangedMapUrl(askPolicy ? prep.map.url : null); setUndoError(null); discardPrep();
-        if (!prep.uvtt) void copyLibraryBoard(prep.map);
         setStep("walls");
       }
       return applied;
@@ -477,23 +475,6 @@ function MapSection(props: {
     } catch (err) { setPrepError(err instanceof Error ? err.message : "Export failed."); }
     finally { setExporting(false); }
   };
-  /**
-   * A library map brings the walls and fog prepared on it (ADR 0037), adding to the walls and fog the
-   * room already has. A map with none leaves them as they are.
-   */
-  const copyLibraryBoard = async (placed: MapImage) => {
-    if (!placed.assetId || !props.hasLibrary) return;
-    try {
-      const board = await api.library.board(placed.assetId);
-      if (board.walls.length === 0 && board.fog.length === 0) return;
-      for (const command of commandsForBoard(board, placed.url)) {
-        const result = await props.connection.command(command);
-        if (!result.ok) throw new Error(result.message);
-      }
-    } catch (err) {
-      props.onError(`The map was applied, but its saved walls and fog could not be added: ${err instanceof Error ? err.message : "unknown error"}`);
-    }
-  };
   // A grid being edited belongs to the map it was edited for.
   const previousMap = useRef(props.mapUrl);
   useEffect(() => {
@@ -510,7 +491,9 @@ function MapSection(props: {
     const generation = ++prepGeneration.current;
     try {
       if (/\.(?:uvtt|dd2vtt|df2vtt)$/i.test(file.name)) {
-        const result = await api.uvtt.prepare(props.roomId, props.token, file);
+        const result = props.hasLibrary && saveToLibrary
+          ? await api.uvtt.prepare(props.roomId, props.token, file, { saveToLibrary: true })
+          : await api.uvtt.prepare(props.roomId, props.token, file);
         if (generation !== prepGeneration.current) { await api.uvtt.discard(props.roomId, props.token, result.id); return; }
         if (prep?.uvtt) void api.uvtt.discard(props.roomId, props.token, prep.uvtt.id).catch(() => {});
         setPrep(startUvttPrep(result)); setPrepError(null); setStep("grid"); setEditorOpen(true); return;
@@ -558,7 +541,6 @@ function MapSection(props: {
     if (!command) return setPickError("This map's saved grid isn't valid. Upload it, or fix it in your library.");
     if (await props.onSetMap(command, setPickError)) {
       setPicking(false);
-      void copyLibraryBoard(map);
     }
   };
 
@@ -664,6 +646,7 @@ function MapSection(props: {
                       <span>Also save uploads to my library</span>
                     </label>
                   )}
+                  {props.hasLibrary && saveToLibrary && <p className="muted">Uploads are saved to your library immediately. Grid and wall edits here affect this room's draft.</p>}
                   <label className="upload-button">
                     <span>{busy ? "Uploading…" : "Upload map"}</span>
                     <input

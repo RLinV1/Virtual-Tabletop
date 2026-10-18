@@ -14,6 +14,7 @@ import {
   type EncounterEditSession,
   type EncounterPreview,
   type LibraryMapBoard,
+  type LibraryUvttImportResponse,
   type EncounterSummary,
   type GridSpec,
   GridDetectionStatus,
@@ -143,9 +144,9 @@ async function roomRequest<T>(roomId: string, token: string, method: "GET" | "PO
 
 export const api = {
   uvtt: {
-    async prepare(roomId: string, token: string, file: File) {
+    async prepare(roomId: string, token: string, file: File, options?: { saveToLibrary: boolean }) {
       const body = new FormData(); body.append("file", file);
-      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/uvtt/imports`, { method: "POST", headers: { authorization: `Bearer ${token}` }, body });
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/uvtt/imports${options?.saveToLibrary ? "?saveToLibrary=1" : ""}`, { method: "POST", headers: { authorization: `Bearer ${token}` }, body });
       if (!res.ok) throw await errorFrom(res);
       return UvttPreparation.parse(await res.json());
     },
@@ -370,6 +371,10 @@ export const api = {
   /** The signed-in account's library (asset-library, ADR 0017 O1). */
   library: {
     list: () => accountRequest<LibraryAsset[]>("/api/library"),
+    importUvtt(file: File) {
+      const form = new FormData(); form.append("file", file);
+      return accountRequest<LibraryUvttImportResponse>("/api/library/uvtt/imports", { method: "POST", body: form });
+    },
 
     upload(file: File, fields: { kind: AssetKind; name: string; width: number; height: number }) {
       const form = new FormData();

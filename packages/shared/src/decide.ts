@@ -10,6 +10,7 @@ import { encounterTable, type ResolvedEncounter } from "./encounters";
 import { footprintCrossesWall, isSnapped, pathCrossesWall, polygonArea, resizedTokenCenter, snapTokenCenter, spreadPositions, type GridSpec, type Point } from "./geometry";
 import { canRenderGrid } from "./gridRenderLimit";
 import { adjustMapTokens } from "./mapTokenAdjustment";
+import { libraryBoardProblem, type ResolvedLibraryMap } from "./libraryBoard";
 import { normalizeName } from "./names";
 import type { SessionEndReason } from "./protocol";
 import { blocksMovement } from "./portals";
@@ -25,6 +26,7 @@ export type Decision =
   | { ok: false; code: RejectionCode; message: string };
 
 export interface DecideContext {
+  libraryMap?: ResolvedLibraryMap | null;
   preparedUvtt?: PreparedUvttScene;
   newId: () => string;
   /**
@@ -161,7 +163,10 @@ export function decide(
   switch (command.type) {
     case "scene.setMap": {
       if (!can.administer(actor)) return forbidden();
-      const grid = command.grid ?? state.scene.grid;
+      const library = command.includeLibraryBoard ? ctx.libraryMap : null;
+      if (command.includeLibraryBoard && (!library || !sameValue(library.map, command.map))) return reject("not_found", "This library map is unavailable or changed. Choose it again from your library.");
+      const grid = command.grid ?? library?.grid ?? state.scene.grid;
+      if (library && libraryBoardProblem(library.board, command.map)) return reject("invalid", "This library map's geometry is invalid. Fix it in your library before applying it.");
       if (!canRenderGrid(grid.cellSize, command.map)) {
         return reject("invalid", "Grid cell size creates too many lines for this map.");
       }
@@ -180,6 +185,10 @@ export function decide(
         gridChange: { grid, previous: state.scene.grid },
         tokenChanges: adjustment.changes,
         ...(command.map.url !== state.scene.map?.url ? { wallChange: { walls: [], previous: wallsOf(state) }, fogChange: { fog: [], previous: Object.values(state.fog) } } : {}),
+        ...(library ? {
+          wallChange: { walls: library.board.walls.map((wall) => ({ ...wall, id: ctx.newId() })), previous: wallsOf(state) },
+          fogChange: { fog: library.board.fog.map((region) => ({ ...region, id: ctx.newId() })), previous: Object.values(state.fog) },
+        } : {}),
       });
     }
 

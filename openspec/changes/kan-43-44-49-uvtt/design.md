@@ -2,11 +2,11 @@
 
 ## Context
 
-See proposal.md for scope. The initial integration combined main ec9aa66 with KAN-66/KAN-67 b7a8ba1, followed by main 37441e4. The current branch reconciles main e5adc64, preserving its library-map geometry, checkpoint previews, fog reshaping, animation features and learned wall detector alongside UVTT preparation and atomic Apply/Undo. ADRs 0042 (map-token adjustment) and 0041 (UVTT) replace our earlier 0036/0037 numbers, now occupied on main. The common wall editor and owned-library geometry reuse the same optional UVTT fields; no library UVTT file-import workflow is added. Both large geometry routes retain authorized 1 MiB parsers and the global JSON limit stays 64 KiB. Review approvals remain external gates.
+See proposal.md for scope. The initial integration combined main ec9aa66 with KAN-66/KAN-67 b7a8ba1, followed by main 37441e4. The current branch reconciles main e5adc64, preserving its library-map geometry, checkpoint previews, fog reshaping, animation features and learned wall detector alongside UVTT preparation and atomic Apply/Undo. ADRs 0042 (map-token adjustment) and 0041 (UVTT) replace our earlier 0036/0037 numbers, now occupied on main. The common wall editor and owned-library geometry reuse the same optional UVTT fields; the library UVTT file-import follow-up is specified in `library-uvtt-import` and ADR 0043. Both large geometry routes retain authorized 1 MiB parsers and the global JSON limit stays 64 KiB. Review approvals remain external gates.
 
 ## Goals / Non-Goals
 
-Publish only a complete server-validated image/grid/geometry, preserving generic portal data and exact undo. Do not infer door/window identity. Reuse the existing locking, fog-aware visibility and player portal controls; no new visibility engine, library import or multiple scenes.
+Publish only a complete server-validated image/grid/geometry, preserving generic portal data and exact undo. Do not infer door/window identity. Reuse the existing locking, fog-aware visibility and player portal controls; no new visibility engine or multiple scenes. Reusable library UVTT import is added by the separately scoped `library-uvtt-import` follow-up.
 
 ## Decisions
 

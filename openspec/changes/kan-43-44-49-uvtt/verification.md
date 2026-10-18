@@ -1,5 +1,7 @@
 # Verification — KAN-43/44/49 reconciliation
 
+The 2026-10-18 library UVTT follow-up, current main reconciliation and fresh validation/manual checklist are recorded in [library-uvtt-import/verification.md](../library-uvtt-import/verification.md). Earlier evidence below remains scoped to its recorded version and date.
+
 Recorded 2026-10-13 on macOS arm64. Local implementation branch: `feat/kan-43-44-49-uvtt`. This records implementation and automated evidence, not deployment or architecture approval.
 
 ## Baseline and review boundaries

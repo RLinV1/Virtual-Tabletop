@@ -20,6 +20,7 @@ This document covers architecture, stack, repository, and the running prototype.
 | [`adr/0035-chat-mentions.md`](adr/0035-chat-mentions.md) | `@` mentions recorded on chat messages (proposed) |
 | [`adr/0042-map-token-adjustment.md`](adr/0042-map-token-adjustment.md) | Atomic map/grid/token application and guarded undo (proposed) |
 | [`adr/0041-uvtt-scenes-and-portals.md`](adr/0041-uvtt-scenes-and-portals.md) | Private UVTT preparation, portal metadata and export (proposed) |
+| [`adr/0043-library-uvtt-import-and-atomic-placement.md`](adr/0043-library-uvtt-import-and-atomic-placement.md) | Complete reusable UVTT maps and atomic library placement (proposed) |
 | [`adr/0040-area-color-and-square-centre.md`](adr/0040-area-color-and-square-centre.md) | Area colours, hatched GM-only areas, squares placed by their centre (proposed) |
 
 ---

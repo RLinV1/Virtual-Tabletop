@@ -35,7 +35,7 @@ export function prepDirty(prep: MapPrep): boolean {
 /** The one command Apply sends: map and grid together, a single `MapSet` (ADR 0004). Null while the grid is invalid. */
 export function prepCommand(prep: MapPrep, tokenPolicy?: MapTokenPolicy): Extract<Command, { type: "scene.setMap" }> | null {
   const grid = parseGridDraft(prep.draft, prep.map);
-  return grid ? { type: "scene.setMap", map: prep.map, grid, ...(tokenPolicy ? { tokenPolicy } : {}) } : null;
+  return grid ? { type: "scene.setMap", map: prep.map, grid, ...(prep.map.assetId ? { includeLibraryBoard: true } : {}), ...(tokenPolicy ? { tokenPolicy } : {}) } : null;
 }
 
 /** The choices for tokens already on a map that is about to be replaced (KAN-67, ADR 0042). */

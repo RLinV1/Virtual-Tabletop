@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { polygonArea, Point } from "./geometry";
-import { FogShape, MAX_FOG_POINTS, MAX_FOG_REGIONS, MAX_WALLS, Wall } from "./state";
+import { polygonArea, Point, type GridSpec } from "./geometry";
+import { FogShape, MAX_FOG_POINTS, MAX_FOG_REGIONS, MAX_WALLS, Wall, type MapImage } from "./state";
 import { wallsFitMap } from "./wallDetection";
 
 /**
@@ -17,6 +17,9 @@ export const LibraryMapBoard = z
   })
   .strict();
 export type LibraryMapBoard = z.infer<typeof LibraryMapBoard>;
+
+/** Server-resolved, account-owned library map for atomic placement (ADR 0043). */
+export interface ResolvedLibraryMap { map: MapImage; grid: GridSpec | null; board: LibraryMapBoard }
 
 export const EMPTY_LIBRARY_BOARD: LibraryMapBoard = { walls: [], fog: [] };
 

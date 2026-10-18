@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { DEFAULT_GRID, emptyRoomState, type LibraryAsset, type LibraryMapBoard } from "@vtt/shared";
+import { DEFAULT_GRID, emptyRoomState, type LibraryAsset, type LibraryMapBoard, type UvttIssue } from "@vtt/shared";
 import { api } from "../../net/api";
 import { createDraftConnection } from "./draftConnection";
 import { Modal } from "../../ui/Modal";
@@ -21,9 +21,10 @@ const STEPS: { key: Step; label: string }[] = [
  * changes (ADR 0037); the Grid step is the library's own form and saves separately. Automatic wall
  * detection is not offered here, since it runs against a room.
  */
-export function LibraryMapEditor({ asset, gridStep, blockClose = false, onClose }: {
+export function LibraryMapEditor({ asset, gridStep, importDiagnostics, blockClose = false, onClose }: {
   /** The map being edited, or null when the editor is closed. */
   asset: LibraryAsset | null;
+  importDiagnostics?: UvttIssue[];
   /**
    * The Grid step's content, which saves the grid itself. It gets the editor's own close, which asks
    * before discarding unsaved walls or fog and returns whether the editor closed.
@@ -126,6 +127,8 @@ export function LibraryMapEditor({ asset, gridStep, blockClose = false, onClose 
     >
       <div className="map-editor-shell">
         <div className="map-editor-body" role="tabpanel">
+          {importDiagnostics && <p className="muted">Imported map saved to your library. Review its grid and geometry below.</p>}
+          {importDiagnostics && importDiagnostics.length > 0 && <details className="uvtt-diagnostics"><summary>{importDiagnostics.length} import warnings</summary><ul>{importDiagnostics.map((issue, i) => <li key={i}>{issue.path}: {issue.message}</li>)}</ul></details>}
           {step === "grid" && gridStep(closeGuarded)}
           {step !== "grid" && loadError && <p role="alert" className="error">{loadError}</p>}
           {step !== "grid" && !loadError && !state && <p className="muted">Loading…</p>}
