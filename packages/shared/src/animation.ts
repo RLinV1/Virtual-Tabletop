@@ -5,9 +5,19 @@ import { z } from "zod";
  * from any client, a GM can edit it in a form, and one renderer plays every look. The built-in
  * attack styles and the nuke are values of this type too.
  */
-export const ANIMATION_SHAPES = ["slash", "claw", "projectile", "fireball", "meteor", "bolt", "beam", "nuke"] as const;
+export const ANIMATION_SHAPES = [
+  "slash", "claw", "whirlwind", "slam", "shadow",
+  "projectile", "volley", "dagger", "fireball", "meteor", "explosion",
+  "bolt", "chain", "beam", "frost", "poison", "smite", "sonic", "tornado",
+  "nuke",
+] as const;
 export const AnimationShape = z.enum(ANIMATION_SHAPES);
 export type AnimationShape = z.infer<typeof AnimationShape>;
+
+/** How the sparks of an animation are drawn. */
+export const PARTICLE_SHAPES = ["spark", "star", "square", "shard", "ring"] as const;
+export const ParticleShape = z.enum(PARTICLE_SHAPES);
+export type ParticleShape = z.infer<typeof ParticleShape>;
 
 /** How an attack is drawn when the attack names no animation of its own. */
 export const AttackStyle = z.enum(["melee", "ranged", "magic"]);
@@ -33,6 +43,26 @@ export const AnimationDef = z.object({
   glow: Unit,
   shake: Unit,
   flash: Unit,
+  // Added after the first four shapes: every field below may be missing from an older stored
+  // definition, which then reads with its shape's default preset.
+  /** A third colour for the effect's palette; without one a tint of the primary is used. */
+  accent: HexColor.optional(),
+  /** How the sparks are drawn. */
+  particleShape: ParticleShape.optional(),
+  /** Hits: arrows, cuts, blades, chain jumps, spikes, puffs, arcs. */
+  count: z.number().int().min(1).max(12).optional(),
+  /** Fan, offset or width of the effect. */
+  spread: Unit.optional(),
+  /** Height of the flight curve. */
+  arc: Unit.optional(),
+  /** Length of trails and afterglow. */
+  trail: Unit.optional(),
+  /** Rotation speed. */
+  spin: Unit.optional(),
+  /** Particle gravity: -1 rises, 1 falls. */
+  gravity: z.number().min(-1).max(1).optional(),
+  /** Rings thrown out on impact. */
+  rings: z.number().int().min(0).max(5).optional(),
 });
 export type AnimationDef = z.infer<typeof AnimationDef>;
 

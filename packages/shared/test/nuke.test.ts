@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  ANIMATION_SHAPES,
   AnimationDef,
   AttackContext,
   Command,
@@ -149,6 +150,41 @@ describe("animation definitions (ADR 0038)", () => {
     ]) {
       expect(AnimationDef.safeParse(bad).success).toBe(false);
     }
+  });
+
+  it("still reads a stored definition that has none of the later fields (ADR 0038)", () => {
+    const parsed = AnimationDef.parse(slash);
+    expect(parsed.count).toBeUndefined();
+    expect(parsed.accent).toBeUndefined();
+    expect(parsed.particleShape).toBeUndefined();
+  });
+
+  it("accepts the later fields in range and rejects them out of range (ADR 0038)", () => {
+    const full = { ...slash, accent: "#00ff88", particleShape: "shard", count: 12, spread: 1, arc: 0, trail: 0.5, spin: 1, gravity: -1, rings: 5 };
+    expect(AnimationDef.safeParse(full).success).toBe(true);
+    for (const bad of [
+      { ...full, accent: "green" },
+      { ...full, particleShape: "blob" },
+      { ...full, count: 0 },
+      { ...full, count: 13 },
+      { ...full, count: 2.5 },
+      { ...full, spread: 1.1 },
+      { ...full, arc: -0.1 },
+      { ...full, trail: 2 },
+      { ...full, spin: -1 },
+      { ...full, gravity: 1.5 },
+      { ...full, gravity: -1.5 },
+      { ...full, rings: 6 },
+      { ...full, rings: -1 },
+    ]) {
+      expect(AnimationDef.safeParse(bad).success, JSON.stringify(bad)).toBe(false);
+    }
+  });
+
+  it("knows every shape, with the nuke last (ADR 0038)", () => {
+    expect(ANIMATION_SHAPES).toHaveLength(20);
+    expect(ANIMATION_SHAPES.at(-1)).toBe("nuke");
+    for (const shape of ANIMATION_SHAPES) expect(AnimationDef.safeParse({ ...slash, shape }).success, shape).toBe(true);
   });
 
   it("reads old attack contexts without a style or animation", () => {
