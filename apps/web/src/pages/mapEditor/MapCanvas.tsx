@@ -4,6 +4,7 @@ import { gridLineStyle, type GridSpec, type MapImage, type Point } from "@vtt/sh
 /** A press that moves further than this is a drag, not a click. */
 const CLICK_SLOP_PX = 4;
 const MAX_ZOOM = 12;
+const FOCUS_ZOOM = 2.5;
 
 interface Camera {
   /** Map point at the centre of the view. */
@@ -33,7 +34,7 @@ export interface CanvasView {
  * draw their own layers as `children` and choose what a click or drag does.
  */
 export function MapCanvas({
-  map, grid, mode, pan, label, onMove, onPress, onRelease, onCancel, onSecondary, onKeyDown, children,
+  map, grid, mode, pan, label, focus, onMove, onPress, onRelease, onCancel, onSecondary, onKeyDown, children,
 }: {
   map: MapImage;
   grid: GridSpec;
@@ -42,6 +43,8 @@ export function MapCanvas({
   /** The step's Pan tool is chosen: every drag moves the view. */
   pan: boolean;
   label: string;
+  /** A map point to bring into view (zoomed in at least to FOCUS_ZOOM) whenever it changes. */
+  focus?: Point | null;
   /** The pointer moved over the map, or left it (null). */
   onMove?: (at: Point | null, event: PointerEvent<SVGSVGElement>, view: CanvasView) => void;
   /** A primary press that is not a pan. */
@@ -73,6 +76,13 @@ export function MapCanvas({
     observer.observe(svg);
     return () => observer.disconnect();
   }, []);
+
+  const focusX = focus?.x;
+  const focusY = focus?.y;
+  useEffect(() => {
+    if (focusX === undefined || focusY === undefined) return;
+    setCamera((c) => ({ cx: focusX, cy: focusY, zoom: Math.max(c.zoom, FOCUS_ZOOM) }));
+  }, [focusX, focusY]);
 
   const fit = view.width > 0 && view.height > 0 ? Math.min(view.width / map.width, view.height / map.height) : 1;
   const scale = fit * camera.zoom;

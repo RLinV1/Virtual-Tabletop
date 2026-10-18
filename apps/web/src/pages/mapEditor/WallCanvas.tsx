@@ -10,8 +10,11 @@ const PICK_PX = 10;
 /** Portal colours, as on the board (ADR 0030): wood for doors, glass for windows, red lock mark. */
 const PORTAL_COLORS = { door: "#c8873a", window: "#5dade2" } as const;
 const LOCK_COLOR = "#c0392b";
+/** Detected walls the model was unsure about (wall-review); the legend swatch uses the same colour. */
+const DOUBTFUL_COLOR = "#ffb020";
 
 export type CanvasMode = WallMode;
+export { DOUBTFUL_COLOR };
 
 /**
  * The Walls step's canvas (map-editor D3): the map with its walls in board coordinates
@@ -19,7 +22,7 @@ export type CanvasMode = WallMode;
  * the wall to make a door or window (ADR 0030), and Pick sends the clicked point. Detected walls waiting to be applied are drawn as candidates, and
  * Erase toggles one off (or back on) instead of touching the room's walls.
  */
-export function WallCanvas({ map, grid, walls, candidates, erased, mode, onAdd, onRemove, onPortal, onToggleCandidate, onSample, busy }: {
+export function WallCanvas({ map, grid, walls, candidates, erased, doubtful, focus, mode, onAdd, onRemove, onPortal, onToggleCandidate, onSample, busy }: {
   map: MapImage;
   grid: GridSpec;
   walls: Record<string, Wall>;
@@ -27,6 +30,10 @@ export function WallCanvas({ map, grid, walls, candidates, erased, mode, onAdd, 
   candidates: Record<string, Wall>;
   /** Keys of `candidates` the GM has erased from the pending result. */
   erased: ReadonlySet<string>;
+  /** Keys of `candidates` the model was unsure about: drawn amber and dashed (wall-review). */
+  doubtful: ReadonlySet<string>;
+  /** The key of the doubtful wall under review: highlighted and brought into view. */
+  focus: string | null;
   mode: CanvasMode;
   onAdd: (a: Point, b: Point) => void;
   onRemove: (wallId: string) => void;
@@ -45,6 +52,8 @@ export function WallCanvas({ map, grid, walls, candidates, erased, mode, onAdd, 
     setHover(null);
   }, [mode]);
 
+  const focused = focus ? candidates[focus] : undefined;
+  const focusPoint = focused ? { x: (focused.a.x + focused.b.x) / 2, y: (focused.a.y + focused.b.y) / 2 } : null;
   const onMap = (p: Point) => p.x >= 0 && p.y >= 0 && p.x <= map.width && p.y <= map.height;
   const snap = (p: Point, alt: boolean, px: number) => wallPoint(p, walls, grid, JOIN_PX * px, alt);
 
@@ -54,6 +63,7 @@ export function WallCanvas({ map, grid, walls, candidates, erased, mode, onAdd, 
       grid={grid}
       mode={mode}
       pan={false}
+      focus={focusPoint}
       label="Map walls. Draw, erase, mark doors and windows, or detect walls with the pointer; the wheel or a pinch zooms; the middle button, Space-drag or two fingers pan."
       onMove={(p, e, view) => {
         setFree(e.altKey);
@@ -103,14 +113,17 @@ export function WallCanvas({ map, grid, walls, candidates, erased, mode, onAdd, 
             <g strokeLinecap="round" data-testid="wall-candidates">
               {Object.values(candidates).map((w) => {
                 const gone = erased.has(w.id);
+                const unsure = doubtful.has(w.id) && !gone;
+                const current = focus === w.id;
                 return (
-                  <g key={w.id} opacity={gone ? 0.55 : 1}>
+                  <g key={w.id} opacity={gone ? 0.55 : 1} data-doubtful={unsure ? "true" : undefined} data-focus={current ? "true" : undefined}>
+                    {current && <line x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y} stroke="#fff" strokeOpacity={0.9} strokeWidth={13 * px} />}
                     {!gone && <line x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y} stroke="#111" strokeOpacity={0.8} strokeWidth={7 * px} />}
                     <line
                       x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y}
-                      stroke={gone ? "#9aa5b1" : target?.id === w.id ? "#e74c3c" : "#3ec6e0"}
-                      strokeWidth={(target?.id === w.id ? 6 : 3.5) * px}
-                      strokeDasharray={gone ? `${6 * px} ${6 * px}` : undefined}
+                      stroke={gone ? "#9aa5b1" : target?.id === w.id ? "#e74c3c" : unsure ? DOUBTFUL_COLOR : "#3ec6e0"}
+                      strokeWidth={(target?.id === w.id || current ? 6 : 3.5) * px}
+                      strokeDasharray={gone ? `${6 * px} ${6 * px}` : unsure ? `${8 * px} ${5 * px}` : undefined}
                     />
                   </g>
                 );
