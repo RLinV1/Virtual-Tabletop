@@ -64,7 +64,8 @@ This document covers architecture, stack, repository, and the running prototype.
    ║ └──────────────────────────────────────────┘                 ║
    ╚══════════════════════════════════════════════════════════════╝
 
-   The App Server and the web client run on the host, not in Docker.
+   The App Server and the web client run on the host for development;
+   `docker compose up -d --build` can also run them in containers.
    Each service is optional: with DATABASE_URL, REDIS_URL or
    S3_ENDPOINT unset the server falls back to in-memory state,
    Postgres-only sequencing, and uploads on local disk (dev only,
@@ -161,8 +162,9 @@ Credentials are `vtt`/`vtt` and `vtt`/`vttvttvtt` — local development values c
 purpose. Deployment supplies its own and must never reuse them. `docker compose down` keeps
 the data; `down -v` discards it, which is the reset when a migration goes wrong.
 
-**The application is not containerised.** The server and web client run on the host, because
-the inner loop wants Vite HMR and `tsx watch`.
+**The inner loop runs on the host.** The server and web client run outside Docker for day-to-day work, because
+the inner loop wants Vite HMR and `tsx watch`. `docker compose up -d --build` also runs the whole stack,
+app included, in containers (no hot reload); see the README's Getting Started.
 
 **Containers are optional, deliberately.** Each service is selected by an environment
 variable and the server falls back when one is absent: no `DATABASE_URL` means an in-memory
