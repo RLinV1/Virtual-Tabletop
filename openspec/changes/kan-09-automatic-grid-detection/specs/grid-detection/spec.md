@@ -33,7 +33,7 @@ Analysis SHALL return either a candidate containing finite cell size, canonical 
 - **THEN** analysis reports `no_grid` rather than a high-confidence candidate
 
 ### Requirement: Analysis status is private and retryable
-An authorized GM SHALL be able to read `queued`, `running`, `suggested`, `no_grid`, or `error` for an owned library map or a map directly uploaded to its own room, whether or not that map is applied yet. Only an error SHALL offer retry. One retry SHALL create one new attempt; concurrent retries SHALL NOT duplicate running work. Stale completions SHALL NOT replace newer attempts. Deletion SHALL remove the analysis record. Players SHALL NOT receive status, candidates, job details, or image contents in room payloads or logs.
+An authorized GM SHALL be able to read `queued`, `running`, `suggested`, `no_grid`, or `error` through the private API for an owned library map or a map directly uploaded to its own room, whether or not that map is applied yet. The retry endpoint SHALL accept only an error. One retry SHALL create one new attempt; concurrent retries SHALL NOT duplicate running work. Stale completions SHALL NOT replace newer attempts. Deletion SHALL remove the analysis record. Players SHALL NOT receive status, candidates, job details, or image contents in room payloads or logs.
 
 #### Scenario: GM polls a current map
 - **WHEN** its GM opens the relevant grid editor
@@ -41,15 +41,23 @@ An authorized GM SHALL be able to read `queued`, `running`, `suggested`, `no_gri
 
 #### Scenario: GM reads a draft map's analysis
 - **WHEN** a GM uploads a map directly to a room and opens the map editor's Grid step before applying it
-- **THEN** the editor can read and retry that upload's analysis, and only that room's GM can
+- **THEN** the editor can read that upload's analysis, and only that room's GM can
 
 #### Scenario: Player requests status
 - **WHEN** a player credential requests room analysis status, a GM requests another room's upload, or another GM requests a library map's status
 - **THEN** the server denies access without exposing the result
 
 #### Scenario: Retry after failure
-- **WHEN** the GM selects Try again after an error
+- **WHEN** an authorized GM requests a retry through the private API after an error
 - **THEN** one new attempt is queued, and an old worker's completion cannot replace it
+
+### Requirement: Unavailable detection falls back silently to manual alignment
+The library and room grid editors SHALL show analysis progress and available suggestions, but SHALL NOT show failure notices, no-grid notices, detection-request errors, or a failure-specific retry button. A `no_grid` or `error` result, or an analysis request failure, SHALL clear the analysis message and leave the manual editor and its current draft available. Manual validation and save errors SHALL remain visible.
+
+#### Scenario: No usable detection result
+- **WHEN** analysis returns `no_grid` or `error`, or the status request fails
+- **THEN** the analysis message disappears without a failure notice or retry button
+- **AND** the GM can continue aligning and saving the current draft manually
 
 ### Requirement: Suggestions require two explicit actions to commit
 The editor SHALL show a candidate and its confidence separately from the current grid. Confidence below 0.75 SHALL include a warning. Use suggestion SHALL copy only cell size and offsets into the current draft, retaining units and line style. Save grid or Apply grid remains the sole commit. A result arriving later SHALL NOT overwrite a dirty draft or saved grid. Closing the editor, replacing the room map, or losing GM access SHALL invalidate in-flight responses and previews. Manual alignment and play SHALL remain available throughout.

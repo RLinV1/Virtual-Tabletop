@@ -26,7 +26,6 @@ export function GridForm({
   detection,
   detectionError,
   onUseSuggestion,
-  onRetryDetection,
   submitLabel = "Apply grid",
   busyLabel = "Applying…",
   cancelLabel = "Cancel",
@@ -45,9 +44,9 @@ export function GridForm({
   applying: boolean;
   error: string | null;
   detection?: GridDetectionStatus | null;
+  /** Hide analysis UI after a request error so manual editing can continue quietly. */
   detectionError?: string | null;
   onUseSuggestion?: (candidate: Extract<GridDetectionStatus, { status: "suggested" }>["candidate"]) => void;
-  onRetryDetection?: () => void;
   submitLabel?: string;
   busyLabel?: string;
   cancelLabel?: string;
@@ -160,17 +159,10 @@ export function GridForm({
             disabled={applying} value={draft.unitLabel}
             onChange={(e) => onChange({ ...draft, unitLabel: e.target.value })} />
         </div>
-        {detection && (
+        {detection && !detectionError && detection.status !== "no_grid" && detection.status !== "error" && (
           <div className="grid-suggestion" role="status">
             {detection.status === "queued" && <p>Checking the map for a grid…</p>}
             {detection.status === "running" && <p>Analyzing the map grid…</p>}
-            {detection.status === "no_grid" && <p>No reliable square grid found. You can align it manually.</p>}
-            {detection.status === "error" && (
-              <>
-                <p>Grid analysis failed. Manual alignment is available.</p>
-                {onRetryDetection && <button type="button" className="secondary small" onClick={onRetryDetection}>Try again</button>}
-              </>
-            )}
             {detection.status === "suggested" && (
               <>
                 <p>Automatic suggestion: {detection.candidate.cellSize}px cells, offsets {detection.candidate.offsetX}px / {detection.candidate.offsetY}px. Confidence: {Math.round(detection.candidate.confidence * 100)}%.</p>
@@ -187,7 +179,6 @@ export function GridForm({
             )}
           </div>
         )}
-        {detectionError && <p className="error grid-message" role="alert">{detectionError}</p>}
         {hasDraft && !validDraft && (
           <p className="error grid-message" role="alert">
             {tooManyLines
