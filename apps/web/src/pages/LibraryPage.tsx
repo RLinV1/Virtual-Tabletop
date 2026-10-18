@@ -1,7 +1,7 @@
 import { GridFour, TextAa, Trash, X } from "@phosphor-icons/react";
 import { IconAction } from "../ui/IconAction";
 import { useEffect, useMemo, useState } from "react";
-import { type AssetKind, type EncounterSummary, type LibraryAsset, type LibraryCreature } from "@vtt/shared";
+import { type AssetKind, type EncounterSummary, type LibraryAsset, type LibraryCreature, type UvttIssue } from "@vtt/shared";
 import { Link } from "../Link";
 import { api } from "../net/api";
 import { builtinsMatching } from "../net/builtinAssets";
@@ -92,6 +92,7 @@ function Library() {
   const [diceTarget, setDiceTarget] = useState<string | null>(null);
   /** The owned map whose grid is open in the editor. */
   const [gridTarget, setGridTarget] = useState<LibraryAsset | null>(null);
+  const [importResult, setImportResult] = useState<{ assetId: string; diagnostics: UvttIssue[] } | null>(null);
   /** New encounter: choosing its map (ADR 0033). */
   const [pickingEncounterMap, setPickingEncounterMap] = useState(false);
   /** The map a new encounter waits on while its grid is set up first. */
@@ -205,14 +206,17 @@ function Library() {
         ) : tab === "animation" ? null : (
           <UploadButton
             kind={kind}
-            onUploaded={(a) => {
+            onUploaded={(a, diagnostics) => {
               setAssets((all) => [a, ...(all ?? [])]);
-              if (a.kind === "map" && !a.grid) setGridTarget(a);
+              if (diagnostics) setImportResult({ assetId: a.id, diagnostics });
+              if (a.kind === "map" && (!a.grid || diagnostics)) setGridTarget(a);
             }}
             onError={setError}
           />
         )}
       </div>
+
+      {tab === "map" && <p className="muted">Upload PNG, JPEG or WebP images (up to 25 MiB), or UVTT, DD2VTT and DF2VTT maps (up to 40 MiB). UVTT imports include their grid, walls and doors.</p>}
 
       {tab === "dice" ? (
         <>
@@ -330,6 +334,7 @@ function Library() {
       </Modal>
       <LibraryMapEditor
         asset={gridTarget}
+        importDiagnostics={gridTarget?.id === importResult?.assetId ? importResult?.diagnostics : undefined}
         onSaved={(saved) => { replace(saved); setGridTarget(saved); }}
         onClose={(saved) => {
           setGridTarget(null);
@@ -361,7 +366,7 @@ function BuiltinCard({ asset }: { asset: LibraryAsset }) {
 
 function UploadButton(props: {
   kind: AssetKind;
-  onUploaded: (asset: LibraryAsset) => void;
+  onUploaded: (asset: LibraryAsset, diagnostics?: UvttIssue[]) => void;
   onError: (message: string | null) => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -370,6 +375,11 @@ function UploadButton(props: {
     setBusy(true);
     props.onError(null);
     try {
+      if (props.kind === "map" && /\.(?:uvtt|dd2vtt|df2vtt)$/i.test(file.name)) {
+        const result = await api.library.importUvtt(file);
+        props.onUploaded(result.asset, result.diagnostics);
+        return;
+      }
       const { width, height } = await imageSize(file);
       props.onUploaded(await api.library.upload(file, { kind: props.kind, name: nameFromFile(file), width, height }));
     } catch (err) {
@@ -384,7 +394,7 @@ function UploadButton(props: {
       <input
         type="file"
         className="sr-only"
-        accept="image/png,image/jpeg,image/webp"
+        accept={props.kind === "map" ? "image/png,image/jpeg,image/webp,.uvtt,.dd2vtt,.df2vtt" : "image/png,image/jpeg,image/webp"}
         disabled={busy}
         onChange={(e) => {
           void onFile(e.target.files?.[0]);

@@ -250,7 +250,7 @@ describe("applying and clearing walls (FR-GM-11)", () => {
     const same = must(act(state, gm, { type: "scene.setMap", map: MAP }));
     expect(Object.keys(same.state.walls)).toHaveLength(1);
     const other = must(act(state, gm, { type: "scene.setMap", map: { ...MAP, url: "/uploads/next.png" } }));
-    expect(other.events.map((e) => e.type)).toEqual(["MapSet", "WallsRemoved"]);
+    expect(other.events.map((e) => e.type)).toEqual(["MapSet"]);
     expect(other.state.walls).toEqual({});
   });
 

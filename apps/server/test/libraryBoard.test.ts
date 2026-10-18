@@ -43,6 +43,16 @@ const put = (cookie: string, id: string, body: unknown) =>
   gmFetch(cookie, `/api/library/${id}/board`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
 describe("walls and fog prepared on a library map (asset-library, ADR 0037)", () => {
+  it("round-trips shared UVTT wall metadata and rejects invalid revisions without replacing it", async () => {
+    const gm = await newGm();
+    const map = await uploadOk(gm, "map", "Portal map", 1000, 800);
+    const imported = { ...board, walls: [{ ...board.walls[0], source: "objects_line_of_sight", uvttPortal: { position: { x: 9, y: 12 }, rotation: 0, closed: false, freestanding: true } }] };
+    expect((await put(gm, map.id, imported)).status).toBe(200);
+    expect(await (await gmFetch(gm, `/api/library/${map.id}/board`)).json()).toEqual(imported);
+    const invalid = { ...imported, walls: imported.walls.map((wall) => ({ ...wall, uvttPortal: { ...wall.uvttPortal, rotation: "invalid" } })) };
+    expect((await put(gm, map.id, invalid)).status).toBe(400);
+    expect(await (await gmFetch(gm, `/api/library/${map.id}/board`)).json()).toEqual(imported);
+  });
   it("starts empty, saves, and reads back, without the board riding on the asset", async () => {
     const gm = await newGm();
     const map = await uploadOk(gm, "map", "Cave", 1000, 800);

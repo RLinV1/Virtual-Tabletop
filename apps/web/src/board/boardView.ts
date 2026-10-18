@@ -706,9 +706,23 @@ export class BoardView {
     const plain = Object.values(state.walls).filter((w) => !w.portal);
     if (plain.length > 0) {
       const width = Math.max(2, state.scene.grid.cellSize * 0.05);
-      for (const wall of plain) g.moveTo(wall.a.x, wall.a.y).lineTo(wall.b.x, wall.b.y);
+      for (const wall of plain) {
+        const { a, b } = wall;
+        if (wall.uvttPortal?.closed === false) {
+          const along = (t: number) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+          const start = along(0.2), end = along(0.8);
+          g.moveTo(a.x, a.y).lineTo(start.x, start.y).moveTo(end.x, end.y).lineTo(b.x, b.y);
+        } else g.moveTo(a.x, a.y).lineTo(b.x, b.y);
+      }
       g.stroke({ width: width + 3, color: 0x14110e, alpha: 0.55, cap: "round", join: "round" });
-      for (const wall of plain) g.moveTo(wall.a.x, wall.a.y).lineTo(wall.b.x, wall.b.y);
+      for (const wall of plain) {
+        const { a, b } = wall;
+        if (wall.uvttPortal?.closed === false) {
+          const along = (t: number) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+          const start = along(0.2), end = along(0.8);
+          g.moveTo(a.x, a.y).lineTo(start.x, start.y).moveTo(end.x, end.y).lineTo(b.x, b.y);
+        } else g.moveTo(a.x, a.y).lineTo(b.x, b.y);
+      }
       g.stroke({ width, color: 0xf0a24a, alpha: 0.95, cap: "round", join: "round" });
     }
     this.drawPortals();

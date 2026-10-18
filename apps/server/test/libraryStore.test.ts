@@ -85,6 +85,28 @@ for (const [label, store] of stores) {
       expect(updated).toMatchObject({ name: "Crypt", grid });
     });
 
+    it("creates a UVTT map with its grid and complete board in one write (KAN-43, ADR 0043)", async () => {
+      const gm = await s().registerGm(randomUUID());
+      const board: NonNullable<LibraryAssetRecord["board"]> = { walls: [{ a: { x: 12.5, y: 25 }, b: { x: 62.5, y: 25 }, source: "objects_line_of_sight",
+        uvttPortal: { position: { x: 20, y: 10 }, rotation: 0.8, closed: false, freestanding: true } }], fog: [] };
+      const a = asset(gm, { grid: { ...DEFAULT_GRID, cellSize: 50, offsetX: 12.5, offsetY: 25 }, board });
+      await s().createAsset(a);
+      expect(await s().findAsset(a.id, gm)).toMatchObject({ grid: a.grid, board });
+      expect(await s().findAssetBoard(a.id, gm)).toEqual(board);
+    });
+
+    it("preserves UVTT numeric precision through library import and edits (KAN-43/49)", async () => {
+      const gm = await s().registerGm(randomUUID());
+      const board: NonNullable<LibraryAssetRecord["board"]> = { walls: [{ a: { x: 15.000000000000002, y: 0.6000000000000001 }, b: { x: 70, y: 100 },
+        uvttPortal: { position: { x: 32.50000000000001, y: 15.000000000000002 }, rotation: 1.2000000000000002, closed: false } }], fog: [] };
+      const grid = { ...DEFAULT_GRID, offsetX: 15.000000000000002 };
+      const a = asset(gm, { grid, board }); await s().createAsset(a);
+      expect(await s().findAsset(a.id, gm)).toMatchObject({ grid, board });
+      await s().setAssetBoard(a.id, gm, board);
+      expect(await s().findAssetBoard(a.id, gm)).toEqual(board);
+      expect((await s().updateAsset(a.id, gm, { grid }))?.grid).toEqual(grid);
+    });
+
     it("reports usage only from rooms the asset's owner owns, and forgets it on delete", async () => {
       const gmA = await s().registerGm(randomUUID());
       const gmB = await s().registerGm(randomUUID());

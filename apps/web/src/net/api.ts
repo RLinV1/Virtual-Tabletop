@@ -1,4 +1,5 @@
 import {
+  UvttPreparation, UvttIssue, type UvttDraftEdit,
   GM_TOKEN_HEADER,
   CheckpointPreviewResponse,
   HistoryResponse,
@@ -13,6 +14,7 @@ import {
   type EncounterEditSession,
   type EncounterPreview,
   type LibraryMapBoard,
+  type LibraryUvttImportResponse,
   type EncounterSummary,
   type GridSpec,
   GridDetectionStatus,
@@ -74,7 +76,10 @@ export function whenSignedOut(handler: () => void) {
 async function errorFrom(res: Response): Promise<ApiError> {
   try {
     const body = (await res.json()) as Record<string, unknown>;
-    const message = typeof body.error === "string" ? body.error : `Request failed (${res.status})`;
+    const issues = UvttIssue.array().min(1).max(20).safeParse(body.issues);
+    const message = issues.success
+      ? issues.data.map((issue) => `${issue.path}: ${issue.message}`).join("\n")
+      : typeof body.error === "string" ? body.error : `Request failed (${res.status})`;
     return new ApiError(message, res.status, {
       field: typeof body.field === "string" ? body.field : undefined,
       code: typeof body.code === "string" ? body.code : undefined,
@@ -138,6 +143,28 @@ async function roomRequest<T>(roomId: string, token: string, method: "GET" | "PO
 }
 
 export const api = {
+  uvtt: {
+    async prepare(roomId: string, token: string, file: File, options?: { saveToLibrary: boolean }) {
+      const body = new FormData(); body.append("file", file);
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/uvtt/imports${options?.saveToLibrary ? "?saveToLibrary=1" : ""}`, { method: "POST", headers: { authorization: `Bearer ${token}` }, body });
+      if (!res.ok) throw await errorFrom(res);
+      return UvttPreparation.parse(await res.json());
+    },
+    async revise(roomId: string, token: string, id: string, edit: UvttDraftEdit) {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/uvtt/imports/${encodeURIComponent(id)}`, { method: "PUT", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(edit) });
+      if (!res.ok) throw await errorFrom(res);
+      return UvttPreparation.parse(await res.json());
+    },
+    async discard(roomId: string, token: string, id: string) {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/uvtt/imports/${encodeURIComponent(id)}`, { method: "DELETE", headers: { authorization: `Bearer ${token}` } });
+      if (!res.ok && res.status !== 404) throw await errorFrom(res);
+    },
+    async export(roomId: string, token: string) {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/uvtt/export`, { headers: { authorization: `Bearer ${token}` } });
+      if (!res.ok) throw await errorFrom(res);
+      return res.blob();
+    },
+  },
   async history(roomId: string, token: string, player: string, before?: number, signal?: AbortSignal) {
     const query = new URLSearchParams({ player });
     if (before !== undefined) query.set("before", String(before));
@@ -344,6 +371,10 @@ export const api = {
   /** The signed-in account's library (asset-library, ADR 0017 O1). */
   library: {
     list: () => accountRequest<LibraryAsset[]>("/api/library"),
+    importUvtt(file: File) {
+      const form = new FormData(); form.append("file", file);
+      return accountRequest<LibraryUvttImportResponse>("/api/library/uvtt/imports", { method: "POST", body: form });
+    },
 
     upload(file: File, fields: { kind: AssetKind; name: string; width: number; height: number }) {
       const form = new FormData();

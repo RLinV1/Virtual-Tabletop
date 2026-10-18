@@ -56,7 +56,10 @@ export function Modal({
         onClose();
       }}
       onClose={() => {
-        opener.current?.focus();
+        // A stacked confirmation can close with its parent. Never move focus back into
+        // the now-closed parent after that parent's close handler restored its opener.
+        const parent = opener.current?.closest("dialog");
+        if (!parent || parent.open) opener.current?.focus();
         onAfterClose?.();
       }}
       onKeyDown={(e) => {

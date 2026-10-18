@@ -4,7 +4,7 @@ import { TokenAttacks } from "./attackPresets";
 import { ConditionId, TokenStats } from "./conditions";
 import { DiceRoll, Verdict } from "./dice";
 import { GridSpec, Point } from "./geometry";
-import { AreaTemplate, ChatMessage, Checkpoint, DiceLookOnTable, FogRegion, Id, Initiative, InitiativeScore, MapImage, Participant, Portal, TableState, Token, TokenGroup, Wall } from "./state";
+import { AreaTemplate, ChatMessage, Checkpoint, DiceLookOnTable, FogRegion, Id, Initiative, InitiativeScore, MapImage, MAX_WALLS, MAX_FOG_REGIONS, Participant, Portal, TableState, Token, TokenGroup, Wall } from "./state";
 
 /**
  * Events are FACTS the server has committed. They are append-only and never edited.
@@ -51,14 +51,19 @@ export const DomainEvent = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("MapSet"),
-    map: MapImage,
+    /** Null only in an inverse restoring the state before first-map placement (ADR 0042). */
+    map: MapImage.nullable(),
     previous: MapImage.nullable(),
     /**
-     * Present when the map came with its grid (a library placement, ADR 0004). One object,
+     * Always present on new map actions (ADR 0042); optional for historical events. One object,
      * not two optional fields, so the contract cannot express a grid change without the
      * grid it replaced (invariant 6).
      */
     gridChange: z.object({ grid: GridSpec, previous: GridSpec }).optional(),
+    /** Explicit adjusted positions, including an empty array. Absent on legacy map events. */
+    tokenChanges: z.array(z.object({ tokenId: Id, from: Point, to: Point })).optional(),
+    wallChange: z.object({ walls: z.array(Wall).max(MAX_WALLS), previous: z.array(Wall).max(MAX_WALLS) }).optional(),
+    fogChange: z.object({ fog: z.array(FogRegion).max(MAX_FOG_REGIONS), previous: z.array(FogRegion).max(MAX_FOG_REGIONS) }).optional(),
   }),
   z.object({
     type: z.literal("GridSet"),
@@ -271,6 +276,7 @@ export const DomainEvent = z.discriminatedUnion("type", [
     type: z.literal("WallsRemoved"),
     walls: z.array(Wall).min(1),
   }),
+  z.object({ type: z.literal("WallUpdated"), wall: Wall, previous: Wall }),
   /** A wall's portal changed (FR-GM-18, ADR 0030). `from` is the replaced value; null is a plain wall. */
   z.object({
     type: z.literal("PortalChanged"),

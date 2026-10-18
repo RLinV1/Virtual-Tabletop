@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { DEFAULT_GRID, emptyRoomState, normalizeLegacyGridForBoard, type LibraryAsset, type LibraryMapBoard } from "@vtt/shared";
+import { DEFAULT_GRID, emptyRoomState, normalizeLegacyGridForBoard, type LibraryAsset, type LibraryMapBoard, type UvttIssue } from "@vtt/shared";
 import { api } from "../../net/api";
 import { Modal } from "../../ui/Modal";
 import { GridForm } from "../GridForm";
@@ -20,16 +20,17 @@ const STEPS: { key: Step; label: string }[] = [
 ];
 interface Props {
   asset: LibraryAsset | null;
+  importDiagnostics?: UvttIssue[];
   onSaved: (asset: LibraryAsset) => void;
   onClose: (asset: LibraryAsset) => void;
 }
 
 /** One private draft spans all three tabs. Only explicit Save writes to the library. */
-export function LibraryMapEditor({ asset, onSaved, onClose }: Props) {
-  return asset ? <MapSession key={`${asset.id}:${asset.url}`} asset={asset} onSaved={onSaved} onClose={onClose} /> : null;
+export function LibraryMapEditor({ asset, importDiagnostics, onSaved, onClose }: Props) {
+  return asset ? <MapSession key={`${asset.id}:${asset.url}`} asset={asset} importDiagnostics={importDiagnostics} onSaved={onSaved} onClose={onClose} /> : null;
 }
 
-function MapSession({ asset, onSaved, onClose }: Omit<Props, "asset"> & { asset: LibraryAsset }) {
+function MapSession({ asset, importDiagnostics, onSaved, onClose }: Omit<Props, "asset"> & { asset: LibraryAsset }) {
   const [step, setStep] = useState<Step>("grid");
   const [savedAsset, setSavedAsset] = useState(asset);
   const [gridDraft, setGridDraft] = useState(() => toGridDraft(normalizeLegacyGridForBoard(asset.grid ?? DEFAULT_GRID, asset)));
@@ -118,6 +119,8 @@ function MapSession({ asset, onSaved, onClose }: Omit<Props, "asset"> & { asset:
         {saveError && !prompt && <span role="alert" className="error map-editor-save-error">{saveError}</span>}
       </nav>}>
       <div className="map-editor-shell"><div className="map-editor-body" role="tabpanel" inert={saving}>
+        {importDiagnostics && <p className="muted">Imported map saved to your library. Review its grid and geometry below.</p>}
+        {importDiagnostics && importDiagnostics.length > 0 && <details className="uvtt-diagnostics"><summary>{importDiagnostics.length} import warnings</summary><ul>{importDiagnostics.map((issue, i) => <li key={i}>{issue.path}: {issue.message}</li>)}</ul></details>}
         {step === "grid" && <HudLayout className="map-editor-grid"><GridForm
           grid={savedAsset.grid ?? DEFAULT_GRID} map={asset} draft={gridDraft} hasDraft={gridDirty}
           onChange={(next) => { setGridDraft(next); setSaveError(null); }} onCancel={discard}

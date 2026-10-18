@@ -228,7 +228,7 @@ function notFound(res: Response) {
 }
 
 /** The server-only object key stays behind. */
-function toWire(record: LibraryAssetRecord): LibraryAsset {
+export function toWire(record: LibraryAssetRecord): LibraryAsset {
   return {
     id: record.id,
     kind: record.kind,
