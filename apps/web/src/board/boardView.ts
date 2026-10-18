@@ -64,6 +64,7 @@ export type AimPreview = { shape: AreaTemplate["shape"]; origin: Point; toward: 
 const MAX_FX_RUNS = 4;
 
 export interface BoardCallbacks {
+  nukeImpact?: () => void;
   /** Commit a move. Resolves false if the server rejected it. */
   moveToken(tokenId: string, to: Point): Promise<boolean>;
   /** Every pointer move of a token drag; the connection coalesces them (KAN-39). */
@@ -622,6 +623,8 @@ export class BoardView {
 
   destroy() {
     if (!this.initialized) return;
+    cancelAnimationFrame(this.cameraTween);
+    this.cameraTween = 0;
     cancelAnimationFrame(this.frame);
     this.frame = 0;
     this.animations.clear();
@@ -1832,7 +1835,8 @@ export class BoardView {
     if (!this.initialized || !this.state) return;
     if (effect.kind === "strike") return this.playStrikeFx(effect);
     if (effect.kind === "nuke") return this.playNukeFx(effect);
-    if (effect.kind !== "hit") return;
+    // The overlay supplies the still hit marker; no canvas frames are needed without a shake.
+    if (effect.kind !== "hit" || this.reducedMotion) return;
     const target = this.tokens.get(effect.tokenId);
     if (!target || target.container.destroyed) return;
     while (this.attackFx.length >= MAX_ATTACK_EFFECTS) this.endAttackFx(this.attackFx[0]!);
@@ -1990,6 +1994,7 @@ export class BoardView {
     const { width, height } = this.app.screen;
     const host = { ...this.fxHost(), layer: this.screenFxLayer };
     this.startFx(playNuke(host, {
+      onImpact: this.callbacks.nukeImpact,
       def: effect.animation,
       origin: { x: width / 2, y: height / 2 },
       unit: Math.min(64, height / 10),

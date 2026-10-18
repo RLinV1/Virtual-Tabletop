@@ -9,6 +9,7 @@ import { BoardFilters } from "./BoardFilters";
 import { canAnimateDice, type TrayRoll } from "../ui/Die3D";
 import { ThrownDice, type ActiveThrow } from "./ThrownDice";
 import { BoardView, type GmFogView } from "./boardView";
+import { useDisplayedHealth } from "./nukeHealth";
 import { shakeScreen } from "./screenShake";
 import { MAX_ATTACK_EFFECTS, attackEffectFor, attackPlan, effectiveReducedMotion, type AttackEffect } from "./effects";
 import type { OverlayEffect } from "./EffectsOverlay";
@@ -21,6 +22,7 @@ import { TokenCard } from "./TokenCard";
 const EffectsOverlay = lazy(() => import("./EffectsOverlay"));
 
 interface Props {
+  onNukeImpact?: () => void;
   connection: RoomConnection;
   state: RoomState;
   you: Participant;
@@ -134,7 +136,8 @@ function isTyping(target: EventTarget | null) {
 }
 
 /** The PixiJS board plus its React toolbar and notices; Pixi objects stay inside `BoardView`. */
-export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, readOnly = false, toolbar, notices, overlay, landedRollId, onPickTarget, selectOnly = false, onEditToken }, ref) {
+export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, readOnly = false, toolbar, notices, overlay, landedRollId, onPickTarget, onNukeImpact, selectOnly = false, onEditToken }, ref) {
+  const renderedState = useDisplayedHealth(state);
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<BoardView | null>(null);
   /** GM only: "off" hides fog from this view. Not remembered: every time the board opens, fog is shown. */
@@ -148,8 +151,8 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   const hasWalls = Object.values(state.walls).some((wall) => !wall.portal);
   /** Strikes waiting for their thrown dice to land, by roll id, oldest first (KAN-76). */
   const waitingStrikes = useRef(new Map<string, { effect: AttackEffect; timer: number }>());
-  const latest = useRef({ state, you, gridPreview, onPickTarget, gmFog: "tint" as GmFogView, showWalls: true, showPortals: true, readOnly: false });
-  latest.current = { state, you, gridPreview, onPickTarget, gmFog, showWalls, showPortals, readOnly };
+  const latest = useRef({ state, renderedState, you, gridPreview, onPickTarget, onNukeImpact, gmFog: "tint" as GmFogView, showWalls: true, showPortals: true, readOnly: false });
+  latest.current = { state, renderedState, you, gridPreview, onPickTarget, onNukeImpact, gmFog, showWalls, showPortals, readOnly };
   // Sends nothing while previewing as a player, whatever the board is asked to do. Stable for as
   // long as the connection is, so entering and leaving a preview never rebuilds the board view.
   const guarded = useMemo(() => guardedConnection(connection, () => latest.current.readOnly), [connection]);
@@ -162,7 +165,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     const timer = setTimeout(() => setRefusal(null), 4000);
     return () => clearTimeout(timer);
   }, [refusal]);
-  const selected = selectedId ? state.tokens[selectedId] ?? null : null;
+  const selected = selectedId ? renderedState.tokens[selectedId] ?? null : null;
   const [tool, setTool] = useState<BoardTool>({ kind: "select" });
   const [toolOptions, setToolOptions] = useState<ToolOptions>(DEFAULT_TOOL_OPTIONS);
   const toolRef = useRef(tool);
@@ -195,6 +198,8 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   /** The hit shake is the board's; everything else is the overlay's. */
   const playEffect = (effect: AttackEffect) => {
     viewRef.current?.playAttackEffect(effect);
+    // Strikes are entirely Pixi: they need neither the DOM overlay nor its animation libraries.
+    if (effect.kind === "strike") return;
     // A nuke shakes the whole page, not just the board.
     if (effect.kind === "nuke" && !effectiveReducedMotion(latest.current.state)) shakeScreen(effect.animation);
     const id = nextEffectId.current++;
@@ -243,6 +248,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
 
   useEffect(() => {
     const view = new BoardView(hostRef.current!, {
+      nukeImpact: () => latest.current.onNukeImpact?.(),
       moveToken: async (tokenId, to) => {
         const result = await guarded.command({ type: "token.move", tokenId, to });
         // The token snaps back; say why, so a wall the player can't see isn't a mystery (ADR 0029).
@@ -305,7 +311,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       view.setShowPortals(latest.current.showPortals);
       view.setReadOnly(latest.current.readOnly);
       view.setGridPreview(latest.current.gridPreview);
-      view.update(latest.current.state, latest.current.you);
+      view.update(latest.current.renderedState, latest.current.you);
       view.setTool(toolRef.current);
       view.setPlacement(ghostRef.current);
     });
@@ -358,8 +364,8 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   }, [connection]);
 
   useEffect(() => {
-    viewRef.current?.update(state, you);
-  }, [state, you]);
+    viewRef.current?.update(renderedState, you);
+  }, [renderedState, you]);
 
   // Landing a roll releases its own strike. Each roll is thrown on its own, so the others keep
   // waiting for their dice, or for the fallback timer if a landing never reaches us.

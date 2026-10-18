@@ -46,6 +46,8 @@ export interface StrikeFxParams {
 }
 
 export interface NukeFxParams {
+  /** Called once, on the first frame showing impact (immediately for a still marker). */
+  onImpact?: () => void;
   def: AnimationDef;
   origin: Point;
   /** Base marker size in the host layer's coordinates. */
@@ -56,8 +58,6 @@ export interface NukeFxParams {
 
 /** Seconds a reduced-motion marker stays. */
 export const REDUCED_FX_S = 0.6;
-
-/** Particle ceiling per effect, whatever the definition asks for. */
 
 // ---------- screen shake ----------
 
@@ -200,7 +200,9 @@ export function playStrike(host: FxHost, params: StrikeFxParams): RunningFx {
     sparks, sparkCount, landed: false,
     along: (u, off = 0) => ({ x: from.x + dx * u + normal.x * off, y: from.y + dy * u + normal.y * off }),
     emit(at, count, speed, life = 0.6) {
-      if (sparkCount > 0) burst(sparks, at, Math.min(count, sparkCount), speed, Math.max(1.5, r * 0.05), palette, life, gravity, spinRate * 0.3);
+      // Trails and impacts share one live-particle allowance, not one allowance per burst.
+      const available = Math.max(0, sparkCount - sparks.length);
+      burst(sparks, at, Math.min(count, available), speed, Math.max(1.5, r * 0.05), palette, life, gravity, spinRate * 0.3);
     },
   };
   const drawing = spec.make(c);
@@ -233,7 +235,7 @@ export function playStrike(host: FxHost, params: StrikeFxParams): RunningFx {
       top.clear();
       if (!c.landed && elapsed >= landAt) {
         c.landed = true;
-        if (sparkCount > 0) burst(sparks, to, sparkCount, r * 4 * spec.big, Math.max(1.5, r * 0.06), palette, 0.9, gravity, spinRate * 0.3);
+        burst(sparks, to, Math.max(0, sparkCount - sparks.length), r * 4 * spec.big, Math.max(1.5, r * 0.06), palette, 0.9, gravity, spinRate * 0.3);
       }
       drawing.draw(elapsed);
       if (c.landed) {

@@ -23,6 +23,7 @@ import { LibraryPicker } from "../pages/LibraryPicker";
 import { useAttackListEditor } from "./AttackListEditor";
 import { creatureFromToken } from "../pages/creatureDraft";
 import { TokenPreview } from "../ui/TokenPreview";
+import { useDisplayedStats } from "../board/nukeHealth";
 import { ConditionMarker, ConditionPicker } from "./ConditionMarker";
 import type { TokenDraft } from "../board/placement";
 import { AddTokenButton } from "./AddToken";
@@ -275,7 +276,8 @@ function RosterRow({
 }) {
   // Same rule the server enforces; this only decides whether to draw the controls.
   const editable = can.editToken(you, token);
-  const fraction = hpFraction(token.stats);
+  const stats = useDisplayedStats(token);
+  const fraction = hpFraction(stats);
 
   return (
     <li className={isActive ? "roster-row active" : "roster-row"}>
@@ -288,7 +290,7 @@ function RosterRow({
           {isActive && <span className="badge active-badge">active turn</span>}
           {token.stats.hp !== null && (
             <span className="hp">
-              {token.stats.hp}
+              {stats.hp}
               {token.stats.maxHp !== null && `/${token.stats.maxHp}`} HP
             </span>
           )}
@@ -312,7 +314,7 @@ function RosterRow({
           role="meter"
           aria-valuemin={0}
           aria-valuemax={token.stats.maxHp ?? 0}
-          aria-valuenow={token.stats.hp ?? 0}
+          aria-valuenow={stats.hp ?? 0}
           aria-label={`${token.name} hit points`}
         >
           <span style={{ width: `${fraction * 100}%` }} data-level={level(fraction)} />

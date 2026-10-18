@@ -648,7 +648,8 @@ export function decide(
         origin: command.origin,
         ...(command.animation && { animation: command.animation }),
       };
-      return accept(...damaged, blast);
+      // Announce the falling bomb before HP events, so clients can hold their display until impact.
+      return accept(blast, ...damaged);
     }
 
     case "template.place": {

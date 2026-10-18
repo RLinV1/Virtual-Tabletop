@@ -1,5 +1,6 @@
 import react from "@vitejs/plugin-react";
-import { createLogger, defineConfig } from "vite";
+import { realpathSync } from "node:fs";
+import { createLogger, defineConfig, searchForWorkspaceRoot } from "vite";
 
 // 127.0.0.1, not localhost: Node resolves localhost to ::1 first, and the server listens on
 // IPv4 only (0.0.0.0), so the proxy would get ECONNREFUSED.
@@ -30,6 +31,8 @@ export default defineConfig({
   customLogger: logger,
   plugins: [react()],
   server: {
+    // Worktrees may reuse an installation through a directory junction. Serve its font assets too.
+    fs: { allow: [searchForWorkspaceRoot(process.cwd()), realpathSync(new URL("../../node_modules", import.meta.url))] },
     port: 5173,
     host: true, // reachable from phones on the same Wi-Fi for Player Board testing
     // Host is kept as the browser sent it (no `changeOrigin`): the server only honours the session
