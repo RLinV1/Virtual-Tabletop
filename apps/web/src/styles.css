@@ -250,6 +250,7 @@ a.tool-button { text-decoration: none; }
 .token-card dl { display: grid; grid-template-columns: auto 1fr; gap: var(--space-1) var(--space-3); margin: 0; }
 .token-card dt { color: var(--muted); }
 .token-card dd { margin: 0; }
+.token-card-actions { margin-top: var(--space-2); gap: var(--space-2); }
 
 /* Placing a new token (place-token-on-board): top centre, clear of the toolbar and notices. */
 .placement-bar {
@@ -2482,6 +2483,28 @@ dialog.modal.map-editor {
 
 /* Token groups in the GM's roster and the Start encounter dialog (KAN-82). */
 .roster-group + .roster-group { margin-top: var(--space-2); }
+/* Dropping a token on a group by its grip (roster-group-move). */
+.roster-group { border-radius: var(--radius); }
+.roster-group.drop-target { outline: 2px dashed var(--accent); outline-offset: 2px; background: var(--accent-soft); }
+.move-handle {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 1rem; height: 1.5rem; margin-right: calc(-1 * var(--space-1)); padding: 0; border: 0; border-radius: var(--radius);
+  background: none; color: var(--muted); cursor: grab;
+}
+/* With the grip in the row, the stats wrap under the name rather than cut it short. */
+.roster-main .roster-focus { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--space-2); row-gap: 0; }
+.roster-main .roster-focus .token-name { max-width: 100%; }
+.move-handle:hover, .move-handle[aria-expanded="true"] { color: var(--text); background: var(--accent-soft); filter: none; }
+.move-handle:active { cursor: grabbing; }
+.move-menu { gap: var(--space-1); }
+.move-menu p { margin: 0; }
+.move-menu-item {
+  display: flex; align-items: center; gap: var(--space-2); width: 100%;
+  padding: var(--space-1) var(--space-2); border: 0; background: none; color: inherit; text-align: left;
+}
+.move-menu-item:hover:not(:disabled) { background: var(--accent-soft); filter: none; }
+.move-menu-item:disabled { color: var(--muted); cursor: default; }
+.move-menu-check { width: 14px; display: inline-flex; }
 .group-heading { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1) var(--space-2); padding: 0.2rem 0; border-bottom: 1px solid var(--border); }
 .group-toggle { display: inline-flex; align-items: baseline; gap: var(--space-2); min-width: 0; padding: 0.15rem 0; background: none; border: 0; color: inherit; cursor: pointer; text-align: left; }
 .group-toggle .group-name { font-weight: 600; overflow-wrap: anywhere; }

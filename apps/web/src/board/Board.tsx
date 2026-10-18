@@ -1,6 +1,6 @@
 import { CornersOut } from "@phosphor-icons/react";
 import { Suspense, forwardRef, lazy, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
-import { DEFAULT_TOKEN_COLOR, EMPTY_STATS, conditionSpec, presetOf, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
+import { DEFAULT_TOKEN_COLOR, EMPTY_STATS, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { guardedConnection } from "../net/previewConnection";
 import { DEFAULT_TOOL_OPTIONS, ToolRail, toolFor, type ToolOptions } from "../ui/ToolRail";
@@ -15,6 +15,7 @@ import type { OverlayEffect } from "./EffectsOverlay";
 import { boardDieSize, centreThrow, crowdedOffset, onMap, throwLanding, type BoardThrow, type BoardTransform } from "./diceThrow";
 import { cursorSquare, moveCursor, placementCommand, startCursor, type PlacementGhost, type PlacingSource, type TokenDraft } from "./placement";
 import type { BoardTool } from "./tools";
+import { TokenCard } from "./TokenCard";
 
 /** Loaded when the first effect or condition needs it, so the board paints before the libraries arrive. */
 const EffectsOverlay = lazy(() => import("./EffectsOverlay"));
@@ -38,6 +39,8 @@ interface Props {
   onPickTarget?: (attackerId: string, targetId: string) => void;
   /** Only the Select tool: a template being edited (ADR 0033). */
   selectOnly?: boolean;
+  /** Open the sidebar's editor for a token, from its card (token-card-actions). */
+  onEditToken?: (tokenId: string) => void;
 }
 
 /** What the roster and initiative list can ask the canvas to do (FR-GM-24). */
@@ -131,7 +134,7 @@ function isTyping(target: EventTarget | null) {
 }
 
 /** The PixiJS board plus its React toolbar and notices; Pixi objects stay inside `BoardView`. */
-export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, readOnly = false, toolbar, notices, overlay, landedRollId, onPickTarget, selectOnly = false }, ref) {
+export const Board = forwardRef<BoardHandle, Props>(function Board({ connection, state, you, gridPreview, readOnly = false, toolbar, notices, overlay, landedRollId, onPickTarget, selectOnly = false, onEditToken }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<BoardView | null>(null);
   /** GM only: "off" hides fog from this view. Not remembered: every time the board opens, fog is shown. */
@@ -470,6 +473,16 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
     setPlacing({ source: next, placed: 0, busy: false, error: null, cursor, said: "" });
   };
 
+  /** Place copies of a token, once per click, from the roster or the token card (ADR 0033). */
+  const duplicateToken = (tokenId: string) => {
+    const token = latest.current.state.tokens[tokenId];
+    if (!token) return;
+    // The rail's tools would compete with placing for the same clicks.
+    setTool({ kind: "select" });
+    const { name, size, rotation, color, imageUrl, hidden, stats } = token;
+    startPlacing({ kind: "duplicate", tokenId, ghost: { name, size, rotation, color, imageUrl, hidden, stats } }, size);
+  };
+
   useImperativeHandle(ref, () => ({
     focusToken: (tokenId: string) => viewRef.current?.focusToken(tokenId),
     placeToken: (next: TokenDraft) => {
@@ -477,13 +490,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       setTool({ kind: "select" });
       startPlacing({ kind: "create", draft: next }, next.size ?? 1);
     },
-    duplicateToken: (tokenId: string) => {
-      const token = latest.current.state.tokens[tokenId];
-      if (!token) return;
-      setTool({ kind: "select" });
-      const { name, size, rotation, color, imageUrl, hidden, stats } = token;
-      startPlacing({ kind: "duplicate", tokenId, ghost: { name, size, rotation, color, imageUrl, hidden, stats } }, size);
-    },
+    duplicateToken,
     startAttack: (tokenId: string) => {
       // Aiming and placing would compete for the same click; the aim wins.
       setPlacing(null);
@@ -587,47 +594,16 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       {notices}
       {refusal && <p key={refusal.at} className="board-refusal" role="alert">{refusal.message}</p>}
       {selected && (
-        <aside className="token-card" aria-label={`${selected.name} details`}>
-          <div className="token-card-head">
-            <span className="token-card-swatch" style={{ background: selected.color }} aria-hidden="true" />
-            <strong>{selected.name}</strong>
-            <button type="button" className="secondary" onClick={() => setSelectedId(null)} aria-label="Close token details">×</button>
-          </div>
-          <dl>
-            <dt>HP</dt>
-            <dd>{selected.stats.hp === null ? "Not tracked" : selected.stats.maxHp === null ? selected.stats.hp : `${selected.stats.hp} / ${selected.stats.maxHp}`}</dd>
-            {selected.stats.ac !== null && (
-              <>
-                <dt>AC</dt>
-                <dd>{selected.stats.ac}</dd>
-              </>
-            )}
-            {presetOf(state).features.conditions && (
-              <>
-                <dt>Status</dt>
-                <dd>{selected.conditions.length ? selected.conditions.map((c) => conditionSpec(c).label).join(", ") : "None"}</dd>
-              </>
-            )}
-            {you.role === "gm" && (
-              <>
-                <dt>Owners</dt>
-                <dd>
-                  {selected.ownerIds.length
-                    ? selected.ownerIds.map((id) => state.participants[id]?.displayName ?? "Unknown").join(", ")
-                    : "GM only"}
-                </dd>
-                <dt>Visible</dt>
-                <dd>{selected.hidden ? "Hidden from players" : "Everyone"}</dd>
-                {selected.initiative != null && (
-                  <>
-                    <dt>Initiative</dt>
-                    <dd>{String(selected.initiative)}</dd>
-                  </>
-                )}
-              </>
-            )}
-          </dl>
-        </aside>
+        <TokenCard
+          token={selected}
+          state={state}
+          you={you}
+          readOnly={readOnly}
+          onClose={() => setSelectedId(null)}
+          // Out of the way of the editor and the placement ghost.
+          onEdit={onEditToken && (() => { setSelectedId(null); onEditToken(selected.id); })}
+          onDuplicate={() => { setSelectedId(null); duplicateToken(selected.id); }}
+        />
       )}
       {placing && (
         <div className="placement-bar">
