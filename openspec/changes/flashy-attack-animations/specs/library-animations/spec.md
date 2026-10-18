@@ -1,7 +1,19 @@
 ## ADDED Requirements
 
 ### Requirement: Animations in the library
-A GM SHALL have an Animations tab in the asset library that lists the GM's own animations with name and shape, filtered by a case-insensitive name search. An animation has a name of 1 to 60 characters and a definition made only of: a shape (`slash`, `claw`, `projectile`, `fireball`, `meteor`, `bolt`, `beam` or `nuke`), a duration from 0.2 to 4 seconds, two six-digit hex colours, a size from 0.5 to 3, a particle count from 0 to 120, and glow, shake and flash intensities from 0 to 1. A GM SHALL be able to create, edit, rename, duplicate and delete their animations. The library SHALL also offer a built-in starting point for every shape that can be duplicated into the GM's animations. Every library animation endpoint SHALL be GM-only, SHALL authorize on the server, and SHALL answer 404 for another GM's animation, the same as for one that does not exist. The server SHALL reject any definition outside these bounds with 400 and store nothing. A GM SHALL NOT hold more than 100 animations.
+A GM SHALL have an Animations tab in the asset library that lists the GM's own animations with name and shape, filtered by a case-insensitive name search. An animation has a name of 1 to 60 characters and a definition made only of:
+- a shape: `slash`, `claw`, `whirlwind`, `slam`, `shadow`, `projectile`, `volley`, `dagger`, `fireball`, `meteor`, `explosion`, `bolt`, `chain`, `beam`, `frost`, `poison`, `smite`, `sonic`, `tornado` or `nuke`;
+- a duration from 0.2 to 4 seconds;
+- a primary and a secondary six-digit hex colour, and an optional third (accent) colour;
+- a size from 0.5 to 3;
+- a particle count from 0 to 120 and a particle look (`spark`, `star`, `square`, `shard` or `ring`);
+- glow, shake and flash intensities from 0 to 1;
+- a hit count from 1 to 12, for shapes that repeat, such as volley arrows, claw cuts or chain jumps;
+- spread, arc, trail and spin from 0 to 1;
+- particle gravity from −1 (rises) to 1 (falls);
+- an impact ring count from 0 to 5.
+
+Every field added after the first four shapes MAY be left out. A stored definition without them SHALL read with that shape's defaults. A GM SHALL be able to create, edit, rename, duplicate and delete their animations. The library SHALL also offer a built-in starting point for every shape that can be duplicated into the GM's animations. Every library animation endpoint SHALL be GM-only, SHALL authorize on the server, and SHALL answer 404 for another GM's animation, the same as for one that does not exist. The server SHALL reject any definition outside these bounds with 400 and store nothing. A GM SHALL NOT hold more than 100 animations.
 
 #### Scenario: Create and list
 - **WHEN** the GM saves a slash animation named "Fire blade" with orange colours and 40 particles
@@ -22,6 +34,21 @@ A GM SHALL have an Animations tab in the asset library that lists the GM's own a
 #### Scenario: Duplicate a built-in
 - **WHEN** the GM duplicates the built-in magic style
 - **THEN** a new library animation named after it with the same definition appears and can be edited
+
+### Requirement: A default preset for every shape
+Every shape SHALL have one built-in default preset: a full definition tuned to look good as it is. Choosing a shape in the editor SHALL load that shape's default preset into every field, and a "Reset to shape default" action SHALL restore it after edits. The library's "Start from built-in" SHALL list every shape's default preset. On the board, an attack style with no animation of its own SHALL play its default preset: melee the `slash` preset, ranged the `projectile` preset and magic the `bolt` preset. A nuke with no animation SHALL play the `nuke` preset.
+
+#### Scenario: Switching shape loads its defaults
+- **WHEN** the GM changes an animation's shape from slash to tornado in the editor
+- **THEN** every field shows the tornado default preset, and Play shows a tornado
+
+#### Scenario: Reset after edits
+- **WHEN** the GM edits a meteor's colours and hit count, then chooses "Reset to shape default"
+- **THEN** every field returns to the meteor default preset
+
+#### Scenario: Every shape has a starting point
+- **WHEN** the GM opens "Start from built-in"
+- **THEN** one entry per shape is offered, and each one parses as a valid definition
 
 ### Requirement: Editor with live preview
 The Animations tab SHALL let the GM edit an animation's fields and SHALL show a preview stage with a stand-in attacker and target and a Play button. Play SHALL run the animation exactly as a board would, using the unsaved values in the editor. The preview SHALL NOT change any room, token or library data. Unsaved edits SHALL stay out of the library until the GM saves. For a `nuke` shape the preview SHALL play the blast over the stage. When the GM prefers reduced motion, the preview SHALL show the same static markers a board shows.
