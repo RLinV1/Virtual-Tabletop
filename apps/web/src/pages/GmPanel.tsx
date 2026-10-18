@@ -8,6 +8,7 @@ import type { CommandResult, RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
 import { CheckpointsPanel } from "../panels/CheckpointsPanel";
 import { EncounterPanel } from "../panels/EncounterPanel";
+import { EffectsPanel } from "../panels/EffectsPanel";
 import { PanelSection } from "../ui/PanelSection";
 import { gridsEqual, parseGridDraft, withGridSuggestion, type GridDraft } from "./gridDraft";
 import { GridForm } from "./GridForm";
@@ -106,6 +107,7 @@ export function GmPanel({
         <>
           <CheckpointsPanel connection={connection} state={state} token={token} />
           <EncounterPanel connection={connection} state={state} />
+          <EffectsPanel connection={connection} state={state} />
         </>
       )}
     </>
@@ -514,7 +516,7 @@ function MapSection(props: {
           // A fixed map offers only the steps its editor has (ADR 0033).
           <div className="row button-row" data-tour="gm-grid">
             {OPENERS.filter(({ key }) => steps.some((s) => s.key === key)).map(({ key, label }) => (
-              <button key={key} type="button" className={key === "map" ? "secondary" : undefined} onClick={() => {
+              <button key={key} type="button" className="secondary small" onClick={() => {
                 setStep(key);
                 setEditorOpen(true);
               }}>

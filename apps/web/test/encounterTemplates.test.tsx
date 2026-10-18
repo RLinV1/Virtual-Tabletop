@@ -42,8 +42,8 @@ describe("an encounter card in the library (encounter-templates, FR-GM-13)", () 
     const html = render(template());
     expect(text(html)).toContain("Goblin ambush");
     expect(text(html)).toContain("Cave · 3 tokens · 1 fog region");
-    expect(text(html)).toContain("Rename");
-    expect(text(html)).toContain("Delete");
+    expect(html).toContain(`aria-label="Rename"`);
+    expect(html).toContain(`aria-label="Delete"`);
     expect(html).not.toContain('role="alert"');
   });
 

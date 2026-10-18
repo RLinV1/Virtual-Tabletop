@@ -1,3 +1,4 @@
+import { namedAttackFor } from "./attackPresets";
 import { findMentions } from "./chatMentions";
 import type { Command, DepartureAction } from "./commands";
 import { presetOf, tableForPreset } from "./gamePresets";
@@ -202,7 +203,8 @@ export function decide(
       }
       if (new Set(command.conditions).size !== command.conditions.length) return reject("invalid", "A condition is listed twice.");
       if (footprintCrossesWall(command.position, command.size, state.scene.grid, blockingWalls(state))) return wallBlocked();
-      return createTokens(state, {
+      if (command.groupId !== undefined && !state.groups[command.groupId]) return notFound("group");
+      const made = createTokens(state, {
         name: command.name,
         position: command.position,
         size: command.size,
@@ -216,6 +218,9 @@ export function decide(
         conditions: command.conditions,
         ...(command.attacks.length > 0 ? { attacks: command.attacks } : {}),
       }, command.count, ctx);
+      if (!made.ok || command.groupId === undefined) return made;
+      const changes = made.events.flatMap((e) => (e.type === "TokenCreated" ? [{ tokenId: e.token.id, previous: null }] : []));
+      return accept(...made.events, { type: "TokensGrouped", groupId: command.groupId, changes });
     }
 
     case "token.duplicate": {
@@ -543,7 +548,17 @@ export function decide(
         if (target.id === attacker.id) return reject("invalid", "A token can't attack itself");
         // An unowned token under fog is concealed on the roll for good, like a hidden one (ADR 0016).
         const side = (t: Token) => ({ tokenId: t.id, name: t.name, hidden: t.hidden || fogConcealsSide(state, t) });
-        attack = { actor: side(attacker), target: side(target), label: command.attack.label || null, kind: command.attack.kind };
+        // The animation comes from the actor's own named attack, never from the client (ADR 0038).
+        const named = namedAttackFor(attacker.attacks, command.attack.label, command.attack.kind);
+        const animation = named?.animation;
+        attack = {
+          actor: side(attacker),
+          target: side(target),
+          label: command.attack.label || null,
+          kind: command.attack.kind,
+          ...(command.attack.style && { style: command.attack.style }),
+          ...(animation && { animation }),
+        };
         const off = presetRefusal(state, { attacks: true });
         if (off) return off;
       }
@@ -553,7 +568,7 @@ export function decide(
       const random = ctx.random;
       if (!random) return reject("invalid", "Dice are unavailable");
       const { dice, total } = rollDice(parsed.expression, random);
-      return accept({
+      const rolled: DomainEvent = {
         type: "DiceRolled",
         roll: {
           id: ctx.newId(),
@@ -565,7 +580,8 @@ export function decide(
           visibility: command.visibility,
           ...(attack && { attack }),
         },
-      });
+      };
+      return accept(rolled);
     }
 
     case "roll.rule": {
@@ -602,6 +618,37 @@ export function decide(
       // Nothing to change (no damage, or already at the floor): just mark the roll applied.
       if (hp === target.stats.hp) return accept(applied);
       return accept({ type: "TokenStatsSet", tokenId: target.id, stats: { ...target.stats, hp }, previous: target.stats }, applied);
+    }
+
+    case "room.setReducedEffects": {
+      if (!can.administer(actor)) return forbidden();
+      const previous = state.reducedEffects ?? false;
+      if (previous === command.enabled) return reject("invalid", command.enabled ? "Reduced animations are already on" : "Reduced animations are already off");
+      return accept({ type: "ReducedEffectsSet", enabled: command.enabled, previous });
+    }
+
+    case "nuke.detonate": {
+      if (!can.administer(actor)) return forbidden();
+      const off = presetRefusal(state, { attacks: true });
+      if (off) return off;
+      const map = state.scene.map;
+      if (map && (command.origin.x < 0 || command.origin.y < 0 || command.origin.x > map.width || command.origin.y > map.height)) {
+        return reject("invalid", "Aim the nuke at a point on the map");
+      }
+      // Hidden and fogged tokens fall too; the filters decide who hears about each (ADR 0038).
+      const damaged: DomainEvent[] = [];
+      for (const token of Object.values(state.tokens)) {
+        if (token.stats.hp === null) continue;
+        const hp = Math.max(MIN_HP, token.stats.hp - command.amount);
+        if (hp !== token.stats.hp) damaged.push({ type: "TokenStatsSet", tokenId: token.id, stats: { ...token.stats, hp }, previous: token.stats });
+      }
+      const blast: DomainEvent = {
+        type: "MapNuked",
+        amount: command.amount,
+        origin: command.origin,
+        ...(command.animation && { animation: command.animation }),
+      };
+      return accept(...damaged, blast);
     }
 
     case "template.place": {

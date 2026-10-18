@@ -113,7 +113,10 @@ async def main() -> None:
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, stop.set)
+        try:
+            loop.add_signal_handler(sig, stop.set)
+        except NotImplementedError:  # Windows event loops have no signal handlers; Ctrl+C then ends the process.
+            pass
     print(f"[vision] wall worker consuming '{QUEUE}'", flush=True)
     await stop.wait()
     beating.cancel()

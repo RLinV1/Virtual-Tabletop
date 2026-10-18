@@ -63,6 +63,7 @@ model GmIdentity {
   assets    LibraryAsset[]
   creatures LibraryCreature[]
   diceLooks DiceLook[]
+  animations LibraryAnimation[]
   encounters EncounterTemplate[]
   user      User?
 
@@ -139,6 +140,21 @@ model DiceLook {
 
   @@index([ownerGmId])
   @@map("dice_looks")
+}
+
+/// A GM's saved animation (ADR 0038). `def` is the validated AnimationDef.
+model LibraryAnimation {
+  id        String   @id @db.Uuid
+  ownerGmId String   @map("owner_gm_id") @db.Uuid
+  name      String
+  def       Json
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  owner GmIdentity @relation(fields: [ownerGmId], references: [id])
+
+  @@index([ownerGmId])
+  @@map("library_animations")
 }
 
 /// A GM's stored map or token image. `grid` is set for maps only.

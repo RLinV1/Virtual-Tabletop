@@ -9,9 +9,10 @@ import { BoardFilters } from "./BoardFilters";
 import { canAnimateDice, type TrayRoll } from "../ui/Die3D";
 import { ThrownDice, type ActiveThrow } from "./ThrownDice";
 import { BoardView, type GmFogView } from "./boardView";
-import { MAX_ATTACK_EFFECTS, attackEffectFor, attackPlan, prefersReducedMotion, type AttackEffect } from "./effects";
+import { shakeScreen } from "./screenShake";
+import { MAX_ATTACK_EFFECTS, attackEffectFor, attackPlan, effectiveReducedMotion, type AttackEffect } from "./effects";
 import type { OverlayEffect } from "./EffectsOverlay";
-import { boardDieSize, centreThrow, onMap, throwLanding, type BoardThrow, type BoardTransform } from "./diceThrow";
+import { boardDieSize, centreThrow, crowdedOffset, onMap, throwLanding, type BoardThrow, type BoardTransform } from "./diceThrow";
 import { cursorSquare, moveCursor, placementCommand, startCursor, type PlacementGhost, type PlacingSource, type TokenDraft } from "./placement";
 import type { BoardTool } from "./tools";
 
@@ -191,10 +192,12 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
   /** The hit shake is the board's; everything else is the overlay's. */
   const playEffect = (effect: AttackEffect) => {
     viewRef.current?.playAttackEffect(effect);
+    // A nuke shakes the whole page, not just the board.
+    if (effect.kind === "nuke" && !effectiveReducedMotion(latest.current.state)) shakeScreen(effect.animation);
     const id = nextEffectId.current++;
     setOverlayEffects((all) => [...all, { id, effect }].slice(-MAX_ATTACK_EFFECTS));
     // Also removed here, so an effect that waited for the overlay to load never plays late.
-    window.setTimeout(() => dropEffect(id), attackPlan(effect, prefersReducedMotion()).durationMs + 300);
+    window.setTimeout(() => dropEffect(id), attackPlan(effect, effectiveReducedMotion(latest.current.state)).durationMs + 300);
   };
   const playEffectRef = useRef(playEffect);
   playEffectRef.current = playEffect;
@@ -316,6 +319,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
       const viewer = latest.current.you;
       const effect = attackEffectFor(committed.event, after, viewer);
       if (!effect) return;
+      if (effect.kind === "strike") view.focusStrike(effect);
       // Every public roll is thrown over the board first: the strike leaves when the dice land.
       // Rulings and damage have no dice and play at once.
       if (effect.kind === "strike" && committed.event.type === "DiceRolled") {
@@ -512,7 +516,11 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ connection,
         landed = true;
         onLanded();
       };
-      const next = [...throwsRef.current, { throw: t, roll, size: boardDieSize(grid, view.transform), map, onLanded: once, onGone: onGone ?? (() => {}) }];
+      const size = boardDieSize(grid, view.transform);
+      // A roll thrown while others still lie on the board lands beside them, not on them.
+      const shift = crowdedOffset(throwsRef.current.length, size);
+      const apart: BoardThrow = { ...t, from: { x: t.from.x + shift.x, y: t.from.y + shift.y }, to: { x: t.to.x + shift.x, y: t.to.y + shift.y } };
+      const next = [...throwsRef.current, { throw: apart, roll, size, map, onLanded: once, onGone: onGone ?? (() => {}) }];
       const evicted = next.splice(0, Math.max(0, next.length - MAX_BOARD_THROWS));
       setBoardThrows(next);
       evicted.forEach((e) => {

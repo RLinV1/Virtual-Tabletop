@@ -404,8 +404,8 @@ function Room({ roomId, connection, token, features }: {
     const stop = connection.onRolled((roll) => {
       const mine = roll.byParticipantId === connection.snapshot.you?.id;
       if (roll.visibility === "gm") {
-        const { diceVisible, playVisible } = trays.current;
-        if (diceVisible || (playVisible && mine && roll.attack)) setAirborne((s) => new Set(s).add(roll.id));
+        const { diceVisible } = trays.current;
+        if (diceVisible) setAirborne((s) => new Set(s).add(roll.id));
         else land(roll.id);
         return;
       }
@@ -429,10 +429,10 @@ function Room({ roomId, connection, token, features }: {
   useEffect(() => {
     for (const id of airborne) {
       const roll = state?.rolls.find((r) => r.id === id);
-      const inTray = (diceVisible && id === latestRollId) || (playVisible && id === myLatest?.id);
+      const inTray = diceVisible && id === latestRollId;
       if (!roll || (roll.visibility === "gm" && !inTray)) land(id);
     }
-  }, [airborne, state, diceVisible, playVisible, latestRollId, myLatest, land]);
+  }, [airborne, state, diceVisible, latestRollId, land]);
   useEffect(() => {
     if (!cardRollId) return;
     const timer = window.setTimeout(() => setCardRollId(null), ROLL_POPUP_MS);

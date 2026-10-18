@@ -202,21 +202,22 @@ export function ChatPanel({
     }
   };
 
-  const here = spot ? clampChatSpot(spot, window.innerWidth, window.innerHeight) : null;
+  // Until moved, the button rests at the bottom left.
+  const here = clampChatSpot(spot ?? { right: window.innerWidth - EDGE_PX - FAB_PX, bottom: EDGE_PX }, window.innerWidth, window.innerHeight);
   // The popup opens toward the middle of the window, whichever corner the button is in. In the
   // left or top half the widget is pinned by its left or top edge, so the popup grows away from
   // the edge instead of past it.
-  const left = here !== null && here.right > window.innerWidth / 2;
-  const top = here !== null && here.bottom > window.innerHeight / 2;
+  const left = here.right > window.innerWidth / 2;
+  const top = here.bottom > window.innerHeight / 2;
   const widgetClass = ["chat-widget", left ? "chat-widget-left" : "", top ? "chat-widget-top" : ""].filter(Boolean).join(" ");
-  const widgetStyle = here && {
+  const widgetStyle = {
     ...(left ? { left: window.innerWidth - here.right - FAB_PX, right: "auto" } : { right: here.right }),
     ...(top ? { top: window.innerHeight - here.bottom - FAB_PX, bottom: "auto" } : { bottom: here.bottom }),
     // The popup may use the height between the button and the far edge.
     "--chat-room": `${(top ? here.bottom : window.innerHeight - here.bottom - FAB_PX) - 2 * EDGE_PX}px`,
   };
 
-  const current = (): ChatSpot => here ?? { right: EDGE_PX, bottom: EDGE_PX };
+  const current = (): ChatSpot => here;
   const onPointerDown = (e: PointerEvent<HTMLButtonElement>) => {
     if (e.button !== 0) return;
     drag.current = { x: e.clientX, y: e.clientY, from: current(), moved: false };
@@ -244,7 +245,7 @@ export function ChatPanel({
   };
 
   return (
-    <div className={widgetClass} data-tour="chat" style={widgetStyle ? (widgetStyle as CSSProperties) : undefined}>
+    <div className={widgetClass} data-tour="chat" style={widgetStyle as CSSProperties}>
       {open && (
         <section className="chat-popup" aria-label="Chat">
           <header className="chat-popup-header">

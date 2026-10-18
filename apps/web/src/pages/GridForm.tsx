@@ -138,11 +138,11 @@ export function GridForm({
           </p>
           <div className="grid-form" onFocus={() => { setEditingGeometry(true); setGeometryPreview(null); }}
             onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setEditingGeometry(false); }}>
-            {field("cellSize", "Cell size (px)")}
-            {field("offsetX", "Offset X (px)")}
-            {field("offsetY", "Offset Y (px)")}
+            {field("cellSize", "Cell size")}
+            {field("offsetX", "Offset X")}
+            {field("offsetY", "Offset Y")}
           </div>
-          <p className="muted small-print">Offsets wrap within one cell. Resizing can change them while anchor A stays fixed.</p>
+          <p className="muted small-print">All in pixels. Offsets wrap within one cell. Resizing can change them while anchor A stays fixed.</p>
           <GridLineFields draft={styleDraft} map={map} disabled={applying}
             onChange={(next) => onChange({ ...draft, lineColor: next.lineColor,
               lineWidth: next.lineWidth, lineOpacity: next.lineOpacity })}
@@ -234,13 +234,6 @@ function GridLineFields({ draft, map, disabled, onChange }: {
           aria-valuetext={`${WIDTH_NAMES[widthIndex]}, ${GRID_LINE_WIDTHS[widthIndex]} pixels`}
           onChange={(e) => onChange({ ...draft, lineWidth: GRID_LINE_WIDTHS[Number(e.target.value)] })}
         />
-        <span className="range-stops" aria-hidden="true">
-          {WIDTH_NAMES.map((name, i) => (
-            <span key={name} className={i === widthIndex ? "is-current" : undefined}>
-              {name}
-            </span>
-          ))}
-        </span>
       </label>
       <label className="range-field">
         <span className="range-label">

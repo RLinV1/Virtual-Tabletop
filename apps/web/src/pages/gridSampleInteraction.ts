@@ -55,7 +55,17 @@ export function transitionPlacement(placement: Placement, action: PlacementActio
     else return { placement };
   } else if (action.type === "count") {
     if (!sample) return { placement };
-    candidate = { ...sample, count: action.count };
+    // The cell size stays as it is: the sample grows or shrinks around A to cover the new number of
+    // squares, so the grid does not jump when the count changes. Drag B to fit a real block afterwards.
+    const ratio = action.count / sample.count;
+    const corner = {
+      x: sample.anchor.x + (sample.corner.x - sample.anchor.x) * ratio,
+      y: sample.anchor.y + (sample.corner.y - sample.anchor.y) * ratio,
+    };
+    const onMap = corner.x >= 0 && corner.y >= 0 && corner.x <= map.width && corner.y <= map.height;
+    candidate = onMap
+      ? { ...sample, count: action.count, corner, ...(sample.side !== undefined && { side: sample.side * ratio }) }
+      : null;
   } else if (action.type === "adjust") {
     if (!sample) return { placement };
     candidate = action.anchor === "A" ? moveGridSample(sample, action.delta, map)

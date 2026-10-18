@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import { presetOf, type PresetFeatures } from "@vtt/shared";
 import { DEFAULT_TOKEN_COLOR, isActive, type AttackPreset, type ConditionId, type LibraryCreature, type RoomState, type TokenStats } from "@vtt/shared";
 import type { TokenDraft } from "../board/placement";
@@ -14,7 +14,7 @@ import { ConditionPicker } from "./ConditionMarker";
 import { statsWithDefaults } from "./tokenDefaults";
 import { useAttackListEditor } from "./AttackListEditor";
 
-const TOKEN_COLORS = ["#c0392b", "#2980b9", "#27ae60", "#8e44ad", "#d35400", "#16a085"];
+import { randomTokenColor } from "../ui/tokenColors";
 
 /**
  * The GM's New Token and Saved Creatures buttons and their modals (room-sidebar-layout: GM setup
@@ -36,6 +36,19 @@ export function AddTokenButton({
   const [creaturesOpen, setCreaturesOpen] = useState(false);
   /** Saved Creatures' Hidden checkbox: unticked each time the dialog opens, so nothing stays hidden by surprise. */
   const [creatureHidden, setCreatureHidden] = useState(false);
+  /** The group the new tokens join; reset each time a dialog opens. */
+  const [groupId, setGroupId] = useState("");
+  const groups = Object.values(state.groups);
+  const groupField = groups.length > 0 && (
+    <label className="token-group-field">
+      Group
+      <select value={groups.some((g) => g.id === groupId) ? groupId : ""} onChange={(e) => setGroupId(e.target.value)}>
+        <option value="">No group</option>
+        {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+      </select>
+    </label>
+  );
+  const place = (draft: TokenDraft) => onPlace(groups.some((g) => g.id === groupId) ? { ...draft, groupId } : draft);
   /** Filled in and waiting for the dialog to finish closing, so the board takes focus after it. */
   const pending = useRef<TokenDraft | null>(null);
   // The library belongs to the signed-in account (ADR 0017); a signed-out GM uploads directly.
@@ -45,11 +58,11 @@ export function AddTokenButton({
   return (
     <>
       <div className="row add-token-buttons" data-tour="gm-add-token">
-        <button type="button" onClick={() => setOpen(true)}>
+        <button type="button" onClick={() => { setGroupId(""); setOpen(true); }}>
           New Token
         </button>
         {hasLibrary && (
-          <button type="button" onClick={() => { setCreatureHidden(false); setCreaturesOpen(true); }}>
+          <button type="button" onClick={() => { setCreatureHidden(false); setGroupId(""); setCreaturesOpen(true); }}>
             Saved Creatures
           </button>
         )}
@@ -61,18 +74,17 @@ export function AddTokenButton({
         onAfterClose={() => {
           const draft = pending.current;
           pending.current = null;
-          if (draft) onPlace(draft);
+          if (draft) place(draft);
         }}
       >
         <AddToken
           players={players}
           token={token}
           hasLibrary={hasLibrary}
+          groupField={groupField}
           features={presetOf(state).features}
-          defaultColor={TOKEN_COLORS[Object.keys(state.tokens).length % TOKEN_COLORS.length]!}
           onAdd={(draft) => {
-            // A creature brings its own colour; otherwise the next one from the palette.
-            pending.current = { ...draft, color: draft.color ?? TOKEN_COLORS[Object.keys(state.tokens).length % TOKEN_COLORS.length] };
+            pending.current = draft;
             setOpen(false);
           }}
         />
@@ -85,21 +97,24 @@ export function AddTokenButton({
           onAfterClose={() => {
             const draft = pending.current;
             pending.current = null;
-            if (draft) onPlace(draft);
+            if (draft) place(draft);
           }}
         >
           <div className="stack">
-            {/* Chosen before anything is created, so an ambush never reaches players (token-placement-flow). */}
-            <label className="inline">
-              <input type="checkbox" checked={creatureHidden} onChange={(e) => setCreatureHidden(e.target.checked)} />
-              Hidden from players
-            </label>
             <CreaturePicker
               onPick={(creature) => {
                 pending.current = savedCreatureDraft(creature, creatureHidden, presetOf(state).features);
                 setCreaturesOpen(false);
               }}
             />
+            {/* Chosen before anything is created, so an ambush never reaches players (token-placement-flow). */}
+            <div className="stack">
+              {groupField}
+              <label className="inline">
+                <input type="checkbox" checked={creatureHidden} onChange={(e) => setCreatureHidden(e.target.checked)} />
+                Hidden from players
+              </label>
+            </div>
           </div>
         </Modal>
       )}
@@ -117,9 +132,10 @@ function AddToken(props: {
   players: { id: string; displayName: string }[];
   token: string;
   hasLibrary: boolean;
+  /** The Group select, when the room has groups. */
+  groupField: ReactNode;
   /** What the room's game preset turns on (KAN-63). */
   features: PresetFeatures;
-  defaultColor: string;
   /** The form is complete; the token is created once the GM picks its square on the board. */
   onAdd: (draft: TokenDraft) => void;
 }) {
@@ -133,7 +149,8 @@ function AddToken(props: {
   const [ac, setAc] = useState("");
   const [image, setImage] = useState<TokenImage | null>(null);
   /** Starts with the next palette colour, editable or replaced by a creature (KAN-70). */
-  const [color, setColor] = useState(props.defaultColor);
+  // Without art a token gets a random disc colour.
+  const [color] = useState(randomTokenColor);
   const [conditions, setConditions] = useState<ConditionId[]>([]);
   const conditionsLabelId = useId();
   const [attacks, setAttacks] = useState<AttackPreset[]>([]);
@@ -141,7 +158,6 @@ function AddToken(props: {
   const attackList = useAttackListEditor({ attacks, onChange: setAttacks });
   const features = props.features;
   const [picking, setPicking] = useState(false);
-  const [pickingCreature, setPickingCreature] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const typedStats = { hp: optionalNumber(hp), maxHp: optionalNumber(maxHp), ac: optionalNumber(ac) };
@@ -174,14 +190,6 @@ function AddToken(props: {
           }, features));
         }}
       >
-        {props.hasLibrary && (
-          <div className="row add-token-creature">
-            <button type="button" className="secondary" disabled={uploading} onClick={() => setPickingCreature(true)}>
-              From creature
-            </button>
-            <span className="muted">Fills in the details below from one of your creatures.</span>
-          </div>
-        )}
         <label>
           Name
           <input
@@ -203,20 +211,33 @@ function AddToken(props: {
           <label>Max HP<input type="number" value={maxHp} onChange={(e) => setMaxHp(e.target.value)} min="1" max="9999" step="1" placeholder={String(defaults.maxHp)} /></label>
           {features.armorClass && <label>AC<input type="number" value={ac} onChange={(e) => setAc(e.target.value)} min="0" max="99" step="1" placeholder={String(defaults.ac)} /></label>}
         </div>
-        <span className="muted small-print">Blank fields use the value shown: HP and Max HP match each other, or are 100 if both are blank, and AC is 0.</span>
-        <label>
-          Owner
-          <select value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
-            <option value="">No owner (GM only)</option>
-            {props.players.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.displayName}
-              </option>
-            ))}
-          </select>
-        </label>
+        <details className="token-editor-section">
+          <summary>Control &amp; visibility</summary>
+          <div className="stack">
+            <label>
+              Owner
+              <select value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
+                <option value="">No owner (GM only)</option>
+                {props.players.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.displayName}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {props.groupField}
+            <label className="inline">
+              <input type="checkbox" checked={hidden} onChange={(e) => setHidden(e.target.checked)} />
+              Hidden from players
+            </label>
+          </div>
+        </details>
+        {/* Rarely changed from their defaults, so tucked away (token-stat-defaults). No position
+            fields: the GM points at the square on the board next (place-token-on-board). */}
+        {features.attacks && attackList.section}
+        <details className="token-editor-section">
+          <summary>Image<span className="token-editor-summary">{image ? image.label : "none"}</span></summary>
         <div className="stack token-image-field">
-          <span className="field-label">Image</span>
           {image ? (
             <div className="row token-image-chosen">
               <TokenPreview url={image.url} color={color ?? DEFAULT_TOKEN_COLOR} hidden={hidden} />
@@ -243,16 +264,10 @@ function AddToken(props: {
             </div>
           )}
         </div>
-        {/* Rarely changed from their defaults, so tucked away (token-stat-defaults). No position
-            fields: the GM points at the square on the board next (place-token-on-board). */}
-        {features.attacks && attackList.section}
-        <details className="add-token-advanced">
+        </details>
+        <details className="token-editor-section">
           <summary>Advanced settings</summary>
           <div className="stack">
-            <label>
-              Colour without art
-              <input type="color" value={color} onInput={(e) => setColor(e.currentTarget.value)} onChange={(e) => setColor(e.target.value)} />
-            </label>
             {/* A creature fills these in; the GM can change them before placing (KAN-70). */}
             {features.conditions && (
               <div className="stack" role="group" aria-labelledby={conditionsLabelId}>
@@ -264,10 +279,6 @@ function AddToken(props: {
               <label>Size (cells)<input type="number" value={size} onChange={(e) => setSize(e.target.value)} required min="0.25" max="10" step="any" /></label>
               <label>Rotation (°)<input type="number" value={rotation} onChange={(e) => setRotation(e.target.value)} required step="any" /></label>
             </div>
-            <label className="inline">
-              <input type="checkbox" checked={hidden} onChange={(e) => setHidden(e.target.checked)} />
-              Hidden from players
-            </label>
           </div>
         </details>
         {error && <p role="alert" className="error">{error}</p>}
@@ -276,29 +287,6 @@ function AddToken(props: {
       </form>
       {/* The attack editor is a form of its own, so it can't be nested in this one. */}
       {features.attacks && attackList.editor}
-      {/* Its own modal, stacked over this one (native dialogs stack), so searching the
-          library has room. Kept outside the form so its buttons can never submit it. */}
-      {props.hasLibrary && (
-        <Modal open={pickingCreature} title="Choose a creature" onClose={() => setPickingCreature(false)}>
-          <CreaturePicker
-            onPick={(creature) => {
-              // A creature's name is entered as its board name, so it may prefill the token's (ADR 0012).
-              // Owner, Hidden and rotation stay as the GM set them.
-              const draft = creatureDraft(creature);
-              setName(draft.name);
-              setSize(String(draft.size));
-              setHp(draft.stats.hp === null ? "" : String(draft.stats.hp));
-              setMaxHp(draft.stats.maxHp === null ? "" : String(draft.stats.maxHp));
-              setAc(draft.stats.ac === null ? "" : String(draft.stats.ac));
-              setImage(draft.image && { ...draft.image, label: creature.name });
-              setColor(draft.color);
-              setConditions(draft.conditions);
-              setAttacks(draft.attacks);
-              setPickingCreature(false);
-            }}
-          />
-        </Modal>
-      )}
       <Modal open={picking} title="Choose a token image" onClose={() => setPicking(false)}>
         <LibraryPicker
           kind="token"

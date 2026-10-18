@@ -1,9 +1,13 @@
+import { PencilSimple, Trash } from "@phosphor-icons/react";
+import { IconAction } from "../ui/IconAction";
 import { useEffect, useId, useState, type FormEvent } from "react";
-import { CreatureFields, DEFAULT_TOKEN_COLOR, MAX_TOKEN_ATTACKS, MIN_HP, creatureHpValid, type AttackPreset, type ConditionId, type LibraryCreature } from "@vtt/shared";
+import { CreatureFields, MAX_TOKEN_ATTACKS, MIN_HP, creatureHpValid, type AttackPreset, type ConditionId, type LibraryAsset, type LibraryCreature } from "@vtt/shared";
 import { PresetEditor } from "../panels/AttackPanel";
 import { presetSummary } from "../panels/attackRoll";
 import { ConditionPicker } from "../panels/ConditionMarker";
 import { api } from "../net/api";
+import { randomTokenColor } from "../ui/tokenColors";
+import { isBuiltin } from "../net/builtinAssets";
 import { Modal } from "../ui/Modal";
 import { TokenPreview } from "../ui/TokenPreview";
 import { creatureSummary, type CreaturePrefill } from "./creatureDraft";
@@ -56,8 +60,8 @@ export function CreatureCard(props: {
         </div>
       ) : (
         <div className="row asset-actions">
-          <button type="button" className="link" onClick={props.onEdit}>Edit</button>
-          <button type="button" className="link danger" onClick={() => setConfirming(true)}>Delete</button>
+          <IconAction icon={<PencilSimple size={16} aria-hidden="true" />} label="Edit" onClick={props.onEdit} />
+          <IconAction icon={<Trash size={16} aria-hidden="true" />} label="Delete" danger onClick={() => setConfirming(true)} />
         </div>
       )}
     </li>
@@ -92,7 +96,8 @@ export function CreatureForm(props: {
   const [hp, setHp] = useState(from?.hp == null ? "" : String(from.hp));
   const [maxHp, setMaxHp] = useState(from?.maxHp == null ? "" : String(from.maxHp));
   const [ac, setAc] = useState(from?.ac == null ? "" : String(from.ac));
-  const [color, setColor] = useState(from?.color ?? DEFAULT_TOKEN_COLOR);
+  // A new creature gets a random disc colour for when it has no art; an existing one keeps its own.
+  const [color] = useState(() => from?.color ?? randomTokenColor());
   const [conditions, setConditions] = useState<ConditionId[]>(from?.conditions ?? []);
   const [attacks, setAttacks] = useState<AttackPreset[]>(structuredClone(from?.attacks ?? []));
   const [editingAttack, setEditingAttack] = useState<number | "new" | null>(null);
@@ -180,17 +185,13 @@ export function CreatureForm(props: {
         </div>
         {/* Rarely changed, so tucked away as in Add Token; open whenever it holds a value or the HP hint
             (creature-form-advanced-settings). */}
-        <details className="add-token-advanced" open={advancedOpen} onToggle={(e) => setAdvancedOpen(e.currentTarget.open)}>
+        <details className="token-editor-section" open={advancedOpen} onToggle={(e) => setAdvancedOpen(e.currentTarget.open)}>
           <summary>Advanced settings</summary>
           <div className="stack">
             <label>
               Starting HP
               <input type="number" value={hp} onChange={(e) => setHp(e.target.value)} min={MIN_HP} max="9999" step="1" />
               <span className="muted small-print">Leave Starting HP blank to start at Max HP.</span>
-            </label>
-            <label className="creature-color">
-              Colour without art
-              <input type="color" value={color} onInput={(e) => setColor(e.currentTarget.value)} onChange={(e) => setColor(e.target.value)} />
             </label>
             <div className="stack" role="group" aria-labelledby={conditionsLabelId}>
               <span id={conditionsLabelId} className="field-label">Starting conditions</span>
@@ -211,10 +212,16 @@ export function CreatureForm(props: {
       <Modal open={picking} title="Choose token art" onClose={() => setPicking(false)}>
         <LibraryPicker
           kind="token"
-          includeBuiltins={false}
-          onPick={(asset) => {
-            setImage({ assetId: asset.id, url: asset.url, label: asset.name });
-            setPicking(false);
+          onPick={async (asset) => {
+            try {
+              // Shipped art is not a library row, and a creature needs one: copy it in once, then reuse the copy.
+              const own = isBuiltin(asset) ? await importBuiltinArt(asset) : asset;
+              setImage({ assetId: own.id, url: own.url, label: own.name });
+              setPicking(false);
+            } catch {
+              setError("Could not add that art to your library. Try again.");
+              setPicking(false);
+            }
           }}
         />
       </Modal>
@@ -283,4 +290,13 @@ export function CreaturePicker(props: { onPick: (creature: LibraryCreature) => v
       </ul>
     </div>
   );
+}
+
+/** The GM's own copy of a built-in token image: an existing one of the same name, else a fresh upload. */
+async function importBuiltinArt(asset: LibraryAsset): Promise<LibraryAsset> {
+  const existing = (await api.library.list()).find((a) => a.kind === "token" && a.name === asset.name);
+  if (existing) return existing;
+  const blob = await (await fetch(asset.url)).blob();
+  const file = new File([blob], `${asset.name}.${asset.url.split(".").pop() ?? "webp"}`, { type: blob.type });
+  return api.library.upload(file, { kind: "token", name: asset.name, width: asset.width, height: asset.height });
 }

@@ -45,15 +45,15 @@ describe("GM grid suggestion editor (FR-GM-03)", () => {
     }
 
     render(<Editor />);
-    fireEvent.change(screen.getByLabelText("Cell size (px)"), { target: { value: "71" } });
+    fireEvent.change(screen.getByLabelText("Cell size"), { target: { value: "71" } });
     await act(async () => pending.resolve({ status: "suggested", attempt: 1, candidate }));
-    expect((screen.getByLabelText("Cell size (px)") as HTMLInputElement).value).toBe("71");
+    expect((screen.getByLabelText("Cell size") as HTMLInputElement).value).toBe("71");
     expect(screen.getByText(/Low confidence/)).toBeTruthy();
     expect(apply).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Use suggestion" }));
-    expect((screen.getByLabelText("Cell size (px)") as HTMLInputElement).value).toBe("64");
-    expect((screen.getByLabelText("Offset X (px)") as HTMLInputElement).value).toBe("7");
+    expect((screen.getByLabelText("Cell size") as HTMLInputElement).value).toBe("64");
+    expect((screen.getByLabelText("Offset X") as HTMLInputElement).value).toBe("7");
     expect((screen.getByLabelText("Distance per square") as HTMLInputElement).value).toBe("10");
     expect(apply).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Apply grid" }));
@@ -95,12 +95,12 @@ describe("GM grid suggestion editor (FR-GM-03)", () => {
     }
     const form = render(<Editor />);
     expect(screen.getByText("Analyzing the map grid…")).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Cell size (px)"), { target: { value: "71" } });
+    fireEvent.change(screen.getByLabelText("Cell size"), { target: { value: "71" } });
     form.rerender(<Editor finished />);
     expect(form.container.querySelector(".grid-suggestion")).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
-    expect((screen.getByLabelText("Cell size (px)") as HTMLInputElement).value).toBe("71");
+    expect((screen.getByLabelText("Cell size") as HTMLInputElement).value).toBe("71");
     fireEvent.click(screen.getByRole("button", { name: "Apply grid" }));
     await waitFor(() => expect(apply).toHaveBeenCalledWith(expect.objectContaining({ cellSize: 71 })));
 

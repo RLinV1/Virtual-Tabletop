@@ -335,6 +335,11 @@ export interface RoomState {
    * outlive a deleted token, so undoing the deletion puts it back in its group. GM-only.
    */
   tokenGroups: Record<Id, Id>;
+  /**
+   * The GM turned board animations down for the whole table (ADR 0038): every viewer plays the
+   * reduced-motion version, as if each had asked for it. Public. Older rooms read as false.
+   */
+  reducedEffects: boolean;
 }
 
 export function emptyRoomState(roomId: Id): RoomState {
@@ -355,5 +360,6 @@ export function emptyRoomState(roomId: Id): RoomState {
     undo: [],
     groups: {},
     tokenGroups: {},
+    reducedEffects: false,
   };
 }

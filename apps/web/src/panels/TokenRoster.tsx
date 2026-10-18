@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { presetOf, type PresetFeatures } from "@vtt/shared";
-import { Trash } from "@phosphor-icons/react";
+import { PencilSimple, Trash } from "@phosphor-icons/react";
 import {
   can,
+  CreatureFields,
   hpFraction,
   inactiveLabel,
   isActive,
@@ -19,16 +20,15 @@ import { api } from "../net/api";
 import { useAccount } from "../account/accountStore";
 import { libraryAssetId } from "../net/builtinAssets";
 import { LibraryPicker } from "../pages/LibraryPicker";
-import { CreatureForm } from "../pages/LibraryCreatures";
 import { useAttackListEditor } from "./AttackListEditor";
-import { creatureFromToken, type CreaturePrefill } from "../pages/creatureDraft";
+import { creatureFromToken } from "../pages/creatureDraft";
 import { TokenPreview } from "../ui/TokenPreview";
 import { ConditionMarker, ConditionPicker } from "./ConditionMarker";
 import type { TokenDraft } from "../board/placement";
 import { AddTokenButton } from "./AddToken";
 import { Modal } from "../ui/Modal";
 import { PanelSection } from "../ui/PanelSection";
-import { CollapseToggle, GroupHeading, NewGroupForm } from "./GroupHeading";
+import { CollapseToggle, GroupHeading, NewGroupButton } from "./GroupHeading";
 import { groupedTokens } from "./tokenGroups";
 
 /**
@@ -100,7 +100,7 @@ export function TokenRoster({
   );
 
   return (
-    <PanelSection id="tokens" title="Tokens">
+    <PanelSection id="tokens" title="Tokens" actions={isGm ? <NewGroupButton connection={connection} onError={setError} /> : undefined}>
       <label htmlFor="roster-search" className="sr-only">
         Search tokens by name
       </label>
@@ -120,7 +120,7 @@ export function TokenRoster({
             group || members.length > 0 || tokens.length === 0 ? (
               <section key={group?.id ?? "ungrouped"} className="roster-group" aria-label={group?.name ?? "Ungrouped tokens"}>
                 {group ? (
-                  <GroupHeading group={group} tokens={members} connection={connection} onError={setError}
+                  <GroupHeading group={group} tokens={members} others={Object.values(state.tokens).filter((t) => state.tokenGroups[t.id] !== group.id).slice(0, 100)} connection={connection} onError={setError}
                     collapsed={collapsed.has(group.id)} onToggle={() => toggle(group.id)} />
                 ) : (
                   <div className="group-heading">
@@ -138,7 +138,6 @@ export function TokenRoster({
               </section>
             ) : null,
           )}
-          <NewGroupForm connection={connection} onError={setError} />
         </>
       ) : tokens.length === 0 ? (
         <p className="muted">{query ? "No tokens match." : "No tokens yet."}</p>
@@ -217,8 +216,8 @@ function RosterRow({
           {token.stats.ac !== null && <span className="muted">AC {token.stats.ac}</span>}
         </button>
         {editable && (
-          <button type="button" className="link small" onClick={onEdit} aria-label={`Edit ${token.name}`}>
-            Edit
+          <button type="button" className="icon-button roster-edit" onClick={onEdit} aria-label={`Edit ${token.name}`} title="Edit">
+            <PencilSimple size={16} aria-hidden="true" />
           </button>
         )}
       </div>
@@ -313,15 +312,24 @@ export function TokenEditor({
   const [hidden, setHidden] = useState(token.hidden);
   const [groupId, setGroupId] = useState(savedGroupId ?? "");
   const [confirming, setConfirming] = useState<"save" | "delete" | null>(null);
-  /** Save as creature (KAN-70): the token as it is now, as a new library creature's starting values. */
-  const [creaturePrefill, setCreaturePrefill] = useState<CreaturePrefill | null>(null);
+  /** Save as creature (KAN-70): the token as it is now, saved at once as a new library creature. */
   const [creatureStatus, setCreatureStatus] = useState("");
-  const openSaveAsCreature = async () => {
+  const [savingCreature, setSavingCreature] = useState(false);
+  const saveAsCreature = async () => {
+    setSavingCreature(true);
     setCreatureStatus("");
-    // Its art comes along only when it is the GM's own token art; an unreadable library means none.
-    const ownArt = await api.library.list().catch(() => []);
-    // The token's own attacks, as the GM and its owners see them (ADR 0034).
-    setCreaturePrefill(creatureFromToken(token, ownArt));
+    try {
+      // Its art comes along only when it is the GM's own token art; an unreadable library means none.
+      const ownArt = await api.library.list().catch(() => []);
+      // The token's own attacks, as the GM and its owners see them (ADR 0034).
+      const { imageUrl: _imageUrl, ...fields } = creatureFromToken(token, ownArt);
+      const saved = await api.library.creatures.create(CreatureFields.parse(fields));
+      setCreatureStatus(`Saved ${saved.name} to your creatures.`);
+    } catch (err) {
+      setCreatureStatus(err instanceof Error ? err.message : "Could not save the creature.");
+    } finally {
+      setSavingCreature(false);
+    }
   };
   const [busy, setBusy] = useState(false);
 
@@ -416,6 +424,7 @@ export function TokenEditor({
             Control &amp; visibility
             <span className="token-editor-summary">
               {players.find((p) => p.id === ownerId)?.displayName ?? (ownerId ? departedOwner?.displayName : "GM only")}
+              {groups.find((g) => g.id === groupId) && ` · ${groups.find((g) => g.id === groupId)!.name}`}
               {hidden && " · hidden"}
             </span>
           </summary>
@@ -435,6 +444,15 @@ export function TokenEditor({
               ))}
             </select>
           </label>
+          {groups.length > 0 && (
+            <label className="token-group-field">
+              Group
+              <select value={groupId} onChange={(e) => setGroupId(e.target.value)}>
+                <option value="">No group</option>
+                {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+            </label>
+          )}
           <label className="inline">
             <input type="checkbox" checked={hidden} onChange={(e) => setHidden(e.target.checked)} />
             Hidden from players
@@ -442,24 +460,6 @@ export function TokenEditor({
         </details>
       )}
 
-      {isGm && groups.length > 0 && (
-        <label className="token-group-field">
-          Group
-          <select value={groupId} onChange={(e) => setGroupId(e.target.value)}>
-            <option value="">No group</option>
-            {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-          </select>
-        </label>
-      )}
-
-      {isGm && onDuplicate && (
-        <div className="row token-duplicate">
-          <button type="button" className="secondary" disabled={busy} aria-describedby="duplicate-hint" onClick={onDuplicate}>
-            Duplicate
-          </button>
-          <span id="duplicate-hint" className="muted small-print">Same stats, conditions, owner and visibility. Click squares on the board to place copies.</span>
-        </div>
-      )}
 
       {isGm && (
         <details className="token-editor-section">
@@ -521,9 +521,14 @@ export function TokenEditor({
         </div>
       ) : (
         <div className="token-editor-actions">
+          {isGm && onDuplicate && (
+            <button type="button" className="secondary" disabled={busy} title="Same stats, conditions, owner and visibility. Click squares on the board to place copies." onClick={onDuplicate}>
+              Duplicate
+            </button>
+          )}
           {isGm && hasLibrary && (
-            <button type="button" className="secondary token-save-creature" onClick={() => void openSaveAsCreature()}>
-              Save as creature
+            <button type="button" className="secondary token-save-creature" disabled={savingCreature} onClick={() => void saveAsCreature()}>
+              {savingCreature ? "Saving…" : "Save as creature"}
             </button>
           )}
           {isGm && (
@@ -545,22 +550,7 @@ export function TokenEditor({
     </form>
     {/* Outside the editor's form: a form nested in a form would submit the editor instead. */}
     {features.attacks && attackList.editor}
-    {isGm && hasLibrary && (
-      <Modal open={creaturePrefill !== null} title="Save as creature" onClose={() => setCreaturePrefill(null)}>
-        {creaturePrefill && (
-          <CreatureForm
-            creature={null}
-            prefill={creaturePrefill}
-            onCancel={() => setCreaturePrefill(null)}
-            onSaved={(saved) => {
-              setCreaturePrefill(null);
-              setCreatureStatus(`Saved ${saved.name} to your library.`);
-            }}
-          />
-        )}
-      </Modal>
-    )}
-    <span role="status" className="sr-only">{creatureStatus}</span>
+    <p role="status" className={creatureStatus ? "muted small-print" : "sr-only"}>{creatureStatus}</p>
     {isGm && (
       <Modal open={picking} title="Choose a token image" onClose={() => setPicking(false)}>
         <LibraryPicker kind="token" onPick={(asset) => {
