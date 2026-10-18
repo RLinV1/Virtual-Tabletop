@@ -19,10 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
-Third-party artwork
--------------------
-
-The two Hyptosis human portraits are CC0 1.0 assets, preserved under that dedication.
-See `apps/web/public/img/tokens/enemies/CREDITS.md` for sources and provenance
-of the human portraits and the generated goblin illustrations.

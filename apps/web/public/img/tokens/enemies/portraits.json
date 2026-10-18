@@ -23,24 +23,24 @@
   },
   {
     "slug": "human-swordsman",
-    "name": "Human Traveler",
+    "name": "Human Swordsman",
     "file": "human-swordsman.svg",
     "width": 400,
     "height": 400,
-    "artist": "Hyptosis",
-    "license": "CC0-1.0",
-    "source": "https://opengameart.org/content/200-free-lorestrome-portraits",
+    "artist": "OpenAI image generation",
+    "license": "Project asset",
+    "source": "Original generated artwork for this project",
     "original": "source/human-swordsman.png"
   },
   {
     "slug": "human-mage",
-    "name": "Human Scout",
+    "name": "Human Mage",
     "file": "human-mage.svg",
     "width": 400,
     "height": 400,
-    "artist": "Hyptosis",
-    "license": "CC0-1.0",
-    "source": "https://opengameart.org/content/200-free-lorestrome-portraits",
+    "artist": "OpenAI image generation",
+    "license": "Project asset",
+    "source": "Original generated artwork for this project",
     "original": "source/human-mage.png"
   }
 ]

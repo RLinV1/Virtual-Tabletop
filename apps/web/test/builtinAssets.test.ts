@@ -62,7 +62,7 @@ it("includes searchable portraits with their actual bundled image dimensions", a
   const portraits = BUILTIN_ASSETS.filter((asset) => asset.url.startsWith("/img/tokens/enemies/"));
   expect(portraits).toHaveLength(4);
   expect(builtinsMatching("token", "goblin").map((asset) => asset.name)).toEqual(["Goblin Spearman", "Goblin Guard"]);
-  expect(builtinsMatching("token", "human").map((asset) => asset.name)).toEqual(["Human Traveler", "Human Scout"]);
+  expect(builtinsMatching("token", "human").map((asset) => asset.name)).toEqual(["Human Swordsman", "Human Mage"]);
   for (const asset of portraits) {
     const metadata = await sharp(fileURLToPath(new URL(`../public${asset.url}`, import.meta.url))).metadata();
     expect(metadata.width).toBe(asset.width);
