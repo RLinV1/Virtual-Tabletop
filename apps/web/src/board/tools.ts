@@ -22,7 +22,7 @@ export type BoardTool =
       size: number;
       /** A line's width in whole cells, 1 to `MAX_LINE_WIDTH_CELLS` (KAN-35, aoe-tool-refinements). */
       lineCells: number;
-      /** The colour everyone sees it in (ADR 0035). */
+      /** The colour everyone sees it in (ADR 0040). */
       color: AreaColor;
       /** GM only: place it where players can't see it (ADR 0007). */
       gmOnly: boolean;
@@ -133,7 +133,7 @@ export function templateMark(t: AreaTemplate): Extract<Mark, { kind: "area" }> {
   return { kind: "area", shape: t.shape, size: t.size, origin: t.origin, toward: t.toward, free: true, gmOnly: t.gmOnly, width: t.width, color: t.color };
 }
 
-/** The shade each area colour is drawn in (ADR 0035). Shared state names the colour; the board picks the shade. */
+/** The shade each area colour is drawn in (ADR 0040). Shared state names the colour; the board picks the shade. */
 export const AREA_SHADES: Record<AreaColor, number> = {
   red: 0xe74c3c,
   orange: 0xe67e22,
@@ -210,7 +210,7 @@ export function areaShape(shape: AreaShape, origin: Point, toward: Point, size: 
     const half = (((width ?? grid.unitsPerCell) / grid.unitsPerCell) * grid.cellSize) / 2;
     return { kind: "polygon", points: [at(0, -half), at(length, -half), at(length, half), at(0, half)] };
   }
-  // A box is centred on its origin, turned to face the aim (ADR 0035).
+  // A box is centred on its origin, turned to face the aim (ADR 0040).
   const h = length / 2;
   return { kind: "polygon", points: [at(-h, -h), at(h, -h), at(h, h), at(-h, h)] };
 }
@@ -228,7 +228,7 @@ export function areaOrigin(p: Point, grid: GridSpec, free: boolean): Point {
 
 /**
  * An area's size from a drag, in grid units, so the pointer sits on the shape's far edge: the
- * distance from the origin, or twice it for a box, which is centred on its origin (ADR 0035).
+ * distance from the origin, or twice it for a box, which is centred on its origin (ADR 0040).
  * Snapped to whole cells (at least one) unless free.
  */
 export function areaSizeFromDrag(origin: Point, to: Point, grid: GridSpec, free: boolean, shape?: AreaShape): number {

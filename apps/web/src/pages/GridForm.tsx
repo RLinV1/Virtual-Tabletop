@@ -26,7 +26,6 @@ export function GridForm({
   detection,
   detectionError,
   onUseSuggestion,
-  onRetryDetection,
   submitLabel = "Apply grid",
   busyLabel = "Applying…",
   cancelLabel = "Cancel",
@@ -45,9 +44,9 @@ export function GridForm({
   applying: boolean;
   error: string | null;
   detection?: GridDetectionStatus | null;
+  /** Hide analysis UI after a request error so manual editing can continue quietly. */
   detectionError?: string | null;
   onUseSuggestion?: (candidate: Extract<GridDetectionStatus, { status: "suggested" }>["candidate"]) => void;
-  onRetryDetection?: () => void;
   submitLabel?: string;
   busyLabel?: string;
   cancelLabel?: string;
@@ -139,11 +138,11 @@ export function GridForm({
           </p>
           <div className="grid-form" onFocus={() => { setEditingGeometry(true); setGeometryPreview(null); }}
             onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setEditingGeometry(false); }}>
-            {field("cellSize", "Cell size (px)")}
-            {field("offsetX", "Offset X (px)")}
-            {field("offsetY", "Offset Y (px)")}
+            {field("cellSize", "Cell size")}
+            {field("offsetX", "Offset X")}
+            {field("offsetY", "Offset Y")}
           </div>
-          <p className="muted small-print">Offsets wrap within one cell. Resizing can change them while anchor A stays fixed.</p>
+          <p className="muted small-print">All in pixels. Offsets wrap within one cell. Resizing can change them while anchor A stays fixed.</p>
           <GridLineFields draft={styleDraft} map={map} disabled={applying}
             onChange={(next) => onChange({ ...draft, lineColor: next.lineColor,
               lineWidth: next.lineWidth, lineOpacity: next.lineOpacity })}
@@ -160,17 +159,10 @@ export function GridForm({
             disabled={applying} value={draft.unitLabel}
             onChange={(e) => onChange({ ...draft, unitLabel: e.target.value })} />
         </div>
-        {detection && (
+        {detection && !detectionError && detection.status !== "no_grid" && detection.status !== "error" && (
           <div className="grid-suggestion" role="status">
             {detection.status === "queued" && <p>Checking the map for a grid…</p>}
             {detection.status === "running" && <p>Analyzing the map grid…</p>}
-            {detection.status === "no_grid" && <p>No reliable square grid found. You can align it manually.</p>}
-            {detection.status === "error" && (
-              <>
-                <p>Grid analysis failed. Manual alignment is available.</p>
-                {onRetryDetection && <button type="button" className="secondary small" onClick={onRetryDetection}>Try again</button>}
-              </>
-            )}
             {detection.status === "suggested" && (
               <>
                 <p>Automatic suggestion: {detection.candidate.cellSize}px cells, offsets {detection.candidate.offsetX}px / {detection.candidate.offsetY}px. Confidence: {Math.round(detection.candidate.confidence * 100)}%.</p>
@@ -187,7 +179,6 @@ export function GridForm({
             )}
           </div>
         )}
-        {detectionError && <p className="error grid-message" role="alert">{detectionError}</p>}
         {hasDraft && !validDraft && (
           <p className="error grid-message" role="alert">
             {tooManyLines
@@ -206,7 +197,7 @@ export function GridForm({
   );
 }
 
-const WIDTH_NAMES = ["Hairline", "Thin", "Medium", "Thick", "Bold"];
+const WIDTH_NAMES = ["Hairline", "Thin", "Medium", "Thick", "Bold", "Heavy"];
 
 /**
  * Line colour, thickness and opacity (grid-line-style, ADR 0005), behind an "Advanced"
@@ -243,13 +234,6 @@ function GridLineFields({ draft, map, disabled, onChange }: {
           aria-valuetext={`${WIDTH_NAMES[widthIndex]}, ${GRID_LINE_WIDTHS[widthIndex]} pixels`}
           onChange={(e) => onChange({ ...draft, lineWidth: GRID_LINE_WIDTHS[Number(e.target.value)] })}
         />
-        <span className="range-stops" aria-hidden="true">
-          {WIDTH_NAMES.map((name, i) => (
-            <span key={name} className={i === widthIndex ? "is-current" : undefined}>
-              {name}
-            </span>
-          ))}
-        </span>
       </label>
       <label className="range-field">
         <span className="range-label">

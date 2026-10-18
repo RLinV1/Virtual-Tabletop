@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_NUKE_DAMAGE, NukeAnimationDef } from "./animation";
 import { TokenAttacks } from "./attackPresets";
 import { ConditionId, TokenStats } from "./conditions";
 import { DiceRoll, Verdict } from "./dice";
@@ -200,6 +201,30 @@ export const DomainEvent = z.discriminatedUnion("type", [
     amount: z.number().int().min(0),
   }),
   /**
+   * The GM detonated a map-wide nuke (ADR 0038). Follows the `TokenStatsSet` for every token it
+   * damaged. Names no token, so it can pass to players: each board draws the blast from here and
+   * the numbers from the HP changes it can see.
+   */
+  z.object({
+    type: z.literal("MapNuked"),
+    amount: z.number().int().min(1).max(MAX_NUKE_DAMAGE),
+    origin: Point,
+    animation: NukeAnimationDef.optional(),
+  }),
+  /** The GM turned the table's reduced animations on or off (ADR 0038). */
+  z.object({
+    type: z.literal("ReducedEffectsSet"),
+    enabled: z.boolean(),
+    previous: z.boolean(),
+  }),
+  /** Undo of a nuke: the damage was taken back by the `TokenStatsSet`s before it. Plays nothing. */
+  z.object({
+    type: z.literal("MapNukeUndone"),
+    amount: z.number().int().min(1).max(MAX_NUKE_DAMAGE),
+    origin: Point,
+    animation: NukeAnimationDef.optional(),
+  }),
+  /**
    * Undo of a damage apply (ADR 0013): the roll no longer reads Applied. Only undo emits it,
    * just before the `TokenStatsSet` that puts the HP back. The inverse of `RollDamageApplied`,
    * which carries no `previous` because it always replaces `false` (ADR 0011).
@@ -256,6 +281,11 @@ export const DomainEvent = z.discriminatedUnion("type", [
   /** The GM saved a named restore point (FR-REC-02, ADR 0019). */
   z.object({
     type: z.literal("CheckpointCreated"),
+    checkpoint: Checkpoint,
+  }),
+  /** The GM removed a checkpoint from the list (ADR 0036). Carries the whole entity (invariant 6). Not undoable. */
+  z.object({
+    type: z.literal("CheckpointDeleted"),
     checkpoint: Checkpoint,
   }),
   /**

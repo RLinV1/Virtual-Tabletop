@@ -5,7 +5,7 @@ import { Command, DEFAULT_TOKEN_COLOR } from "./commands";
 import { CommittedEvent } from "./events";
 import { GridSpec, Point } from "./geometry";
 import { TokenStats, type ConditionId } from "./conditions";
-import { AreaColor, AreaShape, Id, Participant, Token, type RoomState } from "./state";
+import { AreaColor, AreaShape, Id, Participant, TableState, Token, type RoomState } from "./state";
 import type { RejectionCode } from "./decide";
 import { RoomUploadPurpose } from "./gridDetection";
 import { MAX_ENCOUNTER_NAME } from "./encounters";
@@ -41,7 +41,7 @@ export const EphemeralPayload = z.discriminatedUnion("type", [
       toward: Point,
       size: z.number().positive().max(1000),
       width: z.number().positive().max(1000).optional(),
-      /** Shown while aiming (ADR 0035). */
+      /** Shown while aiming (ADR 0040). */
       color: AreaColor.optional(),
       gmOnly: z.boolean(),
     }).nullable(),
@@ -133,7 +133,7 @@ export const CreateRoomRequest = z.object({
   guestToken: z.string().min(16).max(256),
   /** Start the room from one of the signed-in GM's encounter templates (FR-GM-13, ADR 0024). */
   templateId: z.uuid().optional(),
-  /** The game preset (KAN-63); Dungeons & Dragons when omitted. */
+  /** The game preset (KAN-63); Free Mode (DEFAULT_PRESET_ID) when omitted. */
   preset: GamePresetId.optional(),
   // `gmToken` was removed (ADR 0017): the signed-in account owns the room. zod strips unknown
   // keys, so an older client that still sends it parses unchanged.
@@ -360,3 +360,10 @@ export interface EncounterSummary {
   updatedAt: string;
 }
 
+
+/** A checkpoint's saved board, for the GM to look at before restoring it (ADR 0036). Read-only: no seq, no event. */
+export const CheckpointPreviewResponse = z.object({
+  name: z.string(),
+  table: TableState,
+});
+export type CheckpointPreviewResponse = z.infer<typeof CheckpointPreviewResponse>;

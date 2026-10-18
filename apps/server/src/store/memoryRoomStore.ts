@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { RoomUploadPurpose } from "@vtt/shared";
 import { DETECTION_STALE_MS, type DetectionOutcome, type DetectionRecord, type DetectionTarget } from "./gridDetectionStore";
-import { DEFAULT_TOKEN_COLOR, presetFromLog, type CommittedEvent, type DieName, type GmRoomSummary, type GridSpec, type LegacySummary } from "@vtt/shared";
+import { DEFAULT_TOKEN_COLOR, EMPTY_LIBRARY_BOARD, presetFromLog, type LibraryMapBoard, type CommittedEvent, type DieName, type GmRoomSummary, type GridSpec, type LegacySummary } from "@vtt/shared";
 import {
   EmailTakenError,
   type EndedSessions,
@@ -10,6 +10,7 @@ import {
   type UserRecord,
 } from "./identityStore";
 import {
+  AnimationLimitError,
   CreatureImageMissingError,
   EncounterLimitError,
   EncounterMapMissingError,
@@ -19,6 +20,7 @@ import {
   type CreaturePatch,
   type DiceFaceRecord,
   type DiceLookRecord,
+  type LibraryAnimationRecord,
   type LibraryAssetRecord,
   type LibraryCreatureRecord,
   type NewCreatureRecord,
@@ -50,6 +52,7 @@ export class MemoryRoomStore implements RoomStore {
   /** `${roomId}/${participantId}` -> the account holding that seat (ADR 0017 M1). */
   private members = new Map<string, MemberRecord>();
   private diceLooks = new Map<string, DiceLookRecord>();
+  private animations = new Map<string, LibraryAnimationRecord>();
 
   async createRoom(roomId: string, inviteCode: string, options: NewRoomOptions = {}) {
     if (this.events.has(roomId)) throw new Error(`Room ${roomId} already exists`);
@@ -241,6 +244,15 @@ export class MemoryRoomStore implements RoomStore {
     }));
   }
 
+  private seededOwners = new Set<string>();
+
+  async seedShippedMaps(ownerGmId: string, rows: LibraryAssetRecord[]) {
+    if (this.seededOwners.has(ownerGmId)) return false;
+    this.seededOwners.add(ownerGmId);
+    for (const row of rows) this.assets.set(row.id, structuredClone(row));
+    return true;
+  }
+
   async findDetection(target: DetectionTarget): Promise<DetectionRecord | null> {
     return this.readDetection(target);
   }
@@ -332,6 +344,19 @@ export class MemoryRoomStore implements RoomStore {
     const next = { ...asset, ...(patch.name !== undefined && { name: patch.name }), ...(patch.grid && { grid: patch.grid }) };
     this.assets.set(id, next);
     return structuredClone(next);
+  }
+
+  async findAssetBoard(id: string, ownerGmId: string) {
+    const asset = this.assets.get(id);
+    if (!asset || asset.ownerGmId !== ownerGmId || asset.kind !== "map") return null;
+    return structuredClone(asset.board ?? EMPTY_LIBRARY_BOARD);
+  }
+
+  async setAssetBoard(id: string, ownerGmId: string, board: LibraryMapBoard) {
+    const asset = this.assets.get(id);
+    if (!asset || asset.ownerGmId !== ownerGmId || asset.kind !== "map") return false;
+    asset.board = structuredClone(board);
+    return true;
   }
 
   async deleteAsset(id: string, ownerGmId: string) {
@@ -530,13 +555,47 @@ export class MemoryRoomStore implements RoomStore {
     const device = [...this.gms].find(([, id]) => id === deviceOwnerId);
     if (!device) return null;
     const moved = await this.ownedCounts(deviceOwnerId);
-    for (const rows of [this.rooms.values(), this.assets.values(), this.creatures.values(), this.diceLooks.values()]) {
+    for (const rows of [this.rooms.values(), this.assets.values(), this.creatures.values(), this.diceLooks.values(), this.animations.values()]) {
       for (const row of rows as Iterable<{ ownerGmId: string | null }>) {
         if (row.ownerGmId === deviceOwnerId) row.ownerGmId = accountOwnerId;
       }
     }
     this.gms.delete(device[0]);
     return moved;
+  }
+
+  async listAnimations(ownerGmId: string) {
+    return [...this.animations.values()]
+      .filter((a) => a.ownerGmId === ownerGmId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((a) => structuredClone(a));
+  }
+
+  async findAnimation(id: string, ownerGmId: string) {
+    const animation = this.animations.get(id);
+    return animation && animation.ownerGmId === ownerGmId ? structuredClone(animation) : null;
+  }
+
+  async createAnimation(animation: LibraryAnimationRecord, maxPerOwner: number) {
+    const held = [...this.animations.values()].filter((a) => a.ownerGmId === animation.ownerGmId).length;
+    if (held >= maxPerOwner) throw new AnimationLimitError(maxPerOwner);
+    this.animations.set(animation.id, structuredClone(animation));
+    return structuredClone(animation);
+  }
+
+  async updateAnimation(id: string, ownerGmId: string, patch: { name?: string; def?: LibraryAnimationRecord["def"] }, at: string) {
+    const animation = this.animations.get(id);
+    if (!animation || animation.ownerGmId !== ownerGmId) return null;
+    if (patch.name !== undefined) animation.name = patch.name;
+    if (patch.def !== undefined) animation.def = structuredClone(patch.def);
+    animation.updatedAt = at;
+    return structuredClone(animation);
+  }
+
+  async deleteAnimation(id: string, ownerGmId: string) {
+    const animation = this.animations.get(id);
+    if (!animation || animation.ownerGmId !== ownerGmId) return false;
+    return this.animations.delete(id);
   }
 
   async listDiceLooks(ownerGmId: string) {

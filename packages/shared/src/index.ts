@@ -1,4 +1,5 @@
 export * from "./conditions";
+export * from "./animation";
 export * from "./attackPresets";
 export * from "./dice";
 export * from "./geometry";
@@ -14,6 +15,8 @@ export * from "./undo";
 export * from "./decide";
 export * from "./visibility";
 export * from "./assets";
+export * from "./shippedMaps";
+export * from "./libraryBoard";
 export * from "./protocol";
 export * from "./auth";
 export * from "./diceLooks";
@@ -23,3 +26,4 @@ export * from "./gamePresets";
 
 export * from "./replay";
 export * from "./portals";
+export * from "./chatMentions";

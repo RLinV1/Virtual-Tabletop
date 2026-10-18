@@ -28,7 +28,7 @@ import cv2
 import numpy as np
 
 from walls import (
-    MAX_WALLS, WORK_EDGE, _aligned, _axis_snap, _drop_stairs, _kernel, _length, _merge_collinear,
+    MAX_WALLS, WORK_EDGE, _aligned, _axis_snap, _dedupe, _drop_stairs, _kernel, _length, _merge_collinear,
     _straight_runs, _weld, _working_cell,
 )
 
@@ -384,7 +384,7 @@ def _segments_for(mask: np.ndarray, cell: float) -> list:
     segments = _join_gaps(_merge_collinear(segments), cell * 0.3)
     segments = _drop_stairs(segments, cell)
     segments = [s for s in segments if _length(s) >= cell * 0.6]
-    return _connected_to_long_runs(segments, cell)
+    return _dedupe(_connected_to_long_runs(segments, cell), cell)
 
 
 def _score(segments: list, cell: float) -> float:

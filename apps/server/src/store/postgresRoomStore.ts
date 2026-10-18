@@ -3,6 +3,7 @@ import {
   PrismaClient,
   type DiceLook,
   type EncounterTemplate,
+  type LibraryAnimation,
   type LibraryAsset,
   type LibraryCreature,
   type Session,
@@ -11,7 +12,7 @@ import {
 import { randomUUID } from "node:crypto";
 import type { GridDetectionCandidate, RoomUploadPurpose } from "@vtt/shared";
 import { DETECTION_STALE_MS, type DetectionOutcome, type DetectionRecord, type DetectionTarget, type DetectionState } from "./gridDetectionStore";
-import { ConditionId, DEFAULT_TOKEN_COLOR, presetFromLog, TokenAttacks, type AssetKind, type CommittedEvent, type DieName, type DomainEvent, type GmRoomSummary, type GridSpec, type LegacySummary } from "@vtt/shared";
+import { ConditionId, DEFAULT_TOKEN_COLOR, EMPTY_LIBRARY_BOARD, presetFromLog, type LibraryMapBoard, TokenAttacks, type AssetKind, type CommittedEvent, type DieName, type DomainEvent, type GmRoomSummary, type GridSpec, type LegacySummary } from "@vtt/shared";
 import {
   EmailTakenError,
   type EndedSessions,
@@ -20,6 +21,7 @@ import {
   type UserRecord,
 } from "./identityStore";
 import {
+  AnimationLimitError,
   CreatureImageMissingError,
   EncounterLimitError,
   EncounterMapMissingError,
@@ -29,6 +31,7 @@ import {
   type CreaturePatch,
   type DiceFaceRecord,
   type DiceLookRecord,
+  type LibraryAnimationRecord,
   type LibraryAssetRecord,
   type LibraryCreatureRecord,
   type NewCreatureRecord,
@@ -352,6 +355,23 @@ export class PostgresRoomStore implements RoomStore {
     });
   }
 
+  async seedShippedMaps(ownerGmId: string, rows: LibraryAssetRecord[]) {
+    return this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.gmIdentity.updateMany({
+        where: { id: ownerGmId, shippedMapsSeededAt: null },
+        data: { shippedMapsSeededAt: new Date() },
+      });
+      if (count !== 1) return false;
+      await tx.libraryAsset.createMany({
+        data: rows.map((a) => ({
+          id: a.id, ownerGmId: a.ownerGmId, kind: a.kind, objectKey: a.objectKey, url: a.url, name: a.name,
+          width: a.width, height: a.height, grid: a.grid ?? Prisma.DbNull, createdAt: new Date(a.createdAt),
+        })),
+      });
+      return true;
+    });
+  }
+
   async findDetection(target: DetectionTarget): Promise<DetectionRecord | null> {
     if (target.scope === "library") {
       const row = await this.prisma.libraryAsset.findUnique({ where: { id: target.id } });
@@ -446,6 +466,19 @@ export class PostgresRoomStore implements RoomStore {
   async findAsset(id: string, ownerGmId: string) {
     const row = await this.prisma.libraryAsset.findFirst({ where: { id, ownerGmId } });
     return row ? toAssetRecord(row) : null;
+  }
+
+  async findAssetBoard(id: string, ownerGmId: string) {
+    const row = await this.prisma.libraryAsset.findFirst({ where: { id, ownerGmId, kind: "map" }, select: { board: true } });
+    return row ? ((row.board as unknown as LibraryMapBoard | null) ?? EMPTY_LIBRARY_BOARD) : null;
+  }
+
+  async setAssetBoard(id: string, ownerGmId: string, board: LibraryMapBoard) {
+    const { count } = await this.prisma.libraryAsset.updateMany({
+      where: { id, ownerGmId, kind: "map" },
+      data: { board: board as unknown as Prisma.InputJsonValue },
+    });
+    return count === 1;
   }
 
   async updateAsset(id: string, ownerGmId: string, patch: { name?: string; grid?: GridSpec }) {
@@ -753,9 +786,59 @@ export class PostgresRoomStore implements RoomStore {
       const assets = await tx.libraryAsset.updateMany({ where: from, data: to });
       const creatures = await tx.libraryCreature.updateMany({ where: from, data: to });
       const diceLooks = await tx.diceLook.updateMany({ where: from, data: to });
+      // Animations move too, or the foreign key would block deleting the device row.
+      await tx.libraryAnimation.updateMany({ where: from, data: to });
       await tx.gmIdentity.delete({ where: { id: deviceOwnerId } });
       return { rooms: rooms.count, assets: assets.count, creatures: creatures.count, diceLooks: diceLooks.count };
     });
+  }
+
+  async listAnimations(ownerGmId: string) {
+    const rows = await this.prisma.libraryAnimation.findMany({ where: { ownerGmId }, orderBy: { createdAt: "desc" } });
+    return rows.map(toAnimationRecord);
+  }
+
+  async findAnimation(id: string, ownerGmId: string) {
+    const row = UUID.test(id) ? await this.prisma.libraryAnimation.findFirst({ where: { id, ownerGmId } }) : null;
+    return row ? toAnimationRecord(row) : null;
+  }
+
+  async createAnimation(animation: LibraryAnimationRecord, maxPerOwner: number) {
+    const row = await this.prisma.$transaction(async (tx) => {
+      // One lock per owner, so concurrent saves cannot pass the limit.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`library_animations:${animation.ownerGmId}`}))`;
+      if ((await tx.libraryAnimation.count({ where: { ownerGmId: animation.ownerGmId } })) >= maxPerOwner) {
+        throw new AnimationLimitError(maxPerOwner);
+      }
+      return tx.libraryAnimation.create({
+        data: {
+          ...animation,
+          def: animation.def as unknown as Prisma.InputJsonValue,
+          createdAt: new Date(animation.createdAt),
+          updatedAt: new Date(animation.updatedAt),
+        },
+      });
+    });
+    return toAnimationRecord(row);
+  }
+
+  async updateAnimation(id: string, ownerGmId: string, patch: { name?: string; def?: LibraryAnimationRecord["def"] }, at: string) {
+    if (!UUID.test(id)) return null;
+    const { count } = await this.prisma.libraryAnimation.updateMany({
+      where: { id, ownerGmId },
+      data: {
+        ...(patch.name !== undefined && { name: patch.name }),
+        ...(patch.def !== undefined && { def: patch.def as unknown as Prisma.InputJsonValue }),
+        updatedAt: new Date(at),
+      },
+    });
+    return count === 1 ? this.findAnimation(id, ownerGmId) : null;
+  }
+
+  async deleteAnimation(id: string, ownerGmId: string) {
+    if (!UUID.test(id)) return false;
+    const { count } = await this.prisma.libraryAnimation.deleteMany({ where: { id, ownerGmId } });
+    return count === 1;
   }
 
   async listDiceLooks(ownerGmId: string) {
@@ -932,6 +1015,17 @@ function toSessionRecord(row: Session): SessionRecord {
     createdAt: row.createdAt.toISOString(),
     lastSeenAt: row.lastSeenAt.toISOString(),
     expiresAt: row.expiresAt.toISOString(),
+  };
+}
+
+function toAnimationRecord(row: LibraryAnimation): LibraryAnimationRecord {
+  return {
+    id: row.id,
+    ownerGmId: row.ownerGmId,
+    name: row.name,
+    def: row.def as unknown as LibraryAnimationRecord["def"],
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
   };
 }
 

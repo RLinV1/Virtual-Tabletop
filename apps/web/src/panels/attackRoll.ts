@@ -1,4 +1,4 @@
-import { attackLabel, formatAttackParties, isInFog, MAX_ATTACK_LABEL, type AttackKind, type DiceRoll, type Point, type RoomState, type Token } from "@vtt/shared";
+import { attackLabel, formatAttackParties, isInFog, MAX_ATTACK_LABEL, type AttackKind, type AttackPreset, type DiceRoll, type Point, type RoomState, type Token } from "@vtt/shared";
 import { measure } from "../board/tools";
 
 /**
@@ -126,14 +126,11 @@ export function pendingRulings(state: RoomState): PendingRuling[] {
 export const MAX_PRESETS = 8;
 
 /**
- * A named attack, e.g. "Longsword": a to-hit roll, a damage roll, or both. The name is only a
- * label; the app never treats a weapon, a spell or claws differently (README §7).
+ * A named attack, e.g. "Longsword": a to-hit roll, a damage roll, or both, and optionally a library
+ * animation copied in (ADR 0038). The name is only a label; the app never treats a weapon, a spell
+ * or claws differently (README §7).
  */
-export interface AttackPreset {
-  name: string;
-  toHit: AttackDice | null;
-  damage: AttackDice | null;
-}
+export type { AttackPreset } from "@vtt/shared";
 
 /** A token's named attacks: the room's copy, shared by the GM and its owners (ADR 0034). */
 export function presetsForToken(token: Pick<Token, "attacks">): AttackPreset[] {
@@ -167,6 +164,7 @@ export function presetSummary(preset: AttackPreset): string {
     parts.push(count === 1 && sides === 20 ? (modifier < 0 ? `${modifier}` : `+${modifier}`) : attackExpression(preset.toHit));
   }
   if (preset.damage) parts.push(attackExpression(preset.damage));
+  if (preset.maxTargets !== undefined) parts.push(`up to ${preset.maxTargets} targets`);
   return parts.join(" · ");
 }
 

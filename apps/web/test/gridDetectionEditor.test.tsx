@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { useState } from "react";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_GRID, type GridDetectionStatus } from "@vtt/shared";
 import { api } from "../src/net/api";
@@ -22,7 +22,7 @@ beforeEach(() => {
   // jsdom has no layout; the editor's map preview only needs the observer to exist.
   vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
 });
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("GM grid suggestion editor (FR-GM-03)", () => {
   it("leaves a dirty draft untouched on arrival and copies only alignment after Use suggestion", async () => {
@@ -41,20 +41,19 @@ describe("GM grid suggestion editor (FR-GM-03)", () => {
         onChange={setDraft} onApply={apply} onCancel={cancel} applying={false} error={null}
         detection={detection.status} detectionError={detection.error}
         onUseSuggestion={(value) => setDraft((current) => withGridSuggestion(current, value))}
-        onRetryDetection={() => { void detection.retry(); }}
       />;
     }
 
     render(<Editor />);
-    fireEvent.change(screen.getByLabelText("Cell size (px)"), { target: { value: "71" } });
+    fireEvent.change(screen.getByLabelText("Cell size"), { target: { value: "71" } });
     await act(async () => pending.resolve({ status: "suggested", attempt: 1, candidate }));
-    expect((screen.getByLabelText("Cell size (px)") as HTMLInputElement).value).toBe("71");
+    expect((screen.getByLabelText("Cell size") as HTMLInputElement).value).toBe("71");
     expect(screen.getByText(/Low confidence/)).toBeTruthy();
     expect(apply).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Use suggestion" }));
-    expect((screen.getByLabelText("Cell size (px)") as HTMLInputElement).value).toBe("64");
-    expect((screen.getByLabelText("Offset X (px)") as HTMLInputElement).value).toBe("7");
+    expect((screen.getByLabelText("Cell size") as HTMLInputElement).value).toBe("64");
+    expect((screen.getByLabelText("Offset X") as HTMLInputElement).value).toBe("7");
     expect((screen.getByLabelText("Distance per square") as HTMLInputElement).value).toBe("10");
     expect(apply).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Apply grid" }));
@@ -63,7 +62,7 @@ describe("GM grid suggestion editor (FR-GM-03)", () => {
     })));
   });
 
-  it("offers Try again only after error and ignores a superseded map response", async () => {
+  it("ignores a superseded map response", async () => {
     const old = deferred<GridDetectionStatus | null>();
     const next = deferred<GridDetectionStatus | null>();
     vi.spyOn(api.detection, "library").mockImplementation((id) => id === "old" ? old.promise : next.promise);
@@ -77,18 +76,35 @@ describe("GM grid suggestion editor (FR-GM-03)", () => {
     await act(async () => next.resolve({ status: "no_grid", attempt: 1 }));
     await act(async () => old.resolve({ status: "suggested", attempt: 1, candidate }));
     expect(screen.getByText("no_grid")).toBeTruthy();
+  });
 
-    const retry = vi.fn();
-    const base = {
-      grid: DEFAULT_GRID, map, draft: toGridDraft(DEFAULT_GRID), hasDraft: false,
-      onChange: vi.fn(), onCancel: vi.fn(), onApply: vi.fn(async () => {}), applying: false, error: null,
-      onRetryDetection: retry,
-    };
-    view.unmount();
-    const form = render(<GridForm {...base} detection={{ status: "running", attempt: 1 }} />);
+  it.each<{ label: string; detection: GridDetectionStatus; detectionError: string | null }>([
+    { label: "no reliable grid", detection: { status: "no_grid", attempt: 1 }, detectionError: null },
+    { label: "analysis error", detection: { status: "error", attempt: 1 }, detectionError: null },
+    { label: "polling error", detection: { status: "running", attempt: 1 }, detectionError: "Could not check analysis" },
+  ])("silently keeps manual alignment available after $label", async ({ detection, detectionError }) => {
+    const apply = vi.fn(async () => {});
+    function Editor({ finished = false, error = null }: { finished?: boolean; error?: string | null }) {
+      const [draft, setDraft] = useState(() => toGridDraft(DEFAULT_GRID));
+      return <GridForm
+        grid={DEFAULT_GRID} map={map} draft={draft} hasDraft advancedOpen
+        onChange={setDraft} onCancel={vi.fn()} onApply={apply} applying={false} error={error}
+        detection={finished ? detection : { status: "running", attempt: 1 }}
+        detectionError={finished ? detectionError : null}
+      />;
+    }
+    const form = render(<Editor />);
+    expect(screen.getByText("Analyzing the map grid…")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Cell size"), { target: { value: "71" } });
+    form.rerender(<Editor finished />);
+    expect(form.container.querySelector(".grid-suggestion")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
-    form.rerender(<GridForm {...base} detection={{ status: "error", attempt: 1 }} />);
-    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    expect(retry).toHaveBeenCalledTimes(1);
+    expect((screen.getByLabelText("Cell size") as HTMLInputElement).value).toBe("71");
+    fireEvent.click(screen.getByRole("button", { name: "Apply grid" }));
+    await waitFor(() => expect(apply).toHaveBeenCalledWith(expect.objectContaining({ cellSize: 71 })));
+
+    form.rerender(<Editor finished error="Could not save the grid" />);
+    expect(screen.getByRole("alert").textContent).toBe("Could not save the grid");
   });
 });

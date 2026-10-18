@@ -72,6 +72,7 @@ async function ownerOf(cookie: string) {
 
 const save = (cookie: string, roomId: string, name = "Goblin ambush") =>
   gmFetch(cookie, "/api/library/encounters", { method: "POST", body: { roomId, name } });
+const library = async (cookie: string) => (await (await gmFetch(cookie, "/api/library")).json()) as LibraryAsset[];
 const list = async (cookie: string) => (await (await gmFetch(cookie, "/api/library/encounters")).json()) as EncounterSummary[];
 
 describe("save a room's board as a template (FR-GM-13)", () => {
@@ -126,6 +127,27 @@ describe("save a room's board as a template (FR-GM-13)", () => {
     for (let i = 0; i < 50; i++) expect((await save(fresh.cookie, fresh.creds.roomId, `T${i}`)).status).toBe(201);
     expect((await save(fresh.cookie, fresh.creds.roomId, "one too many")).status).toBe(400);
     expect(await list(fresh.cookie)).toHaveLength(50);
+  });
+
+  it("saves from a room on a shipped map placed by URL, using the owner's seeded row (seed-shipped-maps)", async () => {
+    const { cookie, creds, gm } = await prepared();
+    await ok(gm.command({ type: "scene.setMap", map: { url: "/img/map-ice.webp", width: 3269, height: 1882 } }));
+    const res = await save(cookie, creds.roomId);
+    expect(res.status).toBe(201);
+    const saved = (await res.json()) as EncounterSummary;
+    expect(saved.mapName).toBe("Hollowfrost Keep");
+    const rows = await library(cookie);
+    expect(saved.mapAssetId).toBe(rows.find((a) => a.url === "/img/map-ice.webp")?.id);
+  });
+
+  it("refuses a shipped map URL once the owner deleted that library row (seed-shipped-maps)", async () => {
+    const { cookie, creds, gm } = await prepared();
+    const ice = (await library(cookie)).find((a) => a.url === "/img/map-ice.webp")!;
+    expect((await gmFetch(cookie, `/api/library/${ice.id}`, { method: "DELETE" })).status).toBe(204);
+    await ok(gm.command({ type: "scene.setMap", map: { url: ice.url, width: ice.width, height: ice.height } }));
+    const res = await save(cookie, creds.roomId);
+    expect(res.status).toBe(400);
+    expect((await library(cookie)).some((a) => a.url === ice.url)).toBe(false);
   });
 
   it("keeps templates private to their GM", async () => {

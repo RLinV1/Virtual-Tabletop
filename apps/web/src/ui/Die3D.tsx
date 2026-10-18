@@ -1,4 +1,5 @@
 import { useId, type CSSProperties } from "react";
+import { getClientSettings } from "./clientSettings";
 import { apply, dot, faceLayout, labelDie, mul, rotateX, rotateY, rotateZ, rotationCss, seed, type BodyName, type Vec3 } from "./diceGeometry";
 import { faceArt, faceImageTransform, type DiceSkin } from "./diceSkin";
 
@@ -173,5 +174,5 @@ export function dieParts(root: HTMLElement) {
 
 /** Whether this browser, for this viewer, should animate dice at all. */
 export function canAnimateDice(el: Element | null): boolean {
-  return !!el && typeof el.animate === "function" && !matchMedia("(prefers-reduced-motion: reduce)").matches;
+  return !!el && typeof el.animate === "function" && !getClientSettings().reducedAnimations && !matchMedia("(prefers-reduced-motion: reduce)").matches;
 }

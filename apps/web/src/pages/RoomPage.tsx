@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { House } from "@phosphor-icons/react";
 import { can, filterStateForViewer, isActive, presetOf, type DiceVisibility, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
 import { Board, type BoardHandle, type DiceBoard } from "../board/Board";
@@ -38,6 +38,7 @@ import { ShareButton } from "../ui/ShareButton";
 import { GuideTour } from "../ui/GuideTour";
 import { RoomMenu } from "../ui/RoomMenu";
 import { isBoolean, usePersistentState } from "../ui/usePersistentState";
+import { PanelResizeHandle, clampPanelWidth, isPanelWidth } from "../ui/PanelResizeHandle";
 import { EncounterEditBar } from "./encounterEdit/EncounterEditBar";
 import { ENCOUNTER_EDITING, FULL_ROOM, shownTab, type RoomFeatures } from "./encounterEdit/roomFeatures";
 
@@ -308,12 +309,21 @@ function Room({ roomId, connection, token, features }: {
   const placeToken = useCallback((draft: TokenDraft) => boardRef.current?.placeToken(draft), []);
   const duplicateToken = useCallback((tokenId: string) => boardRef.current?.duplicateToken(tokenId), []);
   const [sidebarCollapsed, setSidebarCollapsed] = usePersistentState("vtt.ui.sidebar", false, isBoolean);
+  // A width the viewer dragged the sidebar to, in px; null keeps the stylesheet's responsive default.
+  const [panelWidth, setPanelWidth] = usePersistentState<number | null>("vtt.ui.panelWidth", null, isPanelWidth);
   const [chosenTab, setTab] = usePersistentState<TabId>("vtt.ui.tab", "play", isTabId);
   // A template being edited offers fewer tabs; a remembered tab it lacks shows its first (ADR 0033).
   const tab = shownTab(chosenTab, features);
   const [guideOpen, setGuideOpen] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
   const guideButtonRef = useRef<HTMLButtonElement>(null);
+  /** The token whose editor is open in the Tokens tab: here, so the board's token card can open it too (token-card-actions). */
+  const [editingTokenId, setEditingTokenId] = useState<string | null>(null);
+  // Forget a token that's gone, or undoing its deletion would bring it back with its editor open.
+  const editingGone = !!editingTokenId && !!state && !state.tokens[editingTokenId];
+  useEffect(() => {
+    if (editingGone) setEditingTokenId(null);
+  }, [editingGone]);
   const closeGuide = useCallback(() => {
     setGuideOpen(false);
     guideButtonRef.current?.focus();
@@ -401,8 +411,8 @@ function Room({ roomId, connection, token, features }: {
     const stop = connection.onRolled((roll) => {
       const mine = roll.byParticipantId === connection.snapshot.you?.id;
       if (roll.visibility === "gm") {
-        const { diceVisible, playVisible } = trays.current;
-        if (diceVisible || (playVisible && mine && roll.attack)) setAirborne((s) => new Set(s).add(roll.id));
+        const { diceVisible } = trays.current;
+        if (diceVisible) setAirborne((s) => new Set(s).add(roll.id));
         else land(roll.id);
         return;
       }
@@ -426,10 +436,10 @@ function Room({ roomId, connection, token, features }: {
   useEffect(() => {
     for (const id of airborne) {
       const roll = state?.rolls.find((r) => r.id === id);
-      const inTray = (diceVisible && id === latestRollId) || (playVisible && id === myLatest?.id);
+      const inTray = diceVisible && id === latestRollId;
       if (!roll || (roll.visibility === "gm" && !inTray)) land(id);
     }
-  }, [airborne, state, diceVisible, playVisible, latestRollId, myLatest, land]);
+  }, [airborne, state, diceVisible, latestRollId, land]);
   useEffect(() => {
     if (!cardRollId) return;
     const timer = window.setTimeout(() => setCardRollId(null), ROLL_POPUP_MS);
@@ -469,9 +479,27 @@ function Room({ roomId, connection, token, features }: {
   const shownState = replayState ?? preview?.state ?? state;
   const readOnly = !!preview || replaying;
   const shownYou = preview?.you ?? you;
+  /**
+   * Opens a hidden sidebar, then runs `then`. It animates open, and its sections have no width
+   * until it has, so wait out the transition before showing anything in it.
+   */
+  const openSidebar = (then: () => void) => {
+    const wait = collapsed && !matchMedia("(prefers-reduced-motion: reduce)").matches ? 220 : 0;
+    setSidebarCollapsed(false);
+    window.setTimeout(then, wait);
+  };
+  /** The editor lives in the Tokens tab, so editing from the board goes there (token-card-actions). */
+  const editToken = (tokenId: string | null) => {
+    if (tokenId === null) return setEditingTokenId(null);
+    setTab("tokens");
+    openSidebar(() => setEditingTokenId(tokenId));
+  };
 
   return (
-    <div className={["room", compact && "compact", collapsed && "sidebar-collapsed"].filter(Boolean).join(" ")}>
+    <div
+      className={["room", compact && "compact", collapsed && "sidebar-collapsed"].filter(Boolean).join(" ")}
+      style={panelWidth !== null && !compact ? ({ "--panel-width": `${clampPanelWidth(panelWidth, window.innerWidth)}px` } as CSSProperties) : undefined}
+    >
       {/* Keyboard and screen-reader users should not have to tab through the canvas,
           which is a single non-navigable element, to reach the controls. */}
       <a
@@ -535,13 +563,8 @@ function Room({ roomId, connection, token, features }: {
             // Everyone may replay what they could see (FR-PL-07); not while previewing as a player.
             onReplay={preview ? undefined : () => (replaying ? exitReplay() : setReplaying(true))}
             replaying={replaying}
-            onGuide={() => {
-              // The sidebar's steps need it open. It animates open, and its sections have
-              // no width until it has, so wait out the transition before starting.
-              const wait = collapsed && !matchMedia("(prefers-reduced-motion: reduce)").matches ? 220 : 0;
-              setSidebarCollapsed(false);
-              window.setTimeout(() => setGuideOpen(true), wait);
-            }}
+            // The sidebar's steps need it open.
+            onGuide={() => openSidebar(() => setGuideOpen(true))}
           />}
           {features.tableChrome && you.role === "gm" && !readOnly && (
             <ActivityLog open={logOpen} onClose={() => setLogOpen(false)} roomId={state.roomId} token={token} seq={seq} state={state} connection={connection} />
@@ -560,6 +583,7 @@ function Room({ roomId, connection, token, features }: {
         readOnly={readOnly}
         gridPreview={you.role === "gm" && !readOnly ? gridPreview : null}
         onPickTarget={pickTarget}
+        onEditToken={editToken}
         landedRollId={landedId}
         selectOnly={features.selectOnly}
         notices={features.notices && (
@@ -573,6 +597,7 @@ function Room({ roomId, connection, token, features }: {
         overlay={features.notices && <RollCard roll={cardRoll} rollerName={(roll) => shownState!.participants[roll.byParticipantId]?.displayName ?? "Someone"} />}
       />
       <aside className="panel" id="room-panel" tabIndex={-1} aria-label="Room controls">
+        {!compact && !collapsed && <PanelResizeHandle width={panelWidth} onWidth={setPanelWidth} />}
         {!compact && (
           // A tab on the panel's inner edge, vertically centred. With the panel collapsed to
           // zero width it sits on the right edge of the screen. It stays mounted in both
@@ -642,6 +667,8 @@ function Room({ roomId, connection, token, features }: {
               gridError={gridError}
               onPlaceToken={placeToken}
               onDuplicateToken={duplicateToken}
+              editingTokenId={editingTokenId}
+              onEditToken={editToken}
               compact={compact}
               tab={tab}
               onTab={setTab}

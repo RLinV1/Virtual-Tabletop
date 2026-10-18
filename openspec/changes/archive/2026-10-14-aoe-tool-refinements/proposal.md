@@ -42,4 +42,4 @@ Every area on the board is the same orange, so a table can't tell a fireball fro
   - `board/boardView.ts`: the area's color, and a hatched fill for GM-only areas.
   - `board/Board.tsx`: sends the color.
   - Tests in `apps/web/test`.
-- **`docs/adr/0035-area-color-and-square-centre.md`:** new, amending ADR 0007 and ADR 0021. It needs review by the Real-Time Architecture owner.
+- **`docs/adr/0040-area-color-and-square-centre.md`:** new, amending ADR 0007 and ADR 0021. It needs review by the Real-Time Architecture owner.

@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { unlink } from "node:fs/promises";
 import path from "node:path";
-import type { Express, Request, Response } from "express";
+import express, { type Express, type Request, type Response } from "express";
 import { z } from "zod";
 import {
   canRenderGrid,
+  LibraryMapBoard,
+  libraryBoardProblem,
   LibraryPatchRequest,
   LibraryUploadFields,
   GridDetectionStatus,
@@ -12,10 +14,12 @@ import {
   type LibraryAsset,
   type LibraryUsageResponse,
 } from "@vtt/shared";
+import { registerAnimationRoutes } from "./animations";
 import { registerCreatureRoutes } from "./creatures";
 import type { AssetStore } from "../store/assetStore";
 import type { LibraryAssetRecord } from "../store/libraryStore";
 import type { RoomStore } from "../store/roomStore";
+import { ensureShippedMaps, isShippedKey } from "../domain/shippedMaps";
 import { enqueueDetection, type GridDetectionDispatcher } from "../domain/gridDetection";
 import type { DetectionRecord } from "../store/gridDetectionStore";
 import { requireAccountOwner, resolveOwner, type Owner } from "../ownership/resolveOwner";
@@ -52,7 +56,8 @@ export function registerLibraryRoutes(
   });
 
   app.get("/api/library", (req, res) => {
-    void withGm(req, res, async (gmId) => {
+    void withGm(req, res, async (gmId, owner) => {
+      if (owner.via === "account") await ensureShippedMaps(store, gmId);
       res.json((await store.listAssets(gmId)).map(toWire));
     });
   });
@@ -114,6 +119,32 @@ export function registerLibraryRoutes(
     });
   });
 
+  app.get("/api/library/:id/board", (req, res) => {
+    void withGm(req, res, async (gmId) => {
+      const id = AssetIdParam.safeParse(req.params.id);
+      const board = id.success ? await store.findAssetBoard(id.data, gmId) : null;
+      if (!board) return void notFound(res);
+      res.json(board);
+    });
+  });
+
+  // Walls and fog prepared on a library map (ADR 0037). Accounts only, like every library write.
+  app.put("/api/library/:id/board", signedInOnly, express.json({ limit: "1mb" }), (req, res) => {
+    void withGm(req, res, async (gmId, owner) => {
+      if (!requireAccountOwner(owner, res)) return;
+      const id = AssetIdParam.safeParse(req.params.id);
+      if (!id.success) return void notFound(res);
+      const board = LibraryMapBoard.safeParse(req.body);
+      if (!board.success) return void res.status(400).json({ error: board.error.issues });
+      const asset = await store.findAsset(id.data, gmId);
+      if (!asset || asset.kind !== "map") return void notFound(res);
+      const problem = libraryBoardProblem(board.data, asset);
+      if (problem) return void res.status(400).json({ error: problem });
+      if (!(await store.setAssetBoard(id.data, gmId, board.data))) return void notFound(res);
+      res.json(board.data);
+    });
+  });
+
   app.get("/api/library/:id/grid-detection", (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     void withGm(req, res, async (gmId) => {
@@ -158,12 +189,22 @@ export function registerLibraryRoutes(
       const removed = await store.deleteAsset(id.data, gmId);
       if (!removed) return void notFound(res);
       // Rooms still naming this URL in their log now get a 404 and draw a generic stand-in.
-      await assets.delete(removed.objectKey);
+      // A seeded map's image is a shipped file, not a stored object (ADR 0036).
+      if (!isShippedKey(removed.objectKey)) await assets.delete(removed.objectKey);
       res.status(204).end();
     });
   });
 
   registerCreatureRoutes(app, { store, withGm });
+  registerAnimationRoutes(app, { store, withGm });
+
+  /** Answers 401 before a large body is read: only a signed-in caller may make the server buffer 1 MB. */
+  function signedInOnly(req: Request, res: Response, next: () => void) {
+    resolveOwner(req, res, store).then(
+      (owner) => (owner ? next() : void res.status(401).json({ error: "Sign in to do that" })),
+      () => void res.status(500).json({ error: "Internal error" }),
+    );
+  }
 
   async function withGm(req: Request, res: Response, handler: (gmId: string, owner: Owner) => Promise<void>) {
     try {

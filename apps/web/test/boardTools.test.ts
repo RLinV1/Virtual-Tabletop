@@ -71,7 +71,7 @@ describe("board tools (KAN-69, FR-TAC-03/04/06)", () => {
       expect((left!.x + right!.x) / 2).toBeCloseTo(140);
     });
 
-    it("centres a box on its origin, its size as the side (ADR 0035)", () => {
+    it("centres a box on its origin, its size as the side (ADR 0040)", () => {
       const shape = areaShape("box", origin, { x: 400, y: 140 }, 10, grid);
       if (shape.kind !== "polygon") throw new Error("expected a polygon");
       const xs = shape.points.map((p) => p.x);
@@ -136,7 +136,7 @@ describe("board tools (KAN-69, FR-TAC-03/04/06)", () => {
       expect(areaSizeFromDrag(origin, { x: 140 + 105, y: 140 }, grid, true)).toBe(7.5);
     });
 
-    it("doubles the drag for a box, which is centred, so the pointer is on its far edge (ADR 0035)", () => {
+    it("doubles the drag for a box, which is centred, so the pointer is on its far edge (ADR 0040)", () => {
       expect(areaSizeFromDrag(cell(2, 2), { x: cell(2, 2).x + 1.5 * 70, y: cell(2, 2).y }, grid, false, "box")).toBe(15);
       expect(areaSizeFromDrag(cell(2, 2), { x: cell(2, 2).x + 1.5 * 70, y: cell(2, 2).y }, grid, false, "cone")).toBe(10);
     });
@@ -244,7 +244,7 @@ describe("line templates (KAN-35, FR-TAC-06)", () => {
     expect(Math.max(...shape.points.map((p) => Math.round(p.y)))).toBe(420);
   });
 
-  describe("area colours (ADR 0035)", () => {
+  describe("area colours (ADR 0040)", () => {
     it("has a shade for every colour, and draws an area without one orange", () => {
       for (const [name, shade] of Object.entries(AREA_SHADES)) expect(areaColorValue(name as keyof typeof AREA_SHADES)).toBe(shade);
       expect(areaColorValue(undefined)).toBe(AREA_SHADES.orange);

@@ -1,4 +1,4 @@
-import type { AssetKind, EncounterTemplateData, AttackPreset, ConditionId, DieName, GmRoomSummary, GridSpec, LegacySummary } from "@vtt/shared";
+import type { AnimationDef, LibraryMapBoard, AssetKind, EncounterTemplateData, AttackPreset, ConditionId, DieName, GmRoomSummary, GridSpec, LegacySummary } from "@vtt/shared";
 import type { DetectionState } from "./gridDetectionStore";
 
 /** A stored library asset (ADR 0004). `objectKey` is the AssetStore key; it never leaves the server. */
@@ -12,6 +12,8 @@ export interface LibraryAssetRecord {
   width: number;
   height: number;
   grid: GridSpec | null;
+  /** Walls and fog prepared on a map (ADR 0037); never sent with the asset, read through `findAssetBoard`. */
+  board?: LibraryMapBoard | null;
   detectionStatus?: DetectionState | null;
   detectionAttempt?: number;
   detectionResult?: import("@vtt/shared").GridDetectionCandidate | null;
@@ -89,6 +91,23 @@ export class EncounterLimitError extends Error {
   }
 }
 
+/** A GM's saved animation (ADR 0038). `def` is parsed with `AnimationDef` on every write. */
+export interface LibraryAnimationRecord {
+  id: string;
+  ownerGmId: string;
+  name: string;
+  def: AnimationDef;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** The owner already holds the most animations they may (ADR 0038). */
+export class AnimationLimitError extends Error {
+  constructor(readonly limit: number) {
+    super(`You can keep at most ${limit} animations`);
+  }
+}
+
 /** One die's picture in a dice look (ADR 0017 O3). `objectKey` never leaves the server. */
 export interface DiceFaceRecord {
   objectKey: string;
@@ -129,9 +148,18 @@ export interface LibraryStore {
 
   createAsset(asset: LibraryAssetRecord): Promise<void>;
   listAssets(ownerGmId: string): Promise<LibraryAssetRecord[]>;
+  /**
+   * Inserts the shipped maps as the owner's rows, only if the owner was never seeded, and marks
+   * the owner seeded, in one step (ADR 0036). A deleted seeded map stays deleted. True if it seeded.
+   */
+  seedShippedMaps(ownerGmId: string, rows: LibraryAssetRecord[]): Promise<boolean>;
   /** The asset only if `ownerGmId` owns it — callers never see another GM's rows. */
   findAsset(id: string, ownerGmId: string): Promise<LibraryAssetRecord | null>;
   updateAsset(id: string, ownerGmId: string, patch: { name?: string; grid?: GridSpec }): Promise<LibraryAssetRecord | null>;
+  /** The map's prepared walls and fog (empty when none); null when the owner has no such map. */
+  findAssetBoard(id: string, ownerGmId: string): Promise<LibraryMapBoard | null>;
+  /** Replaces the map's prepared walls and fog; false when the owner has no such map. */
+  setAssetBoard(id: string, ownerGmId: string, board: LibraryMapBoard): Promise<boolean>;
   /** Removes the row and its reference index entries. Returns the removed row. */
   deleteAsset(id: string, ownerGmId: string): Promise<LibraryAssetRecord | null>;
 
@@ -171,6 +199,15 @@ export interface LibraryStore {
   deleteEncounter(id: string, ownerGmId: string): Promise<boolean>;
   /** The owner's templates whose map is this asset, for the delete warning. */
   encountersUsingMap(assetId: string, ownerGmId: string): Promise<{ id: string; name: string }[]>;
+
+  /** The owner's animations, newest first (ADR 0038). Every read and write is scoped to its owner. */
+  listAnimations(ownerGmId: string): Promise<LibraryAnimationRecord[]>;
+  findAnimation(id: string, ownerGmId: string): Promise<LibraryAnimationRecord | null>;
+  /** Throws `AnimationLimitError` when the owner already holds `maxPerOwner`; count and insert are one step. */
+  createAnimation(animation: LibraryAnimationRecord, maxPerOwner: number): Promise<LibraryAnimationRecord>;
+  /** Null when the owner has no such animation. */
+  updateAnimation(id: string, ownerGmId: string, patch: { name?: string; def?: AnimationDef }, at: string): Promise<LibraryAnimationRecord | null>;
+  deleteAnimation(id: string, ownerGmId: string): Promise<boolean>;
 
   /** What an owner row owns, for the legacy-move offer (ADR 0017 O2). */
   ownedCounts(ownerGmId: string): Promise<LegacySummary>;

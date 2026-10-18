@@ -125,7 +125,7 @@ describe("line templates (KAN-35, FR-TAC-06)", () => {
   });
 });
 
-describe("area colour (FR-TAC-06, ADR 0035)", () => {
+describe("area colour (FR-TAC-06, ADR 0040)", () => {
   const aim = (color: unknown) => ({
     type: "templatePreview",
     preview: { shape: "circle", origin: { x: 70, y: 70 }, toward: { x: 71, y: 70 }, size: 20, gmOnly: false, color },

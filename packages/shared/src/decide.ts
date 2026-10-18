@@ -1,3 +1,5 @@
+import { namedAttackFor } from "./attackPresets";
+import { findMentions } from "./chatMentions";
 import type { Command, DepartureAction } from "./commands";
 import { presetOf, tableForPreset } from "./gamePresets";
 import { MIN_HP } from "./conditions";
@@ -6,12 +8,13 @@ import type { DomainEvent } from "./events";
 import { encounterTable, type ResolvedEncounter } from "./encounters";
 import { footprintCrossesWall, isSnapped, pathCrossesWall, polygonArea, resizedTokenCenter, snapTokenCenter, spreadPositions, type GridSpec, type Point } from "./geometry";
 import { canRenderGrid } from "./gridRenderLimit";
+import { normalizeName } from "./names";
 import type { SessionEndReason } from "./protocol";
 import { blocksMovement } from "./portals";
 import { inverseOf, undoableAction, undoConflict } from "./undo";
 import { concealedFrom, fogConcealsSide, isInFog, portalConcealedFrom, templateConcealedFrom } from "./visibility";
 import { wallsFitMap, type DetectedWallsResponse } from "./wallDetection";
-import { MAX_GROUP_NAME, MAX_GROUPS, MAX_AREA_TEMPLATES, MAX_LINE_WIDTH_CELLS, MAX_CHECKPOINT_NAME, MAX_FOG_REGIONS, MAX_PLAYERS_PER_ROOM, MAX_WALLS, tableOf, type AreaTemplate, type DiceLookOnTable, type Initiative, type Participant, type Portal, type RoomState, type TableState, type Token, type Wall } from "./state";
+import { MAX_GROUP_NAME, MAX_GROUPS, MAX_AREA_TEMPLATES, MAX_LINE_WIDTH_CELLS, MAX_CHECKPOINT_NAME, MAX_CHAT_MENTIONS, MAX_FOG_REGIONS, MAX_PLAYERS_PER_ROOM, MAX_WALLS, tableOf, type AreaTemplate, type ChatMention, type DiceLookOnTable, type Initiative, type Participant, type Portal, type RoomState, type TableState, type Token, type Wall } from "./state";
 
 export type RejectionCode = "forbidden" | "not_found" | "invalid";
 
@@ -200,7 +203,8 @@ export function decide(
       }
       if (new Set(command.conditions).size !== command.conditions.length) return reject("invalid", "A condition is listed twice.");
       if (footprintCrossesWall(command.position, command.size, state.scene.grid, blockingWalls(state))) return wallBlocked();
-      return createTokens(state, {
+      if (command.groupId !== undefined && !state.groups[command.groupId]) return notFound("group");
+      const made = createTokens(state, {
         name: command.name,
         position: command.position,
         size: command.size,
@@ -214,6 +218,9 @@ export function decide(
         conditions: command.conditions,
         ...(command.attacks.length > 0 ? { attacks: command.attacks } : {}),
       }, command.count, ctx);
+      if (!made.ok || command.groupId === undefined) return made;
+      const changes = made.events.flatMap((e) => (e.type === "TokenCreated" ? [{ tokenId: e.token.id, previous: null }] : []));
+      return accept(...made.events, { type: "TokensGrouped", groupId: command.groupId, changes });
     }
 
     case "token.duplicate": {
@@ -541,7 +548,17 @@ export function decide(
         if (target.id === attacker.id) return reject("invalid", "A token can't attack itself");
         // An unowned token under fog is concealed on the roll for good, like a hidden one (ADR 0016).
         const side = (t: Token) => ({ tokenId: t.id, name: t.name, hidden: t.hidden || fogConcealsSide(state, t) });
-        attack = { actor: side(attacker), target: side(target), label: command.attack.label || null, kind: command.attack.kind };
+        // The animation comes from the actor's own named attack, never from the client (ADR 0038).
+        const named = namedAttackFor(attacker.attacks, command.attack.label, command.attack.kind);
+        const animation = named?.animation;
+        attack = {
+          actor: side(attacker),
+          target: side(target),
+          label: command.attack.label || null,
+          kind: command.attack.kind,
+          ...(command.attack.style && { style: command.attack.style }),
+          ...(animation && { animation }),
+        };
         const off = presetRefusal(state, { attacks: true });
         if (off) return off;
       }
@@ -551,7 +568,7 @@ export function decide(
       const random = ctx.random;
       if (!random) return reject("invalid", "Dice are unavailable");
       const { dice, total } = rollDice(parsed.expression, random);
-      return accept({
+      const rolled: DomainEvent = {
         type: "DiceRolled",
         roll: {
           id: ctx.newId(),
@@ -563,7 +580,8 @@ export function decide(
           visibility: command.visibility,
           ...(attack && { attack }),
         },
-      });
+      };
+      return accept(rolled);
     }
 
     case "roll.rule": {
@@ -600,6 +618,37 @@ export function decide(
       // Nothing to change (no damage, or already at the floor): just mark the roll applied.
       if (hp === target.stats.hp) return accept(applied);
       return accept({ type: "TokenStatsSet", tokenId: target.id, stats: { ...target.stats, hp }, previous: target.stats }, applied);
+    }
+
+    case "room.setReducedEffects": {
+      if (!can.administer(actor)) return forbidden();
+      const previous = state.reducedEffects ?? false;
+      if (previous === command.enabled) return reject("invalid", command.enabled ? "Reduced animations are already on" : "Reduced animations are already off");
+      return accept({ type: "ReducedEffectsSet", enabled: command.enabled, previous });
+    }
+
+    case "nuke.detonate": {
+      if (!can.administer(actor)) return forbidden();
+      const off = presetRefusal(state, { attacks: true });
+      if (off) return off;
+      const map = state.scene.map;
+      if (map && (command.origin.x < 0 || command.origin.y < 0 || command.origin.x > map.width || command.origin.y > map.height)) {
+        return reject("invalid", "Aim the nuke at a point on the map");
+      }
+      // Hidden and fogged tokens fall too; the filters decide who hears about each (ADR 0038).
+      const damaged: DomainEvent[] = [];
+      for (const token of Object.values(state.tokens)) {
+        if (token.stats.hp === null) continue;
+        const hp = Math.max(MIN_HP, token.stats.hp - command.amount);
+        if (hp !== token.stats.hp) damaged.push({ type: "TokenStatsSet", tokenId: token.id, stats: { ...token.stats, hp }, previous: token.stats });
+      }
+      const blast: DomainEvent = {
+        type: "MapNuked",
+        amount: command.amount,
+        origin: command.origin,
+        ...(command.animation && { animation: command.animation }),
+      };
+      return accept(...damaged, blast);
     }
 
     case "template.place": {
@@ -797,9 +846,17 @@ export function decide(
       // Any active participant may talk. The socket layer already refuses ended seats; this is the authority.
       if (!isActive(actor)) return forbidden();
       // The sender comes from the actor, never from the payload (the command is strict) (ADR 0015).
+      const mentions = chatMentions(state, actor, command.text);
       return accept({
         type: "ChatMessageSent",
-        message: { id: ctx.newId(), senderId: actor.id, senderName: actor.displayName, text: command.text },
+        message: {
+          id: ctx.newId(),
+          senderId: actor.id,
+          senderName: actor.displayName,
+          text: command.text,
+          // Absent rather than empty, so a plain message keeps the shape it always had (ADR 0035).
+          ...(mentions.length > 0 && { mentions }),
+        },
       });
     }
 
@@ -821,6 +878,13 @@ export function decide(
       if (name.length > MAX_CHECKPOINT_NAME) return reject("invalid", `Checkpoint names are at most ${MAX_CHECKPOINT_NAME} characters.`);
       if (ctx.lastSeq === undefined) return reject("invalid", "Checkpoints can't be saved here.");
       return accept({ type: "CheckpointCreated", checkpoint: { id: ctx.newId(), name, seq: ctx.lastSeq } });
+    }
+
+    case "checkpoint.delete": {
+      if (!can.administer(actor)) return forbidden();
+      const checkpoint = state.checkpoints.find((c) => c.id === command.checkpointId);
+      if (!checkpoint) return notFound("checkpoint");
+      return accept({ type: "CheckpointDeleted", checkpoint });
     }
 
     case "encounter.apply": {
@@ -911,8 +975,27 @@ function checkOwners(state: RoomState, ownerIds: string[]): Decision | null {
 }
 
 
-/** Comparison key for names: "raymond", "Raymond " and "RAYMOND" are one name (KAN-61, KAN-62). */
-export const normalizeName = (name: string) => name.normalize("NFC").trim().toLocaleLowerCase("en-US");
+/**
+ * Who a chat message mentions (ADR 0035): the room's active participants named after a boundary
+ * `@`, each once, in order of first mention, at most MAX_CHAT_MENTIONS (a room filled before the
+ * player cap can hold more). The sender is a candidate too, so the longest-name rule sees their
+ * name ("@Sir Lancelot" from Sir Lancelot doesn't tag "Sir"), and is then dropped.
+ */
+function chatMentions(state: RoomState, actor: Participant, text: string): ChatMention[] {
+  const candidates = Object.values(state.participants)
+    .filter(isActive)
+    .map((p) => ({ participantId: p.id, displayName: p.displayName }));
+  const mentions: ChatMention[] = [];
+  for (const { participantId, displayName } of findMentions(text, candidates)) {
+    if (participantId === actor.id || mentions.some((m) => m.participantId === participantId)) continue;
+    mentions.push({ participantId, displayName });
+    if (mentions.length === MAX_CHAT_MENTIONS) break;
+  }
+  return mentions;
+}
+
+// Lives in its own module so `chatMentions` can share it without importing `decide`.
+export { normalizeName };
 /** Display names compare the same way as every other name. Kept for KAN-61 callers. */
 export const normalizeDisplayName = normalizeName;
 

@@ -9,6 +9,7 @@ import {
   Text,
   Texture,
   Ticker,
+  TilingSprite,
   type FederatedPointerEvent,
 } from "pixi.js";
 import {
@@ -44,7 +45,9 @@ import {
   watchReducedMotion,
   type AttackEffect,
 } from "./effects";
-import { averageColor, makeFogCanvas, type Rgb } from "./fogTexture";
+import { playNuke, playStrike, type FxHost, type RunningFx } from "./fx";
+import { getClientSettings, graphicsBudget, subscribeGraphicsSettings } from "../ui/clientSettings";
+import { averageColor, fogPalette, makeFogCanvas, makeFogMaskCanvas, type Rgb } from "./fogTexture";
 import { areaColorValue, areaOrigin, areaShape, areaSizeFromDrag, fogDraftPoints, fogRegionAt, formatDistance, hitMark, measure, portalAt, sweepPoints, templateMark, type BoardTool, type FogDraft, type Mark } from "./tools";
 import { aimExpiry, expiredAims } from "./aims";
 import { PING_MS, pingPulse } from "./ping";
@@ -57,6 +60,9 @@ export type GmFogView = "tint" | "off";
 
 /** An area being aimed, as sent to the others (KAN-35); mirrors the `templatePreview` payload. */
 export type AimPreview = { shape: AreaTemplate["shape"]; origin: Point; toward: Point; size: number; width?: number; color?: AreaTemplate["color"]; gmOnly: boolean };
+
+/** Pixi animations playing at once; the oldest ends first, so a flood of attacks never lags the board. */
+const MAX_FX_RUNS = 4;
 
 export interface BoardCallbacks {
   /** Commit a move. Resolves false if the server rejected it. */
@@ -108,8 +114,6 @@ const MIN_MARK_DRAG_PX = 4;
 const GHOST_ID = "placement-ghost";
 /** How close (screen pixels) a click must be to a fog polygon's first corner to close it. */
 const FOG_CLOSE_PX = 12;
-/** Fog is drawn this far past its edge in grid cells, so no seam shows at a region's border or the map's. */
-const FOG_BLEED_CELLS = 0.06;
 /** How fast the clouds drift, in board pixels per second, and how often the drift is redrawn. */
 const FOG_DRIFT_PX_PER_S = 38;
 const FOG_DRIFT_INTERVAL_MS = 1000 / 20;
@@ -120,15 +124,15 @@ const FOG_CLOUD_SCALE = 2.5;
  * the two tiles never line up and the fog churns instead of sliding. Its opacity over the base.
  */
 const FOG_WISP_SCALE = 1.55;
-const FOG_WISP_ANGLE = 0.6;
 const FOG_WISP_ALPHA = 0.55;
 /**
- * The GM sees fog as a flat tint over the map and tokens, so what is under it stays visible, with a
- * firmer outline marking each region's edge (gm-view-as-player).
+ * The GM sees fog as a flat tint over the map and tokens, so what is under it stays visible
+ * (gm-view-as-player), with a thin outline in the fog's own pale tone, faint enough not to read as a frame.
  */
 const FOG_GM_FILL = 0x000000;
 const FOG_GM_FILL_ALPHA = 0.25;
-const FOG_GM_EDGE_ALPHA = 0.8;
+const FOG_EDGE_ALPHA = 0.45;
+/** The outline of a fog region the GM is drawing with the Fog tool. */
 const FOG_EDGE = 0x9fb3c8;
 /** How close (screen pixels) a click has to come to a door or window to use it (ADR 0030). */
 const PORTAL_REACH_PX = 10;
@@ -147,6 +151,13 @@ const BRUSH_STEP_PX = 2;
  * DOM canvas, and Firefox resolves `system-ui` to a narrower font offscreen, which crops the
  * end of long token names (fix-token-label-clipping).
  */
+/** The smallest a token's name is drawn on screen, in CSS pixels. */
+const MIN_LABEL_SCREEN_PX = 12;
+/** Auto-focus on an attack: the closest it zooms, and how long the glide takes. */
+const MAX_FIGHT_ZOOM = 2;
+const FIGHT_FOCUS_MS = 450;
+/** Strikes this soon after a focus are part of the same attack and keep its framing. */
+const FIGHT_REFOCUS_MS = 2500;
 const BOARD_FONT = '"Helvetica Neue", Arial, sans-serif';
 /** Longest brush stroke, in points, so one stroke can't grow without bound. */
 const MAX_STROKE_POINTS = 2000;
@@ -214,7 +225,7 @@ const MEASURE_COLOR = 0xf1c40f;
  */
 const AIM_COLOR = 0xf4ede4;
 const AIM_EDGE = 0x14171b;
-/** GM-only areas are hatched (ADR 0035): stripes about a quarter of a cell apart, so they zoom with the map. */
+/** GM-only areas are hatched (ADR 0040): stripes about a quarter of a cell apart, so they zoom with the map. */
 const HATCH_TILE_PX = 16;
 const HATCH_SPACING_CELLS = 0.25;
 /** Neutral stand-in for a map image that no longer exists (board-asset-fallback). */
@@ -273,13 +284,26 @@ export class BoardView {
   /** Token highlighted from the roster (FR-GM-24). */
   private focusedId: string | null = null;
   private world = new Container();
+  /** Untransformed parent of the map world; screen-space blasts are its sibling. */
+  private screenLayer = new Container();
+  /** Screen-space blasts never inherit the map zoom or huge offscreen map bounds. */
+  private screenFxLayer = new Container();
   private mapSprite = new Sprite(Texture.EMPTY);
   private grid = new Graphics();
   /**
    * Fog regions (FR-GM-17), between the grid and the tokens: a player's own token stays visible
    * on top, and anything else under fog is not in a player's state at all (ADR 0016).
    */
-  private fogGraphics = new Graphics();
+  /**
+   * The cloud layers, shown only through `fogMaskSprite`: a low-resolution mask of the regions
+   * with a noise-broken, feathered border, rebuilt only when fog or the grid changes (not on drift).
+   */
+  private fogMist = new Container();
+  private fogCloudA: TilingSprite | null = null;
+  private fogCloudB: TilingSprite | null = null;
+  private fogMaskSprite = new Sprite(Texture.EMPTY);
+  private fogMaskShape = "";
+  private fogMaskKey = "";
   /** The GM's fog outlines, kept apart so the fog's feathering never blurs them. */
   private fogEdgeGraphics = new Graphics();
   private fogLayer = new Container();
@@ -388,8 +412,16 @@ export class BoardView {
   private stepSkipped = false;
   /** Attack animations playing (KAN-76), oldest first. */
   private attackFx: AttackFx[] = [];
-  private reducedMotion = prefersReducedMotion();
+  /** The device's reduced-motion preference, and the GM's table-wide setting (`RoomState.reducedEffects`). */
+  private osReduced = prefersReducedMotion();
+  private tableReduced = false;
+  private get reducedMotion() {
+    return this.osReduced || this.tableReduced || getClientSettings().reducedAnimations;
+  }
+  /** Nuke and strike renderers (fx.ts) playing, oldest first. */
+  private fxRuns: Array<{ run: RunningFx; started: number; timer: number; step: (now: number) => boolean }> = [];
   private stopMotionWatch: (() => void) | null = null;
+  private stopSettingsWatch: (() => void) | null = null;
   /** The condition loop is in `animations`. */
   private loopRegistered = false;
   private lastLoopDraw = 0;
@@ -410,7 +442,7 @@ export class BoardView {
       antialias: true,
       autoDensity: true,
       // Beyond 2x the extra pixels are not visible on a map, but they cost fill rate.
-      resolution: Math.min(window.devicePixelRatio, 2),
+      resolution: Math.min(window.devicePixelRatio || 1, graphicsBudget().resolution),
       // No continuous render loop; see `invalidate`.
       autoStart: false,
     });
@@ -424,15 +456,18 @@ export class BoardView {
     this.measureLabel.anchor.set(0.5, 1.2);
     this.measureLabel.visible = false;
     this.markLayer.addChild(this.marksGraphics, this.overlayGraphics, this.measureLabel);
-    this.fogGraphics.eventMode = "none";
+    this.fogMist.eventMode = "none";
+    this.fogMaskSprite.eventMode = "none";
+    this.fogMist.mask = this.fogMaskSprite;
     this.fogEdgeGraphics.eventMode = "none";
     this.fogLayer.eventMode = "none";
-    this.fogLayer.addChild(this.fogGraphics, this.fogEdgeGraphics);
+    this.fogLayer.addChild(this.fogMaskSprite, this.fogMist, this.fogEdgeGraphics);
     this.wallGraphics.eventMode = "none";
     this.portalGraphics.eventMode = "none";
     this.world.addChild(this.mapSprite, this.grid, this.fogLayer, this.wallGraphics, this.portalGraphics, this.tokenLayer, this.markLayer, this.fxLayer);
     this.fxLayer.addChild(this.ghostFootprint);
-    this.app.stage.addChild(this.world);
+    this.screenLayer.addChild(this.world);
+    this.app.stage.addChild(this.screenLayer, this.screenFxLayer);
 
     const stage = this.app.stage;
     stage.eventMode = "static";
@@ -475,15 +510,17 @@ export class BoardView {
     });
     this.hostObserver.observe(this.host);
     this.stopMotionWatch = watchReducedMotion((reduced) => {
-      this.reducedMotion = reduced;
-      // Effects already playing finish as they are; conditions redraw at once.
-      for (const view of this.tokens.values()) view.drawnKey = "";
-      if (this.state && this.you) this.syncTokens();
-      this.syncConditionLoop();
-      this.syncFogLoop();
-      this.invalidate();
+      this.osReduced = reduced;
+      this.motionChanged();
     });
     document.addEventListener("visibilitychange", this.onVisibilityChange);
+    this.stopSettingsWatch = subscribeGraphicsSettings(() => {
+      // Keep world coordinates and camera unchanged when only pixel density changes.
+      this.app.renderer.resize(this.app.screen.width, this.app.screen.height, Math.min(window.devicePixelRatio || 1, graphicsBudget().resolution));
+      for (const entry of [...this.fxRuns]) this.endFx(entry);
+      this.motionChanged();
+      this.invalidate();
+    });
     this.invalidate();
   }
 
@@ -521,6 +558,7 @@ export class BoardView {
     if (this.dirty && this.marksScale !== this.world.scale.x) this.redrawMarks();
     if (this.dirty && this.portalsScale !== this.world.scale.x) this.drawPortals();
     if (this.dirty) {
+      this.driftFog();
       this.app.render();
       this.notifyView();
     }
@@ -563,6 +601,7 @@ export class BoardView {
   /** The board point in the middle of the canvas, or null before the board is ready. */
   visibleCentre(): Point | null {
     if (!this.initialized) return null;
+    if (this.focusCentre) return this.focusCentre;
     const canvas = this.app.canvas.getBoundingClientRect();
     return this.clientToBoard(canvas.left + canvas.width / 2, canvas.top + canvas.height / 2);
   }
@@ -587,11 +626,14 @@ export class BoardView {
     cancelAnimationFrame(this.frame);
     this.frame = 0;
     this.animations.clear();
+    for (const { run, timer } of this.fxRuns) { window.clearTimeout(timer); run.destroy(); }
+    this.fxRuns = [];
     this.attackFx = [];
     this.loopRegistered = false;
     this.stopMotionWatch?.();
     this.hatch?.destroy(true);
     this.hatch = null;
+    this.stopSettingsWatch?.();
     document.removeEventListener("visibilitychange", this.onVisibilityChange);
     this.viewListeners.clear();
     this.hostObserver?.disconnect();
@@ -605,9 +647,24 @@ export class BoardView {
     this.initialized = false;
   }
 
+  /** The effective reduced-motion setting changed: conditions redraw at once, effects already playing finish as they are. */
+  private motionChanged() {
+    for (const view of this.tokens.values()) view.drawnKey = "";
+    if (this.state && this.you) this.syncTokens();
+    this.syncConditionLoop();
+    this.syncFogLoop();
+    this.invalidate();
+  }
+
   update(state: RoomState, you: Participant) {
     this.state = state;
     this.you = you;
+    const table = state.reducedEffects ?? false;
+    if (table !== this.tableReduced) {
+      const before = this.reducedMotion;
+      this.tableReduced = table;
+      if (this.reducedMotion !== before) this.motionChanged();
+    }
     this.syncMap();
     this.syncGrid();
     this.syncWalls();
@@ -778,7 +835,7 @@ export class BoardView {
   }
 
   /**
-   * An area's fill (ADR 0035): translucent in its colour, or hatched in its colour when GM-only.
+   * An area's fill (ADR 0040): translucent in its colour, or hatched in its colour when GM-only.
    * A plain texture fill, not a FillPattern: Pixi forces a pattern's colour to white, which would
    * lose the tint. Repeating in global texture space is what a FillPattern does anyway.
    */
@@ -898,7 +955,8 @@ export class BoardView {
 
   private toolCursor() {
     if (this.placement) return "crosshair";
-    return this.tool.kind === "select" ? "default" : TOOL_CURSORS[this.tool.kind];
+    if (this.tool.kind === "select") return "default";
+    return TOOL_CURSORS[this.tool.kind];
   }
 
   // ---------- placing a new token (place-token-on-board) ----------
@@ -1123,38 +1181,93 @@ export class BoardView {
     const state = this.state;
     this.drawnFog = state?.fog ?? null;
     this.layerFog(this.you?.role === "gm" && this.gmFogView !== "off");
-    const g = this.fogGraphics.clear();
     const edge = this.fogEdgeGraphics.clear();
-    if (!state) return;
+    if (!state) {
+      this.fogMist.visible = false;
+      this.fogMaskSprite.visible = false;
+      return;
+    }
     // Viewing as a player, `you` is that player, so fog is drawn exactly as they see it.
     const gm = this.you?.role === "gm";
     const px = 1 / this.world.scale.x;
-    const cell = state.scene.grid.cellSize;
-    // "See everything": the GM switched fog off, so nothing is drawn for it.
-    const tint = !gm || this.gmFogView === "tint";
-    const hasRegions = Object.keys(state.fog).length > 0 || this.pendingFog.length > 0;
-    // The cloud texture is made on first need, so a board with no fog never pays for it. Only players get it.
-    const cloud = !gm && hasRegions ? this.fogCloud() : null;
-    // The clouds drift across the board; the texture tiles seamlessly, so any offset is fine.
-    const matrix = new Matrix().scale(FOG_CLOUD_SCALE, FOG_CLOUD_SCALE).translate(this.fogOffset.x, this.fogOffset.y);
-    const wisps = new Matrix().scale(FOG_WISP_SCALE, FOG_WISP_SCALE).rotate(FOG_WISP_ANGLE).translate(this.wispOffset.x, this.wispOffset.y);
-    const draw = (points: Point[], pending: boolean) => {
-      const flat = points.flatMap((p) => [p.x, p.y]);
-      if (gm) {
-        if (!tint) return;
-        g.poly(flat).fill({ color: FOG_GM_FILL, alpha: FOG_GM_FILL_ALPHA });
-        edge.poly(flat).stroke({ width: 2 * px, color: FOG_EDGE, alpha: FOG_GM_EDGE_ALPHA * (pending ? 0.5 : 1) });
-        return;
-      }
-      g.poly(flat).fill({ texture: cloud!, matrix, textureSpace: "global", alpha: 1 });
-      g.poly(flat).fill({ texture: cloud!, matrix: wisps, textureSpace: "global", alpha: FOG_WISP_ALPHA });
-      g.poly(flat).stroke({ width: 2 * FOG_BLEED_CELLS * cell, join: "miter", texture: cloud!, matrix, textureSpace: "global", alpha: 1 });
-    };
-    for (const region of Object.values(state.fog)) {
-      if (!this.removingFog.has(region.id)) draw(region.points, false);
+    const shown = Object.values(state.fog).filter((region) => !this.removingFog.has(region.id)).map((region) => region.points);
+    const pending = this.pendingFog.map(fogDraftPoints);
+    // Only players get the mist; the GM sees a flat tint, and nothing at all with fog switched off.
+    const mist = !gm && shown.length + pending.length > 0;
+    this.fogMist.visible = mist;
+    this.fogMaskSprite.visible = mist;
+    if (mist) {
+      this.syncFogMist(state, [...shown, ...pending]);
+      this.driftFog();
     }
-    for (const region of this.pendingFog) draw(fogDraftPoints(region), true);
+    if (gm && this.gmFogView === "tint") {
+      const [er, eg, eb] = fogPalette(this.fogBase).light;
+      const edgeColor = (Math.round(er) << 16) | (Math.round(eg) << 8) | Math.round(eb);
+      const draw = (points: Point[], isPending: boolean) => {
+        const flat = points.flatMap((p) => [p.x, p.y]);
+        edge.poly(flat).fill({ color: FOG_GM_FILL, alpha: FOG_GM_FILL_ALPHA });
+        edge.poly(flat).stroke({ width: px, color: edgeColor, alpha: FOG_EDGE_ALPHA * (isPending ? 0.5 : 1) });
+      };
+      for (const points of shown) draw(points, false);
+      for (const points of pending) draw(points, true);
+    }
     this.syncFogLoop();
+  }
+
+  /** Builds the mask (when fog or the grid changed) and the two cloud layers it reveals. */
+  private syncFogMist(state: RoomState, regions: Point[][]) {
+    const { width, height } = this.boardSize();
+    const cell = state.scene.grid.cellSize;
+    const key = `${width}x${height}x${cell}`;
+    const cloud = this.fogCloud();
+    if (!this.fogCloudA || !this.fogCloudB) {
+      this.fogCloudA = new TilingSprite({ texture: cloud, width, height });
+      this.fogCloudB = new TilingSprite({ texture: cloud, width, height });
+      this.fogCloudA.eventMode = "none";
+      this.fogCloudB.eventMode = "none";
+      this.fogCloudA.tileScale.set(FOG_CLOUD_SCALE);
+      this.fogCloudB.tileScale.set(FOG_WISP_SCALE);
+      this.fogCloudB.alpha = FOG_WISP_ALPHA;
+      this.fogMist.addChild(this.fogCloudA, this.fogCloudB);
+    }
+    if (this.fogCloudA.texture !== cloud) {
+      this.fogCloudA.texture = cloud;
+      this.fogCloudB.texture = cloud;
+    }
+    // Pending and revealing regions change the shape too, so the key is the regions themselves.
+    const shape = JSON.stringify(regions);
+    if (key === this.fogMaskKey && shape === this.fogMaskShape) return;
+    this.fogMaskKey = key;
+    this.fogMaskShape = shape;
+    const { canvas, scale } = makeFogMaskCanvas(regions, width, height, cell);
+    const old = this.fogMaskSprite.texture;
+    this.fogMaskSprite.texture = Texture.from(canvas);
+    if (old !== Texture.EMPTY) old.destroy(true);
+    this.fogMaskSprite.scale.set(1 / scale);
+  }
+
+  /**
+   * Slides the cloud layers; the mask stays put. The layers only cover the part of the board on
+   * screen: a mask filter allocates a texture the size of what it masks, which at high zoom over a
+   * whole map is far past what the GPU allows.
+   */
+  private driftFog() {
+    const a = this.fogCloudA, b = this.fogCloudB;
+    if (!a || !b || !this.fogMist.visible) return;
+    const { width, height } = this.boardSize();
+    const k = this.world.scale.x;
+    const screen = this.app.screen;
+    const x0 = Math.max(0, Math.floor(-this.world.x / k) - 1);
+    const y0 = Math.max(0, Math.floor(-this.world.y / k) - 1);
+    const x1 = Math.min(width, Math.ceil((screen.width - this.world.x) / k) + 1);
+    const y1 = Math.min(height, Math.ceil((screen.height - this.world.y) / k) + 1);
+    const w = Math.max(1, x1 - x0), h = Math.max(1, y1 - y0);
+    for (const [layer, drift] of [[a, this.fogOffset], [b, this.wispOffset]] as const) {
+      layer.position.set(x0, y0);
+      layer.width = w;
+      layer.height = h;
+      layer.tilePosition.set(drift.x - x0, drift.y - y0);
+    }
   }
 
   /** Puts the fog over the tokens (`covering`) or back under the walls, only when that changes. */
@@ -1214,7 +1327,7 @@ export class BoardView {
     this.lastFogDraw = now;
     this.fogOffset = { x: this.fogOffset.x + FOG_DRIFT_PX_PER_S * dt, y: this.fogOffset.y + FOG_DRIFT_PX_PER_S * 0.35 * dt };
     this.wispOffset = { x: this.wispOffset.x - FOG_DRIFT_PX_PER_S * 1.6 * dt, y: this.wispOffset.y + FOG_DRIFT_PX_PER_S * 0.6 * dt };
-    this.redrawFog();
+    this.driftFog();
     return true;
   };
 
@@ -1492,7 +1605,25 @@ export class BoardView {
     if (screen.width === 0 || screen.height === 0) return;
     const scale = Math.min(screen.width / width, screen.height / height) * 0.95;
     this.world.scale.set(scale);
+    this.syncTextSharpness();
     this.world.position.set((screen.width - width * scale) / 2, (screen.height - height * scale) / 2);
+  }
+
+  /**
+   * Token names live in board space, so zooming scales them. Keep them readable (never under
+   * MIN_LABEL_SCREEN_PX on screen) and rasterised at the pixels they are shown at, so they stay sharp.
+   */
+  private sharpenLabel(label: Text) {
+    const zoom = this.world.scale.x;
+    const fontSize = Number(label.style.fontSize) || 14;
+    const boost = Math.max(1, MIN_LABEL_SCREEN_PX / (fontSize * zoom));
+    const resolution = Math.min(4, Math.max(1, Math.ceil(this.app.renderer.resolution * Math.max(1, zoom * boost) * 2) / 2));
+    if (label.scale.x !== boost) label.scale.set(boost);
+    if (label.resolution !== resolution) label.resolution = resolution;
+  }
+
+  private syncTextSharpness() {
+    for (const view of this.tokens.values()) this.sharpenLabel(view.label);
   }
 
   // ---------- sync from state ----------
@@ -1652,6 +1783,7 @@ export class BoardView {
     view.label.style.fontSize = fontSize;
     view.label.style.stroke = { color: 0x000000, width: tokenLabelStroke(fontSize) };
     view.label.position.set(0, r + 2);
+    this.sharpenLabel(view.label);
 
     this.drawDecor(view, token, r, focused, active, owned);
     this.drawConditions(view, token.conditions, r);
@@ -1697,7 +1829,10 @@ export class BoardView {
   /** A page that becomes visible again restarts any loop that stopped while it was hidden. */
   private onVisibilityChange = () => {
     // Browsers pause animation frames in a hidden tab, so the drift clock must not count the pause.
-    if (document.visibilityState === "hidden") this.lastFogDraw = 0;
+    if (document.visibilityState === "hidden") {
+      this.lastFogDraw = 0;
+      for (const entry of [...this.fxRuns]) this.endFx(entry);
+    }
     this.syncConditionLoop();
     this.syncFogLoop();
   };
@@ -1732,12 +1867,15 @@ export class BoardView {
   };
 
   /**
-   * The board's part of an attack effect (KAN-76): a hit shakes the target's art. The projectile,
-   * flash, miss and damage number are drawn by the React effects overlay (board-effects-overlay).
-   * The shake follows the token and never changes its recorded position.
+   * The board's part of an attack effect (KAN-76): strikes and nukes are drawn in Pixi by fx.ts
+   * (ADR 0038), and a hit shakes the target's art. Miss and damage numbers are drawn by the React
+   * effects overlay (board-effects-overlay). Nothing here changes a token's recorded position.
    */
   playAttackEffect(effect: AttackEffect) {
-    if (!this.initialized || !this.state || effect.kind !== "hit") return;
+    if (!this.initialized || !this.state) return;
+    if (effect.kind === "strike") return this.playStrikeFx(effect);
+    if (effect.kind === "nuke") return this.playNukeFx(effect);
+    if (effect.kind !== "hit") return;
     const target = this.tokens.get(effect.tokenId);
     if (!target || target.container.destroyed) return;
     while (this.attackFx.length >= MAX_ATTACK_EFFECTS) this.endAttackFx(this.attackFx[0]!);
@@ -1769,6 +1907,137 @@ export class BoardView {
     this.attackFx.push(fx);
     this.animations.add(fx.step);
     this.invalidate();
+  }
+
+  private fxHost(): FxHost {
+    return {
+      layer: this.fxLayer,
+      shakeTarget: this.world,
+      filterTarget: this.screenLayer,
+      screen: { width: this.app.screen.width, height: this.app.screen.height },
+      reducedMotion: this.reducedMotion,
+    };
+  }
+
+  /** Registers a fx.ts run in the frame loop; it is destroyed when it ends or the board does. */
+  private startFx(run: RunningFx) {
+    while (this.fxRuns.length >= MAX_FX_RUNS) this.endFx(this.fxRuns[0]!);
+    let lastFrame = -Infinity;
+    const entry = { run, started: -1, timer: 0, step: (now: number): boolean => {
+      if (entry.started < 0) entry.started = now;
+      if (now - lastFrame < graphicsBudget().frameMs - 1) {
+        this.stepSkipped = true;
+        return true;
+      }
+      lastFrame = now;
+      if (run.update((now - entry.started) / 1000)) return true;
+      this.endFx(entry);
+      return false;
+    } };
+    this.fxRuns.push(entry);
+    if (run.animated === false && run.duration !== undefined) entry.timer = window.setTimeout(() => this.endFx(entry), run.duration * 1000);
+    else this.animations.add(entry.step);
+    this.invalidate();
+  }
+
+  private endFx(entry: { run: RunningFx; timer: number; step: (now: number) => boolean }) {
+    window.clearTimeout(entry.timer);
+    this.animations.delete(entry.step);
+    this.fxRuns = this.fxRuns.filter((e) => e !== entry);
+    entry.run.destroy();
+    this.invalidate();
+  }
+
+  /** Frames the two fighters, over a short glide (or at once with reduced motion); the viewer's own pan or zoom still wins afterwards. */
+  /**
+   * Called as an attack's roll is committed, before its dice are thrown, so the dice land where the
+   * camera is going. Attacks made together (one per target) keep the first one's framing.
+   */
+  focusStrike(effect: { fromId: string; toId: string }) {
+    if (!this.initialized || !getClientSettings().autoFocusAttacks) return;
+    const from = this.tokens.get(effect.fromId);
+    const to = this.tokens.get(effect.toId);
+    if (!from || !to || from.container.destroyed || to.container.destroyed) return;
+    const now = performance.now();
+    // Strikes that follow closely are one attack at several targets: the frame grows to hold them all.
+    if (now - this.lastFocusAt >= FIGHT_REFOCUS_MS) this.fighters = [];
+    this.lastFocusAt = now;
+    this.fighters.push({ x: from.container.position.x, y: from.container.position.y }, { x: to.container.position.x, y: to.container.position.y });
+    this.focusFight(this.fighters, to.radius);
+  }
+
+  private fighters: Point[] = [];
+  private lastFocusAt = -Infinity;
+  /** Where the camera is gliding to, while it glides; the dice thrown meanwhile land there. */
+  private focusCentre: Point | null = null;
+
+  private focusFight(points: readonly Point[], radius: number) {
+    const screen = this.app.screen;
+    if (screen.width === 0 || screen.height === 0) return;
+    const margin = Math.max(radius * 3, (this.state?.scene.grid.cellSize ?? 70) * 3);
+    const xs = points.map((p) => p.x);
+    const ys = points.map((p) => p.y);
+    const left = Math.min(...xs);
+    const right = Math.max(...xs);
+    const top = Math.min(...ys);
+    const bottom = Math.max(...ys);
+    const width = right - left + margin * 2;
+    const height = bottom - top + margin * 2;
+    const scale = Math.min(MAX_FIGHT_ZOOM, MAX_ZOOM, Math.max(MIN_ZOOM, Math.min(screen.width / width, screen.height / height)));
+    const centre = { x: (left + right) / 2, y: (top + bottom) / 2 };
+    this.focusCentre = centre;
+    const from = { scale: this.world.scale.x, x: this.world.x, y: this.world.y };
+    const to = { scale, x: screen.width / 2 - centre.x * scale, y: screen.height / 2 - centre.y * scale };
+    this.autoFit = false;
+    if (this.cameraTween) cancelAnimationFrame(this.cameraTween);
+    const apply = (t: number) => {
+      const k = t * t * (3 - 2 * t);
+      this.world.scale.set(from.scale + (to.scale - from.scale) * k);
+      this.world.position.set(from.x + (to.x - from.x) * k, from.y + (to.y - from.y) * k);
+      this.syncTextSharpness();
+      this.invalidate();
+    };
+    if (this.reducedMotion) {
+      this.focusCentre = null;
+      return apply(1);
+    }
+    const started = performance.now();
+    const step = (now: number) => {
+      const t = Math.min(1, (now - started) / FIGHT_FOCUS_MS);
+      apply(t);
+      this.cameraTween = t < 1 ? requestAnimationFrame(step) : 0;
+      if (t >= 1) this.focusCentre = null;
+    };
+    this.cameraTween = requestAnimationFrame(step);
+  }
+
+  private cameraTween = 0;
+
+  private playStrikeFx(effect: Extract<AttackEffect, { kind: "strike" }>) {
+    const from = this.tokens.get(effect.fromId);
+    const to = this.tokens.get(effect.toId);
+    if (!from || !to || from.container.destroyed || to.container.destroyed) return;
+    this.startFx(
+      playStrike(this.fxHost(), {
+        def: effect.animation,
+        from: { x: from.container.position.x, y: from.container.position.y },
+        to: { x: to.container.position.x, y: to.container.position.y },
+        radius: to.radius,
+      }),
+    );
+  }
+
+  private playNukeFx(effect: Extract<AttackEffect, { kind: "nuke" }>) {
+    // One large blast at a time: repeated clicks replace the previous effect and free its objects.
+    for (const entry of [...this.fxRuns]) this.endFx(entry);
+    const { width, height } = this.app.screen;
+    const host = { ...this.fxHost(), layer: this.screenFxLayer };
+    this.startFx(playNuke(host, {
+      def: effect.animation,
+      origin: { x: width / 2, y: height / 2 },
+      unit: Math.min(64, height / 10),
+      extent: Math.hypot(width, height) / 2,
+    }));
   }
 
   private endAttackFx(fx: AttackFx) {
@@ -2128,6 +2397,7 @@ export class BoardView {
     };
     if (pinchIsManual(this.pinch.start, midpoint, this.world.scale.x, scale)) this.autoFit = false;
     this.world.scale.set(scale);
+    this.syncTextSharpness();
     this.world.position.set(midpoint.x - anchor.x * scale, midpoint.y - anchor.y * scale);
     this.pinch = { ...this.pinch, distance, midpoint, scale };
     this.invalidate();
@@ -2169,6 +2439,7 @@ export class BoardView {
     const scale = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, this.world.scale.x * factor));
     if (zoomChangesScale(this.world.scale.x, scale)) this.autoFit = false;
     this.world.scale.set(scale);
+    this.syncTextSharpness();
     this.world.position.set(screenPoint.x - before.x * scale, screenPoint.y - before.y * scale);
     this.invalidate();
   };

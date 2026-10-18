@@ -2,7 +2,7 @@
 
 ## 1. Decision record
 
-- [ ] 1.1 Write `docs/adr/0035-area-color-and-square-centre.md`, amending ADR 0007 and ADR 0021. It covers:
+- [ ] 1.1 Write `docs/adr/0040-area-color-and-square-centre.md`, amending ADR 0007 and ADR 0021. It covers:
   - the optional `AreaColor` on `AreaTemplate`, `template.place` and `templatePreview`, and orange for a missing color;
   - the change from purple to hatching for GM-only areas;
   - a box's `origin` now meaning its centre, superseding ADR 0021's "centred on its origin's near edge", and that existing squares shift by half their side.

@@ -5,6 +5,7 @@ import { ApiError } from "../net/api";
 import { loadGmToken } from "../net/identity";
 import { navigate } from "../router";
 import { Modal } from "../ui/Modal";
+import { SettingsMenu } from "../ui/SettingsMenu";
 import { changePassword, signIn, signOut, signUp, useAccount } from "./accountStore";
 import { safeNext } from "./safeNext";
 
@@ -224,6 +225,7 @@ export function AccountMenu() {
   const account = useAccount();
   const [open, setOpen] = useState(false);
   const [changing, setChanging] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   if (account.status !== "signedIn") return null;
   return (
     <div className="account-menu">
@@ -243,6 +245,9 @@ export function AccountMenu() {
             <br />
             <span className="muted">{account.account.email}</span>
           </p>
+          <button type="button" className="secondary small" onClick={() => { setOpen(false); setSettingsOpen(true); }}>
+            Settings
+          </button>
           <button type="button" className="secondary small" onClick={() => setChanging(true)}>
             Change password
           </button>
@@ -256,6 +261,7 @@ export function AccountMenu() {
         </div>
       )}
       <ChangePasswordDialog open={changing} onClose={() => setChanging(false)} />
+      <SettingsMenu open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }

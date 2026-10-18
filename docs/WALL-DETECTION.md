@@ -61,6 +61,41 @@ python -m venv .venv && .venv/bin/pip install -r requirements.txt
 REDIS_URL=redis://localhost:6379 .venv/bin/python wall_worker.py
 ```
 
+On Windows, activate with `.venv\Scripts\python` instead; the worker ends on Ctrl+C there
+(Windows event loops have no signal handlers, so it skips the clean shutdown).
+
+## The learned wall model
+
+Automatic detection (no style picked, no "Detect like this" click, no strictness set) uses a
+small neural network when its file is present, and the rule-based detector below otherwise.
+
+- **File:** `services/vision/models/walls.onnx` (about 98 MB, a ResNet-34 U-Net, 24M parameters).
+  It runs on the CPU through OpenCV (`cv2.dnn`), so the worker needs no GPU and no extra
+  packages beyond `requirements.txt`. A 2000 by 1500 px map takes about 15 seconds.
+- **Docker:** the `Dockerfile` copies `models/` into the image, so
+  `docker compose up -d redis vision-walls` runs with the model with no other change. If you
+  delete the file, the worker falls back to the rule-based detector and the logs show it.
+- **Without Docker:** the same steps as above; `wall_worker.py` loads `models/walls.onnx` next to
+  `walls.py` the first time a job needs it. Check it loaded by detecting walls on a map and
+  seeing walls that follow drawn walls rather than the grid.
+- **How it works:** the map is rescaled to 32 pixels per grid square and read in 512 px tiles.
+  The network predicts, per pixel, whether it lies on a wall's centreline. That mask is
+  thinned, traced into straight segments, snapped to horizontal and vertical where the
+  drawing is, and short pieces and doubled lines are removed. Walls on the map's border are
+  never reported. Each wall carries a `confidence` (the mean model probability along it) for
+  the GM's review step.
+- **Cell size:** the model needs the room's grid. With no grid set, it uses the grid
+  detector's guess, which costs accuracy on maps with no drawn grid.
+- **Accuracy:** on maps from authors it never saw, about 77% of the true wall length is found
+  and about 83% of what it reports is right. Ink and Dungeondraft maps are above 95%;
+  dark painted maps are the weak spot (about 40% found). The GM reviews every result before
+  applying it, and can draw or erase walls by hand.
+- **Training:** the training scripts and data live in `services/vision/training/`, which is
+  git-ignored (local only). `services/vision/training/STATE.md` explains how to rebuild the
+  environment and retrain. Training needs a GPU; running the model does not.
+- **Repo size:** the model is one 98 MB file, so each retrained model adds that much to the
+  git history. Use Git LFS before replacing it often.
+
 The worker logs one line per job, with the image size, the wall count and the time taken. It
 never logs image contents or results. Without `REDIS_URL` the app server reports wall detection
 as unavailable (503), and everything else works as before.
@@ -77,7 +112,7 @@ as unavailable (503), and everything else works as before.
   server; a fifth is refused with "Wall detection is busy. Try again in a minute."
 - Deploy the app server and the vision worker together: an old worker cannot read the new job.
 
-## What it finds, and its limits
+## The rule-based detector (used when there is no model, or a style is picked), and its limits
 
 The detector finds bands thinner than about one and a half grid squares that stand out from
 their surroundings. That covers bright raised stone, using a white top-hat, and dark ink

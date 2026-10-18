@@ -112,7 +112,7 @@ export const AreaShape = z.enum(["circle", "cone", "box", "line"]);
 export type AreaShape = z.infer<typeof AreaShape>;
 
 /**
- * The colours an area template can be (ADR 0035). Names, not hex: the client owns the shades, so a
+ * The colours an area template can be (ADR 0040). Names, not hex: the client owns the shades, so a
  * theme can change them without touching history. White is left out; its fill vanishes on light maps.
  */
 export const AreaColor = z.enum(["red", "orange", "yellow", "green", "blue", "purple", "grey"]);
@@ -139,7 +139,7 @@ export const MAX_PLAYERS_PER_ROOM = 32;
 export const AreaTemplate = z.object({
   id: Id,
   shape: AreaShape,
-  /** Where it was placed: a circle's or a box's centre (ADR 0035), a cone's apex, a line's start. */
+  /** Where it was placed: a circle's or a box's centre (ADR 0040), a cone's apex, a line's start. */
   origin: Point,
   /** The point it was aimed at; equal to `origin` for an unaimed placement (points right). */
   toward: Point,
@@ -150,7 +150,7 @@ export const AreaTemplate = z.object({
    * shapes. Optional so events from before lines still parse.
    */
   width: z.number().positive().max(1000).optional(),
-  /** Its colour (ADR 0035); drawn as `DEFAULT_AREA_COLOR` when absent. Optional so older events still parse. */
+  /** Its colour (ADR 0040); drawn as `DEFAULT_AREA_COLOR` when absent. Optional so older events still parse. */
   color: AreaColor.optional(),
   /** Who placed it. They and the GM may remove it. */
   ownerId: Id,
@@ -269,10 +269,26 @@ export const CHAT_LOG_LIMIT = 200;
 /** Longest chat message, in characters after trimming (KAN-75). */
 export const MAX_CHAT_LENGTH = 500;
 
+/** Most participants one chat message can mention: every active participant (ADR 0035). */
+export const MAX_CHAT_MENTIONS = MAX_PLAYERS_PER_ROOM + 1;
+
+/**
+ * A participant mentioned in a chat message (ADR 0035). `displayName` is their name at send time,
+ * like `senderName`: it is what the text says after the `@`, so the client can find it to
+ * highlight even after a rename. The id is what keeps pointing at the right person.
+ */
+export const ChatMention = z.object({
+  participantId: Id,
+  displayName: z.string().min(1).max(40),
+});
+export type ChatMention = z.infer<typeof ChatMention>;
+
 /**
  * One chat message (KAN-75, ADR 0015). `senderName` is the name at send time, so the line reads
  * correctly after a rename. `at` is the committed time, stamped by `reduce` from event metadata
- * (it cannot read a clock); null when the event was reduced without it.
+ * (it cannot read a clock); null when the event was reduced without it. `mentions` is set by
+ * `decide` from the text, each participant once, and is absent when nobody is mentioned, so
+ * older messages and events parse unchanged (ADR 0035).
  */
 export const ChatMessage = z.object({
   id: Id,
@@ -280,6 +296,7 @@ export const ChatMessage = z.object({
   senderName: z.string().min(1).max(40),
   text: z.string().min(1).max(MAX_CHAT_LENGTH),
   at: z.string().nullable(),
+  mentions: z.array(ChatMention).min(1).max(MAX_CHAT_MENTIONS).optional(),
 });
 export type ChatMessage = z.infer<typeof ChatMessage>;
 
@@ -329,6 +346,11 @@ export interface RoomState {
    * outlive a deleted token, so undoing the deletion puts it back in its group. GM-only.
    */
   tokenGroups: Record<Id, Id>;
+  /**
+   * The GM turned board animations down for the whole table (ADR 0038): every viewer plays the
+   * reduced-motion version, as if each had asked for it. Public. Older rooms read as false.
+   */
+  reducedEffects: boolean;
 }
 
 export function emptyRoomState(roomId: Id): RoomState {
@@ -349,5 +371,6 @@ export function emptyRoomState(roomId: Id): RoomState {
     undo: [],
     groups: {},
     tokenGroups: {},
+    reducedEffects: false,
   };
 }

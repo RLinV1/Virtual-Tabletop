@@ -75,7 +75,7 @@ const h = length / 2;
 return { kind: "polygon", points: [at(-h, -h), at(h, -h), at(h, h), at(-h, h)] };
 ```
 
-So the square is centred on `origin` and turned toward `toward`. Because geometry is client-only, this one function change moves every box, in live play, replays, checkpoints and eraser hit tests, at once and the same way for everyone. Nothing in the log is rewritten. ADR 0035 records the new meaning and supersedes ADR 0021's "centred on its origin's near edge". The `AreaTemplate.origin` doc comment changes to match.
+So the square is centred on `origin` and turned toward `toward`. Because geometry is client-only, this one function change moves every box, in live play, replays, checkpoints and eraser hit tests, at once and the same way for everyone. Nothing in the log is rewritten. ADR 0040 records the new meaning and supersedes ADR 0021's "centred on its origin's near edge". The `AreaTemplate.origin` doc comment changes to match.
 
 `areaSizeFromDrag` takes the shape. For `"box"`, the distance counts twice: `side = 2 × distance`, snapped to whole cells (at least one) unless free. The pointer then sits on the middle of the square's far edge, as it does for the other shapes. A click still places the tool's chosen size, facing right.
 
@@ -99,5 +99,5 @@ The 1–10 range comes from `MAX_LINE_WIDTH_CELLS`, exported from shared, so the
 - **Old squares move by half their side.** The user accepted this. The ADR says so explicitly, so it isn't mistaken for a bug. A checkpoint restored after this change shows its squares in the new position.
 - **Tinting a pattern:** settled by the spike. A plain repeating texture fill is tinted, and a `FillPattern` isn't.
 - **A yellow or grey area on a light map** is low contrast. The solid outline at 0.9 alpha keeps it visible, and white was dropped for this reason.
-- **Contract change:** this needs ADR 0035 and review by the Real-Time Architecture owner before it merges. The change is only additive (optional fields), apart from the meaning of a box's origin.
+- **Contract change:** this needs ADR 0040 and review by the Real-Time Architecture owner before it merges. The change is only additive (optional fields), apart from the meaning of a box's origin.
 - **Spec dependency:** the `area-templates` delta only applies after `kan-35-aoe-line-and-aim` is archived. Archive that first, or this change's archive will create the capability without kan-35's requirements.

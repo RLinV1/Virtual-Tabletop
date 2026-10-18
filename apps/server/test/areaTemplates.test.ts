@@ -130,7 +130,7 @@ describe("template aim previews (KAN-35, FR-TAC-06)", () => {
   });
 });
 
-describe("area colours over the wire (FR-TAC-06, FR-GM-23, ADR 0035)", () => {
+describe("area colours over the wire (FR-TAC-06, FR-GM-23, ADR 0040)", () => {
   const isEphemeral = (m: ServerMessage): m is Extract<ServerMessage, { type: "ephemeral" }> => m.type === "ephemeral";
 
   it("shows a public area in its colour to everyone, and keeps a GM-only one and its colour from players", async () => {

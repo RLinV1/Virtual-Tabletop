@@ -29,6 +29,15 @@ describe("GM manages token groups (KAN-82)", () => {
     expect(room.state.tokenGroups).toEqual({});
   });
 
+  it("puts new tokens straight into a chosen group, and refuses a group that does not exist", () => {
+    const { room, gate } = table();
+    const { events } = room.run(gm, { type: "token.create", name: "Archer", position: { x: 35, y: 245 }, groupId: gate, count: 2 });
+    const made = events.flatMap((e) => (e.type === "TokenCreated" ? [e.token.id] : []));
+    expect(made).toHaveLength(2);
+    for (const id of made) expect(room.state.tokenGroups[id]).toBe(gate);
+    expect(room.attempt(gm, { type: "token.create", name: "Lost", position: { x: 35, y: 315 }, groupId: "nope" })).toMatchObject({ ok: false, code: "not_found" });
+  });
+
   it("keeps names unique ignoring case and spaces, non-blank, and at most 40 characters", () => {
     const { room, patrol } = table();
     expect(room.attempt(gm, { type: "group.create", name: " gate GUARDS " })).toMatchObject({ ok: false, code: "invalid" });
