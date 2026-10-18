@@ -1,3 +1,4 @@
+import type { UvttLease } from "../uvtt/preparations";
 import { randomInt, randomUUID } from "node:crypto";
 import {
   can,
@@ -14,6 +15,9 @@ import {
   replayTo,
   tableOf,
   referencedAssetIds,
+  LibraryMapBoard,
+  EMPTY_LIBRARY_BOARD,
+  type ResolvedLibraryMap,
   type Command,
   type CommittedEvent,
   type DetectedWallsResponse,
@@ -45,6 +49,7 @@ const RESTORE_SLOW_MS = 500;
 
 /** Server services a room consults while deciding, passed in so `decide` stays pure. */
 export interface RoomHooks {
+  uvttLease?: (roomId: string, actorId: string, id: string, revision: number) => UvttLease;
   /** The validated detected walls for this room's map (ADR 0029), or null. */
   detectedWalls?: (roomId: string, mapUrl: string) => DetectedWallsResponse | null;
 }
@@ -151,6 +156,16 @@ export class LiveRoom {
     return this.state.scene.grid;
   }
 
+  /** Immutable, viewer-filtered scene capture inside the same FIFO as all mutations. */
+  captureScene(actorId: string) {
+    return this.runExclusive(async () => {
+      const actor = this.activeParticipant(actorId);
+      if (this.isClosed || !actor || !can.administer(actor)) return null;
+      const view = filterStateForViewer(this.state, actor);
+      return structuredClone({ map: view.scene.map, grid: view.scene.grid, walls: view.walls, fog: view.fog, seq: this.seq });
+    });
+  }
+
   /** Why this participant's seat ended, or null if they are still in the room (ADR 0006). */
   endReason(id: string): SessionEndReason | null {
     const p = this.state.participants[id];
@@ -225,20 +240,59 @@ export class LiveRoom {
         const encounter = found?.encounter ?? null;
         encounterTemplate = (id) => (encounter && encounter.id === id ? encounter : null);
       }
-      const decision = decide(this.state, actor, command, {
-        newId: randomUUID,
-        random: secureRandom,
-        ownedDiceLook,
-        lastSeq: this.seq,
-        checkpointTable,
-        encounterTemplate,
-        detectedWalls: command.type === "wall.applyDetected"
-          ? (mapUrl) => this.hooks.detectedWalls?.(this.roomId, mapUrl) ?? null
-          : undefined,
-      });
-      if (!decision.ok) return decision;
-      const committed = await this.commit(actorId, decision.events);
-      return { ok: true, seq: committed.at(-1)?.seq ?? null };
+      let lease: UvttLease | undefined;
+      let libraryMap: ResolvedLibraryMap | null | undefined;
+      if (command.type === "scene.setMap" && command.includeLibraryBoard) {
+        if (!can.administer(actor)) return { ok: false, code: "forbidden", message: "Only the GM can apply a library map." };
+        try {
+          const member = await this.store.findMemberByParticipant(this.roomId, actorId);
+          const user = member ? await this.store.findUserById(member.userId) : null;
+          const asset = user && command.map.assetId ? await this.store.findAsset(command.map.assetId, user.ownerId) : null;
+          const board = LibraryMapBoard.safeParse(asset?.board ?? EMPTY_LIBRARY_BOARD);
+          libraryMap = asset?.kind === "map" && board.success ? {
+            map: { url: asset.url, width: asset.width, height: asset.height, assetId: asset.id },
+            grid: asset.grid, board: board.data,
+          } : null;
+        } catch {
+          return { ok: false, code: "invalid", message: "Could not read your library map. Your draft has been kept; try Apply again." };
+        }
+      }
+      if (command.type === "scene.importUVTT") {
+        if (!can.administer(actor)) return { ok: false, code: "forbidden", message: "Only the GM can import a map." };
+        lease = this.hooks.uvttLease?.(this.roomId, actorId, command.importId, command.revision);
+        if (!lease) return { ok: false, code: "not_found", message: "This preparation expired or the server restarted. Re-import the file." };
+        if (!lease.ok) return lease;
+        if (lease.appliedSeq !== undefined) return { ok: true, seq: lease.appliedSeq };
+      }
+      try {
+        const decision = decide(this.state, actor, command, {
+          newId: randomUUID,
+          preparedUvtt: lease?.ok ? lease.scene : undefined,
+          libraryMap,
+          random: secureRandom,
+          ownedDiceLook,
+          lastSeq: this.seq,
+          checkpointTable,
+          encounterTemplate,
+          detectedWalls: command.type === "wall.applyDetected"
+            ? (mapUrl) => this.hooks.detectedWalls?.(this.roomId, mapUrl) ?? null
+            : undefined,
+        });
+        if (!decision.ok) return decision;
+        const committed = await this.commit(actorId, decision.events);
+        const seq = committed.at(-1)?.seq ?? null;
+        if (lease?.ok) lease.finish?.(seq);
+        return { ok: true, seq };
+      } catch (error) {
+        if (command.type === "scene.importUVTT") {
+          console.error("[vtt] uvtt application failed", { code: "append_failed" });
+          return { ok: false, code: "invalid", message: "Could not save the imported scene. Your draft has been kept; try Apply again." };
+        }
+        if (command.type === "scene.setMap" && command.includeLibraryBoard) return { ok: false, code: "invalid", message: "Could not save the library map. Your draft has been kept; try Apply again." };
+        throw error;
+      } finally {
+        if (lease?.ok) lease.finish?.();
+      }
     });
   }
 

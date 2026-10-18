@@ -123,6 +123,27 @@ describe("doors and windows in the draft (FR-GM-09, ADR 0030)", () => {
   });
 });
 
+
+describe("UVTT metadata in the existing private editor (FR-GM-06/09)", () => {
+  const imported: Wall = { ...room.walls.w1, uvttPortal: { position: { x: 5, y: 7 }, rotation: 1.2, closed: false, freestanding: true }, source: "objects_line_of_sight" };
+  it("preserves metadata through designation, detection and full endpoint save", () => {
+    const saved = { ...room, walls: { w1: imported } };
+    let draft = applyToDraft({ mapUrl: expectedMapUrl, ...saved }, { type: "portal.set", wallId: "w1", portal: { kind: "door", state: "locked" } }, newId)!;
+    expect(draft.walls.w1!.uvttPortal).toEqual(imported.uvttPortal);
+    expect(planDraftSave(saved, draft)).toEqual([{ type: "portal.set", expectedMapUrl, wallId: "w1", portal: { kind: "door", state: "locked" } }]);
+    expect(withDetectedWalls(draft, [imported], newId).walls.w1).toEqual(draft.walls.w1);
+    draft = applyToDraft(draft, { type: "wall.update", wall: { ...draft.walls.w1!, b: { x: 160.0000001, y: 0 } } }, newId)!;
+    expect(planDraftSave(saved, draft)).toEqual([{ type: "wall.update", expectedMapUrl, wall: draft.walls.w1 }]);
+  });
+  it("adds a new imported portal with metadata and normalizes overlap in the draft", () => {
+    const empty = { ...room, walls: {} };
+    let draft = applyToDraft({ mapUrl: expectedMapUrl, ...empty }, { type: "wall.add", walls: [imported] }, newId)!;
+    expect(planDraftSave(empty, draft)[0]).toMatchObject({ type: "wall.add", walls: [expect.objectContaining({ uvttPortal: imported.uvttPortal, source: imported.source })] });
+    draft = applyToDraft(draft, { type: "wall.add", walls: [{ a: { x: 0, y: 0 }, b: { x: 200, y: 0 } }] }, newId)!;
+    expect(Object.values(draft.walls).filter((w) => !w.uvttPortal)).toEqual([expect.objectContaining({ a: { x: 100, y: 0 }, b: { x: 200, y: 0 } })]);
+  });
+});
+
 describe("moving and reshaping fog in the draft (map editor Fog step)", () => {
   it("swaps one region for its new corners in one step, and Save sends it as a fog.replace", () => {
     const moved = [{ x: 100, y: 100 }, { x: 170, y: 100 }, { x: 170, y: 170 }, { x: 100, y: 170 }];

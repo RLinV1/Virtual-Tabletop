@@ -13,7 +13,7 @@ const LOCK_COLOR = "#c0392b";
 /** Detected walls the model was unsure about (wall-review); the legend swatch uses the same colour. */
 const DOUBTFUL_COLOR = "#ffb020";
 
-export type CanvasMode = WallMode;
+export type CanvasMode = WallMode | "select";
 export { DOUBTFUL_COLOR };
 
 /**
@@ -22,7 +22,7 @@ export { DOUBTFUL_COLOR };
  * the wall to make a door or window (ADR 0030), and Pick sends the clicked point. Detected walls waiting to be applied are drawn as candidates, and
  * Erase toggles one off (or back on) instead of touching the room's walls.
  */
-export function WallCanvas({ map, grid, walls, candidates, erased, doubtful, focus, mode, onAdd, onRemove, onPortal, onToggleCandidate, onSample, busy }: {
+export function WallCanvas({ map, grid, walls, candidates, erased, doubtful, focus, mode, onAdd, onRemove, onPortal, onSelect = () => {}, selected, onToggleCandidate, onSample, busy }: {
   map: MapImage;
   grid: GridSpec;
   walls: Record<string, Wall>;
@@ -38,6 +38,8 @@ export function WallCanvas({ map, grid, walls, candidates, erased, doubtful, foc
   onAdd: (a: Point, b: Point) => void;
   onRemove: (wallId: string) => void;
   onPortal: (wallId: string) => void;
+  onSelect?: (wallId: string) => void;
+  selected?: string;
   onToggleCandidate: (key: string) => void;
   onSample: (at: Point) => void;
   busy: boolean;
@@ -81,6 +83,11 @@ export function WallCanvas({ map, grid, walls, candidates, erased, doubtful, foc
           if (candidate) return onToggleCandidate(candidate.id);
           const wall = wallAt(walls, p, PICK_PX * view.px);
           if (wall) onRemove(wall.id);
+          return;
+        }
+        if (mode === "select") {
+          const wall = wallAt(walls, p, PICK_PX * view.px);
+          if (wall) onSelect(wall.id);
           return;
         }
         if (mode === "portal") {
@@ -131,10 +138,10 @@ export function WallCanvas({ map, grid, walls, candidates, erased, doubtful, foc
             </g>
             <g strokeLinecap="round">
               {Object.values(walls).map((w) => {
-                const hot = erasing?.id === w.id || marking?.id === w.id;
-                const color = erasing?.id === w.id ? "#e74c3c" : marking?.id === w.id ? "#ffd166" : w.portal ? PORTAL_COLORS[w.portal.kind] : "#f0a24a";
+                const hot = erasing?.id === w.id || marking?.id === w.id || selected === w.id;
+                const color = erasing?.id === w.id ? "#e74c3c" : marking?.id === w.id || selected === w.id ? "#ffd166" : w.portal ? PORTAL_COLORS[w.portal.kind] : w.uvttPortal ? "#9b7bd0" : "#f0a24a";
                 // An open portal is drawn dashed, a locked one with a lock mark (ADR 0030).
-                const dash = w.portal?.state === "open" ? `${10 * px} ${6 * px}` : undefined;
+                const dash = (w.portal ? w.portal.state === "open" : w.uvttPortal?.closed === false) ? `${10 * px} ${6 * px}` : undefined;
                 return (
                   <g key={w.id} data-portal={w.portal ? `${w.portal.state} ${w.portal.kind}` : undefined}>
                     <line x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y} stroke="#111" strokeOpacity={0.8} strokeWidth={(w.portal ? 9 : 7) * px} strokeDasharray={dash} />

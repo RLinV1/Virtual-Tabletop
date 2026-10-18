@@ -66,6 +66,7 @@ export interface RoomStore extends LibraryStore, GridDetectionStore, IdentitySto
   /** The GM identity that owns the room: null for an unowned room, undefined for no room. */
   findRoomOwner(roomId: string): Promise<string | null | undefined>;
   /** Records an image uploaded from inside the room, so deleting the room removes it (ADR 0009). */
+  hasRoomUpload(roomId: string, objectKey: string): Promise<boolean>;
   recordRoomUpload(roomId: string, objectKey: string, purpose?: RoomUploadPurpose, width?: number, height?: number): Promise<void>;
   /**
    * Erases the room and everything scoped to it in one atomic step (ADR 0009): events,

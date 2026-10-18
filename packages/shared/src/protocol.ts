@@ -10,6 +10,7 @@ import type { RejectionCode } from "./decide";
 import { RoomUploadPurpose } from "./gridDetection";
 import { MAX_ENCOUNTER_NAME } from "./encounters";
 import type { WallDetectionStatus } from "./wallDetection";
+import type { UvttIssue } from "./uvtt";
 
 /**
  * WebSocket wire protocol. One socket per client carries two logical channels:
@@ -247,6 +248,12 @@ export interface LibraryUsageResponse {
   creatures: { id: string; name: string }[];
   /** The GM's encounter templates whose map this is; they cannot be applied once it is deleted (ADR 0024). */
   encounters: { id: string; name: string }[];
+}
+
+/** A UVTT file saved as a complete reusable map, plus bounded import warnings (ADR 0043). */
+export interface LibraryUvttImportResponse {
+  asset: LibraryAsset;
+  diagnostics: UvttIssue[];
 }
 
 /**

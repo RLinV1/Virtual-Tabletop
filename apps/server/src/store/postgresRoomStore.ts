@@ -160,16 +160,15 @@ export class PostgresRoomStore implements RoomStore {
 
         const committed: CommittedEvent[] = [];
         for (const [i, e] of events.entries()) {
-          const row = await tx.event.create({
-            data: {
-              roomId,
-              seq: firstSeq + i,
-              type: e.event.type,
-              payload: e.event as unknown as Prisma.InputJsonValue,
-              actorId: e.actorId,
-              commandId: e.commandId ?? null,
-            },
-          });
+          // Prisma's JSON input encoder can change a 17-digit double (e.g.
+          // 15.000000000000002 -> 15). Pass canonical JS JSON as a text parameter so
+          // checkpoints/reload see the exact values broadcast after this append.
+          const [row] = await tx.$queryRaw<{ seq: number; createdAt: Date; actorId: string | null; commandId: string | null }[]>`
+            INSERT INTO events (room_id, seq, type, payload, actor_id, command_id)
+            VALUES (${roomId}::uuid, ${firstSeq + i}, ${e.event.type}, ${JSON.stringify(e.event)}::jsonb, ${e.actorId}::uuid, ${e.commandId ?? null}::uuid)
+            RETURNING seq, created_at AS "createdAt", actor_id AS "actorId", command_id AS "commandId"
+          `;
+          if (!row) throw new Error("Event append returned no row");
           committed.push({
             seq: row.seq,
             at: row.createdAt.toISOString(),
@@ -213,6 +212,10 @@ export class PostgresRoomStore implements RoomStore {
   async findRoomOwner(roomId: string) {
     const room = await this.prisma.room.findUnique({ where: { id: roomId }, select: { ownerGmId: true } });
     return room ? room.ownerGmId : undefined;
+  }
+
+  async hasRoomUpload(roomId: string, objectKey: string) {
+    return !!(await this.prisma.roomUpload.findUnique({ where: { roomId_objectKey: { roomId, objectKey } }, select: { objectKey: true } }));
   }
 
   async recordRoomUpload(roomId: string, objectKey: string, purpose: RoomUploadPurpose = "token", width?: number, height?: number) {
@@ -341,18 +344,20 @@ export class PostgresRoomStore implements RoomStore {
   }
 
   async createAsset(asset: LibraryAssetRecord) {
-    await this.prisma.libraryAsset.create({
-      data: {
-        id: asset.id, ownerGmId: asset.ownerGmId, kind: asset.kind, objectKey: asset.objectKey,
-        url: asset.url, name: asset.name, width: asset.width, height: asset.height,
-        grid: asset.grid ?? Prisma.DbNull,
-        detectionStatus: asset.detectionStatus ?? null,
-        detectionAttempt: asset.detectionAttempt ?? 0,
-        detectionResult: asset.detectionResult ? asset.detectionResult as Prisma.InputJsonValue : Prisma.DbNull,
-        detectionUpdatedAt: asset.detectionStatus ? new Date(asset.detectionUpdatedAt ?? Date.now()) : null,
-        createdAt: new Date(asset.createdAt),
-      },
-    });
+    // As with event payloads, parameterized JSON text preserves all JS doubles (ADR 0043).
+    // Insert the complete map in one statement: readers can never see missing grid/geometry.
+    await this.prisma.$executeRaw`
+      INSERT INTO library_assets
+        (id, owner_gm_id, kind, object_key, url, name, width, height, grid, board,
+         detection_status, detection_attempt, detection_result, detection_updated_at, created_at)
+      VALUES (${asset.id}::uuid, ${asset.ownerGmId}::uuid, ${asset.kind}, ${asset.objectKey},
+        ${asset.url}, ${asset.name}, ${asset.width}, ${asset.height},
+        ${asset.grid ? JSON.stringify(asset.grid) : null}::jsonb,
+        ${asset.board ? JSON.stringify(asset.board) : null}::jsonb,
+        ${asset.detectionStatus ?? null}, ${asset.detectionAttempt ?? 0},
+        ${asset.detectionResult ? JSON.stringify(asset.detectionResult) : null}::jsonb,
+        ${asset.detectionStatus ? new Date(asset.detectionUpdatedAt ?? Date.now()) : null}, ${new Date(asset.createdAt)})
+    `;
   }
 
   async seedShippedMaps(ownerGmId: string, rows: LibraryAssetRecord[]) {
@@ -474,21 +479,18 @@ export class PostgresRoomStore implements RoomStore {
   }
 
   async setAssetBoard(id: string, ownerGmId: string, board: LibraryMapBoard) {
-    const { count } = await this.prisma.libraryAsset.updateMany({
-      where: { id, ownerGmId, kind: "map" },
-      data: { board: board as unknown as Prisma.InputJsonValue },
-    });
+    const count = await this.prisma.$executeRaw`
+      UPDATE library_assets SET board = ${JSON.stringify(board)}::jsonb
+      WHERE id = ${id}::uuid AND owner_gm_id = ${ownerGmId}::uuid AND kind = 'map'
+    `;
     return count === 1;
   }
 
   async updateAsset(id: string, ownerGmId: string, patch: { name?: string; grid?: GridSpec }) {
-    const { count } = await this.prisma.libraryAsset.updateMany({
-      where: { id, ownerGmId },
-      data: {
-        ...(patch.name !== undefined && { name: patch.name }),
-        ...(patch.grid && { grid: patch.grid as unknown as Prisma.InputJsonValue }),
-      },
-    });
+    const count = patch.grid ? await this.prisma.$executeRaw`
+      UPDATE library_assets SET grid = ${JSON.stringify(patch.grid)}::jsonb, name = COALESCE(${patch.name ?? null}, name)
+      WHERE id = ${id}::uuid AND owner_gm_id = ${ownerGmId}::uuid
+    ` : (await this.prisma.libraryAsset.updateMany({ where: { id, ownerGmId }, data: { ...(patch.name !== undefined && { name: patch.name }) } })).count;
     return count === 1 ? this.findAsset(id, ownerGmId) : null;
   }
 
@@ -908,7 +910,10 @@ export class PostgresRoomStore implements RoomStore {
 }
 
 function isUniqueViolation(err: unknown): boolean {
-  return typeof err === "object" && err !== null && "code" in err && err.code === PRISMA_UNIQUE_VIOLATION;
+  if (typeof err !== "object" || err === null || !("code" in err)) return false;
+  if (err.code === PRISMA_UNIQUE_VIOLATION) return true;
+  // Parameterized raw INSERT errors carry PostgreSQL's SQLSTATE in Prisma's metadata.
+  return err.code === "P2010" && "meta" in err && typeof err.meta === "object" && err.meta !== null && "code" in err.meta && err.meta.code === "23505";
 }
 
 async function missingImageAsError<T>(write: () => Promise<T>): Promise<T> {
@@ -987,6 +992,7 @@ function toAssetRecord(row: LibraryAsset): LibraryAssetRecord {
     width: row.width,
     height: row.height,
     grid: (row.grid as unknown as GridSpec | null) ?? null,
+    board: (row.board as unknown as LibraryMapBoard | null) ?? null,
     detectionStatus: row.detectionStatus as DetectionState | null,
     detectionAttempt: row.detectionAttempt,
     detectionResult: (row.detectionResult as GridDetectionCandidate | null) ?? null,
