@@ -11,7 +11,18 @@
 ## Getting Started
 
 Requires **Node 22** (see `.nvmrc`). This is an **npm workspace** — `apps/server`, `apps/web`
-and `packages/shared` are installed together from the repository root.
+and `packages/shared` are installed together from the repository root. There are two ways to
+run the app. Both open at <http://localhost:5173>.
+
+| | Without Docker | With Docker Compose |
+| --- | --- | --- |
+| Needs | Node 22 | Docker Desktop (or Docker Engine + Compose v2) |
+| Rooms survive a restart | No (in-memory) | Yes (Postgres) |
+| Map uploads | Local disk | SeaweedFS (S3) |
+| Grid and wall detection | Off (no vision service) | On |
+| Sign-in | Sign up as usual | Dev account `t@gmail.com` / `password` is pre-seeded |
+
+### Option A — without Docker
 
 ```bash
 git clone https://github.com/RLinV1/Virtual-Tabletop.git
@@ -20,27 +31,63 @@ npm install
 npm run dev
 ```
 
-Already cloned? Run `git checkout main && git pull`, then `npm install` again — the lockfile
-changes often while the stack is being built out.
-
-`npm run dev` starts the API server on **:3001** and the web client on **:5173**. Open
+`npm run dev` starts the API server on **:3001** and the web client on **:5173**. The first
+start takes about 20 seconds because the server probes for object storage before falling back
+to local disk. Wait for `[vtt] server on http://localhost:3001`, then open
 <http://localhost:5173>, create a room, and copy the invite link.
+
+This works with no containers: with `DATABASE_URL`, `REDIS_URL` and `S3_ENDPOINT` unset, the
+server keeps rooms in memory and stores uploads on local disk. The startup log says so:
+
+```
+[vtt] DATABASE_URL unset — using in-memory store (state is lost on restart)
+[vtt] no object storage at http://127.0.0.1:8333 — storing uploads on local disk
+```
+
+Restarting the server clears every room. Grid detection and wall detection need the vision
+service, so they do not run in this mode (see Option B, or
+[`docs/GRID-DETECTION.md`](docs/GRID-DETECTION.md) and [`docs/WALL-DETECTION.md`](docs/WALL-DETECTION.md)).
 
 **To join as a player on the same machine,** open the invite link in a private window, or
 swap `localhost` for `127.0.0.1`. Guest identity is stored per-origin in `localStorage`, so
 a second tab in the same window is still the GM.
 
-### Running with persistence
+Already cloned? Run `git checkout main && git pull`, then `npm install` again — the lockfile
+changes often while the stack is being built out.
 
-By default the server keeps everything in memory, so restarting `npm run dev` clears every
-room. Uploads go to the S3 object store (SeaweedFS) whenever it is running: with `S3_ENDPOINT` unset, the dev server
-looks for the compose SeaweedFS at `127.0.0.1:8333` and only falls back to local disk when nothing
-answers (`S3_AUTODETECT=0` skips the check; production refuses to start without
-`S3_ENDPOINT`). That is deliberate — a fresh checkout runs with
-no containers. To run the real stack (Postgres, Redis, SeaweedFS — see [`docs/DESIGN.md`](docs/DESIGN.md) §2):
+### Option B — with Docker Compose (whole stack)
+
+Start Docker, then run from the repository root:
 
 ```bash
-docker compose up -d
+docker compose up -d --build
+```
+
+This builds and starts everything: Postgres, Redis, SeaweedFS (S3), the two vision services,
+the app server (**:3001**) and the web client (**:5173**). The server applies the Prisma
+migrations itself on start, so there is no separate migrate step. Open
+<http://localhost:5173>.
+
+- **First run is slow.** The images build from source and download base images. Later runs
+  reuse the cache.
+- **Rebuild after code changes.** The code is copied into the image, so run
+  `docker compose up -d --build` again. Nothing hot-reloads.
+- **Watch it start.** `docker compose ps` should show every service `Up`, and
+  `docker compose logs -f server` should end with `[vtt] server on http://localhost:3001`.
+- **Ports must be free.** Compose publishes 3001, 5173, 5432, 6379, 8333 and 8000. Stop any
+  `npm run dev` first, or the containers fail to bind.
+- **Dev account.** Compose sets `SEED_DEV_ACCOUNT=1`, so you can sign in as `t@gmail.com` /
+  `password`. Never set it in production.
+
+Stop it with `docker compose down`. Add `-v` to delete the data volumes too, which is the reset
+when a migration goes wrong.
+
+### Option C — infrastructure in Docker, app from source
+
+Use this to get persistence while you edit code with hot reload:
+
+```bash
+docker compose up -d postgres redis s3 vision vision-walls
 export DATABASE_URL=postgres://vtt:vtt@localhost:5432/vtt
 npm run prisma:migrate --workspace=@vtt/server
 REDIS_URL=redis://localhost:6379 \
@@ -50,17 +97,18 @@ npm run dev
 
 `export` first, and in that order: `prisma:migrate` reads `DATABASE_URL` from the
 environment and fails with `P1012` without it. **Re-run it after every pull that touches
-`apps/server/prisma/`** — `docker compose up` does not migrate, so a database left behind
-the code fails at runtime rather than at startup.
+`apps/server/prisma/`** — here `docker compose up` does not migrate, so a database left behind
+the code fails at runtime rather than at startup. Add `VISION_URL=http://127.0.0.1:8000` to
+use grid detection. Uploads use SeaweedFS whenever it answers on `127.0.0.1:8333`, even
+without `S3_ENDPOINT` (`S3_AUTODETECT=0` skips the check; production refuses to start without
+`S3_ENDPOINT`).
 
 Two lines on startup tell you which mode you are in:
 
 ```
-[vtt] using Postgres event store          # persistent
+[vtt] using Postgres event store                    # persistent
 [vtt] DATABASE_URL unset — using in-memory store    # not persistent
 ```
-
-`docker compose down` stops the services; add `-v` to discard their data as well.
 
 ### Verifying and building
 
