@@ -5,9 +5,9 @@ import { DEFAULT_GRID, type LibraryAsset } from "@vtt/shared";
 import { BUILTIN_ASSETS, builtinsMatching, isBuiltin, libraryAssetId } from "../src/net/builtinAssets";
 
 describe("built-in library assets (builtin-library-assets)", () => {
-  it("ships three maps and five tokens with unique built-in ids", () => {
+  it("ships three maps, two goblins and two human portraits with unique built-in ids", () => {
     expect(BUILTIN_ASSETS.filter((a) => a.kind === "map")).toHaveLength(3);
-    expect(BUILTIN_ASSETS.filter((a) => a.kind === "token")).toHaveLength(5);
+    expect(BUILTIN_ASSETS.filter((a) => a.kind === "token")).toHaveLength(4);
     const ids = BUILTIN_ASSETS.map((a) => a.id);
     expect(new Set(ids).size).toBe(ids.length);
     for (const a of BUILTIN_ASSETS) expect(isBuiltin(a)).toBe(true);
@@ -55,4 +55,19 @@ describe("built-in library assets (builtin-library-assets)", () => {
     expect(builtinsMatching("map", "FROST").map((a) => a.name)).toEqual(["Hollowfrost Keep"]);
     expect(builtinsMatching("token", "").every((a) => a.kind === "token")).toBe(true);
   });
+});
+
+it("includes searchable hand-drawn portraits with their actual bundled image dimensions", async () => {
+  const { default: sharp } = await import("sharp");
+  const portraits = BUILTIN_ASSETS.filter((asset) => asset.url.startsWith("/img/tokens/enemies/"));
+  expect(portraits).toHaveLength(4);
+  expect(builtinsMatching("token", "goblin").map((asset) => asset.name)).toEqual(["Goblin Spearman", "Goblin Guard"]);
+  expect(builtinsMatching("token", "human").map((asset) => asset.name)).toEqual(["Human Swordsman", "Human Mage"]);
+  for (const asset of portraits) {
+    const metadata = await sharp(fileURLToPath(new URL(`../public${asset.url}`, import.meta.url))).metadata();
+    expect(metadata.width).toBe(asset.width);
+    expect(metadata.height).toBe(asset.height);
+    expect(metadata.hasAlpha).toBe(true);
+    expect(libraryAssetId(asset)).toBeNull();
+  }
 });

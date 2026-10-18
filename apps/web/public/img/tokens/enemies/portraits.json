@@ -1,0 +1,46 @@
+[
+  {
+    "slug": "goblin-spearman",
+    "name": "Goblin Spearman",
+    "file": "goblin-spearman.svg",
+    "width": 400,
+    "height": 400,
+    "artist": "bera(Bora Orcal);Kathrin Polikeit(Kitty)",
+    "license": "GPL-2.0-or-later",
+    "source": "https://github.com/wesnoth/wesnoth/blob/e08adeecd17fe020381256613829a621382e24ab/data/core/images/portraits/goblins/spearman.webp",
+    "original": "source/goblins-spearman.webp"
+  },
+  {
+    "slug": "goblin-guard",
+    "name": "Goblin Guard",
+    "file": "goblin-guard.svg",
+    "width": 400,
+    "height": 400,
+    "artist": "bera(Bora Orcal)",
+    "license": "GPL-2.0-or-later",
+    "source": "https://github.com/wesnoth/wesnoth/blob/e08adeecd17fe020381256613829a621382e24ab/data/core/images/portraits/goblins/impaler.webp",
+    "original": "source/goblins-impaler.webp"
+  },
+  {
+    "slug": "human-swordsman",
+    "name": "Human Swordsman",
+    "file": "human-swordsman.svg",
+    "width": 400,
+    "height": 400,
+    "artist": "Emilien Rotival(LordBob)",
+    "license": "GPL-2.0-or-later",
+    "source": "https://github.com/wesnoth/wesnoth/blob/e08adeecd17fe020381256613829a621382e24ab/data/core/images/portraits/humans/swordsman.webp",
+    "original": "source/humans-swordsman.webp"
+  },
+  {
+    "slug": "human-mage",
+    "name": "Human Mage",
+    "file": "human-mage.svg",
+    "width": 400,
+    "height": 400,
+    "artist": "Kathrin Polikeit(Kitty)",
+    "license": "GPL-2.0-or-later",
+    "source": "https://github.com/wesnoth/wesnoth/blob/e08adeecd17fe020381256613829a621382e24ab/data/core/images/portraits/humans/mage+female.webp",
+    "original": "source/humans-mage-female.webp"
+  }
+]

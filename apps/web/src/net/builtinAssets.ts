@@ -1,3 +1,4 @@
+import portraits from "../../public/img/tokens/enemies/portraits.json";
 import { SHIPPED_MAPS, type LibraryAsset } from "@vtt/shared";
 
 /**
@@ -24,11 +25,9 @@ export const BUILTIN_ASSETS: readonly LibraryAsset[] = [
   ...SHIPPED_MAPS.map(
     ({ slug, name, url, width, height, grid }): LibraryAsset => ({ id: `builtin:${slug}`, kind: "map", name, url, width, height, grid, createdAt: SHIPPED }),
   ),
-  token("brenna", "Brenna", "/img/tokens/hero-brenna.webp"),
-  token("toma", "Toma", "/img/tokens/hero-toma.webp"),
-  token("ash", "Ash", "/img/tokens/hero-ash.webp"),
-  token("nalani", "Nalani", "/img/tokens/jungle-brenna.webp"),
-  token("kaveh", "Kaveh", "/img/tokens/jungle-toma.webp"),
+  ...portraits.map(({ slug, name, file, width, height }): LibraryAsset => ({
+    ...token(slug, name, `/img/tokens/enemies/${file}`), width, height,
+  })),
 ];
 
 export function isBuiltin(asset: LibraryAsset): boolean {

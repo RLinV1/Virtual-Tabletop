@@ -19,3 +19,11 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+Third-party artwork
+-------------------
+
+The hand-drawn portraits in `apps/web/public/img/tokens/enemies/`
+are separate works licensed under GPL-2.0-or-later, not this MIT license.
+See `apps/web/public/img/tokens/enemies/CREDITS.md` for copyright holders,
+original sources and the accompanying GPL license text.

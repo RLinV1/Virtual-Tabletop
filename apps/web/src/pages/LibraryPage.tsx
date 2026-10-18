@@ -300,6 +300,7 @@ function Library() {
         <section className="builtin-assets" aria-labelledby="builtin-heading">
           <h2 id="builtin-heading">Included with the app</h2>
           <p className="muted">Every GM has these. Place them from “From library” in any room.</p>
+          {kind === "token" && <p className="muted small-print">Hand-drawn portraits by The Battle for Wesnoth artists. <a href="/img/tokens/enemies/CREDITS.md" target="_blank" rel="noreferrer">Art credits and license</a></p>}
           <ul className="plain asset-grid">
             {builtins.map((asset) => (
               <BuiltinCard key={asset.id} asset={asset} />
