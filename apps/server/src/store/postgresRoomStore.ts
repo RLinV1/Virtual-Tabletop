@@ -593,6 +593,7 @@ export class PostgresRoomStore implements RoomStore {
   async updateEncounter(id: string, ownerGmId: string, change: EncounterUpdate) {
     if (!UUID.test(id)) return null;
     return this.prisma.$transaction(async (tx) => {
+      if (!(await tx.encounterTemplate.findFirst({ where: { id, ownerGmId }, select: { id: true } }))) return null;
       await assertEncounterName(tx, ownerGmId, change.name, id);
       const { count } = await tx.encounterTemplate.updateMany({
         where: { id, ownerGmId },
@@ -606,6 +607,7 @@ export class PostgresRoomStore implements RoomStore {
   async renameEncounter(id: string, ownerGmId: string, name: string, at: string) {
     if (!UUID.test(id)) return null;
     return this.prisma.$transaction(async (tx) => {
+      if (!(await tx.encounterTemplate.findFirst({ where: { id, ownerGmId }, select: { id: true } }))) return null;
       await assertEncounterName(tx, ownerGmId, name, id);
       const { count } = await tx.encounterTemplate.updateMany({ where: { id, ownerGmId }, data: { name, updatedAt: new Date(at) } });
       const row = count === 1 ? await tx.encounterTemplate.findFirst({ where: { id, ownerGmId }, include: WITH_MAP }) : null;
