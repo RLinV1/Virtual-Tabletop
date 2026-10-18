@@ -14,11 +14,11 @@ export interface RoomFeatures {
   notices: boolean;
   /** The panel's tabs, in order. */
   tabs: readonly TabId[];
-  /** The tool rail offers only Select: no Measure, Draw, AoE, Eraser or Clear. */
+  /** Selection only, with the redundant tool rail hidden. */
   selectOnly: boolean;
   /** Manage: departed players, checkpoints and the Encounter templates section. */
   tableAdmin: boolean;
-  /** Edit map: choosing or uploading another map, and the Walls step. */
+  /** Edit map: choosing or uploading another map. */
   mapAndWalls: boolean;
 }
 
@@ -32,7 +32,7 @@ export const FULL_ROOM: RoomFeatures = {
   mapAndWalls: true,
 };
 
-/** A template being edited: the board with Select, Tokens, and Manage's grid and fog. */
+/** A template being edited: Tokens and Manage's grid, walls and fog. */
 export const ENCOUNTER_EDITING: RoomFeatures = {
   tableChrome: false,
   chat: false,

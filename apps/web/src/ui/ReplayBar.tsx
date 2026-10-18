@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CaretLeft, CaretRight, Pause, Play, Rewind } from "@phosphor-icons/react";
-import { replayStates, type ReplayPoint, type ReplayResponse, type RoomState } from "@vtt/shared";
+import { replayStates, type ReplayFrame, type ReplayPoint, type ReplayResponse, type RoomState } from "@vtt/shared";
 import { api } from "../net/api";
 import { playFrom, playTick, REPLAY_STEP_MS, stepLabel, stepTo } from "./replaySteps";
 
@@ -18,7 +18,7 @@ export function ReplayBar({ roomId, token, onShow, onExit }: {
   roomId: string;
   token: string;
   /** The replayed state to show, or null while nothing is loaded yet. */
-  onShow: (state: RoomState | null) => void;
+  onShow: (state: RoomState | null, frame?: ReplayFrame | null) => void;
   onExit: () => void;
 }) {
   const [points, setPoints] = useState<ReplayPoint[] | null>(null);
@@ -62,7 +62,13 @@ export function ReplayBar({ roomId, token, onShow, onExit }: {
   const states = useMemo(() => (replay ? replayStates(replay) : null), [replay]);
   const count = replay?.frames.length ?? 0;
   const shown = states?.[index] ?? null;
-  useEffect(() => onShow(shown), [shown, onShow]);
+  const previousStep = useRef({ replay, index });
+  useEffect(() => {
+    const previous = previousStep.current;
+    const frame = previous.replay === replay && index === previous.index + 1 ? replay?.frames[index - 1] : null;
+    previousStep.current = { replay, index };
+    onShow(shown, frame);
+  }, [shown, onShow, replay, index]);
 
   useEffect(() => {
     if (!playing) return;

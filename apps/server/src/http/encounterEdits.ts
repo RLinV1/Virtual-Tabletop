@@ -63,10 +63,11 @@ export function registerEncounterEditRoutes(
         if (!map || map.kind !== "map" || !map.grid) {
           return void res.status(400).json({ error: "Choose one of your library maps with a saved grid." });
         }
+        const board = await store.findAssetBoard(map.id, gmId);
         created = await rooms.createRoomWithSeat({
           ...seat,
           roomName: NEW_ENCOUNTER_ROOM_NAME,
-          scene: { map: { url: map.url, width: map.width, height: map.height, assetId: map.id }, grid: map.grid },
+          scene: { map: { url: map.url, width: map.width, height: map.height, assetId: map.id }, grid: map.grid, board },
         });
       }
       const response: StartEncounterEditResponse = { roomId: created.roomId, participantId: created.participantId };

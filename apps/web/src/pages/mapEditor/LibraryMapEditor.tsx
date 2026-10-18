@@ -1,3 +1,4 @@
+import { GridActionsContext } from "../GridActionsContext";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DEFAULT_GRID, emptyRoomState, type LibraryAsset, type LibraryMapBoard } from "@vtt/shared";
 import { api } from "../../net/api";
@@ -33,6 +34,7 @@ export function LibraryMapEditor({ asset, gridStep, blockClose = false, onClose 
   blockClose?: boolean;
   onClose: () => void;
 }) {
+  const [gridActionSlot, setGridActionSlot] = useState<HTMLElement | null>(null);
   const [step, setStep] = useState<Step>("grid");
   const [stored, setStored] = useState<LibraryMapBoard | null>(null);
   const [draft, setDraft] = useState<MapDraft | null>(null);
@@ -113,6 +115,7 @@ export function LibraryMapEditor({ asset, gridStep, blockClose = false, onClose 
               {label}
             </button>
           ))}
+          <span ref={setGridActionSlot} hidden={step !== "grid"} style={{ marginLeft: "auto" }} />
           {dirty && (
             <span className="map-editor-unsaved">
               <span className="map-editor-draft">Unsaved changes: not saved to this map yet</span>
@@ -126,11 +129,13 @@ export function LibraryMapEditor({ asset, gridStep, blockClose = false, onClose 
     >
       <div className="map-editor-shell">
         <div className="map-editor-body" role="tabpanel">
+          <GridActionsContext.Provider value={gridActionSlot}>
           {step === "grid" && gridStep(closeGuarded)}
           {step !== "grid" && loadError && <p role="alert" className="error">{loadError}</p>}
           {step !== "grid" && !loadError && !state && <p className="muted">Loading…</p>}
           {step === "walls" && state && <WallSetup connection={connection} state={state} token="" detection={false} />}
           {step === "fog" && state && <FogSetup connection={connection} state={state} />}
+        </GridActionsContext.Provider>
         </div>
       </div>
     </Modal>

@@ -93,6 +93,27 @@ describe("edit encounter templates in temporary rooms (encounter-templates, FR-G
     expect(await list(cookie)).toHaveLength(1);
   });
 
+  it("inherits saved map walls, portals and fog and preserves them through template saves", async () => {
+    server = await startServer();
+    const { cookie } = await server.signUp();
+    const map = await upload(cookie, "Prepared crypt");
+    const board = {
+      walls: [{ a: { x: 0, y: 0 }, b: { x: 70, y: 0 }, portal: { kind: "door", state: "closed" } }],
+      fog: [{ shape: "rect", points: [{ x: 0, y: 0 }, { x: 70, y: 0 }, { x: 70, y: 70 }, { x: 0, y: 70 }] }],
+    };
+    const prepared = await gmFetch(cookie, `/api/library/${map.id}/board`, { method: "PUT", body: board });
+    expect(prepared.status).toBe(200);
+    const first = await editing(cookie, { mapAssetId: map.id });
+    expect(Object.values(first.gm.state.walls)).toEqual([expect.objectContaining(board.walls[0]!)]);
+    expect(Object.values(first.gm.state.fog)).toEqual([expect.objectContaining(board.fog[0]!)]);
+    const saved = await save(cookie, first.roomId, { name: "Prepared encounter" });
+    expect(saved.status).toBe(201);
+    const created = await saved.json() as EncounterSummary;
+    const reopened = await editing(cookie, { templateId: created.id });
+    expect(Object.values(reopened.gm.state.walls)).toEqual([expect.objectContaining(board.walls[0]!)]);
+    expect(Object.values(reopened.gm.state.fog)).toEqual([expect.objectContaining(board.fog[0]!)]);
+  });
+
   it("creates one template when first saves overlap, as after a double click or a retry", async () => {
     // A read whose answer arrives later, as over a database connection, so every save reads the
     // room as unlinked before any of them creates a template.
@@ -117,7 +138,7 @@ describe("edit encounter templates in temporary rooms (encounter-templates, FR-G
     expect(await session(cookie, roomId)).toMatchObject({ templateId: saved[0]!.id, templateName: "Crypt guards" });
   });
 
-  it("opens a template, saves changes in place, and never saves walls", async () => {
+  it("opens a template and saves its walls in place", async () => {
     server = await startServer();
     const { cookie } = await server.signUp();
     const map = await upload(cookie, "Cave");
@@ -136,7 +157,9 @@ describe("edit encounter templates in temporary rooms (encounter-templates, FR-G
     const owner = (await server.store.findRoomOwner(roomId))!;
     const stored = (await server.store.findEncounter(created.id, owner))!;
     expect(stored.data.tokens[0]!.position).toEqual({ x: 105, y: 105 });
-    expect(JSON.stringify(stored.data)).not.toMatch(/walls/);
+    expect(stored.data.walls).toEqual([{ a: { x: 0, y: 0 }, b: { x: 100, y: 0 } }]);
+    const reopened = await editing(cookie, { templateId: created.id });
+    expect(Object.values(reopened.gm.state.walls)).toEqual([expect.objectContaining(stored.data.walls![0]!)]);
   });
 
   it("refuses to save over a template once the room's map is different", async () => {

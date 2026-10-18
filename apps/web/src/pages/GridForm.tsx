@@ -1,3 +1,6 @@
+import { createPortal } from "react-dom";
+import { useContext } from "react";
+import { GridActionsContext } from "./GridActionsContext";
 import { CaretDown } from "@phosphor-icons/react";
 import { type CSSProperties, type FormEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 import { GRID_LINE_WIDTHS, gridLineStyle, type GridDetectionStatus, type GridSpec, type MapImage } from "@vtt/shared";
@@ -57,6 +60,8 @@ export function GridForm({
   /** Extra actions below the form, e.g. the room's "Save grid to library". */
   children?: ReactNode;
 }) {
+  const actionSlot = useContext(GridActionsContext);
+  const formId = useId();
   const validDraft = useMemo(() => parseGridDraft(draft, map), [draft, map]);
   const [lastValid, setLastValid] = useState(grid);
   const [advanced, setAdvanced] = useState(false);
@@ -105,6 +110,7 @@ export function GridForm({
 
   return (
     <form
+      id={formId}
       className="grid-editor"
       onSubmit={(e: FormEvent) => {
         e.preventDefault();
@@ -187,10 +193,16 @@ export function GridForm({
           </p>
         )}
         {error && <p className="error grid-message" role="alert">{error}</p>}
-        <div className="grid-actions">
-          <button type="button" className="secondary" disabled={applying} onClick={onCancel}>{cancelLabel}</button>
-          <button type="submit" disabled={!canSave || applying}>{applying ? busyLabel : submitLabel}</button>
-        </div>
+        {actionSlot ? createPortal(<span className="map-editor-unsaved">
+          {(hasDraft && !gridsEqual(validDraft ?? grid, grid) || allowUnchanged) && <span className="map-editor-draft">Unsaved grid changes</span>}
+          <button type="button" className="secondary small" disabled={applying} onClick={onCancel}>{cancelLabel}</button>
+          <button type="submit" form={formId} className="small" disabled={!canSave || applying}>{applying ? busyLabel : submitLabel}</button>
+        </span>, actionSlot) : (
+          <div className="grid-actions">
+            <button type="button" className="secondary" disabled={applying} onClick={onCancel}>{cancelLabel}</button>
+            <button type="submit" disabled={!canSave || applying}>{applying ? busyLabel : submitLabel}</button>
+          </div>
+        )}
         {children}
       </div>
     </form>

@@ -301,7 +301,7 @@ describe("replace a template from a room (FR-GM-13, ADR 0033)", () => {
   const replace = (cookie: string, id: string, roomId: string) =>
     gmFetch(cookie, `/api/library/encounters/${id}/from-room`, { method: "PUT", body: { roomId } });
 
-  it("rebuilds the template from the room, keeping its id and name, and saves no walls", async () => {
+  it("rebuilds the template from the room, keeping its id and name, and preserves walls", async () => {
     const { cookie, creds, gm } = await prepared();
     const saved = (await (await save(cookie, creds.roomId)).json()) as EncounterSummary;
     await ok(gm.command({ type: "token.create", name: "Ogre", position: { x: 245, y: 105 } }));
@@ -312,7 +312,8 @@ describe("replace a template from a room (FR-GM-13, ADR 0033)", () => {
     expect(await list(cookie)).toHaveLength(1);
     const read = (await server.store.findEncounter(saved.id, await ownerOf(cookie)))!;
     expect(read.data.tokens.map((t) => t.name).sort()).toEqual(["Goblin", "Ogre", "Orc", "Rogue"]);
-    expect(JSON.stringify(read.data)).not.toMatch(/walls|ownerIds/);
+    expect(JSON.stringify(read.data)).not.toMatch(/ownerIds/);
+    expect(read.data.walls).toHaveLength(1);
   });
 
   it("refuses a room on a different map with 409 and changes nothing", async () => {

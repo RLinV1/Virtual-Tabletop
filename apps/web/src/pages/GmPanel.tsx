@@ -1,3 +1,4 @@
+import { GridActionsContext } from "./GridActionsContext";
 import { Fragment, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { inactiveLabel, pendingDepartures, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
 import { api } from "../net/api";
@@ -191,10 +192,11 @@ const STEPS: { key: EditorStep; label: string }[] = [
   { key: "walls", label: "3 · Walls" },
   { key: "fog", label: "4 · Fog" },
 ];
-/** A template's map is fixed and holds no walls (ADR 0033). */
+/** A template's map stays fixed while its grid, walls and fog remain editable. */
 const FIXED_MAP_STEPS: { key: EditorStep; label: string }[] = [
   { key: "grid", label: "1 · Grid" },
-  { key: "fog", label: "2 · Fog" },
+  { key: "walls", label: "2 · Walls" },
+  { key: "fog", label: "3 · Fog" },
 ];
 
 /**
@@ -501,6 +503,7 @@ function MapSection(props: {
     }
   };
 
+  const [gridActionSlot, setGridActionSlot] = useState<HTMLElement | null>(null);
   const shown = prep?.map ?? props.map;
   const steps = props.fixedMap ? FIXED_MAP_STEPS : STEPS;
   return (
@@ -568,6 +571,7 @@ function MapSection(props: {
                 {label}
               </button>
             ))}
+            <span ref={setGridActionSlot} hidden={step !== "grid"} style={{ marginLeft: "auto" }} />
             {prep && <span className="map-editor-draft">Draft map: only you see it until Apply map</span>}
             {!prep && unsaved && (
               <span className="map-editor-unsaved">
@@ -584,6 +588,7 @@ function MapSection(props: {
       >
         <div className="map-editor-shell">
           <div className="map-editor-body" role="tabpanel">
+            <GridActionsContext.Provider value={gridActionSlot}>
             {step === "map" && (
               <div className="map-editor-split">
                 <div className="map-editor-stage">
@@ -656,6 +661,7 @@ function MapSection(props: {
             {step === "fog" && (prep
               ? <p className="map-editor-empty">Apply the draft map in the Grid step first, then set up its fog here.</p>
               : <Fragment key={`${editorGeneration}:${liveMapUrl}`}>{props.fog(draftEdits, draftState)}</Fragment>)}
+            </GridActionsContext.Provider>
           </div>
         </div>
       </Modal>

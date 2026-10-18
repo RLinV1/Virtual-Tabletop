@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { House } from "@phosphor-icons/react";
-import { can, filterStateForViewer, isActive, presetOf, type DiceVisibility, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
+import { can, filterStateForViewer, isActive, presetOf, type ReplayFrame, type DiceVisibility, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
 import { Board, type BoardHandle, type DiceBoard } from "../board/Board";
 import { NukeHealthContext, useNukeHealth } from "../board/nukeHealth";
 import { PendingDrops, type DiceDrop } from "../board/diceDrops";
@@ -200,8 +200,14 @@ function Room({ roomId, connection, token, features }: {
   // Replaying the room's history (FR-PL-07): the server-filtered past, shown read-only. Never at
   // the same time as a preview; each hides the other's way in.
   const [replaying, setReplaying] = useState(false);
+  const [replayFrame, setReplayFrame] = useState<ReplayFrame | null>(null);
   const [replayState, setReplayState] = useState<RoomState | null>(null);
+  const showReplay = useCallback((shown: RoomState | null, frame?: ReplayFrame | null) => {
+    setReplayState(shown);
+    setReplayFrame(frame ?? null);
+  }, []);
   const exitReplay = useCallback(() => {
+    setReplayFrame(null);
     setReplaying(false);
     setReplayState(null);
   }, []);
@@ -589,6 +595,7 @@ function Room({ roomId, connection, token, features }: {
         onEditToken={editToken}
         landedRollId={landedId}
         selectOnly={features.selectOnly}
+        replayFrame={replaying ? replayFrame : null}
         notices={features.notices && (
           // Always mounted, so screen readers register the live region before a notice lands in it.
           <div className="board-notices" role="status" aria-live="polite">
@@ -685,7 +692,7 @@ function Room({ roomId, connection, token, features }: {
       {/* Read-only while previewing: the same refusing connection and the viewed player's state. */}
       {features.chat && <ChatPanel connection={shownConnection} state={shownState!} you={shownYou!} readOnly={readOnly} />}
       {preview && <PreviewBanner name={preview.you.displayName} onExit={() => setViewAs(null)} />}
-      {replaying && <ReplayBar roomId={roomId} token={token} onShow={setReplayState} onExit={exitReplay} />}
+      {replaying && <ReplayBar roomId={roomId} token={token} onShow={showReplay} onExit={exitReplay} />}
       {guideOpen && <GuideTour role={you.role} onClose={closeGuide} />}
       {you.role === "gm" && (
         <ResolveDepartureModal

@@ -58,3 +58,11 @@ Every route answers 404 for a room that is not one of the caller's temporary roo
 - **A room-free editor that sends the board.** Needs a large body limit and client-supplied boards checked for ownership; duplicates the board's token and fog tools.
 - **A `temporary` flag in `RoomCreated`.** Changes a shared event for something only the server and the GM's own browser need.
 - **Keep the temporary room after leaving.** Leaves rooms nobody can see in the GM's storage.
+
+## Amendment: prepared maps and template walls
+
+Encounter editing now inherits a library map's saved walls, portals and fog. Template saves
+retain walls and portals and each application gives them fresh ids. Version-one templates
+without a walls field remain readable as having no walls. The fixed-map editor offers Grid,
+Walls and Fog; the redundant Select-only tool rail is hidden while board filters remain.
+Grid save controls appear in the map editor header with the unsaved-change status.

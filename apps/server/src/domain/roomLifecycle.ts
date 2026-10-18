@@ -11,6 +11,7 @@ import {
   type GamePresetId,
   type GridSpec,
   type MapImage,
+  type LibraryMapBoard,
   type ResolvedEncounter,
   type TableState,
 } from "@vtt/shared";
@@ -35,8 +36,8 @@ export interface NewRoomWithSeat {
   editsEncounterId?: string | null;
   /** Start from this template's board (ADR 0024). */
   encounter?: ResolvedEncounter | null;
-  /** Start with this map and grid and nothing else (a new template, ADR 0033). */
-  scene?: { map: MapImage; grid: GridSpec };
+  /** Start with a library map, its grid and any prepared walls and fog. */
+  scene?: { map: MapImage; grid: GridSpec; board?: LibraryMapBoard | null };
 }
 
 /**
@@ -90,6 +91,9 @@ export function roomLifecycle(deps: {
     } else if (room.scene) {
       const sceneGrid = { ...room.scene.grid, ...preset.grid };
       events.push({ type: "MapSet", map: room.scene.map, previous: null, gridChange: { grid: sceneGrid, previous: grid } });
+      const board = room.scene.board;
+      if (board?.walls.length) events.push({ type: "WallsAdded", walls: board.walls.map((wall) => ({ ...wall, id: randomUUID() })) });
+      for (const region of board?.fog ?? []) events.push({ type: "FogAdded", region: { ...region, id: randomUUID() } });
     }
     await live!.appendSystem(participantId, events);
     return { roomId, inviteCode, participantId };

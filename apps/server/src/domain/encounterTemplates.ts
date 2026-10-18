@@ -36,6 +36,7 @@ export async function resolveEncounter(
       scene: { map: templateMapImage({ ...data.data.map, assetId: record.mapAssetId }, record.mapUrl), grid: data.data.grid },
       tokens: data.data.tokens,
       fog: data.data.fog,
+      walls: data.data.walls,
     },
   };
 }
@@ -45,7 +46,7 @@ export type BoardFromRoomResult = { ok: true; data: EncounterTemplateData } | { 
 
 /**
  * A template's board from the live state of a room the caller owns (ADR 0024): the GM's view, so
- * hidden tokens are kept; no owners, initiative, ids, walls or portals. The map must be one of the
+ * hidden tokens, walls and portals are kept; no owners, initiative or ids. The map must be one of the
  * caller's library maps. A room that is missing or someone else's is the same 404.
  */
 export async function boardFromRoom(
@@ -73,6 +74,7 @@ export async function boardFromRoom(
     grid: board.scene.grid,
     tokens: Object.values(board.tokens).map(({ id: _id, ownerIds: _owners, initiative: _initiative, ...token }) => token),
     fog: Object.values(board.fog).map(({ id: _id, ...region }) => region),
+    walls: Object.values(board.walls ?? {}).map(({ id: _id, ...wall }) => wall),
   });
   if (!data.success) return { ok: false, status: 400, error: "This board is too large to save as a template" };
   return { ok: true, data: data.data };

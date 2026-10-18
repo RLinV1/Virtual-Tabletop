@@ -1674,7 +1674,7 @@ export class BoardView {
     const { width, height } = this.boardSize();
     const key = JSON.stringify([
       g.cellSize, g.offsetX, g.offsetY, g.lineColor, g.lineWidth, g.lineOpacity,
-      width, height, this.mapMissing, !!this.gridPreview,
+      width, height, this.state!.scene.map?.url ?? null, this.mapMissing, !!this.gridPreview,
     ]);
     if (key === this.gridKey) return;
     this.gridKey = key;

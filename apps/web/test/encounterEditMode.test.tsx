@@ -51,7 +51,7 @@ describe("template-editing mode shows only map, fog and token tools (encounter-t
     expect(screen.getByRole("button", { name: "Measure" })).toBeTruthy();
   });
 
-  it("offers Edit Grid and Manage Fog, an editor with only those steps, and no checkpoints, templates or walls", () => {
+  it("offers grid, walls and fog without map replacement or table administration", () => {
     const fake = fakeConnection();
     render(
       <GmPanel
@@ -64,14 +64,13 @@ describe("template-editing mode shows only map, fog and token tools (encounter-t
     );
     expect(screen.queryByText("Checkpoints")).toBeNull();
     expect(screen.queryByText("Encounter templates")).toBeNull();
-    expect(screen.queryByText(/wall/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Change Map" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Manage Walls" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Manage Walls" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Manage Fog" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Edit Grid" }));
     const editor = screen.getByRole("dialog", { name: "Edit map" });
-    expect(within(editor).getAllByRole("tab").map((t) => t.textContent)).toEqual(["1 · Grid", "2 · Fog"]);
-    fireEvent.click(within(editor).getByRole("tab", { name: "2 · Fog" }));
+    expect(within(editor).getAllByRole("tab").map((t) => t.textContent)).toEqual(["1 · Grid", "2 · Walls", "3 · Fog"]);
+    fireEvent.click(within(editor).getByRole("tab", { name: "3 · Fog" }));
     expect(within(editor).getByRole("button", { name: "Fog whole map" })).toBeTruthy();
   });
 });
