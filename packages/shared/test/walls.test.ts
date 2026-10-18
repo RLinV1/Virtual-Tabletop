@@ -6,7 +6,9 @@ import {
   describeUndo,
   filterEventForViewer,
   filterStateForViewer,
+  DOUBTFUL_WALL_CONFIDENCE,
   footprintCrossesWall,
+  isDoubtfulWall,
   MAX_WALLS,
   pathCrossesWall,
   reduce,
@@ -102,6 +104,19 @@ describe("wall geometry (FR-GM-11, ADR 0029)", () => {
     expect(wallsFitMap([EDGE_WALL], MAP)).toBe(true);
     expect(wallsFitMap([{ a: { x: 0, y: 0 }, b: { x: 701, y: 0 } }], MAP)).toBe(false);
   });
+
+  it("carries an optional per-wall confidence between 0 and 1 (wall-review, ADR 0038)", () => {
+    const preview = { contentType: "image/jpeg", width: 10, height: 10, data: "AAAA" };
+    const parse = (confidence?: number) => WallDetectionResult.safeParse({ walls: [{ ...EDGE_WALL, ...(confidence !== undefined && { confidence }) }], preview }).success;
+    expect([parse(), parse(0), parse(0.42), parse(1)]).toEqual([true, true, true, true]);
+    expect([parse(-0.1), parse(1.1), parse(Number.NaN)]).toEqual([false, false, false]);
+  });
+
+  it("flags only walls scored below the threshold as doubtful", () => {
+    expect(isDoubtfulWall({})).toBe(false);
+    expect(isDoubtfulWall({ confidence: DOUBTFUL_WALL_CONFIDENCE })).toBe(false);
+    expect(isDoubtfulWall({ confidence: DOUBTFUL_WALL_CONFIDENCE - 0.01 })).toBe(true);
+  });
 });
 
 describe("applying and clearing walls (FR-GM-11)", () => {
@@ -180,6 +195,11 @@ describe("applying and clearing walls (FR-GM-11)", () => {
     expect(describeUndo(entry, applied.state.tokens).noun).toBe("applying 2 walls");
     const undone = must(act(applied.state, gm, { type: "history.undo", commandId: applied.commandId }));
     expect(undone.state.walls).toEqual(before);
+  });
+
+  it("never stores confidence in the room's walls (wall-review)", () => {
+    const { state } = roomWithWalls([{ ...EDGE_WALL, confidence: 0.3 }, CELL_WALL]);
+    for (const wall of Object.values(state.walls)) expect(wall).not.toHaveProperty("confidence");
   });
 
   it("leaves out the detected walls the GM erased on the preview (FR-GM-11)", () => {

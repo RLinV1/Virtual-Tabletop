@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Door, Eraser, Eyedropper, LineSegments } from "@phosphor-icons/react";
 import {
-  MIN_LENGTH_MAX, SAMPLE_TOLERANCE_DEFAULT, SAMPLE_TOLERANCE_MAX, SAMPLE_TOLERANCE_MIN,
+  isDoubtfulWall, MIN_LENGTH_MAX, SAMPLE_TOLERANCE_DEFAULT, SAMPLE_TOLERANCE_MAX, SAMPLE_TOLERANCE_MIN,
   STRICTNESS_DEFAULT, STRICTNESS_MAX, STRICTNESS_MIN,
   type CommandInput, type DetectedWall, type Point, type Portal, type PortalKind, type PortalState, type RoomState, type Wall, type WallStyle, type WallDetectionAvailability, type WallDetectionRequest, type WallDetectionStatus,
 } from "@vtt/shared";
 import { api } from "../../net/api";
 import { useRoomSnapshot, type EditorConnection } from "../../net/roomConnection";
-import { WallCanvas, type CanvasMode } from "./WallCanvas";
+import { DOUBTFUL_COLOR, WallCanvas, type CanvasMode } from "./WallCanvas";
 import { HudLayout } from "./HudLayout";
 
 const MODES: { key: CanvasMode; label: string; icon: typeof Eraser; needsDetection?: boolean }[] = [
@@ -58,8 +58,9 @@ export function WallSetup({ connection, state, token, detection: detectionEnable
   const [detection, setDetection] = useState<{ mapUrl: string; status: WallDetectionStatus | null }>({ mapUrl, status: null });
   const [preview, setPreview] = useState<{ mapUrl: string; url: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  // The detected segments waiting to be applied, and the ones the GM has erased from them (by index).
-  const [candidates, setCandidates] = useState<{ mapUrl: string; resultId: string; walls: DetectedWall[]; erased: ReadonlySet<string> } | null>(null);
+  // The detected segments waiting to be applied, the ones the GM has erased from them (by index), and
+  // the position in the doubtful walls while reviewing them (null: not reviewing).
+  const [candidates, setCandidates] = useState<{ mapUrl: string; resultId: string; walls: DetectedWall[]; erased: ReadonlySet<string>; review: number | null } | null>(null);
   const [tolerance, setTolerance] = useState(SAMPLE_TOLERANCE_DEFAULT);
   // null: automatic, the detector's own choice per map; a number is the GM's fixed setting.
   const [strictness, setStrictness] = useState<number | null>(null);
@@ -128,7 +129,7 @@ export function WallSetup({ connection, state, token, detection: detectionEnable
     }
     const abort = new AbortController();
     api.walls.detected(state.roomId, token, mapUrl, abort.signal)
-      .then((result) => { if (!abort.signal.aborted) setCandidates({ mapUrl, ...result, erased: new Set() }); })
+      .then((result) => { if (!abort.signal.aborted) setCandidates({ mapUrl, ...result, erased: new Set(), review: null }); })
       .catch(() => {});
     return () => abort.abort();
   }, [done, status, state.roomId, token, mapUrl]);
@@ -183,12 +184,36 @@ export function WallSetup({ connection, state, token, detection: detectionEnable
     return { ...current, erased };
   });
   const keeping = pendingWalls ? pendingWalls.walls.length - pendingWalls.erased.size : null;
+  // Walls the model was unsure about (wall-review): every one, and how many the GM has not yet erased.
+  const doubtfulKeys = new Set<string>();
+  pendingWalls?.walls.forEach((w, i) => { if (isDoubtfulWall(w)) doubtfulKeys.add(String(i)); });
+  const doubtfulKeyList = [...doubtfulKeys];
+  const doubtfulLeft = doubtfulKeyList.filter((key) => !pendingWalls?.erased.has(key)).length;
+  const confident = pendingWalls ? pendingWalls.walls.length - new Set([...pendingWalls.erased, ...doubtfulKeys]).size : 0;
+  const reviewing = pendingWalls?.review ?? null;
+  const reviewKey = reviewing === null ? null : doubtfulKeyList[reviewing] ?? null;
+  const setReview = (review: number | null) => setCandidates((current) => (current ? { ...current, review } : current));
+  /** Steps to the next doubtful wall, or ends the review after the last. */
+  const reviewStep = (by: number) => {
+    if (reviewing === null) return;
+    const next = reviewing + by;
+    setReview(next >= 0 && next < doubtfulKeyList.length ? next : by > 0 ? null : 0);
+  };
+  const eraseReviewed = () => {
+    if (reviewKey === null || !pendingWalls) return;
+    const wasErased = pendingWalls.erased.has(reviewKey);
+    toggleCandidate(reviewKey);
+    if (!wasErased) reviewStep(1);
+  };
 
-  const apply = async () => {
-    const exclude = pendingWalls && pendingWalls.erased.size > 0
-      ? { resultId: pendingWalls.resultId, indices: [...pendingWalls.erased].map(Number).sort((a, b) => a - b) }
+  /** Applies the detected walls; `confidentOnly` also leaves out the doubtful ones, as if the GM had erased them. */
+  const apply = async (confidentOnly = false) => {
+    const left = confidentOnly ? new Set([...(pendingWalls?.erased ?? []), ...doubtfulKeys]) : pendingWalls?.erased ?? new Set<string>();
+    const exclude = pendingWalls && left.size > 0
+      ? { resultId: pendingWalls.resultId, indices: [...left].map(Number).sort((a, b) => a - b) }
       : undefined;
-    const ok = await run({ type: "wall.applyDetected", mapUrl, ...(exclude && { exclude }) }, `Applied ${keeping ?? found} walls.`);
+    const count = pendingWalls ? pendingWalls.walls.length - left.size : found;
+    const ok = await run({ type: "wall.applyDetected", mapUrl, ...(exclude && { exclude }) }, `Applied ${count} walls.`);
     // The result is spent: drop its overlay so the new walls aren't drawn twice.
     if (ok) setDetection({ mapUrl, status: null });
   };
@@ -204,6 +229,8 @@ export function WallSetup({ connection, state, token, detection: detectionEnable
         walls={state.walls}
         candidates={candidateWalls}
         erased={pendingWalls?.erased ?? new Set()}
+        doubtful={doubtfulKeys}
+        focus={reviewKey}
         mode={mode}
         busy={busy}
         onAdd={(a, b) => void run({ type: "wall.add", walls: [{ a, b }] })}
@@ -271,6 +298,27 @@ export function WallSetup({ connection, state, token, detection: detectionEnable
               <figcaption>{found === 0 ? "No walls found." : `${found} ${found === 1 ? "wall" : "walls"} found.`}</figcaption>
             </figure>
           )}
+          {canDetect && pendingWalls && doubtfulKeys.size > 0 && (
+            <div className="stack walls-review">
+              <ul className="walls-legend" aria-label="Detected wall colours">
+                <li><span className="walls-legend-swatch" aria-hidden="true" />Detected</li>
+                <li><span className="walls-legend-swatch doubtful" style={{ borderColor: DOUBTFUL_COLOR }} aria-hidden="true" />Doubtful</li>
+              </ul>
+              <p className="walls-status" role="status">{doubtfulLeft} doubtful {doubtfulLeft === 1 ? "wall" : "walls"}</p>
+              {reviewing === null ? (
+                <button type="button" className="secondary" disabled={doubtfulLeft === 0} onClick={() => setReview(0)}>Review doubtful walls</button>
+              ) : (
+                <div className="stack" role="group" aria-label="Review doubtful walls">
+                  <p className="small-print">Wall {reviewing + 1} of {doubtfulKeyList.length}{reviewKey !== null && pendingWalls.erased.has(reviewKey) ? " (erased)" : ""}</p>
+                  <div className="row button-row">
+                    <button type="button" className="secondary" disabled={reviewing === 0} onClick={() => reviewStep(-1)}>Back</button>
+                    <button type="button" className="secondary" onClick={eraseReviewed}>{reviewKey !== null && pendingWalls.erased.has(reviewKey) ? "Bring back" : "Erase"}</button>
+                    <button type="button" className="secondary" onClick={() => reviewStep(1)}>{reviewing === doubtfulKeyList.length - 1 ? "Finish" : "Keep"}</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           {canDetect && (
             <div className="stack">
               <label className="stack">
@@ -309,13 +357,18 @@ export function WallSetup({ connection, state, token, detection: detectionEnable
               </label>
             </div>
           )}
-          <div className="row button-row">
+          <div className="row button-row walls-actions">
             <button type="button" className="secondary" disabled={!canDetect || busy || pending} onClick={() => void detect()}>
               {status ? "Detect again" : "Detect walls"}
             </button>
             {canDetect && found !== null && found > 0 && (
               <button type="button" disabled={busy || keeping === 0} onClick={() => void apply()}>
                 {wallCount > 0 ? `Replace with ${keeping ?? found} walls` : `Apply ${keeping ?? found} walls`}
+              </button>
+            )}
+            {canDetect && found !== null && found > 0 && doubtfulLeft > 0 && (
+              <button type="button" className="secondary" disabled={busy || confident === 0} onClick={() => void apply(true)}>
+                Apply confident walls only ({confident})
               </button>
             )}
           </div>

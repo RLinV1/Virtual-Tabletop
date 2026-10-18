@@ -2343,6 +2343,11 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
   width: 100%; aspect-ratio: 16 / 9; object-fit: contain; border-radius: var(--radius);
   border: 1px solid var(--border); background: var(--raised);
 }
+.walls-actions > button { flex: 1 1 8rem; }
+.walls-legend { display: flex; gap: var(--space-3); margin: 0; padding: 0; list-style: none; font-size: var(--fs-sm); }
+.walls-legend li { display: flex; align-items: center; gap: var(--space-1); }
+.walls-legend-swatch { width: 22px; border-top: 3px solid #3ec6e0; }
+.walls-legend-swatch.doubtful { border-top-style: dashed; }
 .walls-preview figcaption { font-size: var(--fs-sm); color: var(--muted); }
 
 /* A refused move, e.g. into or through a wall (ADR 0029): bottom centre, clear of notices and hints. */
