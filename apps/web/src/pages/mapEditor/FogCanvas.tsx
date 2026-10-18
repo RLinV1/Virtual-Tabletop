@@ -164,17 +164,17 @@ export function FogCanvas({ map, grid, fog, mode, onAdd, onRemove, onUpdate, onN
   const sent = useRef<Point[] | null>(null);
   const selected = selectedId ? fog[selectedId] ?? null : null;
 
+  // After a move or reshape the region comes back under a new id: follow it by its corners. A region
+  // that is simply gone (revealed, or replaced by another edit) is let go.
   useEffect(() => {
-    if (!sent.current) return;
     const key = (points: Point[]) => points.map((p) => `${p.x},${p.y}`).join(" ");
-    const moved = Object.values(fog).find((r) => key(r.points) === key(sent.current!));
-    if (moved) {
-      setSelectedId(moved.id);
+    if (sent.current) {
+      const wanted = key(sent.current);
+      const moved = Object.values(fog).find((r) => key(r.points) === wanted);
       sent.current = null;
+      if (moved) return setSelectedId(moved.id);
     }
-  }, [fog]);
-  useEffect(() => {
-    if (selectedId && !fog[selectedId] && !sent.current) setSelectedId(null);
+    if (selectedId && !fog[selectedId]) setSelectedId(null);
   }, [fog, selectedId]);
 
   /** The selected region's corners with the drag applied, kept on the map. */
