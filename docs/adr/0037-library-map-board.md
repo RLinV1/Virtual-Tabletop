@@ -13,7 +13,7 @@ A library map carries an optional `board`: `{ walls, fog }` (`LibraryMapBoard` i
 
 Placing a library map in a room copies the board in on the client, after `scene.setMap`, with the existing `wall.*` and `fog.replace` commands (`planDraftSave`), so every room-side check, authorization and undo entry is unchanged. A map with an empty board leaves the room's walls and fog as they are. ADR 0043 supersedes the sequential copy for new clients with atomic server-resolved replacement. Rooms already using the map keep theirs; later edits to the library board never reach back into them, as with the grid (ADR 0004).
 
-Automatic wall detection is room-scoped and is not offered in the library editor. In both editors its controls are shown only while the vision service reports available.
+Automatic wall detection is available in both room and library editors only while the worker reports available. Library requests use owner-checked `/api/library/:id/wall-detection` endpoints, with results scoped to the owner and asset. The library editor polls for completion, previews and filters suggestions, and applies them to its private draft; only Save changes persists the board. Detection uses the draft grid spacing. Availability is refreshed while the editor is open, so controls disappear when the service becomes unavailable. Entering the Walls editor discards previous suggestions without touching saved board walls. New detection runs are explicit; queued/running runs can be canceled and completed suggestions discarded through owner-checked DELETE endpoints. Applied suggestions are also dismissed so they do not return on reopen. Geometry is selected directly on the map rather than through a dropdown.
 
 ## Consequences
 

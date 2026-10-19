@@ -63,11 +63,12 @@ export function draftConnection(
 
 /**
  * A connection with no room behind it, for editing a library map's walls and fog (ADR 0037): wall
- * and fog commands change the draft, and anything else is refused. Wall-detection notices never come.
+ * and fog commands change the draft, and detection results can be applied to the draft. Wall-detection notices never come.
  */
 export function createDraftConnection(
   update: (change: (draft: MapDraft) => MapDraft) => void,
   mapSize: () => { width: number; height: number } | null,
+  detectedWalls?: () => Promise<DetectedWallsResponse>,
 ): EditorConnection {
   let next = 0;
   const newId = () => `${DRAFT_ID}${Date.now().toString(36)}-${++next}`;
@@ -78,6 +79,22 @@ export function createDraftConnection(
     store,
     onWallDetection: () => () => true,
     command: async (input) => {
+      if (input.type === "wall.applyDetected" && detectedWalls) {
+        try {
+          const result = await detectedWalls();
+          const { exclude } = input;
+          if (exclude && (exclude.resultId !== result.resultId || exclude.indices.some((i) => i < 0 || i >= result.walls.length))) {
+            return { ok: false, code: "invalid", message: "The detected walls changed. Check the preview again." };
+          }
+          const erased = new Set(exclude?.indices);
+          const kept = result.walls.filter((_, i) => !erased.has(i));
+          if (!kept.length) return { ok: false, code: "invalid", message: "No detected walls remain to apply." };
+          update((draft) => draft.mapUrl === input.mapUrl ? withDetectedWalls(draft, kept, newId) : draft);
+          return { ok: true, seq: null };
+        } catch (err) {
+          return { ok: false, code: "invalid", message: err instanceof Error ? err.message : "Couldn't load detected walls." };
+        }
+      }
       if (!DRAFT_COMMANDS.has(input.type)) return { ok: false, code: "invalid", message: "That is not available here." };
       const size = mapSize();
       const problem = size ? draftCommandProblem(input, size) : null;

@@ -34,6 +34,22 @@ function setup() {
 }
 
 describe("wall analysis publication ownership (FR-GM-11)", () => {
+  it("cancels one map and ignores its late running result without clearing another map", async () => {
+    const { detection, map, queue, jobs, emit, notify } = setup();
+    queue.remove.mockRejectedValue(new Error("Job is active"));
+    await detection.start("r1", map, 70);
+    const [jobId] = [...jobs.keys()];
+    await detection.start("r1", { ...map, url: "/uploads/other.png" }, 70);
+    expect(detection.dismiss("r1", map.url)).toBe(true);
+    expect(detection.status("r1", map.url)).toBeNull();
+    expect(detection.status("r1", "/uploads/other.png")).toEqual({ status: "queued" });
+    notify.mockClear();
+    emit({ jobId: jobId!, kind: "completed", returnvalue: {} });
+    expect(detection.status("r1", map.url)).toBeNull();
+    expect(notify).not.toHaveBeenCalled();
+    await detection.close();
+  });
+
   it("reserves one map before its read resolves and counts all admitted reads", async () => {
     const { assets, queue, detection, map } = setup();
     const read = deferred<Uint8Array<ArrayBuffer>>();

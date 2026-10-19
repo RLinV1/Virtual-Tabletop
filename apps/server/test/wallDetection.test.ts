@@ -104,6 +104,53 @@ const statusOf = async (token: string, roomId: string, url: string) => {
 
 const isNotice = (m: ServerMessage): m is Extract<ServerMessage, { type: "wallDetection" }> => m.type === "wallDetection";
 
+it("detects owned library maps without a room and isolates results from other owners", async () => {
+  const queue = new StandInQueue();
+  server = await startServer(undefined, { wallQueue: queue });
+  const owner = await server.signUp();
+  const other = await server.signUp();
+  const form = new FormData();
+  for (const [key, value] of Object.entries({ kind: "map", name: "Library map", width: "700", height: "700" })) form.append(key, value);
+  form.append("file", new Blob([PNG], { type: "image/png" }), "map.png");
+  const upload = await fetch(`${server.base}/api/library`, { method: "POST", headers: { cookie: owner.cookie }, body: form });
+  expect(upload.status).toBe(201);
+  const asset = await upload.json() as { id: string };
+  const url = `${server.base}/api/library/${asset.id}/wall-detection`;
+  const start = (cookie: string, cellSize = 70) => fetch(url, { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify({ cellSize }) });
+  expect((await start(other.cookie)).status).toBe(404);
+  expect((await start(owner.cookie, -1)).status).toBe(400);
+  expect((await start(owner.cookie)).status).toBe(202);
+  const [jobId, data] = queue.only();
+  expect(data.cellSize).toBe(70);
+  queue.emit({ jobId, kind: "completed", returnvalue: { walls: [WALL], preview: PREVIEW } });
+  const result = await fetch(url + "/walls", { headers: { cookie: owner.cookie } });
+  expect(result.status).toBe(200);
+  expect(await result.json()).toMatchObject({ walls: [WALL] });
+  for (const suffix of ["", "/walls", "/preview"]) expect((await fetch(url + suffix, { headers: { cookie: other.cookie } })).status).toBe(404);
+  const board = await fetch(`${server.base}/api/library/${asset.id}/board`, { headers: { cookie: owner.cookie } });
+  expect(await board.json()).toEqual({ walls: [], fog: [] });
+  expect((await fetch(url, { method: "DELETE", headers: { cookie: other.cookie } })).status).toBe(404);
+  expect((await fetch(url + "?resultId=stale", { method: "DELETE", headers: { cookie: owner.cookie } })).status).toBe(409);
+  expect((await fetch(url, { method: "DELETE", headers: { cookie: owner.cookie } })).status).toBe(204);
+  expect((await fetch(url, { headers: { cookie: owner.cookie } })).status).toBe(404);
+  expect((await start(owner.cookie)).status).toBe(202);
+  const newest = [...queue.jobs.keys()].at(-1)!;
+  expect((await fetch(url, { method: "DELETE", headers: { cookie: owner.cookie } })).status).toBe(204);
+  queue.emit({ jobId: newest, kind: "completed", returnvalue: { walls: [WALL], preview: PREVIEW } });
+  expect((await fetch(url, { headers: { cookie: owner.cookie } })).status).toBe(404);
+});
+
+it("lets only the GM cancel a room map analysis and does not revive late results", async () => {
+  const queue = new StandInQueue();
+  const { room, playerCreds, url } = await roomWithMap(queue);
+  const endpoint = `/api/rooms/${room.roomId}/wall-detection?map=${encodeURIComponent(url)}`;
+  const [jobId] = queue.only();
+  expect((await api(playerCreds.guestToken, endpoint, { method: "DELETE" })).status).toBe(403);
+  expect((await api(room.guestToken, endpoint, { method: "DELETE" })).status).toBe(204);
+  queue.emit({ jobId, kind: "completed", returnvalue: { walls: [WALL], preview: PREVIEW } });
+  expect((await api(room.guestToken, endpoint)).status).toBe(404);
+});
+
 describe("automatic wall detection through the queue (FR-GM-11, ADR 0029)", () => {
   it("rejects exclusions from a previous equal-count result across the wire", async () => {
     const queue = new StandInQueue();

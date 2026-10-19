@@ -279,6 +279,16 @@ export class WallDetections {
     return result ? { resultId: createHash("sha256").update(JSON.stringify(result.walls)).digest("hex"), walls: result.walls } : null;
   }
 
+  /** Discards one map's suggestions, or cancels its pending job. Late results are ignored. */
+  dismiss(roomId: string, mapUrl: string, resultId?: string): boolean {
+    const entry = this.entries.get(entryKey(roomId, mapUrl));
+    if (!entry) return true;
+    // An old editor must not discard a newer run's result after applying its own preview.
+    if (resultId && this.detectedWalls(roomId, mapUrl)?.resultId !== resultId) return false;
+    this.drop(entry);
+    return true;
+  }
+
   /** Drops a deleted room's results. */
   forgetRoom(roomId: string) {
     for (const entry of [...this.entries.values()]) {
@@ -408,7 +418,9 @@ export function bullmqWallQueue(redisUrl: string): WallJobQueue {
       await queue.add("analyze", data, { jobId, attempts: 1, removeOnComplete: true, removeOnFail: true });
     },
     remove: async (jobId) => {
-      await queue.remove(jobId);
+      // BullMQ returns 0 for a locked job rather than throwing. Keep that job's
+      // capacity slot and image until its completion event releases them.
+      if (await queue.remove(jobId) === 0) throw new Error("Wall analysis is still running");
     },
     // Raw bytes, not base64: a quarter smaller, and Redis expires the key if nobody deletes it.
     putImage: async (key, bytes, ttlSeconds) => {

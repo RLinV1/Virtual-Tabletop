@@ -60,7 +60,8 @@ function MapSession({ asset, importDiagnostics, onSaved, onClose }: Omit<Props, 
   const connection = useMemo(() => createDraftConnection(
     (change) => setDraft((current) => current ? change(current) : current),
     () => ({ width: asset.width, height: asset.height }),
-  ), [asset.width, asset.height]);
+    () => api.libraryWalls.detected(asset.id),
+  ), [asset.id, asset.width, asset.height]);
   const state = useMemo(() => draft ? {
     ...emptyRoomState("library"),
     scene: { map: { url: asset.url, width: asset.width, height: asset.height, assetId: asset.id }, grid: parsedGrid ?? savedAsset.grid ?? DEFAULT_GRID },
@@ -131,7 +132,7 @@ function MapSession({ asset, importDiagnostics, onSaved, onClose }: Omit<Props, 
         /></HudLayout>}
         {step !== "grid" && loadError && <p role="alert" className="error">{loadError}</p>}
         {step !== "grid" && !loadError && !state && <p className="muted">Loading…</p>}
-        {step === "walls" && state && <WallSetup connection={connection} state={state} token="" detection={false} />}
+        {step === "walls" && state && <WallSetup connection={connection} state={state} token="" libraryAssetId={asset.id} />}
         {step === "fog" && state && <FogSetup connection={connection} state={state} />}
       </div></div>
     </Modal>

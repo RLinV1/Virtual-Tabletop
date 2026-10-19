@@ -5,6 +5,7 @@ import express, { type Express, type Request, type Response } from "express";
 import { z } from "zod";
 import {
   canRenderGrid,
+  WallDetectionRequest,
   LibraryMapBoard,
   libraryBoardProblem,
   LibraryPatchRequest,
@@ -25,6 +26,8 @@ import type { DetectionRecord } from "../store/gridDetectionStore";
 import { requireAccountOwner, resolveOwner, type Owner } from "../ownership/resolveOwner";
 import { imageUploader } from "./imageUpload";
 
+import type { WallDetections } from "../domain/wallDetection";
+
 const AssetIdParam = z.uuid();
 
 /**
@@ -35,9 +38,9 @@ const AssetIdParam = z.uuid();
  */
 export function registerLibraryRoutes(
   app: Express,
-  deps: { store: RoomStore; uploadDir: string; assets: AssetStore; detection: GridDetectionDispatcher },
+  deps: { store: RoomStore; uploadDir: string; assets: AssetStore; detection: GridDetectionDispatcher; walls?: WallDetections },
 ) {
-  const { store, uploadDir, assets, detection } = deps;
+  const { store, uploadDir, assets, detection, walls } = deps;
   const receiveImage = imageUploader(uploadDir);
 
   /**
@@ -142,6 +145,60 @@ export function registerLibraryRoutes(
       if (problem) return void res.status(400).json({ error: problem });
       if (!(await store.setAssetBoard(id.data, gmId, board.data))) return void notFound(res);
       res.json(board.data);
+    });
+  });
+
+  // Library analyses are owner-scoped suggestions; only Save changes writes the board.
+  for (const suffix of ["", "/walls", "/preview"] as const) {
+    app.get(`/api/library/:id/wall-detection${suffix}`, (req, res) => {
+      res.setHeader("Cache-Control", "no-store");
+      void withGm(req, res, async (gmId) => {
+        const id = AssetIdParam.safeParse(req.params.id);
+        const asset = id.success ? await store.findAsset(id.data, gmId) : null;
+        if (!asset || asset.kind !== "map") return void notFound(res);
+        const scope = `library-${gmId}-${asset.id}`;
+        if (suffix === "/preview") {
+          const result = walls?.result(scope, asset.url);
+          if (!result) return void notFound(res);
+          res.type(result.preview.contentType).send(Buffer.from(result.preview.data, "base64"));
+        } else {
+          const result = suffix === "/walls" ? walls?.detectedWalls(scope, asset.url) : walls?.status(scope, asset.url);
+          if (!result) return void notFound(res);
+          res.json(result);
+        }
+      });
+    });
+  }
+  app.delete("/api/library/:id/wall-detection", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void withGm(req, res, async (gmId) => {
+      const id = AssetIdParam.safeParse(req.params.id);
+      const asset = id.success ? await store.findAsset(id.data, gmId) : null;
+      if (!asset || asset.kind !== "map") return void notFound(res);
+      const query = z.object({ resultId: z.string().max(128).optional() }).safeParse(req.query);
+      if (!query.success) return void res.status(400).json({ error: "Invalid detection result" });
+      if (walls && !walls.dismiss(`library-${gmId}-${asset.id}`, asset.url, query.data.resultId)) return void res.status(409).json({ error: "The detection changed. Check the latest result." });
+      res.sendStatus(204);
+    });
+  });
+
+  app.post("/api/library/:id/wall-detection", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void withGm(req, res, async (gmId) => {
+      const id = AssetIdParam.safeParse(req.params.id);
+      const asset = id.success ? await store.findAsset(id.data, gmId) : null;
+      if (!asset || asset.kind !== "map") return void notFound(res);
+      if (!walls || !(await walls.availability()).available) return void res.status(503).json({ error: "Wall detection is unavailable right now." });
+      const body = WallDetectionRequest.safeExtend({ cellSize: z.number().min(0).max(2000) }).safeParse(req.body);
+      if (!body.success) return void res.status(400).json({ error: "Invalid detection request" });
+      const { cellSize, ...request } = body.data;
+      if (request.sample && (request.sample.x < 0 || request.sample.y < 0 || request.sample.x > asset.width || request.sample.y > asset.height)) {
+        return void res.status(400).json({ error: "Click on the map to pick a wall." });
+      }
+      const scope = `library-${gmId}-${asset.id}`;
+      const started = await walls.start(scope, asset, cellSize, request);
+      if (started !== "queued") return void res.status(started === "busy" ? 409 : started === "unreadable" ? 422 : 503).json({ error: "Wall detection could not start. Try again shortly." });
+      res.status(202).json(walls.status(scope, asset.url));
     });
   });
 

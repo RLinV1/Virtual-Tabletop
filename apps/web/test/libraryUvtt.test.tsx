@@ -8,7 +8,7 @@ import * as imageFile from "../src/net/imageFile";
 import { LibraryPage } from "../src/pages/LibraryPage";
 import { GmPanel } from "../src/pages/GmPanel";
 import { toGridDraft } from "../src/pages/gridDraft";
-import { fakeConnection, room, stubMapEditorEnvironment, TOKEN } from "./mapEditorHarness";
+import { click, fakeConnection, room, stubMapEditorEnvironment, TOKEN } from "./mapEditorHarness";
 
 vi.mock("../src/panels/CheckpointsPanel", () => ({ CheckpointsPanel: () => null }));
 vi.mock("../src/panels/EncounterPanel", () => ({ EncounterPanel: () => null }));
@@ -26,6 +26,7 @@ beforeEach(() => {
   vi.spyOn(api.library, "board").mockResolvedValue(structuredClone(board));
   vi.spyOn(api.library, "setBoard").mockImplementation(async (_id, next) => next);
   vi.spyOn(api.detection, "library").mockResolvedValue({ status: "no_grid", attempt: 1 });
+  vi.spyOn(api.libraryWalls, "dismiss").mockResolvedValue();
   vi.spyOn(api.walls, "availability").mockResolvedValue({ available: false });
   vi.spyOn(api.uvtt, "discard").mockResolvedValue();
 });
@@ -55,7 +56,8 @@ describe("UVTT upload and review in the asset library (KAN-43/44, FR-GM-06/07/12
     expect(within(editor).getByDisplayValue("12.5")).toBeTruthy();
     fireEvent.change(within(editor).getByLabelText("Distance per square"), { target: { value: "10" } });
     fireEvent.click(within(editor).getByRole("tab", { name: /· Walls$/ }));
-    fireEvent.change(await within(editor).findByLabelText("Selected geometry"), { target: { value: "draft:w0" } });
+    fireEvent.click(await within(editor).findByRole("radio", { name: "Select" }));
+    click(within(editor).getByRole("application"), { x: 150, y: 100 });
     expect(within(editor).getByLabelText("Rotation (radians)")).toHaveProperty("value", "0.8");
     fireEvent.click(within(editor).getByLabelText("Closed (blocks movement)"));
     fireEvent.click(within(editor).getByRole("button", { name: "Save geometry" }));

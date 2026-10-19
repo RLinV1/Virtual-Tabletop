@@ -236,8 +236,30 @@ export const api = {
     return (await res.json()) as UploadResponse;
   },
 
+  libraryWalls: {
+    dismiss: (id: string, resultId?: string) => accountRequest<void>(`/api/library/${encodeURIComponent(id)}/wall-detection${resultId ? `?resultId=${encodeURIComponent(resultId)}` : ""}`, { method: "DELETE" }),
+    detect: (id: string, cellSize: number, request: WallDetectionRequest) =>
+      accountRequest<WallDetectionStatus>(`/api/library/${encodeURIComponent(id)}/wall-detection`, { method: "POST", ...jsonBody({ ...request, cellSize }) }),
+    async status(id: string, signal?: AbortSignal): Promise<WallDetectionStatus | null> {
+      const res = await fetch(`/api/library/${encodeURIComponent(id)}/wall-detection`, { signal, cache: "no-store" });
+      if (res.status === 404) return null;
+      if (!res.ok) throw await errorFrom(res);
+      return WallDetectionStatus.parse(await res.json());
+    },
+    detected: (id: string, signal?: AbortSignal) => accountRequest<DetectedWallsResponse>(`/api/library/${encodeURIComponent(id)}/wall-detection/walls`, { signal, cache: "no-store" }),
+    async preview(id: string, signal?: AbortSignal): Promise<Blob> {
+      const res = await fetch(`/api/library/${encodeURIComponent(id)}/wall-detection/preview`, { signal, cache: "no-store" });
+      if (!res.ok) throw await errorFrom(res);
+      return res.blob();
+    },
+  },
+
   /** Wall detection for the room's map, as its GM (FR-GM-11, ADR 0029). */
   walls: {
+    async dismiss(roomId: string, token: string, mapUrl: string, resultId?: string): Promise<void> {
+      const res = await fetch(`/api/rooms/${encodeURIComponent(roomId)}/wall-detection?map=${encodeURIComponent(mapUrl)}${resultId ? `&resultId=${encodeURIComponent(resultId)}` : ""}`, { method: "DELETE", headers: { authorization: `Bearer ${token}` } });
+      if (!res.ok) throw await errorFrom(res);
+    },
     /**
      * Queues an analysis of the room's current map. With `sample`, a point on a wall the GM
      * clicked, the worker looks for walls of that colour, within `tolerance` Lab units of it

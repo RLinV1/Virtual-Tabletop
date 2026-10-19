@@ -10,7 +10,7 @@ import { WallProperties } from "../src/pages/mapEditor/WallProperties";
 import { draftConnection } from "../src/pages/mapEditor/draftConnection";
 import { draftFrom, planDraftSave } from "../src/pages/mapEditor/mapDraft";
 import { startUvttPrep, prepDirty } from "../src/pages/mapPrep";
-import { fakeConnection, room, stubMapEditorEnvironment, TOKEN } from "./mapEditorHarness";
+import { click, fakeConnection, room, stubMapEditorEnvironment, TOKEN } from "./mapEditorHarness";
 vi.mock("../src/panels/CheckpointsPanel", () => ({ CheckpointsPanel: () => null }));
 vi.mock("../src/panels/EncounterPanel", () => ({ EncounterPanel: () => null }));
 const preparation: UvttPreparation = { id: "opaque", revision: 1, map: { url: "/uploads/import.png", width: 800, height: 600 },
@@ -34,7 +34,9 @@ function mount(state = room()) {
   return { ...fake, rerender: (next: RoomState) => view.rerender(panel(next)) };
 }
 async function importFile() {
-  fireEvent.click(screen.getByRole("button", { name: "Change Map" }));
+  const trigger = screen.getByRole("button", { name: "Change Map" });
+  trigger.focus();
+  fireEvent.click(trigger);
   fireEvent.change(screen.getByLabelText("Upload battle map"), { target: { files: [new File(["json"], "map.dd2vtt")] } });
   await screen.findByText(/Unsaved changes: only you see them/);
 }
@@ -68,7 +70,8 @@ describe("private UVTT editor (FR-GM-06/07/09/12)", () => {
     expect(fake.commands).toEqual([]);
     expect(screen.getByText("1 import warnings")).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: /· Walls$/ }));
-    fireEvent.change(screen.getByLabelText("Selected geometry"), { target: { value: "draft:0" } });
+    fireEvent.click(screen.getByRole("radio", { name: "Select" }));
+    click(screen.getByRole("application"), { x: 150, y: 100 });
     expect((screen.getByLabelText("Door position X") as HTMLInputElement).value).toBe("40");
     fireEvent.click(screen.getByLabelText("Closed (blocks movement)"));
     fireEvent.change(screen.getByLabelText("End B X"), { target: { value: "250" } });
@@ -94,8 +97,9 @@ describe("private UVTT editor (FR-GM-06/07/09/12)", () => {
     mount(); await importFile();
     fireEvent.click(screen.getByRole("tab", { name: /· Walls$/ }));
     fireEvent.click(screen.getByRole("radio", { name: "Erase" }));
-    // Selecting geometry and saving a change is keyboard accessible too.
-    fireEvent.change(screen.getByLabelText("Selected geometry"), { target: { value: "draft:0" } });
+    // Select the wall directly on the canvas.
+    fireEvent.click(screen.getByRole("radio", { name: "Select" }));
+    click(screen.getByRole("application"), { x: 150, y: 100 });
     fireEvent.click(screen.getByLabelText("Closed (blocks movement)")); fireEvent.click(screen.getByRole("button", { name: "Save geometry" }));
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     const discard = await screen.findByRole("button", { name: "Discard" }); fireEvent.click(discard);
@@ -105,13 +109,15 @@ describe("private UVTT editor (FR-GM-06/07/09/12)", () => {
   it("switches between Grid and Walls with edited UVTT geometry without applying it", async () => {
     const fake = mount(); await importFile();
     fireEvent.click(screen.getByRole("tab", { name: /· Walls$/ }));
-    fireEvent.change(screen.getByLabelText("Selected geometry"), { target: { value: "draft:0" } });
+    fireEvent.click(screen.getByRole("radio", { name: "Select" }));
+    click(screen.getByRole("application"), { x: 150, y: 100 });
     fireEvent.click(screen.getByLabelText("Closed (blocks movement)"));
     fireEvent.click(screen.getByRole("button", { name: "Save geometry" }));
     fireEvent.click(screen.getByRole("tab", { name: /· Grid$/ }));
     expect(screen.getByRole("tab", { name: /· Grid$/ }).getAttribute("aria-selected")).toBe("true");
     fireEvent.click(screen.getByRole("tab", { name: /· Walls$/ }));
-    fireEvent.change(screen.getByLabelText("Selected geometry"), { target: { value: "draft:0" } });
+    fireEvent.click(screen.getByRole("radio", { name: "Select" }));
+    click(screen.getByRole("application"), { x: 150, y: 100 });
     expect(screen.getByLabelText("Closed (blocks movement)")).toHaveProperty("checked", false);
     expect(screen.queryByRole("dialog", { name: "Apply this map?" })).toBeNull();
     expect(fake.commands).toEqual([]);
@@ -143,7 +149,8 @@ describe("private UVTT editor (FR-GM-06/07/09/12)", () => {
     const fake = mount(state); await importFile();
     fireEvent.click(screen.getByRole("radio", { name: /^Keep positions/ }));
     fireEvent.click(screen.getByRole("tab", { name: /· Walls$/ }));
-    fireEvent.change(screen.getByLabelText("Selected geometry"), { target: { value: "draft:0" } });
+    fireEvent.click(screen.getByRole("radio", { name: "Select" }));
+    click(screen.getByRole("application"), { x: 150, y: 100 });
     fireEvent.change(screen.getByLabelText("Use as"), { target: { value: "window" } });
     fireEvent.change(screen.getByLabelText("Window state"), { target: { value: "locked" } });
     fireEvent.click(screen.getByRole("button", { name: "Save geometry" }));

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { Cursor, Door, Eraser, Eyedropper, LineSegments } from "@phosphor-icons/react";
 import {
   isDoubtfulWall, MIN_LENGTH_MAX, SAMPLE_TOLERANCE_DEFAULT, SAMPLE_TOLERANCE_MAX, SAMPLE_TOLERANCE_MIN,
@@ -32,7 +32,7 @@ const PORTAL_STATES: { key: PortalState; label: string }[] = [
 ];
 
 const HINTS: Record<CanvasMode, string> = {
-  select: "Select geometry on the map, or choose it below, to edit its endpoints and metadata.",
+  select: "Click a wall on the map to edit its endpoints and properties.",
   draw: "Click to start a wall, click again to end it. Alt places freely; Esc stops.",
   erase: "Click a wall to remove it, or a blue detected wall to leave it out.",
   portal: "Pick a type, then click walls.",
@@ -44,11 +44,12 @@ const HINTS: Record<CanvasMode, string> = {
  * tools, automatic detection, its preview, and Apply and Clear. Detection controls are hidden
  * when the server can't detect walls; drawing and erasing always work.
  */
-export function WallSetup({ connection, state, token, detection: detectionEnabled = true, initialMode = "draw" }: {
+export function WallSetup({ connection, state, token, detection: detectionEnabled = true, initialMode = "draw", libraryAssetId }: {
   connection: EditorConnection;
   state: RoomState;
   token: string;
-  /** False where there is no room to run detection against (a library map): the detection controls are left out. */
+  libraryAssetId?: string;
+  /** False in import-only previews where detection is not offered. */
   detection?: boolean;
   initialMode?: CanvasMode;
 }) {
@@ -76,36 +77,70 @@ export function WallSetup({ connection, state, token, detection: detectionEnable
   const { snapshots } = useRoomSnapshot(connection);
   // Counts the changes to `detection` made by a notice or a Detect click, so a slower status fetch never overwrites them.
   const detectionChanges = useRef(0);
+  const appliedDetection = useRef(true);
+  const initialDismissal = useRef<{ key: string; task: Promise<void> } | null>(null);
+  const [detectionReady, setDetectionReady] = useState(false);
   const status = detection.mapUrl === mapUrl ? detection.status : null;
   // Detection is offered only while the vision service is up; otherwise its controls are left out, not greyed.
-  const canDetect = detectionEnabled && availability?.available === true;
+  const canDetect = detectionEnabled && detectionReady && availability?.available === true;
+
+  useEffect(() => { if (!canDetect && mode === "sample") setMode("draw"); }, [canDetect, mode]);
 
   useEffect(() => {
     if (!detectionEnabled) return;
     const abort = new AbortController();
-    api.walls.availability(abort.signal)
-      .then(setAvailability)
+    const check = () => api.walls.availability(abort.signal)
+      .then((value) => { if (!abort.signal.aborted) setAvailability(value); })
       .catch(() => { if (!abort.signal.aborted) setAvailability({ available: false, reason: "Couldn't reach the server." }); });
-    return () => abort.abort();
+    void check();
+    const interval = window.setInterval(() => void check(), 5000);
+    return () => { abort.abort(); window.clearInterval(interval); };
   }, [detectionEnabled]);
 
-  // The latest analysis of this map, then every change the server announces for it.
+  // Each visit starts without old suggestions. Saved walls live in the board, independently.
   useEffect(() => {
     if (!mapUrl || !detectionEnabled) return;
+    let live = true;
+    appliedDetection.current = true;
+    detectionChanges.current += 1;
+    setDetectionReady(false);
+    setDetection({ mapUrl, status: null });
+    setCandidates(null);
+    setPreview(null);
+    const key = JSON.stringify([libraryAssetId, state.roomId, token, mapUrl]);
+    if (initialDismissal.current?.key !== key) {
+      initialDismissal.current = { key, task: libraryAssetId ? api.libraryWalls.dismiss(libraryAssetId) : api.walls.dismiss(state.roomId, token, mapUrl) };
+    }
+    void initialDismissal.current.task.then(() => { if (live) setDetectionReady(true); }).catch(() => {
+      if (live) setMessage({ text: "Couldn't clear the previous detection. Reopen the editor to try again.", error: true });
+    });
+    return () => { live = false; };
+  }, [mapUrl, detectionEnabled, libraryAssetId, state.roomId, token]);
+
+  // New analyses belong to this visit; room notices or library polling update their preview.
+  useEffect(() => {
+    if (!mapUrl || !detectionEnabled || !detectionReady) return;
     const abort = new AbortController();
-    const started = detectionChanges.current;
-    api.walls.status(state.roomId, token, mapUrl, abort.signal)
-      .then((next) => setDetection((current) => (detectionChanges.current !== started && current.mapUrl === mapUrl ? current : { mapUrl, status: next })))
-      .catch(() => {});
+    const fetchStatus = () => api.libraryWalls.status(libraryAssetId!, abort.signal);
     const stop = connection.onWallDetection((url, next) => {
-      if (url !== mapUrl) return;
+      if (url !== mapUrl || appliedDetection.current) return;
       detectionChanges.current += 1;
       setDetection({ mapUrl, status: next });
       if (next.status === "done") setMessage({ text: `Detection found ${next.wallCount} ${next.wallCount === 1 ? "wall" : "walls"}. Check the preview, then apply.`, error: false });
       if (next.status === "failed") setMessage({ text: next.message, error: true });
     });
-    return () => { abort.abort(); stop(); };
-  }, [connection, state.roomId, token, mapUrl, snapshots, detectionEnabled]);
+    const interval = libraryAssetId ? window.setInterval(() => {
+      if (appliedDetection.current) return;
+      const version = detectionChanges.current;
+      void fetchStatus().then((next) => {
+        if (!abort.signal.aborted && version === detectionChanges.current && !appliedDetection.current) {
+          setDetection((current) => current.mapUrl === mapUrl && JSON.stringify(current.status) === JSON.stringify(next) ? current : { mapUrl, status: next });
+          if (next?.status === "failed") setMessage({ text: next.message, error: true });
+        }
+      }).catch(() => {});
+    }, 1500) : null;
+    return () => { abort.abort(); stop(); if (interval !== null) window.clearInterval(interval); };
+  }, [connection, state.roomId, token, mapUrl, snapshots, detectionEnabled, libraryAssetId, detectionReady]);
 
   // The rendered preview, once a result is in. Fetched as a blob: it needs the GM's credential.
   const done = status?.status === "done";
@@ -113,7 +148,7 @@ export function WallSetup({ connection, state, token, detection: detectionEnable
     if (!done || !mapUrl || !detectionEnabled) return;
     const abort = new AbortController();
     let objectUrl: string | null = null;
-    api.walls.preview(state.roomId, token, mapUrl, abort.signal)
+    (libraryAssetId ? api.libraryWalls.preview(libraryAssetId, abort.signal) : api.walls.preview(state.roomId, token, mapUrl, abort.signal))
       .then((blob) => {
         if (abort.signal.aborted) return;
         objectUrl = URL.createObjectURL(blob);
@@ -124,7 +159,7 @@ export function WallSetup({ connection, state, token, detection: detectionEnable
       abort.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [done, status, state.roomId, token, mapUrl]);
+  }, [done, status, state.roomId, token, mapUrl, libraryAssetId, detectionEnabled]);
 
   // The detected segments themselves, so false ones can be erased on the canvas before applying.
   useEffect(() => {
@@ -133,11 +168,11 @@ export function WallSetup({ connection, state, token, detection: detectionEnable
       return;
     }
     const abort = new AbortController();
-    api.walls.detected(state.roomId, token, mapUrl, abort.signal)
+    (libraryAssetId ? api.libraryWalls.detected(libraryAssetId, abort.signal) : api.walls.detected(state.roomId, token, mapUrl, abort.signal))
       .then((result) => { if (!abort.signal.aborted) setCandidates({ mapUrl, ...result, erased: new Set(), review: null }); })
       .catch(() => {});
     return () => abort.abort();
-  }, [done, status, state.roomId, token, mapUrl]);
+  }, [done, status, state.roomId, token, mapUrl, libraryAssetId, detectionEnabled]);
 
   if (!map) return <p className="map-editor-empty">Apply a map in the Map step first, then set up its walls here.</p>;
 
@@ -150,13 +185,16 @@ export function WallSetup({ connection, state, token, detection: detectionEnable
   });
 
   const detect = async (sample?: Point) => {
+    appliedDetection.current = false;
     setBusy(true);
     setMessage(null);
+    const version = ++detectionChanges.current;
     try {
-      const started = await api.walls.detect(state.roomId, token, request(sample));
-      detectionChanges.current += 1;
-      setDetection({ mapUrl, status: started });
-      setMessage({ text: sample ? "Detecting walls like the one you clicked…" : "Detecting walls…", error: false });
+      const started = await (libraryAssetId ? api.libraryWalls.detect(libraryAssetId, state.scene.grid.cellSize, request(sample)) : api.walls.detect(state.roomId, token, request(sample)));
+      if (version === detectionChanges.current && !appliedDetection.current) {
+        setDetection({ mapUrl, status: started });
+        setMessage({ text: sample ? "Detecting walls like the one you clicked…" : "Detecting walls…", error: false });
+      }
     } catch (err) {
       setMessage({ text: err instanceof Error ? err.message : "Couldn't start wall detection", error: true });
     } finally {
@@ -211,6 +249,25 @@ export function WallSetup({ connection, state, token, detection: detectionEnable
     if (!wasErased) reviewStep(1);
   };
 
+  const dismissDetection = async (resultId?: string) => {
+    await (libraryAssetId ? api.libraryWalls.dismiss(libraryAssetId, resultId) : api.walls.dismiss(state.roomId, token, mapUrl, resultId));
+    appliedDetection.current = true;
+    detectionChanges.current += 1;
+    setDetection({ mapUrl, status: null });
+    setCandidates(null);
+    setPreview(null);
+  };
+
+  const discardDetection = async () => {
+    setBusy(true);
+    try {
+      await dismissDetection(pendingWalls?.resultId);
+      setMessage({ text: pending ? "Wall detection canceled." : "Detection results discarded.", error: false });
+    } catch (err) {
+      setMessage({ text: err instanceof Error ? err.message : "Couldn't discard detection. Try again.", error: true });
+    } finally { setBusy(false); }
+  };
+
   /** Applies the detected walls; `confidentOnly` also leaves out the doubtful ones, as if the GM had erased them. */
   const apply = async (confidentOnly = false) => {
     const left = confidentOnly ? new Set([...(pendingWalls?.erased ?? []), ...doubtfulKeys]) : pendingWalls?.erased ?? new Set<string>();
@@ -218,9 +275,13 @@ export function WallSetup({ connection, state, token, detection: detectionEnable
       ? { resultId: pendingWalls.resultId, indices: [...left].map(Number).sort((a, b) => a - b) }
       : undefined;
     const count = pendingWalls ? pendingWalls.walls.length - left.size : found;
-    const ok = await run({ type: "wall.applyDetected", mapUrl, ...(exclude && { exclude }) }, `Applied ${count} walls.`);
-    // The result is spent: drop its overlay so the new walls aren't drawn twice.
-    if (ok) setDetection({ mapUrl, status: null });
+    setBusy(true);
+    try {
+      const ok = await run({ type: "wall.applyDetected", mapUrl, ...(exclude && { exclude }) }, `Applied ${count} walls.`);
+      if (ok) await dismissDetection(pendingWalls?.resultId);
+    } catch (err) {
+      setMessage({ text: err instanceof Error ? err.message : "Walls applied, but the detection could not be dismissed. Try Discard results.", error: true });
+    } finally { setBusy(false); }
   };
 
   const pending = status?.status === "queued" || status?.status === "running";
@@ -272,23 +333,19 @@ export function WallSetup({ connection, state, token, detection: detectionEnable
             </div>
           )}
           <p className="muted small-print">{HINTS[mode]}</p>
-          <label className="stack">Selected geometry
-            <select value={state.walls[selected] ? selected : ""} onChange={(e) => setSelected(e.target.value)}>
-              <option value="">Select a wall, door or window</option>
-              {Object.values(state.walls).map((wall, i) => <option key={wall.id} value={wall.id}>{wall.portal?.kind === "window" ? "Window" : wall.portal || wall.uvttPortal ? "Door" : "Wall"} {i + 1}</option>)}
-            </select>
-          </label>
           {state.walls[selected] && <WallProperties key={JSON.stringify(state.walls[selected])} wall={state.walls[selected]!} map={map} disabled={busy} onSave={async (wall) => {
             const result = await connection.command({ type: "wall.update", wall });
             if (!result.ok) throw new Error(result.message);
           }} />}
           {mode === "sample" && (
-            <label className="stack">
-              <span className="small-print">Colour range: {tolerance}</span>
+            <label className="range-field">
+              <span className="range-label">Colour range <span className="range-value">{tolerance}</span></span>
               <input
                 type="range"
+                className="range"
                 min={SAMPLE_TOLERANCE_MIN}
                 max={SAMPLE_TOLERANCE_MAX}
+                style={{ "--range-progress": `${100 * (tolerance - SAMPLE_TOLERANCE_MIN) / (SAMPLE_TOLERANCE_MAX - SAMPLE_TOLERANCE_MIN)}%` } as CSSProperties}
                 value={tolerance}
                 onChange={(event) => setTolerance(Number(event.target.value))}
                 title="Lower finds only walls close to the clicked colour; higher finds paler or darker ones, and more noise."
@@ -347,26 +404,30 @@ export function WallSetup({ connection, state, token, detection: detectionEnable
                   <option value="outlined">Inked outlines (buildings, caves)</option>
                 </select>
               </label>
-              <label className="stack">
-                <span className="small-print">Strictness: {strictness === null ? "automatic" : strictness.toFixed(2)}</span>
+              <label className="range-field">
+                <span className="range-label">Strictness <span className="range-value">{strictness === null ? "automatic" : strictness.toFixed(2)}</span></span>
                 <input
                   type="range"
+                  className="range"
                   min={STRICTNESS_MIN}
                   max={STRICTNESS_MAX}
                   step={0.05}
+                  style={{ "--range-progress": `${100 * ((strictness ?? STRICTNESS_DEFAULT) - STRICTNESS_MIN) / (STRICTNESS_MAX - STRICTNESS_MIN)}%` } as CSSProperties}
                   value={strictness ?? STRICTNESS_DEFAULT}
                   onChange={(event) => setStrictness(Number(event.target.value))}
                   title="Higher keeps only walls with a clear drawn edge; it can miss faint ones."
                 />
                 {strictness !== null && <button type="button" className="secondary" onClick={() => setStrictness(null)}>Back to automatic</button>}
               </label>
-              <label className="stack">
-                <span className="small-print">Shortest wall: {minLength === 0 ? "any" : `${minLength} ${minLength === 1 ? "cell" : "cells"}`}</span>
+              <label className="range-field">
+                <span className="range-label">Shortest wall <span className="range-value">{minLength === 0 ? "any" : `${minLength} ${minLength === 1 ? "cell" : "cells"}`}</span></span>
                 <input
                   type="range"
+                  className="range"
                   min={0}
                   max={MIN_LENGTH_MAX}
                   step={0.5}
+                  style={{ "--range-progress": `${100 * minLength / MIN_LENGTH_MAX}%` } as CSSProperties}
                   value={minLength}
                   onChange={(event) => setMinLength(Number(event.target.value))}
                   title="Drops short pieces such as rubble. Detect again to apply."
@@ -378,6 +439,9 @@ export function WallSetup({ connection, state, token, detection: detectionEnable
             <button type="button" className="secondary" disabled={!canDetect || busy || pending} onClick={() => void detect()}>
               {status ? "Detect again" : "Detect walls"}
             </button>
+            {status && <button type="button" className="secondary" disabled={busy} onClick={() => void discardDetection()}>
+              {pending ? "Cancel detection" : "Discard results"}
+            </button>}
             {canDetect && found !== null && found > 0 && (
               <button type="button" disabled={busy || keeping === 0} onClick={() => void apply()}>
                 {wallCount > 0 ? `Replace with ${keeping ?? found} walls` : `Apply ${keeping ?? found} walls`}

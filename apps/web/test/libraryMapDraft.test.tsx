@@ -8,6 +8,7 @@ import { stubMapEditorEnvironment } from "./mapEditorHarness";
 const asset: LibraryAsset = { id: "map1", kind: "map", name: "Crypt", url: "/crypt.png", width: 700, height: 700, grid: DEFAULT_GRID, createdAt: "2026-10-18T00:00:00Z" };
 beforeEach(() => {
   stubMapEditorEnvironment();
+  vi.spyOn(api.libraryWalls, "dismiss").mockResolvedValue();
   vi.spyOn(api.detection, "library").mockResolvedValue(null);
   vi.spyOn(api.library, "board").mockResolvedValue({ walls: [], fog: [] });
   vi.spyOn(api.library, "update").mockImplementation(async (_id, changes) => ({ ...asset, ...changes }));
@@ -24,6 +25,32 @@ async function fogChange() {
   fireEvent.click(screen.getByRole("tab", { name: /Fog/ }));
   fireEvent.click(await screen.findByRole("button", { name: "Fog whole map" }));
 }
+it("detects library walls into the draft and saves only on request", async () => {
+  vi.spyOn(api.walls, "availability").mockResolvedValue({ available: true });
+  vi.spyOn(api.libraryWalls, "status").mockResolvedValue(null);
+  vi.spyOn(api.libraryWalls, "detect").mockResolvedValue({ status: "done", wallCount: 1, width: 10, height: 10 });
+  vi.spyOn(api.libraryWalls, "preview").mockResolvedValue(new Blob(["preview"]));
+  vi.spyOn(api.libraryWalls, "detected").mockResolvedValue({ resultId: "library-result", walls: [{ a: { x: 0, y: 0 }, b: { x: 100, y: 0 } }] });
+  mount();
+  fireEvent.click(screen.getByRole("tab", { name: /Walls/ }));
+  fireEvent.click(await screen.findByRole("button", { name: "Detect walls" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Apply 1 walls" }));
+  expect(api.library.setBoard).not.toHaveBeenCalled();
+  fireEvent.click(await screen.findByRole("button", { name: "Save changes" }));
+  await waitFor(() => expect(api.library.setBoard).toHaveBeenCalledWith("map1", expect.objectContaining({ walls: [expect.objectContaining({ a: { x: 0, y: 0 }, b: { x: 100, y: 0 } })] })));
+  expect(api.libraryWalls.detect).toHaveBeenCalledWith("map1", expect.any(Number), expect.objectContaining({ minLength: 0 }));
+});
+
+it("hides library detection when the worker is unavailable", async () => {
+  const availability = vi.spyOn(api.walls, "availability").mockResolvedValue({ available: false });
+  vi.spyOn(api.libraryWalls, "status").mockResolvedValue(null);
+  mount();
+  fireEvent.click(screen.getByRole("tab", { name: /Walls/ }));
+  await waitFor(() => expect(availability).toHaveBeenCalled());
+  expect(screen.queryByText("Automatic detection")).toBeNull();
+  expect(screen.queryByRole("radio", { name: "Pick" })).toBeNull();
+});
+
 describe("one library map draft across Grid, Walls and Fog", () => {
   it("keeps grid changes across tabs, saves everything together, and stays open", async () => {
     const { close } = mount();

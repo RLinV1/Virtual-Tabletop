@@ -233,6 +233,17 @@ export function registerRoutes(
     void walls.availability().then((value) => res.json(value)).catch(internalError(req, res));
   });
 
+  app.delete("/api/rooms/:roomId/wall-detection", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    void (async () => {
+      if (!(await isRoomGm(req, req.params.roomId))) return res.status(403).json({ error: "GM only" });
+      const query = MapQuery.extend({ resultId: z.string().max(128).optional() }).safeParse(req.query);
+      if (!query.success) return res.status(400).json({ error: "Name the map" });
+      if (!walls.dismiss(req.params.roomId, query.data.map, query.data.resultId)) return res.status(409).json({ error: "The detection changed. Check the latest result." });
+      return res.sendStatus(204);
+    })().catch(internalError(req, res));
+  });
+
   app.post("/api/rooms/:roomId/wall-detection", (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     void (async () => {
@@ -343,7 +354,7 @@ export function registerRoutes(
     })().catch(internalError(req, res));
   });
 
-  registerLibraryRoutes(app, { store, uploadDir, assets, detection });
+  registerLibraryRoutes(app, { store, uploadDir, assets, detection, walls });
   registerEncounterRoutes(app, { store, registry });
   registerEncounterEditRoutes(app, { store, registry, rooms });
   registerLegacyRoutes(app, { store });
