@@ -8,13 +8,13 @@ import { gridLines } from "../board/gridLines";
 import { DEFAULT_BOARD_SIZE, minimumGridCellSize, minimumGridCellSizeForDisplay } from "../board/gridRenderLimit";
 import { ColorWheel } from "../ui/ColorWheel";
 import { MapGridPreview } from "./MapGridPreview";
-import { gridsEqual, parseGridDraft, type GridDraft } from "./gridDraft";
+import { gridsEqual, newGridSuggestionSession, parseGridDraft, withGridSuggestion, type GridDraft, type GridSuggestionSession } from "./gridDraft";
 
 const DEFAULT_PREVIEW_MAP = { ...DEFAULT_BOARD_SIZE, url: null };
 
 /**
  * Manual grid correction (FR-GM-04), shared by a room's Adjust grid and the library's
- * Edit grid. Automatic detection (FR-GM-03) is an explicit draft action.
+ * Edit grid. Estimates (FR-GM-03) can prefill untouched, unconfigured drafts.
  */
 export function GridForm({
   grid,
@@ -28,7 +28,10 @@ export function GridForm({
   error,
   detection,
   detectionError,
+  detectionDenied = false,
   onUseSuggestion,
+  autoSuggest = false,
+  suggestionSession,
   submitLabel = "Apply grid",
   busyLabel = "Applying…",
   cancelLabel = "Cancel",
@@ -50,7 +53,10 @@ export function GridForm({
   detection?: GridDetectionStatus | null;
   /** Hide analysis UI after a request error so manual editing can continue quietly. */
   detectionError?: string | null;
+  detectionDenied?: boolean;
   onUseSuggestion?: (candidate: Extract<GridDetectionStatus, { status: "suggested" }>["candidate"]) => void;
+  autoSuggest?: boolean;
+  suggestionSession?: GridSuggestionSession;
   submitLabel?: string;
   busyLabel?: string;
   cancelLabel?: string;
@@ -74,6 +80,18 @@ export function GridForm({
   const previewHelpId = useId();
   const liveGeometry = editingGeometry || applying ? null : geometryPreview;
   const submitting = useRef(false);
+  const localSession = useRef(newGridSuggestionSession());
+  const session = suggestionSession ?? localSession.current;
+  const interact = () => { session.blocked = true; };
+  useEffect(() => {
+    if (applying || detectionDenied) session.blocked = true;
+    if (!autoSuggest || detectionError || session.blocked || session.applied || detection?.status !== "suggested") return;
+    const next = withGridSuggestion(draft, detection.candidate);
+    if (!parseGridDraft(next, map)) return;
+    session.applied = true;
+    setGeometryRevision((current) => current + 1);
+    onChange(next);
+  }, [autoSuggest, session, applying, detection, detectionError, detectionDenied, draft, map, onChange]);
   useEffect(() => { if (validDraft) setLastValid(validDraft); }, [validDraft]);
   const shown = validDraft ?? lastValid;
   const dirty = allowUnchanged || hasDraft && (!validDraft || !gridsEqual(validDraft, grid));
@@ -103,6 +121,7 @@ export function GridForm({
           value={liveGeometry ? String(liveGeometry[key]) : draft[key]}
           aria-describedby={liveGeometry ? previewHelpId : undefined}
           onChange={(e) => {
+            interact();
             setGeometryRevision((current) => current + 1);
             onChange({ ...draft, [key]: e.target.value });
           }}
@@ -118,6 +137,7 @@ export function GridForm({
       onSubmit={(e: FormEvent) => {
         e.preventDefault();
         if (!validDraft || !canSave || applying || submitting.current) return;
+        interact();
         submitting.current = true;
         void onApply(validDraft).finally(() => { submitting.current = false; });
       }}
@@ -129,6 +149,7 @@ export function GridForm({
         onPreviewChange={setGeometryPreview}
         previewEnabled={!editingGeometry}
         disabled={applying}
+        onInteraction={interact}
         onChange={(next) => onChange({ ...draft,
           cellSize: String(next.cellSize), offsetX: String(next.offsetX), offsetY: String(next.offsetY),
         })}
@@ -153,8 +174,8 @@ export function GridForm({
           </div>
           <p className="muted small-print">All in pixels. Offsets wrap within one cell. Resizing can change them while anchor A stays fixed.</p>
           <GridLineFields draft={styleDraft} map={map} disabled={applying}
-            onChange={(next) => onChange({ ...draft, lineColor: next.lineColor,
-              lineWidth: next.lineWidth, lineOpacity: next.lineOpacity })}
+            onChange={(next) => { interact(); onChange({ ...draft, lineColor: next.lineColor,
+              lineWidth: next.lineWidth, lineOpacity: next.lineOpacity }); }}
           />
         </div>
       </div>
@@ -163,10 +184,10 @@ export function GridForm({
           <span>Each square represents</span>
           <input type="number" aria-label="Distance per square" step="any" min="0" required
             disabled={applying} value={draft.unitsPerCell}
-            onChange={(e) => onChange({ ...draft, unitsPerCell: e.target.value })} />
+            onChange={(e) => { interact(); onChange({ ...draft, unitsPerCell: e.target.value }); }} />
           <input type="text" aria-label="Distance unit" maxLength={12} required
             disabled={applying} value={draft.unitLabel}
-            onChange={(e) => onChange({ ...draft, unitLabel: e.target.value })} />
+            onChange={(e) => { interact(); onChange({ ...draft, unitLabel: e.target.value }); }} />
         </div>
         {detection && !detectionError && detection.status !== "no_grid" && detection.status !== "error" && (
           <div className="grid-suggestion" role="status">
@@ -174,10 +195,10 @@ export function GridForm({
             {detection.status === "running" && <p>Analyzing the map grid…</p>}
             {detection.status === "suggested" && (
               <>
-                <p>Automatic suggestion: {detection.candidate.cellSize}px cells, offsets {detection.candidate.offsetX}px / {detection.candidate.offsetY}px. Confidence: {Math.round(detection.candidate.confidence * 100)}%.</p>
-                {detection.candidate.confidence < 0.75 && <p className="grid-suggestion-warning">Low confidence. Check the grid against the map before saving.</p>}
+                <p>Grid estimate: {Number(detection.candidate.cellSize.toFixed(2))}px cells, offsets {Number(detection.candidate.offsetX.toFixed(2))}px / {Number(detection.candidate.offsetY.toFixed(2))}px. Check alignment against the map before saving.</p>
                 {onUseSuggestion && (
                   <button type="button" className="secondary small" disabled={applying} onClick={() => {
+                    interact();
                     setGeometryRevision((current) => current + 1);
                     onUseSuggestion(detection.candidate);
                   }}>
@@ -198,11 +219,11 @@ export function GridForm({
         {error && <p className="error grid-message" role="alert">{error}</p>}
         {!hideActions && (actionSlot ? (dirty ? createPortal(<span className="map-editor-unsaved">
           {dirty && <span className="map-editor-draft">Unsaved changes: only you see them</span>}
-          <button type="button" className="secondary small" disabled={applying} onClick={onCancel}>{cancelLabel === "Cancel" ? "Discard" : cancelLabel}</button>
+          <button type="button" className="secondary small" disabled={applying} onClick={() => { interact(); onCancel(); }}>{cancelLabel === "Cancel" ? "Discard" : cancelLabel}</button>
           <button type="submit" form={formId} className="small" disabled={!canSave || applying}>{applying ? busyLabel : submitLabel === "Apply grid" ? "Save changes" : submitLabel}</button>
         </span>, actionSlot) : null) : (
           <div className="grid-actions">
-            <button type="button" className="secondary" disabled={applying} onClick={onCancel}>{cancelLabel}</button>
+            <button type="button" className="secondary" disabled={applying} onClick={() => { interact(); onCancel(); }}>{cancelLabel}</button>
             <button type="submit" disabled={!canSave || applying}>{applying ? busyLabel : submitLabel}</button>
           </div>
         ))}

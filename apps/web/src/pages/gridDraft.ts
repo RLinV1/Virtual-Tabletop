@@ -13,6 +13,10 @@ export interface GridDraft {
   lineOpacity?: number;
 }
 
+/** Session intent is independent of value equality and survives grid-tab remounts. */
+export interface GridSuggestionSession { blocked: boolean; applied: boolean }
+export const newGridSuggestionSession = (): GridSuggestionSession => ({ blocked: false, applied: false });
+
 export function toGridDraft(grid: GridSpec): GridDraft {
   return {
     cellSize: String(grid.cellSize),

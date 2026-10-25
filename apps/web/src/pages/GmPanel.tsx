@@ -88,6 +88,7 @@ export function GmPanel({
             roomId={state.roomId}
             token={token}
             directMap={Boolean(state.scene.map && !state.scene.map.assetId)}
+            libraryDetectionId={state.scene.map?.assetId}
             grid={state.scene.grid}
             map={state.scene.map}
             draft={gridDraft}
@@ -130,6 +131,7 @@ function LibraryMapGridEditor({ assetId, ...props }: ComponentProps<typeof GridF
     {...props}
     detection={detection.status}
     detectionError={detection.error}
+    detectionDenied={detection.accessDenied}
     onUseSuggestion={(candidate) => props.onChange(withGridSuggestion(props.draft, candidate))}
   />;
 }
@@ -140,6 +142,7 @@ function DirectMapGridEditor(props: ComponentProps<typeof RoomGridEditor>) {
     {...props}
     detection={detection.status}
     detectionError={detection.error}
+    detectionDenied={detection.accessDenied}
     onUseSuggestion={(candidate) => props.onChange(withGridSuggestion(props.draft, candidate))}
   />;
 }
@@ -261,8 +264,6 @@ function MapSection(props: {
   const gridOpenerRef = useRef<HTMLButtonElement>(null);
   /** Whether a map uploaded here is also kept in the account's library (on by default, ADR 0004). */
   const [saveToLibrary, setSaveToLibrary] = useState(true);
-  /** The library row made by this editor's latest upload, whose grid analysis the Grid step shows. */
-  const [uploadedAssetId, setUploadedAssetId] = useState<string | null>(null);
   /** Bumped when a library map is picked, so an upload still in flight can't replace that draft. */
   const prepGeneration = useRef(0);
   /**
@@ -347,6 +348,7 @@ function MapSection(props: {
   ), [props.connection, prep?.map.url, prep?.map.width, prep?.map.height, importSession]);
   const importedState: RoomState | null = prep?.uvtt ? { ...props.room, scene: { ...props.room.scene, map: prep.map, grid: parseGridDraft(prep.draft, prep.map) ?? prep.initial }, walls: prep.walls ?? {}, fog: {} } : null;
   const discardPrep = () => {
+    if (prep?.suggestionSession) prep.suggestionSession.blocked = true;
     prepGeneration.current++;
     if (prep?.uvtt) void api.uvtt.discard(props.roomId, props.token, prep.uvtt.id).catch(() => {});
     setPrep(null);
@@ -382,6 +384,7 @@ function MapSection(props: {
   };
   const busyNow = applyingMap || props.gridApplying || saving || pendingSaving;
   const ask = (then: EditorStep | "close") => {
+    if (then === "close" && prep?.suggestionSession) prep.suggestionSession.blocked = true;
     const kind = pendingFor(step, then);
     if (!kind) return false;
     setPendingError(null);
@@ -432,6 +435,7 @@ function MapSection(props: {
     finishPending(pending.then);
   };
   const applyPrep = async (): Promise<boolean> => {
+    if (prep?.suggestionSession) prep.suggestionSession.blocked = true;
     if (!prep || applyingMap) return false;
     const grid = parseGridDraft(prep.draft, prep.map);
     if (!grid) {
@@ -512,7 +516,6 @@ function MapSection(props: {
       // Nothing is sent yet: the upload becomes a private draft (KAN-59).
       props.onError(null);
       if (prep?.uvtt) void api.uvtt.discard(props.roomId, props.token, prep.uvtt.id).catch(() => {});
-      setUploadedAssetId(asset?.id ?? null);
       setPrep(startPrep({ url, width, height, ...(asset && { assetId: asset.id }) }, undefined, props.currentGrid));
       setStep("grid");
       // An upload from the Manage tab opens the editor to line up its grid.
@@ -530,11 +533,12 @@ function MapSection(props: {
     const map = { url: asset.url, width: asset.width, height: asset.height, assetId: libraryAssetId(asset) };
     prepGeneration.current++;
     const next = startPrep(map, asset.grid, props.currentGrid);
-    if (editorOpen) {
+    if (editorOpen || !asset.grid) {
       setPicking(false);
       setPickError(null);
       setPrep(next);
       setStep("grid");
+      setEditorOpen(true);
       return;
     }
     // From the Manage tab: the library map already has its grid, so it goes straight to the table.
@@ -704,7 +708,9 @@ function MapSection(props: {
                   roomId={props.roomId}
                   token={props.token}
                   directMap={!prep.uvtt && !prep.map.assetId}
-                  libraryDetectionId={prep.map.assetId && prep.map.assetId === uploadedAssetId ? uploadedAssetId : null}
+                  libraryDetectionId={prep.uvtt ? null : prep.map.assetId}
+                  autoSuggest={!prep.uvtt && !prep.gridConfigured}
+                  suggestionSession={prep.suggestionSession}
                   grid={prep.initial}
                   map={prep.map}
                   draft={prep.draft}

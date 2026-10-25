@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { RoomUploadPurpose } from "@vtt/shared";
-import { DETECTION_STALE_MS, type DetectionOutcome, type DetectionRecord, type DetectionTarget } from "./gridDetectionStore";
+import { DETECTION_STALE_MS, DETECTION_MAX_ATTEMPTS, DETECTION_VERSION, detectionJob, matchesDetection, type DetectionJob, type DetectionOutcome, type DetectionRecord, type DetectionTarget, type UploadAnalysis } from "./gridDetectionStore";
 import { DEFAULT_TOKEN_COLOR, EMPTY_LIBRARY_BOARD, presetFromLog, type LibraryMapBoard, type CommittedEvent, type DieName, type GmRoomSummary, type GridSpec, type LegacySummary } from "@vtt/shared";
 import {
   EmailTakenError,
@@ -152,16 +152,17 @@ export class MemoryRoomStore implements RoomStore {
 
   async hasRoomUpload(roomId: string, objectKey: string) { return this.uploads.get(roomId)?.has(objectKey) ?? false; }
 
-  async recordRoomUpload(roomId: string, objectKey: string, purpose: RoomUploadPurpose = "token", width?: number, height?: number) {
+  async recordRoomUpload(roomId: string, objectKey: string, purpose: RoomUploadPurpose = "token", width?: number, height?: number, analysis?: UploadAnalysis) {
     if (!this.events.has(roomId)) throw new Error(`No room ${roomId}`);
     const keys = this.uploads.get(roomId) ?? new Set<string>();
     keys.add(objectKey);
     this.uploads.set(roomId, keys);
-    if (purpose === "map" && width && height) {
+    if (purpose === "map" && width && height && analysis?.sourceHash && analysis.detectionVersion === DETECTION_VERSION) {
       const key = `${roomId}:${objectKey}`;
       this.roomDetections.set(key, {
         target: { scope: "room", roomId, objectKey }, objectKey, width, height,
-        status: "queued", attempt: 1, candidate: null,
+        sourceHash: analysis.sourceHash, configVersion: analysis.detectionVersion,
+        status: analysis.detectionError ? "error" : "queued", attempt: 1, candidate: null, error: analysis.detectionError ?? null,
       });
       this.roomDetectionUpdatedAt.set(key, Date.now());
     }
@@ -261,56 +262,74 @@ export class MemoryRoomStore implements RoomStore {
   }
 
   private readDetection(target: DetectionTarget): DetectionRecord | null {
-    if (target.scope === "room") return structuredClone(this.roomDetections.get(`${target.roomId}:${target.objectKey}`) ?? null);
+    if (target.scope === "room") {
+      const row = this.roomDetections.get(`${target.roomId}:${target.objectKey}`);
+      return row?.configVersion === DETECTION_VERSION ? structuredClone(row) : null;
+    }
     const asset = this.assets.get(target.id);
-    if (!asset || asset.kind !== "map" || !asset.detectionStatus) return null;
+    if (!asset || asset.kind !== "map" || !asset.detectionStatus || !asset.sourceHash
+      || asset.sourceHash !== asset.detectionSourceHash || asset.detectionVersion !== DETECTION_VERSION) return null;
     return {
       target, objectKey: asset.objectKey, width: asset.width, height: asset.height,
+      sourceHash: asset.sourceHash, configVersion: asset.detectionVersion,
       status: asset.detectionStatus, attempt: asset.detectionAttempt ?? 0,
-      candidate: structuredClone(asset.detectionResult ?? null),
+      candidate: structuredClone(asset.detectionResult ?? null), error: asset.detectionError ?? null,
     };
   }
 
-  async markDetectionRunning(target: DetectionTarget, attempt: number) {
-    const row = this.readDetection(target);
-    if (!row || row.status !== "queued" || row.attempt !== attempt) return false;
-    this.setDetection(target, { ...row, status: "running" });
+  async markDetectionRunning(job: DetectionJob) {
+    const row = this.readDetection(job.target);
+    if (!row || row.status !== "queued" || !matchesDetection(row, job) || job.attempt > DETECTION_MAX_ATTEMPTS) return false;
+    this.setDetection(job.target, { ...row, status: "running" });
     return true;
   }
 
-  async finishDetection(target: DetectionTarget, attempt: number, outcome: DetectionOutcome) {
-    const row = this.readDetection(target);
-    if (!row || row.status !== "running" || row.attempt !== attempt) return false;
-    this.setDetection(target, { ...row, status: outcome.status, candidate: outcome.status === "suggested" ? outcome.candidate : null });
+  async finishDetection(job: DetectionJob, outcome: DetectionOutcome) {
+    const row = this.readDetection(job.target);
+    if (!row || row.status !== "running" || !matchesDetection(row, job)) return false;
+    this.setDetection(job.target, { ...row, status: outcome.status,
+      candidate: outcome.status === "suggested" ? outcome.candidate : null,
+      error: outcome.status === "error" ? outcome.error ?? "execution_failed" : null });
+    return true;
+  }
+
+  async deferDetection(job: DetectionJob, consumeAttempt: boolean) {
+    const row = this.readDetection(job.target);
+    if (!row || row.status !== "running" || !matchesDetection(row, job)) return false;
+    if (consumeAttempt && job.attempt >= DETECTION_MAX_ATTEMPTS) {
+      return this.finishDetection(job, { status: "error", error: "execution_failed" });
+    }
+    this.setDetection(job.target, { ...row, status: "queued", attempt: job.attempt + Number(consumeAttempt), candidate: null, error: null });
     return true;
   }
 
   async retryDetection(target: DetectionTarget) {
     const row = this.readDetection(target);
-    if (!row || row.status !== "error") return null;
+    if (!row || row.status !== "error" || row.error !== "execution_failed" || row.attempt >= DETECTION_MAX_ATTEMPTS) return null;
     const attempt = row.attempt + 1;
-    this.setDetection(target, { ...row, status: "queued", attempt, candidate: null });
+    this.setDetection(target, { ...row, status: "queued", attempt, candidate: null, error: null });
     return attempt;
   }
 
-  async recoverDetections() {
-    const jobs: Array<{ target: DetectionTarget; attempt: number }> = [];
-    const rows: DetectionRecord[] = [...this.roomDetections.values()];
+  async recoverDetections(limit = 100) {
+    const jobs: DetectionJob[] = [];
+    const targets: DetectionTarget[] = [...this.roomDetections.values()].map((row) => row.target);
     for (const asset of this.assets.values()) {
-      if (asset.kind === "map" && asset.detectionStatus) {
-        rows.push(this.readDetection({ scope: "library", id: asset.id })!);
-      }
+      if (asset.kind === "map" && asset.detectionStatus) targets.push({ scope: "library", id: asset.id });
     }
-    for (const row of rows) {
+    for (const target of targets) {
+      if (jobs.length >= limit) break;
+      const row = this.readDetection(target);
+      if (!row) continue;
       if (row.status === "running") {
-        const updatedAt = row.target.scope === "room"
-          ? this.roomDetectionUpdatedAt.get(`${row.target.roomId}:${row.target.objectKey}`)
-          : Date.parse(this.assets.get(row.target.id)?.detectionUpdatedAt ?? "");
+        const updatedAt = target.scope === "room"
+          ? this.roomDetectionUpdatedAt.get(`${target.roomId}:${target.objectKey}`)
+          : Date.parse(this.assets.get(target.id)?.detectionUpdatedAt ?? "");
         if (updatedAt !== undefined && updatedAt >= Date.now() - DETECTION_STALE_MS) continue;
-        const next = { ...row, status: "queued" as const, attempt: row.attempt + 1 };
-        this.setDetection(row.target, next);
-        jobs.push({ target: row.target, attempt: next.attempt });
-      } else if (row.status === "queued") jobs.push({ target: row.target, attempt: row.attempt });
+        await this.deferDetection(detectionJob(row), true);
+        const next = this.readDetection(target);
+        if (next?.status === "queued") jobs.push(detectionJob(next));
+      } else if (row.status === "queued" && row.attempt <= DETECTION_MAX_ATTEMPTS) jobs.push(detectionJob(row));
     }
     return jobs;
   }
@@ -324,7 +343,7 @@ export class MemoryRoomStore implements RoomStore {
       const asset = this.assets.get(target.id);
       if (asset) this.assets.set(target.id, {
         ...asset, detectionStatus: row.status, detectionAttempt: row.attempt,
-        detectionResult: row.candidate, detectionUpdatedAt: new Date().toISOString(),
+        detectionResult: row.candidate, detectionError: row.error, detectionUpdatedAt: new Date().toISOString(),
       });
     }
   }

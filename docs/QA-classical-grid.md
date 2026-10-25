@@ -1,0 +1,109 @@
+# Classical LSD grid estimates — local verification
+
+Implementation branch: `feat/classical-lsd-grid`, isolated worktree `/private/tmp/vtt-classical-lsd-grid`, based on fetched main `5a8a420`. No merge or deployment. ADR 0044 remains proposed pending architecture-owner review. The supplied images and original experiment/environment/results were read without modification; they are not included in the branch.
+
+## Behavior and contract
+
+New PNG/JPEG/WebP map uploads analyze asynchronously. Original bytes are preserved; actual EXIF-oriented dimensions and source SHA-256 come from the uploaded file. Default analysis ceiling is 16,000,000 pixels, separately from the existing 25 MiB upload and dimension limits. Oversized/invalid input records a terminal error and retains quiet manual setup. Tokens, UVTT grids and shipped calibrations do not enqueue grid analysis.
+
+Pillow EXIF transpose and L conversion, original-size OpenCV LSD STD settings, 1° filtering, 20 px minimum segments, interval-union support, spacing search/ranking, 4 px fit tolerance and canonical fractional offsets match the reviewed experiment. `best_candidate` remains the suggestion even when diagnostic gates fail. No confidence probability is returned or shown. Known aliases and suggestions on gridless artwork remain: this change makes no accuracy claim.
+
+Source/configuration/attempt guards protect both memory and Postgres cache reads, claims and completions. Nullable additive migration leaves old metadata unavailable without backfill. Equal bytes in separate uploads analyze independently. Completed candidates and `no_grid` remain separate from saved grids. Authorized polling and editor reopening never enqueue work.
+
+Untouched unconfigured drafts prefill once per editor session. First-anchor placement, keyboard alignment, typing, explicit adoption, discard, save, dismissal and access loss latch manual intent independently of value equality. Units and line style are preserved. `Use suggestion` remains available. Unconfigured library selection opens private preparation before explicit placement; configured selection keeps its placement path.
+
+BullMQ global concurrency is one across dispatchers. Without Redis there is one active job and eight pending slots; overflow remains queued in the store. The lightweight HTTP supervisor admits one request and uses a new child for every analysis. Busy admission defers without advancing attempts; transient execution errors stop after three attempts. Default processing/HTTP/stale deadlines are 30/40/90 seconds. Timed-out children terminate and are reaped.
+
+## Verification
+
+- Required lint, typecheck, full npm tests and build passed. The final full run passed 720 shared, 554 server, 858 web and 2 latency tests (2,134 total); one existing environment-dependent server test was skipped. Postgres and Redis grid tests ran against isolated local services.
+- All 49 Python grid/wall tests passed under Python 3.11.17, OpenCV wheel 4.8.1.78, NumPy 1.26.4 and Pillow 11.1.0. Coverage includes decoded EXIF dimensions, PNG/JPEG/WebP, oversized/invalid input, fractional fitting, ranking despite diagnostic rejection, busy admission, disposable processes and timeout/reaping.
+- Store/dispatcher checks cover candidate/no-grid/error persistence, independent duplicate uploads, duplicate jobs, source/version/attempt invalidation, source-byte changes, stale completion rejection, three-attempt recovery limits, deletion, bounded overflow and global concurrency across two dispatchers.
+- All 12 new grid Playwright cases passed in Chromium, Firefox and WebKit, with desktop and narrow/touch configurations. They cover once-only prefilling, equality-independent manual intent, delayed first-anchor/typing results, saved-grid protection, discard across tabs, cancellation, superseded map responses, denied polling and unconfigured library selection.
+- All six existing UVTT browser cases passed after stale selectors were corrected: wall strokes now live on individual lines, the first fixture point maps to pixel zero because it equals `map_origin`, and the editor exposes two Close actions. Product wall/UVTT geometry was unchanged by those test repairs.
+- OpenSpec strict validation and `git diff --check` passed.
+
+Node's native experimental Web Storage was disabled for the npm test run so jsdom supplies browser storage. Build output retains existing chunk-size/public-asset warnings. The acceptance script recorded Node v26.9.0; the project supports Node >=22.
+
+## Detector parity and performance
+
+[Machine-readable evidence](classical-grid-evidence.json) contains component distributions and all 27 geometries. Both the unoptimized application port and final implementation ran three identically shuffled passes: 81 actual LSD invocations each, one fresh process per map. A separate replay fitted all 27 saved segment sets with zero LSD invocations.
+
+Every request matched the historical reviewed candidate within 1e-6 pixel, and all 27 raw LSD segment counts matched the saved detections. Maximum observed differences were 5.69e-14 px in spacing, 1.40e-12 px in X phase and 1.01e-12 px in Y phase. There were no unexpected period or phase changes. Existing Outpost/Guild Hall aliases, half-period bundled-map suggestions and gridless-art suggestions were deliberately preserved.
+
+The retained optimization scores seed phases without building detailed residual/regression diagnostics, then computes those for the identical winning phase. It preserves the arithmetic/order used for ranking. No new detection thresholds, period corrections or confidence gates were added.
+
+| Component, seconds | Baseline median | Final median | Baseline p95 | Final p95 |
+| --- | ---: | ---: | ---: | ---: |
+| Decode/EXIF | 0.100 | 0.089 | 0.216 | 0.209 |
+| Grayscale | 0.0066 | 0.0064 | 0.0157 | 0.0131 |
+| Array preparation | 0.0031 | 0.0030 | 0.0066 | 0.0061 |
+| LSD | 0.462 | 0.473 | 1.088 | 1.077 |
+| Coordinate/list adapter | 0.0015 | 0.0014 | 0.0030 | 0.0030 |
+| Fitting | 1.825 | 1.248 | 5.348 | 3.870 |
+| Processing | 2.643 | 1.984 | 6.030 | 4.470 |
+| Process launch through exit | 2.821 | 2.200 | 6.292 | 4.653 |
+
+Median fit time fell about 32%; median processing fell about 25%. Fresh-process throughput was 0.312 → 0.418 maps/s. Peak child process high-water memory remained approximately 0.769 GiB in both runs. Baseline had one 17.55 s process-launch/exit outlier outside the maximum 6.34 s processing interval; final launch/exit maximum was 4.92 s. Component medians are independent and do not sum to the total median.
+
+These are local development-machine measurements with warm file caches and no reserved host; some unrelated verification ran during development. They are not a hosted-performance estimate. Although the code requests one OpenCV thread, this macOS GCD build reports 10, matching the prior experiment; one active analysis is enforced independently. The Python runner's batch queue wait is a sequential-enqueue model; actual service queue measurements follow separately. Rendering was excluded from timed runs.
+
+## Real application run with wall analysis
+
+The final run used real upload HTTP endpoints, Postgres, Redis/BullMQ, the vision supervisor and a Chromium editor. One wall job ran at a time throughout the 27-map queue; 32 wall analyses completed. All 27 grid outcomes retained historical geometry.
+
+| Application measurement | Median | p95 | Maximum |
+| --- | ---: | ---: | ---: |
+| Upload response | 19.8 ms | 33.4 ms | 190.2 ms |
+| Actual queue wait | 33.27 s | 66.12 s | 70.18 s |
+| Vision HTTP, including process startup | 2.65 s | 5.11 s | 5.33 s |
+| Result availability after upload | 35.61 s | 67.43 s | 73.94 s |
+
+The editor was loaded, opened and successfully edited in 2.12 s while analysis continued. Whole batch throughput was 0.349 maps/s with wall work active. Queue wait reflects a deliberately submitted 27-map batch; it is separate from processing and browser interaction latency.
+
+Invocation counts were 27 after completion, 27 after 270 additional terminal polls and three editor reopenings, and 27 after cached library selection and explicit placement. An independent identical-byte upload advanced the count to 28. A real blank map produced `no_grid` at count 29. Restarting the app/store left it at 29. After restarting the Postgres process, a fresh Node process read all 27 completed maps plus the blank map and observed **zero new detector invocations**.
+
+Across the combined local sampling window, peak grid-supervisor-plus-child RSS was 0.816 GiB, wall-worker RSS 1.436 GiB, and their maximum simultaneous RSS sum 2.243 GiB. At most two grid processes were observed: supervisor plus one disposable child. The wall figure includes retained allocations over sequential work. RSS sums can count shared pages more than once and exclude Node, Redis, Postgres and browser memory; they are not container memory measurements.
+
+## Evidence and reproduction
+
+Local artifacts (outside git):
+
+- `/private/tmp/vtt-grid-baseline/`: unoptimized production port snapshot.
+- `/private/tmp/vtt-grid-{baseline,optimized,replay}-results/`: source hashes, per-request JSONL and summaries.
+- `/private/tmp/vtt-grid-acceptance-verified/acceptance.json` and `database-restart.json`: real service/counter evidence.
+- `/private/tmp/vtt-grid-combined-memory.json`: sampled process measurements.
+- `/private/tmp/vtt-grid-review/index.html`: all 27 original-size JPEG overlays, native-center PNG crops and overview; rendered after timing. The source images remain unchanged.
+- `/private/tmp/vtt-grid-final-tests.log`, `vtt-grid-python-final.log`, `vtt-grid-playwright-final.log`, `vtt-grid-uvtt-playwright.log`, `vtt-grid-lint.log`, `vtt-grid-typecheck.log`, `vtt-grid-build.log`: check output.
+
+Use an isolated Python 3.11 virtual environment and temporary services/data. The existing experiment virtual environment is not needed or modified. Measurement scripts additionally need `psutil`.
+
+```sh
+python3.11 -m venv /private/tmp/grid-qa-venv
+/private/tmp/grid-qa-venv/bin/pip install -r services/vision/requirements.txt psutil
+/private/tmp/grid-qa-venv/bin/python -B -m unittest discover -s services/vision -v
+
+# Point STUDY_RUN to the existing reviewed expanded-native run; no images are copied into git.
+/private/tmp/grid-qa-venv/bin/python -B services/vision/benchmark_grid.py \
+  --study-run "$STUDY_RUN" --output /private/tmp/grid-new-measurements
+/private/tmp/grid-qa-venv/bin/python -B services/vision/benchmark_grid.py \
+  --study-run "$STUDY_RUN" --output /private/tmp/grid-segment-replay --passes 1 --replay-only
+/private/tmp/grid-qa-venv/bin/python -B services/vision/render_grid_review.py \
+  --study-run "$STUDY_RUN" --results /private/tmp/grid-new-measurements/requests.jsonl \
+  --output /private/tmp/grid-new-overlays
+
+# DATABASE_URL and REDIS_URL must point at isolated local test services.
+npm run prisma:migrate --workspace=@vtt/server
+npm run lint
+npm run typecheck
+NODE_OPTIONS=--no-experimental-webstorage npm test
+npm run build
+npm exec -- playwright test browser/grid-detection.spec.ts
+npm exec -- playwright test browser/uvtt.spec.ts
+```
+
+For real-service measurement, run the vision supervisor on `127.0.0.1:58091`, one wall worker on the test Redis, and Vite on `127.0.0.1:58189` with `VTT_SERVER=http://127.0.0.1:58109`. Set `GRID_STUDY_RUN`, `GRID_BENCH_OUTPUT` to a new temporary directory, `DATABASE_URL`, `REDIS_URL`, and `VISION_URL=http://127.0.0.1:58091`, then run `npm exec --workspace=@vtt/server -- tsx src/scripts/benchmarkGrid.ts`. It starts its own isolated app listener on 58109, records counters/timing, and closes it. After restarting the test database, run `tsx src/scripts/verifyGridCache.ts` in the server workspace with the same environment to verify persistent reuse in another process.
+
+## Remaining acceptance prerequisites
+
+`docker compose config` confirms a default 2,147,483,648-byte grid memory limit and wall concurrency one. `GRID_MEMORY_LIMIT=1536m` resolves to 1,610,612,736 bytes. Actual Compose execution, enforced container peak-memory measurements and full-stack signoff remain pending because the Docker daemon is unavailable. Local process measurements do not satisfy that container acceptance requirement. Architecture-owner review remains a merge prerequisite. No merge, deployment, calibrated-accuracy claim or hosted-performance claim was made.

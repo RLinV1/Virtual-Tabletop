@@ -3,7 +3,7 @@ import { DEFAULT_GRID, emptyRoomState, normalizeLegacyGridForBoard, type Library
 import { api } from "../../net/api";
 import { Modal } from "../../ui/Modal";
 import { GridForm } from "../GridForm";
-import { gridsEqual, parseGridDraft, toGridDraft, withGridSuggestion } from "../gridDraft";
+import { gridsEqual, newGridSuggestionSession, parseGridDraft, toGridDraft, withGridSuggestion } from "../gridDraft";
 import { useGridDetection } from "../useGridDetection";
 import { createDraftConnection } from "./draftConnection";
 import { FogSetup } from "./FogSetup";
@@ -42,6 +42,7 @@ function MapSession({ asset, importDiagnostics, onSaved, onClose }: Omit<Props, 
   const [prompt, setPrompt] = useState(false);
   const busy = useRef(false);
   const active = useRef(true);
+  const suggestionSession = useRef(newGridSuggestionSession());
   const detection = useGridDetection("library", "", asset.id);
   useEffect(() => {
     active.current = true;
@@ -68,11 +69,13 @@ function MapSession({ asset, importDiagnostics, onSaved, onClose }: Omit<Props, 
   } : null, [asset, draft, parsedGrid, savedAsset.grid]);
 
   const discard = () => {
+    suggestionSession.current.blocked = true;
     setGridDraft(toGridDraft(normalizeLegacyGridForBoard(savedAsset.grid ?? DEFAULT_GRID, asset)));
     if (stored) setDraft(draftFromBoard(asset.url, stored));
     setSaveError(null);
   };
   const save = async (): Promise<LibraryAsset | null> => {
+    suggestionSession.current.blocked = true;
     if (busy.current) return null;
     if (!parsedGrid) { setSaveError("Fix the grid before saving your changes."); return null; }
     busy.current = true;
@@ -101,6 +104,7 @@ function MapSession({ asset, importDiagnostics, onSaved, onClose }: Omit<Props, 
     }
   };
   const close = () => {
+    suggestionSession.current.blocked = true;
     if (busy.current) return;
     if (dirty) setPrompt(true);
     else onClose(savedAsset);
@@ -126,6 +130,8 @@ function MapSession({ asset, importDiagnostics, onSaved, onClose }: Omit<Props, 
           onChange={(next) => { setGridDraft(next); setSaveError(null); }} onCancel={discard}
           onApply={async () => { await save(); }} applying={saving} error={null} hideActions advancedOpen
           detection={detection.status} detectionError={detection.error}
+          detectionDenied={detection.accessDenied}
+          autoSuggest={!savedAsset.grid} suggestionSession={suggestionSession.current}
           onUseSuggestion={(candidate) => setGridDraft(withGridSuggestion(gridDraft, candidate))}
           allowUnchanged={!savedAsset.grid}
         /></HudLayout>}
