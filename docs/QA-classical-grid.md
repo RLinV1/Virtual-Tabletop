@@ -104,6 +104,31 @@ npm exec -- playwright test browser/uvtt.spec.ts
 
 For real-service measurement, run the vision supervisor on `127.0.0.1:58091`, one wall worker on the test Redis, and Vite on `127.0.0.1:58189` with `VTT_SERVER=http://127.0.0.1:58109`. Set `GRID_STUDY_RUN`, `GRID_BENCH_OUTPUT` to a new temporary directory, `DATABASE_URL`, `REDIS_URL`, and `VISION_URL=http://127.0.0.1:58091`, then run `npm exec --workspace=@vtt/server -- tsx src/scripts/benchmarkGrid.ts`. It starts its own isolated app listener on 58109, records counters/timing, and closes it. After restarting the test database, run `tsx src/scripts/verifyGridCache.ts` in the server workspace with the same environment to verify persistent reuse in another process.
 
-## Remaining acceptance prerequisites
+## Docker acceptance — 2026-10-26
 
-`docker compose config` confirms a default 2,147,483,648-byte grid memory limit and wall concurrency one. `GRID_MEMORY_LIMIT=1536m` resolves to 1,610,612,736 bytes. Actual Compose execution, enforced container peak-memory measurements and full-stack signoff remain pending because the Docker daemon is unavailable. Local process measurements do not satisfy that container acceptance requirement. Architecture-owner review remains a merge prerequisite. No merge, deployment, calibrated-accuracy claim or hosted-performance claim was made.
+Docker Desktop became available after the initial implementation. Acceptance passed in the separate `vtt-grid-agent-qa` Compose project, with independent volumes and localhost ports. The user's existing `vtt-grid-qa` stack remained running and unchanged. Images built from implementation commit `820d953`; Python 3.11.17/Linux ARM64, OpenCV wheel 4.8.1.78, NumPy 1.26.4 and Pillow 11.1.0 were verified in the container. Docker's VM reported 10 CPUs and about 7.75 GiB RAM. These measurements are another local development run, with the user's other stack idle alongside it.
+
+The complete application started with fresh Postgres migrations, Redis, SeaweedFS, grid/wall services, Node and Vite. Lint, typecheck, build and all 2,134 npm tests passed inside the Node 22 image, with one existing environment-dependent skip. All 19 grid/fitter/supervisor and 30 wall Python tests passed in the pinned image. All 12 grid editor and six UVTT Playwright cases passed against the Docker web/API stack in Chromium, Firefox and WebKit, including narrow/touch configurations. Controlled delayed/denied grid responses in the editor suite remain deliberately intercepted to exercise those interactions.
+
+A separate Chromium smoke check used real analysis responses and both upload paths. It verified PNG/WebP candidates, JPEG EXIF handling and actual dimensions, blank `no_grid`, 20 MP terminal errors, token exclusion and player/anonymous access denial. The served WebP SHA-256 matched the original uploaded bytes through the S3-backed stack. A real cached estimate prefilled an untouched library draft while its saved grid remained null until explicit Save; selecting an unconfigured library map opened setup and cancellation closed it cleanly. No product-code changes were needed during this acceptance run.
+
+The existing 27-map acceptance runner used the Docker Postgres, Redis, grid supervisor and wall worker, with its own instrumented host Node app and Chromium/Vite frontend. Its local-disk asset adapter permits exact invocation counting; the separate full-stack check above covers S3. All 27 results matched historical geometry within 1e-6 px; maximum differences were 1.34e-12 px in spacing, 1.68e-11 px in X phase and 1.26e-11 px in Y phase. Every map completed on attempt one. Eleven sequential wall analyses completed successfully alongside the grid batch.
+
+| Docker-backed application measurement | Median | p95 | Maximum |
+| --- | ---: | ---: | ---: |
+| Upload response | 30.3 ms | 66.1 ms | 103.4 ms |
+| Queue wait | 42.30 s | 81.65 s | 86.20 s |
+| Vision HTTP, including process startup | 3.40 s | 6.13 s | 6.41 s |
+| Result availability after upload | 45.03 s | 83.01 s | 88.87 s |
+
+The editor opened and accepted a field edit in 3.16 s while analysis continued. Batch throughput with wall work active was 0.298 maps/s. These figures have different runtime/resource conditions from the earlier macOS process benchmark and do not measure a new optimization comparison. The acceptance runner's legacy `container_memory` text does not collect memory; the separate cgroup measurements below are authoritative for this run.
+
+Invocation counts remained 27 after 270 terminal polls, three setup reopenings, cached library selection and explicit placement. A separate identical-byte upload advanced the count to 28; the blank map advanced it to 29 and returned `no_grid`. App/store restart kept the count at 29. After an actual restart of the isolated Docker Postgres container, a fresh Node process reused all 27 map outcomes and the blank `no_grid` outcome with **zero new detector invocations**.
+
+Fresh vision containers were created immediately before the measured workload. Docker inspection and cgroup v2 `memory.max` both confirmed an enforced 2,147,483,648-byte grid ceiling. A configuration-only `GRID_MEMORY_LIMIT=1536m` check resolved to 1,610,612,736 bytes without changing running containers. Grid `memory.peak` was **644,042,752 bytes (0.600 GiB)**; wall `memory.peak` was **1,368,784,896 bytes (1.275 GiB)**. These are separate container peaks, not a simultaneous aggregate or process RSS. Neither container recorded a memory-limit hit, OOM or OOM kill; both had zero restarts. The wall container has no independent memory ceiling. Across 550 queue samples, maximum active counts were one grid and one wall job; BullMQ's stored global grid concurrency was one.
+
+Raw logs, browser screenshots/traces, Compose configurations, geometry, cache and memory evidence are retained outside git in `/private/tmp/vtt-grid-docker-agent-20261026/`. The agent's QA containers and temporary Vite process were stopped afterward; its volumes were retained without touching the user's running stack. No supplied images were committed.
+
+## Remaining merge prerequisite
+
+Local Docker acceptance is complete. ADR 0044 still requires architecture-owner review before merge. No merge, deployment, calibrated-accuracy claim or hosted-performance claim was made.

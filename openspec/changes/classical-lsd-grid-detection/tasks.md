@@ -21,7 +21,7 @@
 
 - [x] 4.1 Capture unoptimized application baseline, replay saved segments to 1e-6 px and run all 27 pipelines; document any period/phase differences.
 - [x] 4.2 Measure three shuffled passes before/after optimizations, preserving parity; report components, processing, queue waiting, browser availability, throughput and process memory separately; render review overlays outside timing.
-- [ ] 4.3 Verify configurable 2 GiB Compose ceiling and one active wall job alongside grid work; record container memory and full-stack acceptance evidence when Docker is available.
+- [x] 4.3 Verify configurable 2 GiB Compose ceiling and one active wall job alongside grid work; record container memory and full-stack acceptance evidence when Docker is available.
 
-  Compose configuration resolves to 2 GiB (and accepts an override). Local real-service acceptance ran one active wall job alongside all 27 grid analyses and recorded process RSS. Container enforcement/memory and full-stack signoff remain pending: the Docker daemon is unavailable. See `docs/QA-classical-grid.md` and `docs/classical-grid-evidence.json`.
+  Docker acceptance passed on 2026-10-26 in an isolated Compose project. All 27 maps retained geometry within 1e-6 px, with one active grid job and one active wall job. The enforced grid limit was 2 GiB; grid/wall cgroup peaks were 644,042,752 / 1,368,784,896 bytes with zero OOM events. A real database restart reused all 27 map results and one no_grid result with zero new detector invocations. Full-stack uploads, S3 artwork preservation, Python/npm suites and all 18 browser cases passed. See `docs/QA-classical-grid.md` and `docs/classical-grid-evidence.json`.
 - [x] 4.4 Run lint, typecheck, complete tests, Python wall/grid suites, build and relevant Playwright checks; deliver branch and verification report without supplied maps, merge or deployment.

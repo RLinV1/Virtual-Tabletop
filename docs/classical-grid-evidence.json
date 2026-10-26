@@ -17,7 +17,7 @@
     "parity_tolerance_px": 1e-06,
     "rendering_timed": false,
     "hosting_or_accuracy_claim": false,
-    "container_acceptance": "pending: Docker daemon unavailable"
+    "container_acceptance": "passed 2026-10-26; see docker_acceptance"
   },
   "baseline": {
     "requests": 81,
@@ -856,5 +856,138 @@
     },
     "scope": "local process RSS, not container memory",
     "excluded": "Node, Redis, Postgres, browser, container accounting"
+  },
+  "docker_acceptance": {
+    "date": "2026-10-26",
+    "implementation_commit": "820d953",
+    "compose_project": "vtt-grid-agent-qa",
+    "user_stack": "vtt-grid-qa left running and unchanged",
+    "runtime": {
+      "platform": "Docker Desktop Linux ARM64 on macOS",
+      "docker_engine": "29.9.2",
+      "python": "3.11.17",
+      "opencv_python_headless": "4.8.1.78",
+      "numpy": "1.26.4",
+      "pillow": "11.1.0",
+      "vm_cpus": 10,
+      "vm_memory_bytes": 8319504384
+    },
+    "verification": {
+      "lint": "passed",
+      "typecheck": "passed",
+      "build": "passed with existing asset/chunk warnings",
+      "npm_tests_passed": 2134,
+      "npm_tests_existing_skipped": 1,
+      "python_grid_tests_passed": 19,
+      "python_wall_tests_passed": 30,
+      "docker_grid_browser_tests_passed": 12,
+      "docker_uvtt_browser_tests_passed": 6,
+      "fullstack_real_analysis_checks": [
+        "Library WebP upload: decoded dimensions, real candidate, original bytes preserved",
+        "Direct room PNG upload: real candidate before placement",
+        "Identical-byte library upload: separate record and completed analysis",
+        "Both upload paths: no_grid, oversized error, EXIF JPEG, and token exclusion",
+        "Analysis authorization: player and anonymous access denied",
+        "Real browser: untouched draft prefills, grid remains unsaved until explicit Save",
+        "Real browser: unconfigured library selection opens setup and cancels cleanly"
+      ]
+    },
+    "geometry": {
+      "cases": 27,
+      "all_parity": true,
+      "tolerance_px": 1e-06,
+      "max_geometry_delta_px": {
+        "cellSize": 1.3358203432289883e-12,
+        "offsetX": 1.6715517858756357e-11,
+        "offsetY": 1.2533973858808167e-11
+      },
+      "all_attempts_one": true
+    },
+    "application": {
+      "cases": 27,
+      "runner": "instrumented host Node/Vite/Chromium with Docker Postgres, Redis, grid and wall services",
+      "s3_verified_separately": true,
+      "browser_editor_available_ms": 3161.4413340000006,
+      "throughput_maps_per_second": 0.29826840457348724,
+      "timing_ms": {
+        "upload_ms": {
+          "median": 30.254208999999946,
+          "p95": 66.13491699999986,
+          "max": 103.35175000000004
+        },
+        "queue_wait_ms": {
+          "median": 42299.252709,
+          "p95": 81647.515833,
+          "max": 86202.659917
+        },
+        "vision_http_ms": {
+          "median": 3398.6370000000024,
+          "p95": 6131.504625000001,
+          "max": 6410.137832999993
+        },
+        "available_ms": {
+          "median": 45025.129084,
+          "p95": 83010.62075,
+          "max": 88868.44475
+        }
+      },
+      "wall_jobs": 11,
+      "wall_job_states": [
+        "done"
+      ],
+      "invocations": {
+        "invocations_after_polling_and_reopening": 27,
+        "invocations_after_selection_and_placement": 27,
+        "invocations_after_independent_duplicate_upload": 28,
+        "invocations_after_blank_upload": 29,
+        "invocations_after_app_and_store_restart": 29
+      }
+    },
+    "database_restart": {
+      "cached_maps": 27,
+      "cached_no_grid": 1,
+      "new_detector_invocations": 0,
+      "fresh_node_process": true
+    },
+    "container_memory": {
+      "source": "fresh-container cgroup v2 counters after combined workload; separate peaks, not simultaneous sum",
+      "grid": {
+        "limit_bytes": 2147483648,
+        "peak_bytes": 644042752,
+        "events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      },
+      "wall": {
+        "limit_bytes": null,
+        "peak_bytes": 1368784896,
+        "events": {
+          "low": 0,
+          "high": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_kill": 0,
+          "oom_group_kill": 0,
+          "sock_throttled": 0
+        }
+      },
+      "configuration_only_override_bytes": "1610612736"
+    },
+    "concurrency": {
+      "samples": 550,
+      "interval_ms": 250,
+      "max_grid_active": 1,
+      "max_wall_active": 1,
+      "global_grid_concurrency": 1,
+      "both_active_samples": 349
+    },
+    "raw_evidence_directory": "/private/tmp/vtt-grid-docker-agent-20261026",
+    "no_product_code_changes": true
   }
 }
