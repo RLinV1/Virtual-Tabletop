@@ -8,6 +8,9 @@ import { usePersistentState } from "../ui/usePersistentState";
 import { BoardFilters } from "./BoardFilters";
 import { canAnimateDice, type TrayRoll } from "../ui/Die3D";
 import { ThrownDice, type ActiveThrow } from "./ThrownDice";
+import { DroppedDice, type ActiveDrop } from "./DroppedDice";
+import { addDrop, type BoardDrop } from "./tokenDice";
+import type { DiceSkin } from "../ui/diceSkin";
 import { BoardView, type GmFogView } from "./boardView";
 import { useDisplayedHealth } from "./nukeHealth";
 import { shakeScreen } from "./screenShake";
@@ -46,6 +49,12 @@ interface Props {
   selectOnly?: boolean;
   /** Open the sidebar's editor for a token, from its card (token-card-actions). */
   onEditToken?: (tokenId: string) => void;
+  /** GM: the tokens chosen for a group roll or an area effect, marked on the board (ADR 0044). */
+  groupSelection?: readonly string[];
+  /** GM: Shift-click on a token adds it to `groupSelection` or takes it out. */
+  onToggleGroupToken?: (tokenId: string) => void;
+  /** GM: the template picked in From template; its tokens replace the selection. */
+  onPickTemplate?: (templateId: string) => void;
 }
 
 /** What the roster and initiative list can ask the canvas to do (FR-GM-24). */
@@ -57,6 +66,8 @@ export interface BoardHandle {
   duplicateToken(tokenId: string): void;
   /** Pick a target on the board for `tokenId` to attack; the pick goes to `onPickTarget` (attack-targeting). */
   startAttack(tokenId: string): void;
+  /** GM: pick a placed template on the board; the pick goes to `onPickTemplate` (ADR 0044). */
+  startTemplatePick(): void;
   /** Show a ping on this viewer's board only, e.g. the one an attack roll just sent. */
   showPing(at: Point): void;
   /**
@@ -72,6 +83,11 @@ export interface BoardHandle {
    * comes once the dice have faded off the board, or were cleared early.
    */
   throwDice(t: BoardThrow, roll: TrayRoll, onLanded: () => void, onGone?: () => void): boolean;
+  /**
+   * Drop a group or area-effect roll's dice onto its tokens (ADR 0044). False when they can't be
+   * animated here; then neither callback is called.
+   */
+  dropDice(drop: BoardDrop, skin: DiceSkin | null, onLanded: () => void, onGone?: () => void): boolean;
 }
 
 /** What the Dice panel needs from the board to throw dice onto it (throw-dice-on-board). */
@@ -116,6 +132,7 @@ const HINTS: Record<BoardTool["kind"], string> = {
   area: "Drag to size and aim · click to place the chosen size · hold Alt to place freely · everyone at the table sees areas",
   erase: "Click or drag over your marks and areas to erase them · Esc to stop",
   attack: "Click the token to attack · Esc or right-click to cancel",
+  pickTemplate: "Click an area to select every token it touches · Esc or right-click to cancel",
   fog: "",
 };
 
@@ -139,7 +156,7 @@ function isTyping(target: EventTarget | null) {
 }
 
 /** The PixiJS board plus its React toolbar and notices; Pixi objects stay inside `BoardView`. */
-export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame, connection, state, you, gridPreview, readOnly = false, suppressLiveEffects = false, toolbar, notices, overlay, landedRollId, onPickTarget, onNukeImpact, selectOnly = false, onEditToken }, ref) {
+export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame, connection, state, you, gridPreview, readOnly = false, suppressLiveEffects = false, toolbar, notices, overlay, landedRollId, onPickTarget, onNukeImpact, selectOnly = false, onEditToken, groupSelection, onToggleGroupToken, onPickTemplate }, ref) {
   const renderedState = useDisplayedHealth(state);
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<BoardView | null>(null);
@@ -154,8 +171,8 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
   const hasWalls = Object.values(state.walls).some((wall) => !wall.portal);
   /** Strikes waiting for their thrown dice to land, by roll id, oldest first (KAN-76). */
   const waitingStrikes = useRef(new Map<string, { effect: AttackEffect; timer: number }>());
-  const latest = useRef({ state, renderedState, you, gridPreview, onPickTarget, onNukeImpact, gmFog: "tint" as GmFogView, showWalls: true, showPortals: true, readOnly: false, suppressLiveEffects: false });
-  latest.current = { state, renderedState, you, gridPreview, onPickTarget, onNukeImpact, gmFog, showWalls, showPortals, readOnly, suppressLiveEffects };
+  const latest = useRef({ state, renderedState, you, gridPreview, onPickTarget, onNukeImpact, onToggleGroupToken, onPickTemplate, groupSelection, gmFog: "tint" as GmFogView, showWalls: true, showPortals: true, readOnly: false, suppressLiveEffects: false });
+  latest.current = { state, renderedState, you, gridPreview, onPickTarget, onNukeImpact, onToggleGroupToken, onPickTemplate, groupSelection, gmFog, showWalls, showPortals, readOnly, suppressLiveEffects };
   // Sends nothing while previewing as a player, whatever the board is asked to do. Stable for as
   // long as the connection is, so entering and leaving a preview never rebuilds the board view.
   const guarded = useMemo(() => guardedConnection(connection, () => latest.current.readOnly), [connection]);
@@ -194,6 +211,18 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
     throwsRef.current = next;
     setThrows(next);
   };
+  /** Group and area-effect rolls dropping onto tokens (ADR 0044); their own slots, apart from throws. */
+  const [drops, setDrops] = useState<ActiveDrop[]>([]);
+  const dropsRef = useRef(drops);
+  const setBoardDrops = (next: ActiveDrop[]) => {
+    dropsRef.current = next;
+    setDrops(next);
+  };
+  const dropDone = useCallback((rollId: string) => {
+    const done = dropsRef.current.filter((d) => d.drop.rollId === rollId);
+    setBoardDrops(dropsRef.current.filter((d) => d.drop.rollId !== rollId));
+    done.forEach((d) => d.onGone());
+  }, []);
   /** Attack effects the React overlay is playing, oldest first (board-effects-overlay). */
   const [overlayEffects, setOverlayEffects] = useState<OverlayEffect[]>([]);
   const nextEffectId = useRef(0);
@@ -221,7 +250,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
   // Don't leave the Dice panel waiting on dice that are no longer drawn.
   useEffect(
     () => () =>
-      throwsRef.current.forEach((t) => {
+      [...throwsRef.current, ...dropsRef.current].forEach((t) => {
         t.onLanded();
         t.onGone();
       }),
@@ -303,6 +332,12 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
         latest.current.onPickTarget?.(attackerId, targetId);
       },
       cancelAttack: () => endAttack(),
+      toggleGroupToken: (tokenId) => latest.current.onToggleGroupToken?.(tokenId),
+      pickTemplate: (templateId) => {
+        setTool({ kind: "select" });
+        latest.current.onPickTemplate?.(templateId);
+      },
+      cancelPickTemplate: () => setTool({ kind: "select" }),
     });
 
     let disposed = false;
@@ -317,6 +352,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
       view.update(latest.current.renderedState, latest.current.you);
       view.setTool(toolRef.current);
       view.setPlacement(ghostRef.current);
+      view.setGroupSelection(latest.current.groupSelection ?? []);
     });
     const stopEphemeral = connection.onEphemeral((_from, payload) => {
       if (latest.current.suppressLiveEffects) return;
@@ -414,6 +450,10 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
   useEffect(() => {
     viewRef.current?.setTool(tool);
   }, [tool]);
+
+  useEffect(() => {
+    viewRef.current?.setGroupSelection(groupSelection ?? []);
+  }, [groupSelection]);
 
   useEffect(() => {
     viewRef.current?.setPlacement(ghost);
@@ -514,6 +554,10 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
       if (toolRef.current.kind !== "attack") beforeAttack.current = toolRef.current;
       setTool({ kind: "attack", attackerId: tokenId });
     },
+    startTemplatePick: () => {
+      setPlacing(null);
+      setTool({ kind: "pickTemplate" });
+    },
     showPing: (at: Point) => viewRef.current?.showPing(at),
     aimThrow: (client: Point, velocity: Point) => {
       const view = viewRef.current;
@@ -553,6 +597,27 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
       });
       return true;
     },
+    dropDice: (drop: BoardDrop, skin: DiceSkin | null, onLanded: () => void, onGone?: () => void) => {
+      const view = viewRef.current;
+      if (!view || !canAnimateDice(hostRef.current)) return false;
+      let landed = false;
+      const once = () => {
+        if (landed) return;
+        landed = true;
+        onLanded();
+      };
+      const { grid, map } = latest.current.state.scene;
+      // The same die size as a Roll-button throw, so these read as ordinary rolls.
+      const size = boardDieSize(grid, view.transform);
+      // One slot per roll, however many tokens: a big roll never pushes its own dice off.
+      const { kept, evicted } = addDrop(dropsRef.current, { drop, size, skin, map, onLanded: once, onGone: onGone ?? (() => {}) });
+      setBoardDrops(kept);
+      evicted.forEach((e) => {
+        e.onLanded();
+        e.onGone();
+      });
+      return true;
+    },
   }), []);
 
   return (
@@ -570,6 +635,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
         </Suspense>
       )}
       {throws.length > 0 && <ThrownDice throws={throws} subscribe={followView} onDone={throwDone} />}
+      {drops.length > 0 && <DroppedDice drops={drops} subscribe={followView} onDone={dropDone} />}
       <div className="board-toolbar">
         {toolbar}
         <button type="button" className="tool-button" data-tour="fit" onClick={() => viewRef.current?.resetView()} title="Fit the map to the screen">

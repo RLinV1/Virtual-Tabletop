@@ -3,7 +3,7 @@ import type { Participant, RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
 import { PanelSection } from "../ui/PanelSection";
-import { pendingRulings } from "./attackRoll";
+import { pendingRulingCount } from "./attackRoll";
 import { encounterIncludes, includedInEncounter } from "./tokenGroups";
 import { initiativeEntries, initiativeFieldValue, invalidInitiative, invalidMessage } from "./initiativeFields";
 
@@ -171,7 +171,7 @@ export function InitiativeTracker({
   }
 
   const activeId = init.order[init.activeIndex];
-  const pending = isGm ? pendingRulings(state).length : 0;
+  const pending = isGm ? pendingRulingCount(state) : 0;
 
   return (
     <PanelSection
