@@ -46,6 +46,12 @@ interface Props {
   selectOnly?: boolean;
   /** Open the sidebar's editor for a token, from its card (token-card-actions). */
   onEditToken?: (tokenId: string) => void;
+  /** GM: the tokens chosen for a group roll or an area effect, marked on the board (ADR 0044). */
+  groupSelection?: readonly string[];
+  /** GM: Shift-click on a token adds it to `groupSelection` or takes it out. */
+  onToggleGroupToken?: (tokenId: string) => void;
+  /** GM: the template picked in From template; its tokens replace the selection. */
+  onPickTemplate?: (templateId: string) => void;
 }
 
 /** What the roster and initiative list can ask the canvas to do (FR-GM-24). */
@@ -57,6 +63,8 @@ export interface BoardHandle {
   duplicateToken(tokenId: string): void;
   /** Pick a target on the board for `tokenId` to attack; the pick goes to `onPickTarget` (attack-targeting). */
   startAttack(tokenId: string): void;
+  /** GM: pick a placed template on the board; the pick goes to `onPickTemplate` (ADR 0044). */
+  startTemplatePick(): void;
   /** Show a ping on this viewer's board only, e.g. the one an attack roll just sent. */
   showPing(at: Point): void;
   /**
@@ -116,6 +124,7 @@ const HINTS: Record<BoardTool["kind"], string> = {
   area: "Drag to size and aim · click to place the chosen size · hold Alt to place freely · everyone at the table sees areas",
   erase: "Click or drag over your marks and areas to erase them · Esc to stop",
   attack: "Click the token to attack · Esc or right-click to cancel",
+  pickTemplate: "Click an area to select every token it touches · Esc or right-click to cancel",
   fog: "",
 };
 
@@ -139,7 +148,7 @@ function isTyping(target: EventTarget | null) {
 }
 
 /** The PixiJS board plus its React toolbar and notices; Pixi objects stay inside `BoardView`. */
-export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame, connection, state, you, gridPreview, readOnly = false, suppressLiveEffects = false, toolbar, notices, overlay, landedRollId, onPickTarget, onNukeImpact, selectOnly = false, onEditToken }, ref) {
+export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame, connection, state, you, gridPreview, readOnly = false, suppressLiveEffects = false, toolbar, notices, overlay, landedRollId, onPickTarget, onNukeImpact, selectOnly = false, onEditToken, groupSelection, onToggleGroupToken, onPickTemplate }, ref) {
   const renderedState = useDisplayedHealth(state);
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<BoardView | null>(null);
@@ -154,8 +163,8 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
   const hasWalls = Object.values(state.walls).some((wall) => !wall.portal);
   /** Strikes waiting for their thrown dice to land, by roll id, oldest first (KAN-76). */
   const waitingStrikes = useRef(new Map<string, { effect: AttackEffect; timer: number }>());
-  const latest = useRef({ state, renderedState, you, gridPreview, onPickTarget, onNukeImpact, gmFog: "tint" as GmFogView, showWalls: true, showPortals: true, readOnly: false, suppressLiveEffects: false });
-  latest.current = { state, renderedState, you, gridPreview, onPickTarget, onNukeImpact, gmFog, showWalls, showPortals, readOnly, suppressLiveEffects };
+  const latest = useRef({ state, renderedState, you, gridPreview, onPickTarget, onNukeImpact, onToggleGroupToken, onPickTemplate, groupSelection, gmFog: "tint" as GmFogView, showWalls: true, showPortals: true, readOnly: false, suppressLiveEffects: false });
+  latest.current = { state, renderedState, you, gridPreview, onPickTarget, onNukeImpact, onToggleGroupToken, onPickTemplate, groupSelection, gmFog, showWalls, showPortals, readOnly, suppressLiveEffects };
   // Sends nothing while previewing as a player, whatever the board is asked to do. Stable for as
   // long as the connection is, so entering and leaving a preview never rebuilds the board view.
   const guarded = useMemo(() => guardedConnection(connection, () => latest.current.readOnly), [connection]);
@@ -303,6 +312,12 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
         latest.current.onPickTarget?.(attackerId, targetId);
       },
       cancelAttack: () => endAttack(),
+      toggleGroupToken: (tokenId) => latest.current.onToggleGroupToken?.(tokenId),
+      pickTemplate: (templateId) => {
+        setTool({ kind: "select" });
+        latest.current.onPickTemplate?.(templateId);
+      },
+      cancelPickTemplate: () => setTool({ kind: "select" }),
     });
 
     let disposed = false;
@@ -317,6 +332,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
       view.update(latest.current.renderedState, latest.current.you);
       view.setTool(toolRef.current);
       view.setPlacement(ghostRef.current);
+      view.setGroupSelection(latest.current.groupSelection ?? []);
     });
     const stopEphemeral = connection.onEphemeral((_from, payload) => {
       if (latest.current.suppressLiveEffects) return;
@@ -416,6 +432,10 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
   }, [tool]);
 
   useEffect(() => {
+    viewRef.current?.setGroupSelection(groupSelection ?? []);
+  }, [groupSelection]);
+
+  useEffect(() => {
     viewRef.current?.setPlacement(ghost);
   }, [ghost]);
 
@@ -513,6 +533,10 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
       setPlacing(null);
       if (toolRef.current.kind !== "attack") beforeAttack.current = toolRef.current;
       setTool({ kind: "attack", attackerId: tokenId });
+    },
+    startTemplatePick: () => {
+      setPlacing(null);
+      setTool({ kind: "pickTemplate" });
     },
     showPing: (at: Point) => viewRef.current?.showPing(at),
     aimThrow: (client: Point, velocity: Point) => {

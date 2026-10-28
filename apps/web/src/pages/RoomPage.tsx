@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { House } from "@phosphor-icons/react";
-import { can, filterStateForViewer, isActive, presetOf, type ReplayFrame, type DiceVisibility, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
+import { areaEffectStage, can, diceRollsOf, filterStateForViewer, findDiceRoll, isActive, presetOf, type ReplayFrame, type DiceVisibility, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
 import { Board, type BoardHandle, type DiceBoard } from "../board/Board";
+import { templateArea, tokensTouchingArea } from "../board/tools";
+import type { GroupSelection } from "../panels/GroupSelection";
 import { NukeHealthContext, useNukeHealth } from "../board/nukeHealth";
 import { PendingDrops, type DiceDrop } from "../board/diceDrops";
 import type { TokenDraft } from "../board/placement";
@@ -19,7 +21,7 @@ import { RoomConnection, useRoomSnapshot, type ConnectionStatus } from "../net/r
 import { ChatPanel } from "../panels/ChatPanel";
 import { PanelTabs, RoomPanel, isTabId, type TabBadges, type TabId } from "../panels/RoomPanel";
 import { trayRoll, type RollThrow } from "../panels/DicePanel";
-import { outcomeKey, pendingRulings } from "../panels/attackRoll";
+import { outcomeKey, pendingRulingCount } from "../panels/attackRoll";
 import { ActivityLog } from "../panels/ActivityLog";
 import type { AttackPick } from "../panels/AttackPanel";
 import { useEncounterReset } from "../panels/attackSession";
@@ -240,6 +242,26 @@ function Room({ roomId, connection, token, features }: {
   // Ending the encounter clears the target and the last roll, but keeps the attacker and named attacks (attack-panel-encounter-reset).
   const attackReset = useEncounterReset(roomId, state, you?.id ?? null, () => setAttackPick((p) => ({ ...p, targetId: null })));
   const showPing = useCallback((at: Point) => boardRef.current?.showPing(at), []);
+  // The GM's group selection for a group roll or an area effect (ADR 0044). Local to this screen.
+  const [groupTokenIds, setGroupTokenIds] = useState<string[]>([]);
+  const toggleGroupToken = useCallback((tokenId: string) => setGroupTokenIds((ids) => (ids.includes(tokenId) ? ids.filter((id) => id !== tokenId) : [...ids, tokenId])), []);
+  const latestState = useRef(state);
+  latestState.current = state;
+  /** Every token the picked template touches, hidden ones included: the GM sees them all. */
+  const pickTemplate = useCallback((templateId: string) => {
+    const room = latestState.current;
+    const template = room?.templates[templateId];
+    if (!room || !template) return;
+    const grid = room.scene.grid;
+    setGroupTokenIds(tokensTouchingArea(templateArea(template, grid), Object.values(room.tokens), grid).map((t) => t.id));
+  }, []);
+  const groupSelection = useMemo<GroupSelection>(() => ({
+    // Tokens deleted since they were chosen drop out.
+    tokenIds: groupTokenIds.filter((id) => state?.tokens[id]),
+    remove: (tokenId) => setGroupTokenIds((ids) => ids.filter((id) => id !== tokenId)),
+    clear: () => setGroupTokenIds([]),
+    fromTemplate: () => boardRef.current?.startTemplatePick(),
+  }), [groupTokenIds, state?.tokens]);
   const diceBoard = useMemo<DiceBoard>(
     () => ({
       aimThrow: (client, velocity) => boardRef.current?.aimThrow(client, velocity) ?? null,
@@ -351,16 +373,21 @@ function Room({ roomId, connection, token, features }: {
   // Play-tab indicator (attack-ux-polish): the GM's pending rulings, or a dot when the GM has
   // ruled on a player's latest roll since they last had Play in view.
   const playVisible = tab === "play" && !(sidebarCollapsed && !compact);
-  const pendingCount = state && you?.role === "gm" ? pendingRulings(state).length : 0;
-  const myLatest = state && you ? [...state.rolls].reverse().find((r) => r.attack && r.byParticipantId === you.id) : undefined;
+  const pendingCount = state && you?.role === "gm" ? pendingRulingCount(state) : 0;
+  const myLatest = state && you ? diceRollsOf(state.rolls).reverse().find((r) => r.attack && r.byParticipantId === you.id) : undefined;
   const outcome = outcomeKey(myLatest);
   /** The outcome last seen with Play in view; undefined until the room has loaded. */
   const [seenOutcome, setSeenOutcome] = useState<string | null | undefined>(undefined);
   useEffect(() => {
     if (state && (playVisible || seenOutcome === undefined)) setSeenOutcome(outcome);
   }, [state, playVisible, outcome, seenOutcome]);
+  // A player holding a damage call is told from any tab (ADR 0044).
+  const effect = state?.areaEffect ?? null;
+  const damageCalled = you?.role !== "gm" && !!effect && effect.call?.participantId === you?.id && areaEffectStage(effect) === "called";
   const tabBadges: TabBadges = pendingCount > 0
     ? { play: { count: pendingCount, label: `${pendingCount} ${pendingCount === 1 ? "ruling" : "rulings"} pending` } }
+    : damageCalled && !playVisible
+      ? { play: { label: "damage roll called" } }
     : you?.role !== "gm" && !playVisible && outcome && seenOutcome !== undefined && outcome !== seenOutcome
       ? { play: { label: "new ruling" } }
       : {};
@@ -454,7 +481,7 @@ function Room({ roomId, connection, token, features }: {
     return () => window.clearTimeout(timer);
   }, [cardRollId]);
   // The card shows only rolls the viewed player could see, so a GM-only roll vanishes when a preview starts.
-  const cardRoll = cardRollId ? (preview?.state ?? state)?.rolls.find((r) => r.id === cardRollId) : undefined;
+  const cardRoll = cardRollId ? findDiceRoll((preview?.state ?? state)?.rolls ?? [], cardRollId) : undefined;
   // Your dice are still showing: on the board until they fade, or in a private tray until they land.
   const rolling = onBoard.size > 0 || !!state?.rolls.some((r) => airborne.has(r.id) && r.byParticipantId === you?.id);
   const rollThrow: RollThrow = { airborne, rolling, justLandedId: landedId, onLanded: land, expectDrop };
@@ -594,6 +621,9 @@ function Room({ roomId, connection, token, features }: {
         gridPreview={you.role === "gm" && !readOnly ? gridPreview : null}
         onPickTarget={pickTarget}
         onEditToken={editToken}
+        groupSelection={you.role === "gm" && !readOnly ? groupSelection.tokenIds : undefined}
+        onToggleGroupToken={you.role === "gm" && !readOnly ? toggleGroupToken : undefined}
+        onPickTemplate={pickTemplate}
         landedRollId={landedId}
         selectOnly={features.selectOnly}
         replayFrame={replaying ? replayFrame : null}
@@ -680,6 +710,7 @@ function Room({ roomId, connection, token, features }: {
               onDuplicateToken={duplicateToken}
               editingTokenId={editingTokenId}
               onEditToken={editToken}
+              groupSelection={groupSelection}
               compact={compact}
               tab={tab}
               onTab={setTab}

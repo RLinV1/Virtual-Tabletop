@@ -2707,3 +2707,27 @@ dialog.modal.checkpoint-preview-modal { width: min(64rem, calc(100vw - 2rem)); }
 .attack-target-list { display: flex; flex-direction: column; gap: var(--space-2); border: 0; margin: 0; padding: var(--space-2); min-width: 14rem; }
 
 .start-from-builtin { min-width: 14rem; }
+
+/* Group rolls and area effects (ADR 0044). */
+.group-roll-form { margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border); gap: var(--space-2); }
+.group-roll-heading { margin: 0; font-size: var(--fs-sm); font-weight: 600; }
+.group-selection { display: flex; flex-direction: column; gap: 0.35rem; }
+.group-selection-label { margin: 0; font-size: var(--fs-sm); }
+.group-selection-tokens { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.group-selection-token { display: inline-flex; align-items: center; gap: 0.25rem; }
+.group-selection-token .icon-button, .condition-adder .icon-button { min-height: 0; padding: 0.1rem; border: none; background: transparent; }
+.group-selection-actions { flex-wrap: wrap; }
+.group-roll .roll-detail { width: 100%; }
+.group-roll-entries { display: flex; flex-direction: column; gap: 0.1rem; font-variant-numeric: tabular-nums; }
+.area-effect { gap: var(--space-2); }
+.area-effect-targets { display: flex; flex-direction: column; gap: 0.15rem; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.area-effect-waiting, .area-effect-damage { margin: 0; }
+.damage-mode { border: none; margin: 0; padding: 0; display: flex; gap: var(--space-3); flex-wrap: wrap; }
+.area-effect-rows { display: flex; flex-direction: column; gap: var(--space-2); }
+.area-effect-row { display: flex; flex-direction: column; gap: 0.3rem; padding-bottom: var(--space-2); border-bottom: 1px solid var(--border); }
+.area-effect-row:last-child { border-bottom: none; padding-bottom: 0; }
+.area-effect-amount { display: flex; gap: 0.3rem; align-items: center; }
+.area-effect-amount input { width: 5rem; font-variant-numeric: tabular-nums; }
+.condition-adder { display: flex; flex-direction: column; gap: 0.25rem; }
+.condition-adder-row { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
+.condition-adder .chip { display: inline-flex; align-items: center; gap: 0.25rem; }

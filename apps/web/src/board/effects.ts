@@ -1,4 +1,4 @@
-import type { AnimationDef, ConditionId, DiceRoll, DomainEvent, Participant, Point, RoomState } from "@vtt/shared";
+import { diceRollsOf, findDiceRoll, type AnimationDef, type ConditionId, type DiceRoll, type DomainEvent, type Participant, type Point, type RoomState } from "@vtt/shared";
 import { ATTACK_STYLE_PRESETS, NUKE_PRESET, SHAPE_DEFAULTS } from "./effectPresets";
 import { getClientSettings } from "../ui/clientSettings";
 
@@ -90,9 +90,10 @@ export function strikeAnimation(roll: DiceRoll, state: RoomState): AnimationDef 
  * whose sides were hidden from a player leaves the damage roll to strike for them.
  */
 function followsToHit(state: RoomState, rollId: string, actorId: string, targetId: string): boolean {
-  const at = state.rolls.findIndex((roll) => roll.id === rollId);
-  for (let i = (at === -1 ? state.rolls.length : at) - 1; i >= 0; i--) {
-    const attack = state.rolls[i]!.attack;
+  const rolls = diceRollsOf(state.rolls);
+  const at = rolls.findIndex((roll) => roll.id === rollId);
+  for (let i = (at === -1 ? rolls.length : at) - 1; i >= 0; i--) {
+    const attack = rolls[i]!.attack;
     if (attack?.actor?.tokenId === actorId && attack.target?.tokenId === targetId) return attack.kind === "toHit";
   }
   return false;
@@ -103,7 +104,7 @@ function followsToHit(state: RoomState, rollId: string, actorId: string, targetI
  * "Unknown → Aria" plays nothing: the spec allows no attack animation once either side is hidden.
  */
 function targetOf(state: RoomState, rollId: string, visible: (tokenId: string) => boolean): string | null {
-  const attack = state.rolls.find((roll) => roll.id === rollId)?.attack;
+  const attack = findDiceRoll(state.rolls, rollId)?.attack;
   if (!attack?.actor || !attack.target || !visible(attack.actor.tokenId)) return null;
   return visible(attack.target.tokenId) ? attack.target.tokenId : null;
 }
