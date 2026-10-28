@@ -1,7 +1,8 @@
 import { Application, Container } from "pixi.js";
 import type { AnimationDef, AnimationShape } from "@vtt/shared";
 import { playNuke, playStrike, type FxHost } from "./fx";
-import { STAGE_CELL, STAGE_TOKEN_RADIUS, drawStageBackdrop, drawStageGrid, drawStandIn, loadStageArt, standInPositions } from "./animationPreview";
+import { STAGE_TOKEN_RADIUS, drawStageBackdrop, drawStageGrid, drawStandIn, loadStageArt } from "./animationPreview";
+import { STAGE_CELL, standInPositions } from "./previewStage";
 
 /**
  * Library card thumbnails (ADR 0038): one still frame per animation, rendered by the same `fx.ts`
@@ -104,8 +105,9 @@ async function createRig(): Promise<Rig | null> {
   const fxLayer = new Container();
   world.scale.set(THUMB_WIDTH / LOGICAL_WIDTH);
   const { attacker, target } = standInPositions(LOGICAL_WIDTH, LOGICAL_HEIGHT);
-  const a = drawStandIn("attacker", art);
-  const t = drawStandIn("target", art);
+  // Library cards always show the default stage; the GM's own art is the editor preview's alone.
+  const a = drawStandIn("attacker", art?.attacker ?? null);
+  const t = drawStandIn("target", art?.target ?? null);
   a.position.set(attacker.x, attacker.y);
   t.position.set(target.x, target.y);
   if (art) world.addChild(drawStageBackdrop(art.arena, LOGICAL_WIDTH, LOGICAL_HEIGHT));

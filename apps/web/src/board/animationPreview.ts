@@ -2,26 +2,29 @@ import { Application, Assets, CanvasTextMetrics, Container, Graphics, Sprite, Te
 import { graphicsBudget, subscribeGraphicsSettings } from "../ui/clientSettings";
 import type { AnimationDef } from "@vtt/shared";
 import { playNuke, playStrike, type FxHost, type RunningFx } from "./fx";
+import {
+  DEFAULT_STAGE_ART, STAGE_CELL, mapPlacement, stageGridOrigin, standInPositions,
+  type StageMapGrid, type StageScene, type StageSide, type StageSlot,
+} from "./previewStage";
 
 /**
  * The library editor's preview stage (ADR 0038): a small Pixi application with a courtyard map,
  * a faint grid and a portrait attacker and target. It plays an `AnimationDef` through the same
  * renderer as the board (`fx.ts`), so what the GM sees is what the table sees. It is not connected
  * to any room and changes no data. React mounts it through a thin component; nothing here knows
- * about React. Until the art loads, or if it cannot, the stand-ins are plain coloured discs.
+ * about React. Until the art loads, or if it cannot, the stand-ins are plain coloured discs. The GM
+ * can swap in their own library map and token art (`setScene`); that changes this preview only.
  */
 
 /** The stage's logical size in board pixels: wide enough for a clear gap between the stand-ins. */
 export const STAGE_WIDTH = 360;
 export const STAGE_HEIGHT = 200;
-export const STAGE_CELL = 40;
 /** Nearly fills its grid square, like a medium token on the board, so the art reads at a glance. */
 export const STAGE_TOKEN_RADIUS = 19;
 /** The preview never magnifies past this, so the stand-ins stay token-sized on a large screen. */
 const MAX_SCALE = 2;
 /** Each side's colour: the disc before the art loads, then the portrait's rim. */
-const SIDE_COLOR = { attacker: 0x3b82f6, target: 0xef4444 } as const;
-export type StageSide = keyof typeof SIDE_COLOR;
+const SIDE_COLOR: Record<StageSide, number> = { attacker: 0x3b82f6, target: 0xef4444 };
 /** How far the map reaches past the stage on every side, so a screen shake never shows its edge. */
 const BACKDROP_BLEED = 16;
 /** The app's small-caps label face (index.html loads it), so the name tags match the panels. */
@@ -31,14 +34,8 @@ const LABEL_STYLE = { fontFamily: `"${LABEL_FACE}", "Alegreya Sans", system-ui, 
 const LABEL_RESOLUTION = 4;
 const LABEL_TEXT = { attacker: "Attacker", target: "Target" } as const;
 
-const STAGE_ART_URLS = {
-  arena: "/img/preview/arena.webp",
-  attacker: "/img/preview/attacker.webp",
-  target: "/img/preview/target.webp",
-} as const;
-
 /** The stage's pictures: the courtyard map and one portrait per side. */
-export type StageArt = Record<keyof typeof STAGE_ART_URLS, Texture>;
+export type StageArt = Record<keyof typeof DEFAULT_STAGE_ART, Texture>;
 
 let stageArt: Promise<StageArt | null> | null = null;
 
@@ -48,9 +45,9 @@ const loadSmooth = (src: string) => Assets.load<Texture>({ src, data: { autoGene
 /** Loads the stage art once for every stage. Null when a picture fails; the next call tries again. */
 export function loadStageArt(): Promise<StageArt | null> {
   stageArt ??= Promise.all([
-    loadSmooth(STAGE_ART_URLS.arena),
-    loadSmooth(STAGE_ART_URLS.attacker),
-    loadSmooth(STAGE_ART_URLS.target),
+    loadSmooth(DEFAULT_STAGE_ART.arena),
+    loadSmooth(DEFAULT_STAGE_ART.attacker),
+    loadSmooth(DEFAULT_STAGE_ART.target),
   ]).then(
     ([arena, attacker, target]) => ({ arena, attacker, target }),
     () => {
@@ -77,8 +74,9 @@ export function loadStageFont(): Promise<void> {
 /** A faint grid over `width` x `height` board pixels, with a square centred on the stage's middle. */
 export function drawStageGrid(width: number, height: number, alpha = 0.08): Graphics {
   const g = new Graphics();
-  for (let x = (width / 2 + STAGE_CELL / 2) % STAGE_CELL; x <= width; x += STAGE_CELL) g.moveTo(x, 0).lineTo(x, height);
-  for (let y = (height / 2 + STAGE_CELL / 2) % STAGE_CELL; y <= height; y += STAGE_CELL) g.moveTo(0, y).lineTo(width, y);
+  const origin = stageGridOrigin(width, height);
+  for (let x = origin.x; x <= width; x += STAGE_CELL) g.moveTo(x, 0).lineTo(x, height);
+  for (let y = origin.y; y <= height; y += STAGE_CELL) g.moveTo(0, y).lineTo(width, y);
   g.stroke({ width: 1, color: 0xffffff, alpha });
   return g;
 }
@@ -112,9 +110,9 @@ export function drawStagePortrait(texture: Texture, rim: number): Container {
   return token;
 }
 
-/** One side's stand-in: its portrait when the art is in, otherwise its coloured disc. */
-export function drawStandIn(side: StageSide, art: StageArt | null): Container {
-  return art ? drawStagePortrait(art[side], SIDE_COLOR[side]) : drawStageToken(SIDE_COLOR[side]);
+/** One side's stand-in: its portrait when there is art for it, otherwise its coloured disc. */
+export function drawStandIn(side: StageSide, art: Texture | null): Container {
+  return art ? drawStagePortrait(art, SIDE_COLOR[side]) : drawStageToken(SIDE_COLOR[side]);
 }
 
 /**
@@ -159,17 +157,18 @@ function vignetteTexture(): Texture | null {
 }
 
 /**
- * The courtyard map covering `width` x `height` board pixels, centred and cropped like a CSS
- * cover, with a vignette that keeps the middle (where effects travel) the brightest part.
+ * A map under a `width` x `height` stage (see `mapPlacement`: one with a grid lines up with the
+ * stage's squares, one without covers it), with a vignette that keeps the middle, where effects
+ * travel, the brightest part.
  */
-export function drawStageBackdrop(map: Texture, width: number, height: number): Container {
+export function drawStageBackdrop(map: Texture, width: number, height: number, grid: StageMapGrid | null = null): Container {
   const backdrop = new Container();
   const w = width + BACKDROP_BLEED * 2;
   const h = height + BACKDROP_BLEED * 2;
   const picture = new Sprite(map);
-  picture.anchor.set(0.5);
-  picture.scale.set(Math.max(w / map.width, h / map.height));
-  picture.position.set(width / 2, height / 2);
+  const place = mapPlacement(map, width, height, grid, BACKDROP_BLEED);
+  picture.scale.set(place.scale);
+  picture.position.set(place.x, place.y);
   backdrop.addChild(picture);
   const shade = vignetteTexture();
   if (shade) {
@@ -181,14 +180,11 @@ export function drawStageBackdrop(map: Texture, width: number, height: number): 
   return backdrop;
 }
 
-/**
- * Where the stand-ins sit on a stage of this logical size: each in the middle of a grid square
- * (see `drawStageGrid`), level with the stage's centre and the same number of squares either side.
- */
-export function standInPositions(width: number, height: number): { attacker: { x: number; y: number }; target: { x: number; y: number } } {
-  const squares = Math.max(1, Math.round((width * 0.28) / STAGE_CELL));
-  const x = squares * STAGE_CELL;
-  return { attacker: { x: width / 2 - x, y: height / 2 }, target: { x: width / 2 + x, y: height / 2 } };
+/** The GM's own pictures for the stage, loaded; each null shows the default instead. */
+interface SceneArt {
+  map: { texture: Texture; grid: StageMapGrid | null } | null;
+  attacker: Texture | null;
+  target: Texture | null;
 }
 
 export class AnimationPreview {
@@ -205,6 +201,9 @@ export class AnimationPreview {
   private attackerTag = new Container();
   private targetTag = new Container();
   private art: StageArt | null = null;
+  private scene: SceneArt = { map: null, attacker: null, target: null };
+  /** Counts `setScene` calls, so pictures that arrive after a newer choice are dropped. */
+  private sceneRequest = 0;
   private observer: ResizeObserver | null = null;
   private run: RunningFx | null = null;
   private frame = 0;
@@ -272,6 +271,31 @@ export class AnimationPreview {
     this.layout(this.size.width, this.size.height);
   }
 
+  /**
+   * Shows the GM's own map and token art in place of the defaults, on this preview only. A picture
+   * that cannot be loaded (deleted, say) keeps the default and is reported to `onMissing`; a newer
+   * call overrides one still loading.
+   */
+  setScene(scene: StageScene, onMissing?: (slot: StageSlot) => void) {
+    const request = ++this.sceneRequest;
+    const load = (url: string | null) => (url ? loadSmooth(url).then((t): Texture | null | "missing" => t, () => "missing" as const) : Promise.resolve(null));
+    void Promise.all([load(scene.map?.url ?? null), load(scene.attacker), load(scene.target)]).then(([map, attacker, target]) => {
+      if (request !== this.sceneRequest || this.destroyed) return;
+      const found = (slot: StageSlot, t: Texture | null | "missing") => {
+        if (t !== "missing") return t;
+        onMissing?.(slot);
+        return null;
+      };
+      const mapTexture = found("map", map);
+      this.scene = {
+        map: mapTexture && scene.map ? { texture: mapTexture, grid: scene.map.grid } : null,
+        attacker: found("attacker", attacker),
+        target: found("target", target),
+      };
+      if (this.ready) this.layout(this.size.width, this.size.height);
+    });
+  }
+
   private hostSize(): { width: number; height: number } {
     return {
       width: Math.max(160, Math.round(this.host.clientWidth || STAGE_WIDTH)),
@@ -295,15 +319,16 @@ export class AnimationPreview {
     const lw = width / scale;
     const lh = height / scale;
     for (const child of this.groundLayer.removeChildren()) child.destroy({ children: true });
-    if (this.art) this.groundLayer.addChild(drawStageBackdrop(this.art.arena, lw, lh));
-    // Over the map the grid only needs to hint at scale; the flagstones already read as squares.
-    this.groundLayer.addChild(drawStageGrid(lw, lh, this.art ? 0.055 : 0.08));
+    const map = this.scene.map ?? (this.art ? { texture: this.art.arena, grid: null } : null);
+    if (map) this.groundLayer.addChild(drawStageBackdrop(map.texture, lw, lh, map.grid));
+    // Over a map the grid only needs to hint at scale; the map's own squares already read.
+    this.groundLayer.addChild(drawStageGrid(lw, lh, map ? 0.055 : 0.08));
     for (const child of this.attacker.removeChildren()) child.destroy({ children: true });
     for (const child of this.target.removeChildren()) child.destroy({ children: true });
     for (const child of this.attackerTag.removeChildren()) child.destroy({ children: true });
     for (const child of this.targetTag.removeChildren()) child.destroy({ children: true });
-    this.attacker.addChild(drawStandIn("attacker", this.art));
-    this.target.addChild(drawStandIn("target", this.art));
+    this.attacker.addChild(drawStandIn("attacker", this.scene.attacker ?? this.art?.attacker ?? null));
+    this.target.addChild(drawStandIn("target", this.scene.target ?? this.art?.target ?? null));
     this.attackerTag.addChild(drawStageLabel("attacker"));
     this.targetTag.addChild(drawStageLabel("target"));
     const { attacker, target } = standInPositions(lw, lh);

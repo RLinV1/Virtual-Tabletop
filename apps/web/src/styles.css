@@ -2689,7 +2689,35 @@ dialog.modal.checkpoint-preview-modal { width: min(64rem, calc(100vw - 2rem)); }
   .animation-preview-toolbar { padding: var(--space-2); }
   .animation-preview-meta { display: none; }
   .animation-preview-toolbar .checkbox { margin-left: auto; font-size: var(--fs-sm); }
+  .animation-preview-toolbar .stage-button { margin-left: auto; }
 }
+
+/* Map & tokens: library art for the preview stage, preview only. Rims match the stage's stand-ins. */
+.animation-editor-modal { --stage-attacker: #3b82f6; --stage-target: #ef4444; }
+.animation-preview-toolbar .stage-button { display: inline-flex; align-items: center; gap: var(--space-2); white-space: nowrap; }
+button.stage-button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.stage-button-art { display: inline-flex; align-items: center; }
+.stage-button-map { width: 1.75rem; height: 1.25rem; object-fit: cover; border-radius: 2px; }
+.stage-button-token { width: 1.2rem; height: 1.2rem; object-fit: cover; border-radius: 50%; margin-left: -0.3rem; border: 1px solid; box-shadow: 0 0 0 1px var(--panel); }
+.stage-button-token.attacker, .stage-slot.attacker img { border-color: var(--stage-attacker); }
+.stage-button-token.target, .stage-slot.target img { border-color: var(--stage-target); }
+.stage-panel { display: grid; gap: var(--space-4); }
+.stage-slots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
+button.stage-slot {
+  display: grid; justify-items: center; gap: 0.1rem; min-height: 0; padding: var(--space-2) var(--space-1);
+  background: var(--field); border: 1px solid var(--border); color: var(--text); font-weight: 500;
+}
+button.stage-slot:hover:not(:disabled) { filter: none; border-color: var(--border-strong); }
+button.stage-slot[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.stage-slot img { width: 2.75rem; height: 2.75rem; object-fit: cover; border-radius: var(--radius); margin-bottom: var(--space-1); }
+.stage-slot img.round { border-radius: 50%; border: 1.5px solid; }
+.stage-slot-label { font-family: var(--font-label); font-size: var(--fs-sm); }
+.stage-slot-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--muted); }
+.stage-choice { display: grid; gap: var(--space-2); }
+.stage-choice-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.stage-choice-head h4 { margin: 0; font-size: var(--fs-sm); }
+.stage-panel-actions { display: flex; justify-content: space-between; gap: var(--space-2); }
+.picker-item[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
 
 .animation-editor-save-error { position: sticky; top: 0; z-index: 1; padding: var(--space-2); background: var(--panel); border: 1px solid var(--danger); }
 
