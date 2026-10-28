@@ -15,7 +15,9 @@ export type AttackEffect =
   | { kind: "strike"; fromId: string; toId: string; animation: AnimationDef }
   | { kind: "nuke"; animation: AnimationDef; origin: Point; amount: number; tokenIds: string[] }
   | { kind: "hit" | "miss"; tokenId: string }
-  | { kind: "damage"; tokenId: string; amount: number };
+  | { kind: "damage"; tokenId: string; amount: number }
+  /** An area effect resolved (ADR 0044): each damaged target's number, all at once. */
+  | { kind: "damages"; hits: { tokenId: string; amount: number }[] };
 
 /**
  * The animation a live event should trigger for this viewer, or null. Only reads the viewer's own
@@ -47,6 +49,11 @@ export function attackEffectFor(event: DomainEvent, after: RoomState, viewer: Pa
       const tokenId = targetOf(after, event.rollId, visible);
       // "−0" says nothing.
       return tokenId && event.amount > 0 ? { kind: "damage", tokenId, amount: event.amount } : null;
+    }
+    case "AreaEffectResolved": {
+      // The viewer's copy carries amounts only for targets they can see; heals and 0 show nothing.
+      const hits = event.amounts.filter((a) => a.amount > 0 && visible(a.tokenId));
+      return hits.length > 0 ? { kind: "damages", hits } : null;
     }
     case "MapNuked": {
       // Names no token: the blast hits the viewer's own copy, so a hidden token gets no number (FR-GM-23).
@@ -126,13 +133,14 @@ export interface AttackPlan {
 const NUKE_NUMBERS_MS = 1650;
 
 export function attackPlan(effect: AttackEffect, reducedMotion: boolean): AttackPlan {
-  if (reducedMotion) return { motion: false, durationMs: effect.kind === "damage" || effect.kind === "nuke" ? 1000 : 600 };
+  if (reducedMotion) return { motion: false, durationMs: effect.kind === "damage" || effect.kind === "damages" || effect.kind === "nuke" ? 1000 : 600 };
   switch (effect.kind) {
     case "strike":
       return { motion: true, durationMs: Math.round(effect.animation.duration * 1000) };
     case "nuke":
       return { motion: true, durationMs: Math.max(NUKE_NUMBERS_MS, Math.round(effect.animation.duration * 1000)) };
-    case "damage": return { motion: true, durationMs: 1500 };
+    case "damage":
+    case "damages": return { motion: true, durationMs: 1500 };
     default: return { motion: true, durationMs: 900 };
   }
 }

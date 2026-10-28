@@ -193,10 +193,10 @@ export function DicePanel({
             {/* A new key when the dice land, so the live region announces the result once,
                 as it appears, and not the placeholder before it. */}
             <RollRow
-              key={throwing ? `${latest.id}:rolling` : latest.id}
+              key={throwing || rollThrow.airborne.has(latest.id) ? `${latest.id}:rolling` : latest.id}
               roll={latest}
               state={state}
-              rolling={throwing}
+              rolling={throwing || (isGroupRoll(latest) && rollThrow.airborne.has(latest.id))}
               fresh={!throwing && rollThrow.justLandedId === latest.id}
             />
           </ul>
@@ -296,7 +296,7 @@ function RollRow({
 }) {
   const who = state.participants[r.byParticipantId]?.displayName ?? "Someone";
   const className = ["roll", r.visibility === "gm" && "private", fresh && "fresh"].filter(Boolean).join(" ");
-  if (isGroupRoll(r)) return <GroupRollRow roll={r} who={who} className={className} />;
+  if (isGroupRoll(r)) return <GroupRollRow roll={r} who={who} className={className} rolling={rolling} />;
   // A card like a dice tray receipt: the total big in a box with the dice under it, then
   // what was rolled and by whom.
   if (rolling) {
@@ -341,7 +341,7 @@ function RollRow({
  * anything (ADR 0011).
  */
 /** A group roll: what was rolled, then each token's total (ADR 0044). A player's copy lists only the tokens they can see. */
-function GroupRollRow({ roll: r, who, className }: { roll: GroupRoll; who: string; className: string }) {
+function GroupRollRow({ roll: r, who, className, rolling }: { roll: GroupRoll; who: string; className: string; rolling: boolean }) {
   return (
     <li className={`${className} group-roll`}>
       <span className="roll-detail">
@@ -352,7 +352,9 @@ function GroupRollRow({ roll: r, who, className }: { roll: GroupRoll; who: strin
         <ul className="plain group-roll-entries">
           {r.entries.map((entry) => (
             <li key={entry.tokenId}>
-              <span>{entry.name}</span> <strong>{entry.total}</strong> <span className="muted">({entry.dice.join(" + ")})</span>
+              <span>{entry.name}</span>{" "}
+              {/* The totals wait for the dice dropping onto the tokens (ADR 0044). */}
+              {rolling ? <span className="muted">…</span> : <><strong>{entry.total}</strong> <span className="muted">({entry.dice.join(" + ")})</span></>}
             </li>
           ))}
         </ul>

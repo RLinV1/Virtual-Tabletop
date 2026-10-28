@@ -106,7 +106,7 @@ describe("Area Effect over the wire (FR-TAC-06, FR-TAC-09, ADR 0044)", () => {
     expect(again.state.tokens[one.id]?.stats.hp).toBe(4);
   });
 
-  it("tells players nothing of an effect on hidden tokens only, nor any resolve amount", async () => {
+  it("tells players nothing of an effect on hidden tokens only, and only visible targets' amounts", async () => {
     const { gm, alice, one, assassin } = await setup();
     await gm.command({ type: "areaEffect.start", tokenIds: [assassin.id], expression: "1d20", label: "Poison gas" });
     const gas = gm.state.areaEffect!.id;
@@ -115,11 +115,15 @@ describe("Area Effect over the wire (FR-TAC-06, FR-TAC-09, ADR 0044)", () => {
     expect(alice.state.areaEffect).toBeNull();
 
     await gm.command({ type: "areaEffect.start", tokenIds: [one.id], expression: "1d20" });
-    const resolved = await gm.command({ type: "areaEffect.resolve", effectId: gm.state.areaEffect!.id, rows: [{ tokenId: one.id, amount: 3, addConditions: [] }] });
+    await gm.command({ type: "areaEffect.close", effectId: gm.state.areaEffect!.id });
+    await gm.command({ type: "areaEffect.start", tokenIds: [one.id, assassin.id], expression: "1d20" });
+    const resolved = await gm.command({ type: "areaEffect.resolve", effectId: gm.state.areaEffect!.id, rows: [{ tokenId: one.id, amount: 3, addConditions: [] }, { tokenId: assassin.id, amount: 11, addConditions: [] }] });
     await alice.waitForSeq(seqOf(resolved));
     const traffic = alice.rawLog.join("\n");
     expect(traffic).not.toContain("Poison gas");
-    expect(traffic).not.toContain('"amount":3');
+    // The damage number for the goblin she can see, and nothing of the assassin's.
+    expect(traffic).toContain(`{"tokenId":"${one.id}","amount":3}`);
+    expect(traffic).not.toContain('"amount":11');
     expect(alice.state.tokens[one.id]?.stats.hp).toBe(4);
   });
 

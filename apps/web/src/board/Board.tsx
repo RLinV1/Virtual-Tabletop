@@ -8,6 +8,9 @@ import { usePersistentState } from "../ui/usePersistentState";
 import { BoardFilters } from "./BoardFilters";
 import { canAnimateDice, type TrayRoll } from "../ui/Die3D";
 import { ThrownDice, type ActiveThrow } from "./ThrownDice";
+import { DroppedDice, type ActiveDrop } from "./DroppedDice";
+import { addDrop, type BoardDrop } from "./tokenDice";
+import type { DiceSkin } from "../ui/diceSkin";
 import { BoardView, type GmFogView } from "./boardView";
 import { useDisplayedHealth } from "./nukeHealth";
 import { shakeScreen } from "./screenShake";
@@ -80,6 +83,11 @@ export interface BoardHandle {
    * comes once the dice have faded off the board, or were cleared early.
    */
   throwDice(t: BoardThrow, roll: TrayRoll, onLanded: () => void, onGone?: () => void): boolean;
+  /**
+   * Drop a group or area-effect roll's dice onto its tokens (ADR 0044). False when they can't be
+   * animated here; then neither callback is called.
+   */
+  dropDice(drop: BoardDrop, skin: DiceSkin | null, onLanded: () => void, onGone?: () => void): boolean;
 }
 
 /** What the Dice panel needs from the board to throw dice onto it (throw-dice-on-board). */
@@ -203,6 +211,18 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
     throwsRef.current = next;
     setThrows(next);
   };
+  /** Group and area-effect rolls dropping onto tokens (ADR 0044); their own slots, apart from throws. */
+  const [drops, setDrops] = useState<ActiveDrop[]>([]);
+  const dropsRef = useRef(drops);
+  const setBoardDrops = (next: ActiveDrop[]) => {
+    dropsRef.current = next;
+    setDrops(next);
+  };
+  const dropDone = useCallback((rollId: string) => {
+    const done = dropsRef.current.filter((d) => d.drop.rollId === rollId);
+    setBoardDrops(dropsRef.current.filter((d) => d.drop.rollId !== rollId));
+    done.forEach((d) => d.onGone());
+  }, []);
   /** Attack effects the React overlay is playing, oldest first (board-effects-overlay). */
   const [overlayEffects, setOverlayEffects] = useState<OverlayEffect[]>([]);
   const nextEffectId = useRef(0);
@@ -230,7 +250,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
   // Don't leave the Dice panel waiting on dice that are no longer drawn.
   useEffect(
     () => () =>
-      throwsRef.current.forEach((t) => {
+      [...throwsRef.current, ...dropsRef.current].forEach((t) => {
         t.onLanded();
         t.onGone();
       }),
@@ -577,6 +597,27 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
       });
       return true;
     },
+    dropDice: (drop: BoardDrop, skin: DiceSkin | null, onLanded: () => void, onGone?: () => void) => {
+      const view = viewRef.current;
+      if (!view || !canAnimateDice(hostRef.current)) return false;
+      let landed = false;
+      const once = () => {
+        if (landed) return;
+        landed = true;
+        onLanded();
+      };
+      const { grid, map } = latest.current.state.scene;
+      // The same die size as a Roll-button throw, so these read as ordinary rolls.
+      const size = boardDieSize(grid, view.transform);
+      // One slot per roll, however many tokens: a big roll never pushes its own dice off.
+      const { kept, evicted } = addDrop(dropsRef.current, { drop, size, skin, map, onLanded: once, onGone: onGone ?? (() => {}) });
+      setBoardDrops(kept);
+      evicted.forEach((e) => {
+        e.onLanded();
+        e.onGone();
+      });
+      return true;
+    },
   }), []);
 
   return (
@@ -594,6 +635,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
         </Suspense>
       )}
       {throws.length > 0 && <ThrownDice throws={throws} subscribe={followView} onDone={throwDone} />}
+      {drops.length > 0 && <DroppedDice drops={drops} subscribe={followView} onDone={dropDone} />}
       <div className="board-toolbar">
         {toolbar}
         <button type="button" className="tool-button" data-tour="fit" onClick={() => viewRef.current?.resetView()} title="Fit the map to the screen">

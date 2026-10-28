@@ -12,7 +12,7 @@ The GM's Play tab SHALL show a **Rulings** list, and players SHALL NOT be shown 
   - **Roll damage** while the GM holds the call;
   - **Resolve** and **Skip** once the damage is rolled.
 
-These controls SHALL be full-size buttons. A roll SHALL leave the list once it is ruled or applied. An Area Effect SHALL leave the list once it is resolved or closed. The GM SHALL also be able to set, change or clear a verdict from the roll log in the Dice tab.
+**Resolve** in this row SHALL open the resolve dialog, and SHALL have the same appearance as **Skip** until damage has been rolled and the same appearance as **Call** afterwards. These controls SHALL be full-size buttons. A roll SHALL leave the list once it is ruled or applied. An Area Effect SHALL leave the list once it is resolved or closed. The GM SHALL also be able to set, change or clear a verdict from the roll log in the Dice tab.
 
 While any rolls or an Area Effect are pending:
 - the GM's Play tab SHALL show how many, from any tab, counting an open Area Effect as one;

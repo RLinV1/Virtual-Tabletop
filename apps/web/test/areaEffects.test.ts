@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_GRID, emptyRoomState, type AreaEffect, type GridSpec, type Participant, type Point, type RoomState, type Token } from "@vtt/shared";
 import { areaShape, tokensTouchingArea } from "../src/board/tools";
 import { defaultCaller, pendingRulingCount } from "../src/panels/attackRoll";
+import { attackEffectFor } from "../src/board/effects";
 
 const grid: GridSpec = DEFAULT_GRID; // 70 px cells, 5 ft per cell
 const cell = (col: number, row: number): Point => ({ x: col * 70 + 35, y: row * 70 + 35 });
@@ -88,5 +89,17 @@ describe("Rulings pending with an Area Effect (attack-rulings, ADR 0044)", () =>
   it("counts an open effect as one, even while it waits on a player", () => {
     expect(pendingRulingCount(room())).toBe(0);
     expect(pendingRulingCount(room({ areaEffect: effect }))).toBe(1);
+  });
+});
+
+describe("Damage numbers when an Area Effect is resolved (ADR 0044)", () => {
+  const effect: AreaEffect = { id: "e", label: null, expression: "1d20", byParticipantId: "gm", targets: [], call: null, damage: null };
+  const state = room({ tokens: { a: token("a", []), b: { ...token("b", []), hidden: true }, c: token("c", []) } });
+
+  it("plays a number on every target that took damage, and none for heals, 0 or hidden targets", () => {
+    const amounts = [{ tokenId: "a", amount: 9 }, { tokenId: "b", amount: 4 }, { tokenId: "c", amount: -3 }];
+    expect(attackEffectFor({ type: "AreaEffectResolved", effect, amounts }, state, mira)).toEqual({ kind: "damages", hits: [{ tokenId: "a", amount: 9 }] });
+    expect(attackEffectFor({ type: "AreaEffectResolved", effect, amounts }, state, gm)).toEqual({ kind: "damages", hits: [{ tokenId: "a", amount: 9 }, { tokenId: "b", amount: 4 }] });
+    expect(attackEffectFor({ type: "AreaEffectResolved", effect, amounts: [{ tokenId: "c", amount: 0 }] }, state, gm)).toBeNull();
   });
 });

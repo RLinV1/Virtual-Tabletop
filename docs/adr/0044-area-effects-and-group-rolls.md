@@ -74,7 +74,7 @@ Undo does not reopen the effect, for two reasons:
   - `call`, `label` and the single damage total pass through.
 - **Area effect events.** The filter returns a rewritten copy of each event:
   - `AreaEffectStarted`, `AreaEffectDamageRolled` and `AreaEffectClosed` are projected;
-  - `AreaEffectResolved` is projected with `amounts` emptied;
+  - `AreaEffectResolved` is projected with `amounts` kept only for the targets the player can see, so their board can show damage numbers. Those targets' HP changes already reach the player, so this reveals nothing new;
   - `AreaEffectCalled` passes unchanged, since it names only participants, who are public.
 - **Withheld effects.** If a player can see none of an effect's targets and doesn't hold its call, the effect is withheld from them entirely: `areaEffect: null` in the snapshot, and its events are redacted. An empty target list would otherwise tell them a concealed token is being targeted.
   - A call that gives a withheld effect to a player, or moves it away from them, is answered with a resync, as is any change that conceals or reveals a target.

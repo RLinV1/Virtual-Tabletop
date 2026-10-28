@@ -1,18 +1,12 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { X } from "@phosphor-icons/react";
+import { useState, type FormEvent } from "react";
 import {
   areaEffectStage,
-  conditionSpec,
-  halfDamage,
   isActive,
-  MAX_AREA_AMOUNT,
   MAX_ATTACK_LABEL,
   parseDiceExpression,
-  presetOf,
-  rolledDamageFor,
   type AreaEffect,
+  type AreaEffectStage,
   type CommandInput,
-  type ConditionId,
   type DamageMode,
   type Participant,
   type RoomState,
@@ -21,6 +15,7 @@ import type { RoomConnection } from "../net/roomConnection";
 import { PanelSection, useSectionCollapse } from "../ui/PanelSection";
 import { defaultCaller } from "./attackRoll";
 import { GroupSelectionList, type GroupSelection } from "./GroupSelection";
+import { damageRollId, savesRollId } from "../board/tokenDice";
 
 /** The section's collapse key, also how the Rulings list finds it. */
 export const AREA_EFFECT_SECTION = "area-effect";
@@ -67,12 +62,21 @@ function useSender(connection: RoomConnection) {
  * the damage (themselves included), then resolve each token's outcome as one undoable action.
  * Every step after the first can be skipped. The saves are advisory: nothing here decides.
  */
-export function AreaEffectPanel({ connection, state, you, selection }: { connection: RoomConnection; state: RoomState; you: Participant; selection: GroupSelection }) {
+export function AreaEffectPanel({ connection, state, you, selection, onResolve, airborne }: {
+  /** Rolls whose dice are still dropping: their totals wait (ADR 0044). */
+  airborne: ReadonlySet<string>;
+  connection: RoomConnection;
+  state: RoomState;
+  you: Participant;
+  selection: GroupSelection;
+  /** Open the resolve dialog, which keeps its draft between openings. */
+  onResolve: () => void;
+}) {
   const effect = state.areaEffect ?? null;
   return (
     <PanelSection id={AREA_EFFECT_SECTION} title={effect ? `Area Effect · ${effectTitle(effect)}` : "Area Effect"}>
       {effect ? (
-        <OpenEffect key={effect.id} connection={connection} state={state} you={you} effect={effect} />
+        <OpenEffect key={effect.id} connection={connection} state={state} you={you} effect={effect} onResolve={onResolve} airborne={airborne} />
       ) : (
         <StartForm connection={connection} state={state} selection={selection} />
       )}
@@ -96,8 +100,8 @@ function StartForm({ connection, state, selection }: { connection: RoomConnectio
   return (
     <form onSubmit={start} className="stack">
       <GroupSelectionList selection={selection} state={state} idPrefix="area-effect" />
-      <label htmlFor="area-effect-label">Label</label>
-      <input id="area-effect-label" value={label} maxLength={MAX_ATTACK_LABEL} onChange={(e) => setLabel(e.target.value)} placeholder="Fireball" autoComplete="off" data-area-effect-focus />
+      <label htmlFor="area-effect-label">Effect name</label>
+      <input id="area-effect-label" value={label} maxLength={MAX_ATTACK_LABEL} onChange={(e) => setLabel(e.target.value)} placeholder="New Effect" autoComplete="off" data-area-effect-focus />
       <label htmlFor="area-effect-expression">Roll for each token</label>
       <div className="dice-row">
         <input id="area-effect-expression" value={expression} onChange={(e) => { setExpression(e.target.value); setError(null); }} placeholder="1d20+2" autoComplete="off" aria-invalid={expression.trim() !== "" && !parsed.ok} />
@@ -110,27 +114,17 @@ function StartForm({ connection, state, selection }: { connection: RoomConnectio
   );
 }
 
-function OpenEffect({ connection, state, you, effect }: { connection: RoomConnection; state: RoomState; you: Participant; effect: AreaEffect }) {
+function OpenEffect({ connection, state, you, effect, onResolve, airborne }: { connection: RoomConnection; state: RoomState; you: Participant; effect: AreaEffect; onResolve: () => void; airborne: ReadonlySet<string> }) {
   const stage = areaEffectStage(effect);
-  /** The GM chose to resolve without calling for damage. */
-  const [resolving, setResolving] = useState(false);
   const { busy, error, send } = useSender(connection);
   const skip = () => void send({ type: "areaEffect.close", effectId: effect.id });
 
   return (
     <div className="stack area-effect">
-      <TargetList state={state} effect={effect} />
-      {effect.damage && <DamageSummary state={state} effect={effect} />}
+      <TargetList state={state} effect={effect} rolling={airborne.has(savesRollId(effect.id))} />
+      {effect.damage && <DamageSummary state={state} effect={effect} rolling={airborne.has(damageRollId(effect.id))} />}
 
-      {stage === "started" && !resolving && (
-        <>
-          <CallForm connection={connection} state={state} you={you} effect={effect} label="Call" />
-          <div className="row">
-            <button type="button" className="secondary" disabled={busy} onClick={() => setResolving(true)}>Resolve without damage roll</button>
-            <button type="button" className="secondary" disabled={busy} onClick={skip}>Skip</button>
-          </div>
-        </>
-      )}
+      {stage === "started" && <CallForm connection={connection} state={state} you={you} effect={effect} label="Call" />}
 
       {stage === "called" && effect.call && (
         effect.call.participantId === you.id ? (
@@ -151,16 +145,31 @@ function OpenEffect({ connection, state, you, effect }: { connection: RoomConnec
         )
       )}
 
-      {(stage === "rolled" || (stage === "started" && resolving)) && (
-        <ResolveForm connection={connection} state={state} effect={effect} onSkip={skip} onBack={stage === "started" ? () => setResolving(false) : undefined} />
+      {stage !== "called" && (
+        <div className="row">
+          <ResolveButton stage={stage} disabled={busy} onClick={onResolve} />
+          <button type="button" className="secondary" disabled={busy} onClick={skip}>Skip</button>
+        </div>
       )}
       {error && <p role="alert" className="error">{error}</p>}
     </div>
   );
 }
 
+/**
+ * Opens the resolve dialog (ADR 0044). Before damage is rolled it looks like Skip, since resolving
+ * then skips the damage roll; once damage is in, it looks like Call, the next step.
+ */
+export function ResolveButton({ stage, disabled, onClick }: { stage: AreaEffectStage; disabled?: boolean; onClick: () => void }) {
+  return (
+    <button type="button" className={stage === "rolled" ? undefined : "secondary"} disabled={disabled} onClick={onClick} title={stage === "rolled" ? undefined : "No damage roll: every amount starts at 0"}>
+      Resolve
+    </button>
+  );
+}
+
 /** Each target with its advisory save and current HP; the GM's alone. */
-function TargetList({ state, effect }: { state: RoomState; effect: AreaEffect }) {
+function TargetList({ state, effect, rolling }: { state: RoomState; effect: AreaEffect; rolling: boolean }) {
   return (
     <ul className="plain area-effect-targets" aria-label="Targets">
       {effect.targets.map((t) => {
@@ -168,7 +177,7 @@ function TargetList({ state, effect }: { state: RoomState; effect: AreaEffect })
         return (
           <li key={t.tokenId} className={token ? undefined : "muted"}>
             <span>{t.name}</span>
-            {t.roll && <span> · {effect.expression} <strong>{t.roll.total}</strong></span>}
+            {t.roll && <span> · {effect.expression} <strong>{rolling ? "…" : t.roll.total}</strong></span>}
             {!token ? <em className="badge">gone</em> : token.stats.hp !== null && <span className="muted"> · {token.stats.hp}{token.stats.maxHp !== null ? `/${token.stats.maxHp}` : ""} HP</span>}
           </li>
         );
@@ -177,13 +186,13 @@ function TargetList({ state, effect }: { state: RoomState; effect: AreaEffect })
   );
 }
 
-function DamageSummary({ state, effect }: { state: RoomState; effect: AreaEffect }) {
+function DamageSummary({ state, effect, rolling }: { state: RoomState; effect: AreaEffect; rolling: boolean }) {
   const damage = effect.damage!;
   const who = state.participants[damage.byParticipantId]?.displayName ?? "Someone";
   return (
     <p className="area-effect-damage" role="status">
       {who} rolled {damage.expression} damage
-      {damage.mode === "single" ? <>: <strong>{damage.total}</strong></> : " for each target"}
+      {damage.mode === "single" ? <>: <strong>{rolling ? "…" : damage.total}</strong></> : " for each target"}
     </p>
   );
 }
@@ -240,7 +249,7 @@ function DamageRollForm({ connection, effect, visibleTargets }: { connection: Ro
           id={`damage-expression-${effect.id}`}
           value={expression}
           onChange={(e) => { setExpression(e.target.value); setError(null); }}
-          placeholder="8d6"
+          placeholder="Damage Formula (e.g. 8d6)"
           autoComplete="off"
           aria-invalid={expression.trim() !== "" && !parsed.ok}
           data-area-effect-focus
@@ -282,140 +291,5 @@ export function DamageCallPrompt({ connection, state, you }: { connection: RoomC
         <DamageRollForm connection={connection} effect={effect} visibleTargets={effect.targets.length} />
       </div>
     </PanelSection>
-  );
-}
-
-/** Each target's amount and added conditions, applied together by Confirm (ADR 0044). */
-function ResolveForm({ connection, state, effect, onSkip, onBack }: { connection: RoomConnection; state: RoomState; effect: AreaEffect; onSkip: () => void; onBack?: () => void }) {
-  const preset = presetOf(state);
-  const conditionsOn = preset.features.conditions;
-  const targets = effect.targets.filter((t) => state.tokens[t.tokenId]);
-  const rolled = (tokenId: string) => rolledDamageFor(effect, tokenId) ?? 0;
-  const [amounts, setAmounts] = useState<Record<string, string>>(() => Object.fromEntries(targets.map((t) => [t.tokenId, String(rolled(t.tokenId))])));
-  const [forAll, setForAll] = useState<ConditionId[]>([]);
-  const [perRow, setPerRow] = useState<Record<string, ConditionId[]>>({});
-  const { busy, error, setError, send } = useSender(connection);
-  // A damage roll arriving after the form opened fills in the amounts it has not been given.
-  useEffect(() => {
-    setAmounts((now) => Object.fromEntries(targets.map((t) => [t.tokenId, now[t.tokenId] ?? String(rolled(t.tokenId))])));
-  }, [effect.damage]);
-
-  const parse = (text: string): number | null => {
-    if (!/^\s*-?\d+\s*$/.test(text)) return null;
-    const n = Number(text);
-    return Math.abs(n) <= MAX_AREA_AMOUNT ? n : null;
-  };
-
-  const confirm = async (e: FormEvent) => {
-    e.preventDefault();
-    const rows = [];
-    for (const t of targets) {
-      const token = state.tokens[t.tokenId]!;
-      let amount: number | null = null;
-      if (token.stats.hp !== null) {
-        amount = parse(amounts[t.tokenId] ?? "0");
-        if (amount === null) return setError(`${t.name}'s amount must be a whole number from -${MAX_AREA_AMOUNT} to ${MAX_AREA_AMOUNT}`);
-      }
-      const addConditions = [...new Set([...forAll, ...(perRow[t.tokenId] ?? [])])];
-      rows.push({ tokenId: t.tokenId, amount, addConditions });
-    }
-    await send({ type: "areaEffect.resolve", effectId: effect.id, rows });
-  };
-
-  return (
-    <form onSubmit={confirm} className="stack area-effect-resolve" aria-label="Resolve">
-      {conditionsOn && (
-        <ConditionAdder label="Conditions for all targets" options={preset.conditions} chosen={forAll} onChange={setForAll} id={`all-${effect.id}`} />
-      )}
-      <ul className="plain area-effect-rows">
-        {targets.map((t) => {
-          const token = state.tokens[t.tokenId]!;
-          const fieldId = `amount-${effect.id}-${t.tokenId}`;
-          return (
-            <li key={t.tokenId} className="area-effect-row">
-              <span className="area-effect-row-name">
-                {t.name}
-                {t.roll && <span className="muted"> · save {t.roll.total}</span>}
-                {token.stats.hp !== null && <span className="muted"> · {token.stats.hp} HP</span>}
-              </span>
-              {token.stats.hp === null ? (
-                <span className="muted">No HP</span>
-              ) : (
-                <span className="area-effect-amount">
-                  <label htmlFor={fieldId} className="sr-only">Amount for {t.name} (negative heals)</label>
-                  <input
-                    id={fieldId}
-                    inputMode="numeric"
-                    value={amounts[t.tokenId] ?? ""}
-                    onChange={(e) => setAmounts((now) => ({ ...now, [t.tokenId]: e.target.value }))}
-                    aria-invalid={parse(amounts[t.tokenId] ?? "") === null}
-                    data-area-effect-focus
-                  />
-                  <button type="button" className="secondary small" onClick={() => setAmounts((now) => ({ ...now, [t.tokenId]: String(halfDamage(rolled(t.tokenId))) }))}>Half</button>
-                  <button type="button" className="secondary small" onClick={() => setAmounts((now) => ({ ...now, [t.tokenId]: "0" }))}>None</button>
-                </span>
-              )}
-              {conditionsOn && (
-                <ConditionAdder
-                  label={`Conditions for ${t.name}`}
-                  options={preset.conditions.filter((c) => !forAll.includes(c))}
-                  chosen={perRow[t.tokenId] ?? []}
-                  onChange={(next) => setPerRow((now) => ({ ...now, [t.tokenId]: next }))}
-                  id={`${effect.id}-${t.tokenId}`}
-                  compact
-                />
-              )}
-            </li>
-          );
-        })}
-      </ul>
-      <p className="muted small-print">A negative amount heals, up to the token's max HP.</p>
-      <div className="row">
-        <button type="submit" disabled={busy}>Confirm</button>
-        {onBack && <button type="button" className="secondary" disabled={busy} onClick={onBack}>Back</button>}
-        <button type="button" className="secondary" disabled={busy} onClick={onSkip}>Skip</button>
-      </div>
-      {error && <p role="alert" className="error">{error}</p>}
-    </form>
-  );
-}
-
-/** Pick conditions to add; never removes one a token already has (ADR 0044). */
-function ConditionAdder({ label, options, chosen, onChange, id, compact = false }: {
-  label: string;
-  options: readonly ConditionId[];
-  chosen: readonly ConditionId[];
-  onChange: (next: ConditionId[]) => void;
-  id: string;
-  compact?: boolean;
-}) {
-  const left = options.filter((c) => !chosen.includes(c));
-  const selectId = `conditions-${id}`;
-  return (
-    <div className={compact ? "condition-adder compact" : "condition-adder"}>
-      <label htmlFor={selectId} className={compact ? "sr-only" : undefined}>{label}</label>
-      <div className="condition-adder-row">
-        {chosen.map((c) => (
-          <span key={c} className="chip">
-            {conditionSpec(c).label}
-            <button type="button" className="icon-button" aria-label={`Don't add ${conditionSpec(c).label}`} onClick={() => onChange(chosen.filter((x) => x !== c))}>
-              <X size={12} aria-hidden="true" />
-            </button>
-          </span>
-        ))}
-        {left.length > 0 && (
-          <select
-            id={selectId}
-            value=""
-            onChange={(e) => {
-              if (e.target.value) onChange([...chosen, e.target.value as ConditionId]);
-            }}
-          >
-            <option value="">+ Condition</option>
-            {left.map((c) => <option key={c} value={c}>{conditionSpec(c).label}</option>)}
-          </select>
-        )}
-      </div>
-    </div>
   );
 }

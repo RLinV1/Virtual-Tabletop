@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { presetOf } from "@vtt/shared";
 import { DiceFive, MapTrifold, Sword, UserList } from "@phosphor-icons/react";
 import { can, type DiceVisibility, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
@@ -10,6 +10,8 @@ import type { GridDraft } from "../pages/gridDraft";
 import { DicePanel } from "./DicePanel";
 import { AreaEffectPanel, DamageCallPrompt } from "./AreaEffectPanel";
 import type { GroupSelection } from "./GroupSelection";
+import { ResolveDialog } from "./ResolveDialog";
+import { draftFor, type ResolveDraft } from "./resolveDraft";
 import { InitiativeTracker } from "./InitiativeTracker";
 import { AttackPanel, type AttackPick } from "./AttackPanel";
 import type { AttackReset } from "./attackSession";
@@ -208,11 +210,24 @@ export function RoomPanel({
 
   // What the room's game preset turns on (KAN-63). The server enforces it; this only hides controls.
   const features = presetOf(state).features;
+  // The area effect's resolve dialog (ADR 0044): here, so the Rulings row and the Area Effect
+  // section open the same one, and its draft outlives a close or a tab change.
+  const effect = state.areaEffect ?? null;
+  const [savedDraft, setDraft] = useState<ResolveDraft | null>(null);
+  const [resolveOpen, setResolveOpen] = useState(false);
+  const draft = draftFor(savedDraft, effect);
+  const effectId = effect?.id ?? null;
+  useEffect(() => {
+    // Resolved or closed, from here or anywhere else: the dialog and its draft go.
+    setResolveOpen(false);
+    setDraft((d) => (d && d.effectId === effectId ? d : null));
+  }, [effectId]);
+  const openResolve = () => setResolveOpen(true);
   const sections: Record<TabId, ReactNode> = {
     play: (
       <>
         {!isGm && <DamageCallPrompt connection={connection} state={state} you={you} />}
-        {isGm && features.attacks && <RulingsPanel connection={connection} state={state} you={you} airborne={rollThrow.airborne} />}
+        {isGm && features.attacks && <RulingsPanel connection={connection} state={state} you={you} airborne={rollThrow.airborne} onResolve={openResolve} />}
         <MyTokens connection={connection} state={state} you={you} onFocusToken={onFocusToken} />
         {/* The encounter first: whose turn it is decides who attacks. */}
         <InitiativeTracker connection={connection} state={state} you={you} onFocusToken={onFocusToken} />
@@ -229,7 +244,7 @@ export function RoomPanel({
           visibility={attackVisibility}
           onVisibility={onAttackVisibility}
         />}
-        {isGm && features.attacks && <AreaEffectPanel connection={connection} state={state} you={you} selection={groupSelection} />}
+        {isGm && features.attacks && <AreaEffectPanel connection={connection} state={state} you={you} selection={groupSelection} onResolve={openResolve} airborne={rollThrow.airborne} />}
       </>
     ),
     tokens: (
@@ -262,6 +277,9 @@ export function RoomPanel({
         <fieldset className="preview-fieldset" disabled={readOnly}>
           {sections[tab === "gm" && !isGm ? "play" : tab]}
         </fieldset>
+        {isGm && !readOnly && effect && draft && (
+          <ResolveDialog connection={connection} state={state} effect={effect} draft={draft} onDraft={setDraft} open={resolveOpen} onClose={() => setResolveOpen(false)} airborne={rollThrow.airborne} />
+        )}
       </div>
     </div>
   );

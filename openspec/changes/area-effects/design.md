@@ -92,7 +92,7 @@ The alternative was to make undo reopen the effect. It was rejected because anot
 `filterEventForViewer` for a player:
 - **`GroupRolled`:** redacted when the roll is GM-only. Otherwise, a rewritten copy with the concealed entries removed (the filter can already return a modified event).
 - **`AreaEffectStarted` / `AreaEffectDamageRolled`:** a rewritten copy built by the same projection function as the snapshot, so live events and snapshots can't diverge.
-- **`AreaEffectCalled` / `AreaEffectClosed`:** they name no hidden data apart from the effect's targets, so `Called` passes. `Closed` and `Resolved` are rewritten to carry only `effectId`, because the player only needs to drop the effect.
+- **`AreaEffectCalled` / `AreaEffectClosed`:** they name no hidden data apart from the effect's targets, so `Called` passes. `Closed` and `Resolved` carry the projected effect. `Resolved` keeps `amounts` only for the targets in that projection, which feeds the damage numbers; a concealed target's amount is stripped.
 - `TokenStatsSet` and `TokenConditionsSet` keep their existing per-token redaction, so the amounts for a hidden target are never seen.
 
 The `visibility-auditor` agent should review this before merge.
@@ -130,7 +130,27 @@ The Real-Time Architecture owner reviews it before the shared schemas are merged
 
 `RoomState.areaEffect` defaults to `null`, and old roll entries parse as `DiceRoll`. No data migration is needed, and replaying existing event logs gives the same state. To roll back, revert the change; rooms that have new events would need those event types to stay parseable, so keep the schemas if any room has used the feature.
 
+### 7. Resolve dialog (web only)
+
+- **Docked modal.** The resolve step leaves the sidebar for the existing `Modal` (native `<dialog>`, `showModal()`), with a modifier class `resolve-dock`. That class places it at the bottom centre at a maximum of about a third of the viewport height, with a much lighter `::backdrop` than the default 62% dim. Using `showModal()` makes the board inert while the dialog is open: it stays visible but can't be panned. Closing keeps the draft, so the GM can close, look around and reopen. A non-modal floating panel was considered and rejected: it would need its own focus handling, while `Modal` already brings the focus trap, Escape and focus return.
+- **One target per step.** The dialog shows one target with Previous/Next, its amount with Half/None, and the existing `ConditionPicker` checklist. The token's current conditions show checked and locked: the command still sends only additions, so neither the contract nor the ADR changes. **Apply these conditions to every target** merges the shown target's additions into every row. **Confirm resolution** builds the same `areaEffect.resolve` rows as before.
+- **Draft above the dialog.** The draft (amounts, additions, current step) lives in `RoomPanel` state keyed by the effect's id, not in the dialog, so closing and reopening keeps it. `RoomPanel` is the one owner both openers share: the Rulings row and the Area Effect section each get an `onResolve` callback. A new effect id, or `areaEffect` becoming null, drops the draft and closes the dialog. Amounts are kept only once typed; until then a target shows its rolled damage, so a damage roll that lands after the dialog was first opened still fills them in (`panels/resolveDraft.ts`).
+- **Resolve's appearance.** It uses the secondary button style (like Skip) while `areaEffectStage` is `started`, and the primary style (like Call) once it is `rolled`. It isn't offered while a call is pending.
+- **Layout.** The title is the shown token's name. The effect's name and "n of N" sit in the header in small type. The token's roll, its rolled damage and its HP sit in that same header row in large type, so they never scroll out of view in the short docked dialog. The area-effect menus say "roll" or "result", never "save".
+- **Damage numbers.** `attackEffectFor` maps `AreaEffectResolved` to a new `damages` effect: every visible target with an amount above 0, drawn by the effects overlay with the same `Damage` number as an applied damage roll, all at once (past 24, without motion, like the nuke's numbers).
+- **Text.** The start form's label becomes "Effect name" with the placeholder "New Effect". The damage formula placeholder becomes "Damage Formula (e.g. 8d6)".
+
+### 8. Dice for group and area-effect rolls (web only)
+
+- **Source.** Group and area-effect rolls don't emit `DiceRolled`, so `connection.onRolled` never sees them. `RoomPage` listens to committed `GroupRolled`, `AreaEffectStarted` and `AreaEffectDamageRolled` instead. Those events are already filtered for the viewer, so each client animates only the numbers it was sent: saves on the GM's screen, and only visible targets for players.
+- **The normal throw, aimed at each token.** Each token's dice use a Roll-button throw's paths, keyframes, stagger and die size (`boardDiePaths`, `throwKeyframes`, `throwStagger`, `boardDieSize`). They leave from the usual throwing side (`throwStart`) and come to rest around that token. Every token's throw starts together, so a roll lands after one throw (`THROW_MS` plus the stagger, about 1.6 s) however many targets it has. A single damage roll is thrown once, onto the centroid of the viewer's visible targets. The dice linger the usual 3 s.
+- **One board slot.** A roll's throws count as one entry in their own short list (`MAX_BOARD_DROPS`, apart from `MAX_BOARD_THROWS`), so they never evict each other or a normal throw.
+- **Dice cap.** Over about 40 dice in one roll, each token instead gets a single die showing its total, dropped straight down (about 700 ms). This keeps the DOM animation smooth: for example, per-target `8d6` on 30 targets would otherwise be 240 dice.
+- **Airborne.** The roll id joins the existing `airborne` set until its dice land, so the panel and dialog totals wait for the dice as other rolls do. With reduced motion, or with no board, the roll lands at once.
+- **Rejected alternatives.**
+  - A short drop for every roll was quicker (about 0.7 s) but didn't look like a normal roll.
+  - One central throw gets slower past 20 dice (split into sequential throws, or evicted by the three-throw cap), and the results can't be told apart by token.
+
 ## Open Questions
 
-- Should group and damage rolls play the 3D dice throw (`board-dice-rolls`)? This is visual only and doesn't change specs or tasks beyond a follow-up.
 - Should the activity log name the targets of a resolved Area Effect, or only how many? The log is GM-only, so either way is safe.

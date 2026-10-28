@@ -380,6 +380,10 @@ describe("What players see of an Area Effect (FR-GM-23, ADR 0044)", () => {
     for (const [i, event] of resolved.events.entries()) {
       const filtered = filterEventForViewer(committed(event, i + 1), before, alice);
       expect(JSON.stringify(filtered)).not.toContain(t.assassin.id);
+      // The visible target's amount comes through, for its damage number.
+      if (event.type === "AreaEffectResolved" && filtered.kind === "event" && filtered.committed.event.type === "AreaEffectResolved") {
+        expect(filtered.committed.event.amounts).toEqual([{ tokenId: t.one.id, amount: 3 }]);
+      }
       before = reduce(before, event);
     }
   });

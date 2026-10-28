@@ -55,6 +55,12 @@ The GM's Dice tab SHALL offer **Group roll**. It SHALL show the current selectio
 
 The roll log SHALL show a group roll as one entry with its formula, label, and each token's name and total.
 
+On a viewer's board, a group roll SHALL animate the results that viewer was sent: each token's dice SHALL be thrown onto that token with the same throw, die size and linger as a Roll-button roll, every token's throw leaving together, so the roll lands as soon as a single throw does, however many tokens there are. A GM-only group roll SHALL animate on the GM's board only. When one group roll would show more than about 40 dice, each token SHALL instead get a single die showing its total, dropped straight onto it. The roll log entry SHALL show the totals once the dice have landed. With reduced motion, nothing SHALL animate.
+
+#### Scenario: Dice on each token
+- **WHEN** the GM makes a public group roll of 1d20 for three goblins
+- **THEN** a die is thrown onto each goblin on every board, and all three land together
+
 #### Scenario: Group roll from the Dice tab
 - **WHEN** the GM selects Goblin 1 and Goblin 2, enters `1d20+2` labelled "Dex save", and rolls publicly
 - **THEN** the roll log shows one entry "Dex save · 1d20+2" listing "Goblin 1 · 14" and "Goblin 2 · 9"

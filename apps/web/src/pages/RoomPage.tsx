@@ -3,6 +3,7 @@ import { House } from "@phosphor-icons/react";
 import { areaEffectStage, can, diceRollsOf, filterStateForViewer, findDiceRoll, isActive, presetOf, type ReplayFrame, type DiceVisibility, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
 import { Board, type BoardHandle, type DiceBoard } from "../board/Board";
 import { templateArea, tokensTouchingArea } from "../board/tools";
+import { dropFor } from "../board/tokenDice";
 import type { GroupSelection } from "../panels/GroupSelection";
 import { NukeHealthContext, useNukeHealth } from "../board/nukeHealth";
 import { PendingDrops, type DiceDrop } from "../board/diceDrops";
@@ -466,10 +467,33 @@ function Room({ roomId, connection, token, features }: {
       stop();
     };
   }, [connection, land]);
+  // Group and area-effect rolls drop onto their tokens (ADR 0044), each viewer drawing only what
+  // its filtered events carry. Their totals wait for the drop, like any roll's.
+  const dropping = useRef(new Set<string>());
+  useEffect(() => {
+    const stop = connection.onCommitted((committed, _before, after) => {
+      const viewer = connection.snapshot.you;
+      if (!viewer) return;
+      const drop = dropFor(committed.event, after, viewer);
+      if (!drop) return;
+      const roller = committed.actorId ?? "";
+      const done = () => {
+        dropping.current.delete(drop.rollId);
+        land(drop.rollId);
+      };
+      dropping.current.add(drop.rollId);
+      setAirborne((s) => new Set(s).add(drop.rollId));
+      if (!boardRef.current?.dropDice(drop, diceFor.current(roller, roller === viewer.id), done)) done();
+    });
+    return () => {
+      stop();
+    };
+  }, [connection, land]);
   // A private roll whose tray has gone (another tab, or a newer roll in its place) lands now.
   const latestRollId = state?.rolls.at(-1)?.id;
   useEffect(() => {
     for (const id of airborne) {
+      if (dropping.current.has(id)) continue;
       const roll = state?.rolls.find((r) => r.id === id);
       const inTray = diceVisible && id === latestRollId;
       if (!roll || (roll.visibility === "gm" && !inTray)) land(id);

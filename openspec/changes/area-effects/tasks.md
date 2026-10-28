@@ -49,3 +49,29 @@
 - [x] 7.1 Run the `sync-reviewer` and `visibility-auditor` agents on the diff and address their findings. Done when both report no open issues.
 - [x] 7.2 Run `npm run lint && npm run typecheck && npm test`. Done when all three pass.
 - [x] 7.3 Check that `openspec validate area-effects --strict` passes.
+
+## 8. Resolve dialog
+
+- [x] 8.1 Move the resolve draft (amounts, condition additions, current step) up into `RoomPanel` state keyed by effect id, dropped when the effect id changes or `areaEffect` becomes null. Done when a unit test of the draft helper shows it survives a close and is cleared for a new effect.
+- [x] 8.2 Build the resolve dialog on `Modal` with a `resolve-dock` class (bottom centre, at most about a third of the viewport height, light backdrop). It shows one target at a time with Previous/Next and "name · n of N", the amount with Half/None, `ConditionPicker` with existing conditions checked and locked, **Apply these conditions to every target**, **Confirm all** and Skip. Done when, in the browser, the map stays mostly visible behind it and Confirm all from the first step applies every target.
+- [x] 8.3 Open the dialog only from **Resolve** in the Area Effect section and in the Rulings row (replacing the scroll-to-section and the inline resolve form). Close it by itself when the effect closes elsewhere. Done when, in the browser, Escape keeps the draft, reopening restores it, and skipping from a second screen closes it.
+- [x] 8.4 Style **Resolve** like Skip before damage is rolled and like Call after, in both places, and merge "Resolve without damage roll" into it. Done when, in the browser, the button changes when the damage roll lands.
+- [x] 8.5 Change the start form's label to "Effect name" with placeholder "New Effect", and the damage formula placeholder to "Damage Formula (e.g. 8d6)". Done when both show in the GM's form and the player's prompt.
+
+## 9. Dice for group and area-effect rolls
+
+- [x] 9.1 Add a per-token "drop" to the board's dice layer: about 700 ms, all of a roll's tokens starting together, about 1.5 s linger, one board slot per roll, and a single total die per token above about 40 dice. Done when unit tests cover the slot counting, the dice cap and the centroid placement.
+- [x] 9.2 In `RoomPage`, animate committed `GroupRolled`, `AreaEffectStarted` (GM only) and `AreaEffectDamageRolled` from the viewer's filtered event, and keep each roll `airborne` until it lands, landing at once with reduced motion or no board. Done when, in the browser, saves drop on the GM's tokens only, per-target damage drops on each visible target for a player, and the totals appear as the dice land.
+- [x] 9.3 Run `npm run lint && npm run typecheck && npm test` and `openspec validate area-effects --strict`. Done when all pass.
+
+## 10. Normal throw for token dice
+
+- [x] 10.1 Throw each token's dice with the Roll-button throw (paths, keyframes, stagger, die size), every token's throw leaving together, with a 3 s linger. Keep the straight drop of one total die per token above about 40 dice. Done when, in the browser, a group roll and per-target damage tumble onto their tokens like a normal roll, and the totals appear as they land.
+- [x] 10.2 Run `npm run lint && npm run typecheck && npm test` and `openspec validate area-effects --strict`. Done when all pass.
+
+## 11. Dialog layout, wording and damage numbers
+
+- [x] 11.1 Make the resolve dialog's title the token's name, with "effect · n of N" small beside it, and add a large result block (roll, damage, HP). Done when, in the browser, the token name and roll are the most prominent text in the dialog.
+- [x] 11.2 Replace "save" with "roll" or "result" in the area-effect menus. Done when no area-effect UI text says "save".
+- [x] 11.3 Keep `AreaEffectResolved.amounts` for players' visible targets in the filter (ADR 0044 updated), and play a damage number on each damaged visible target on resolve. Done when shared, server and web tests cover the filter and the effect, and, in the browser, every damaged token shows its number at once.
+- [x] 11.4 Run `npm run lint && npm run typecheck && npm test` and `openspec validate area-effects --strict`. Done when all pass.

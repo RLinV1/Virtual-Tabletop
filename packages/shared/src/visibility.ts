@@ -203,8 +203,12 @@ export function filterEventForViewer(
     case "AreaEffectResolved": {
       if (effectWithheldFrom(e.effect, before, viewer)) return redacted;
       const effect = areaEffectForViewer(e.effect, before, viewer);
-      // The amounts are the GM's; the HP changes before it already reached whoever may see them.
-      return { kind: "event", committed: { ...withoutCommandId, event: e.type === "AreaEffectResolved" ? { ...e, effect, amounts: [] } : { ...e, effect } } };
+      if (e.type === "AreaEffectClosed") return { kind: "event", committed: { ...withoutCommandId, event: { ...e, effect } } };
+      // Only the amounts for targets the viewer can see, for their damage numbers: those targets'
+      // HP changes already reached them. A concealed target's amount never does.
+      const seen = new Set(effect.targets.map((t) => t.tokenId));
+      const amounts = e.amounts.filter((a) => seen.has(a.tokenId));
+      return { kind: "event", committed: { ...withoutCommandId, event: { ...e, effect, amounts } } };
     }
     case "AreaEffectDamageRolled": {
       const effect = before.areaEffect;
