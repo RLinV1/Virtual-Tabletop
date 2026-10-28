@@ -1,7 +1,7 @@
 import { Application, Container } from "pixi.js";
 import type { AnimationDef, AnimationShape } from "@vtt/shared";
 import { playNuke, playStrike, type FxHost } from "./fx";
-import { STAGE_CELL, STAGE_TOKEN_RADIUS, drawStageGrid, drawStageToken, standInPositions } from "./animationPreview";
+import { STAGE_CELL, STAGE_TOKEN_RADIUS, drawStageBackdrop, drawStageGrid, drawStandIn, loadStageArt, standInPositions } from "./animationPreview";
 
 /**
  * Library card thumbnails (ADR 0038): one still frame per animation, rendered by the same `fx.ts`
@@ -93,6 +93,8 @@ interface Rig {
 
 async function createRig(): Promise<Rig | null> {
   const app = new Application();
+  // Without the art the stills fall back to the plain grid and discs, like the editor's preview.
+  const art = await loadStageArt();
   try {
     await app.init({ width: THUMB_WIDTH, height: THUMB_HEIGHT, background: "#14171b", antialias: true, resolution: 1, autoStart: false });
   } catch {
@@ -102,11 +104,12 @@ async function createRig(): Promise<Rig | null> {
   const fxLayer = new Container();
   world.scale.set(THUMB_WIDTH / LOGICAL_WIDTH);
   const { attacker, target } = standInPositions(LOGICAL_WIDTH, LOGICAL_HEIGHT);
-  const a = drawStageToken(0x3b82f6);
-  const t = drawStageToken(0xef4444);
+  const a = drawStandIn("attacker", art);
+  const t = drawStandIn("target", art);
   a.position.set(attacker.x, attacker.y);
   t.position.set(target.x, target.y);
-  world.addChild(drawStageGrid(LOGICAL_WIDTH, LOGICAL_HEIGHT), a, t, fxLayer);
+  if (art) world.addChild(drawStageBackdrop(art.arena, LOGICAL_WIDTH, LOGICAL_HEIGHT));
+  world.addChild(drawStageGrid(LOGICAL_WIDTH, LOGICAL_HEIGHT, art ? 0.055 : 0.08), a, t, fxLayer);
   app.stage.addChild(world);
   return { app, world, fxLayer };
 }
