@@ -38,8 +38,10 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
   };
   const centre = (offset = 0): Point =>
     map ? place({ x: map.width / 2 + offset * grid.cellSize, y: map.height / 2 }) : { x: 0, y: 0 };
-  const [tokens, setTokens] = useState<TestToken[]>(() => (map ? [{ id: "test-1", name: "Token 1", position: centre() }] : []));
-  const nextNumber = useRef(2);
+  const [tokens, setTokens] = useState<TestToken[]>([]);
+  const nextNumber = useRef(1);
+  // The step opens asking for a first token; Add token asks again. The next click on the map places it.
+  const [placing, setPlacing] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
   // A drag only moves the marker; sight updates on drop, like a drag on the board.
   const [drag, setDrag] = useState<{ id: string; at: Point } | null>(null);
@@ -95,9 +97,10 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
 
   const clamp = (p: Point): Point => ({ x: Math.min(map.width, Math.max(0, p.x)), y: Math.min(map.height, Math.max(0, p.y)) });
   const moveTo = (id: string, position: Point) => setTokens((now) => now.map((t) => (t.id === id ? { ...t, position } : t)));
-  const add = () => {
+  const add = (at?: Point) => {
     const n = nextNumber.current++;
-    setTokens((now) => [...now, { id: `test-${n}`, name: `Token ${n}`, position: centre(now.length) }]);
+    setTokens((now) => [...now, { id: `test-${n}`, name: `Token ${n}`, position: at ? place(at) : centre(now.length) }]);
+    setPlacing(false);
   };
   const remove = (id: string) => {
     setTokens((now) => now.filter((t) => t.id !== id));
@@ -143,7 +146,7 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
         <h3 className="map-editor-heading">Test tokens</h3>
         <p className="muted small-print">Drag them on the map to check what they see. They snap to the grid; hold Alt to place one freely. Only you see them, and they aren't saved.</p>
         {tokens.length === 0 ? (
-          <p className="muted small-print">Add a token to preview sight.</p>
+          <p className="muted small-print">Place a token on the map to preview sight.</p>
         ) : (
           <ul className="sight-token-list">
             {tokens.map((t) => (
@@ -159,8 +162,8 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
             ))}
           </ul>
         )}
-        <button type="button" className="secondary" onClick={add}>
-          <Plus size={16} aria-hidden="true" /> Add token
+        <button type="button" className="secondary" aria-pressed={placing} onClick={() => setPlacing(!placing)}>
+          <Plus size={16} aria-hidden="true" /> {placing ? "Cancel" : "Add token"}
         </button>
         {Object.values(state.walls).some(isPortal) && (
           <p className="muted small-print">Click a door or window on the map to open or close it here. Windows never block sight. The room's doors don't change.</p>
@@ -169,10 +172,17 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
       <div className="sight-preview-stage">
         <svg
           ref={svgRef}
-          className={`map-editor-sight-preview${drag ? " is-dragging" : ""}`}
+          className={`map-editor-sight-preview${drag ? " is-dragging" : ""}${placing ? " is-placing" : ""}`}
           viewBox={`0 0 ${map.width} ${map.height}`} preserveAspectRatio="xMidYMid meet"
-          aria-label="Sight preview"
-          onPointerDown={(e) => { if (!(e.target as Element).closest(".sight-test-token, .sight-portal")) setSelected(null); }}
+          aria-label={placing ? "Sight preview. Click to place a test token, or press Enter to place it in the middle." : "Sight preview"}
+          tabIndex={placing ? 0 : undefined}
+          onKeyDown={(e) => { if (placing && e.target === e.currentTarget && e.key === "Enter") { e.preventDefault(); add(); } }}
+          onPointerDown={(e) => {
+            if ((e.target as Element).closest(".sight-test-token, .sight-portal")) return;
+            const p = placing && e.button === 0 && toMap(e);
+            if (p) add(p);
+            else setSelected(null);
+          }}
           onPointerMove={dragTo}
           onPointerUp={drop}
           onPointerCancel={() => setDrag(null)}
@@ -227,6 +237,11 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
             );
           })}
         </svg>
+        {placing && (
+          <div className="sight-place-prompt" role="status">
+            <span>{tokens.length === 0 ? "Click the map to place a test token." : "Click the map to place another token."}</span>
+          </div>
+        )}
         {chosen && (
           <div className="sight-popup" role="status">
             <span>

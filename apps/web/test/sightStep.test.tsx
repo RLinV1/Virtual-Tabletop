@@ -35,6 +35,8 @@ const openSight = () => { fireEvent.click(screen.getByRole("button", { name: "Ed
 const lineOfSightBox = () => within(editor()).getByRole("button", { name: /^Line of sight (on|off)$/ });
 const limited = () => within(editor()).getByRole("radio", { name: /^Limited$/ });
 const unlimited = () => within(editor()).getByRole("radio", { name: /^Unlimited$/ });
+// jsdom has no SVG geometry for a click, so tests place through the map's keyboard path.
+const placeInCentre = () => fireEvent.keyDown(document.querySelector(".map-editor-sight-preview")!, { key: "Enter" });
 
 describe("map editor Sight step (FR-GM-19)", () => {
   it("has a tab after Fog and asks for a map when there is none", async () => {
@@ -74,7 +76,15 @@ describe("map editor Sight step (FR-GM-19)", () => {
     const popup = () => editor().querySelector<HTMLElement>(".sight-popup");
     expect(popup()).toBeNull();
 
+    // It opens asking for a first token.
+    expect(panel.queryByRole("button", { name: "Token 1" })).toBeNull();
+    expect(within(editor()).getByText("Click the map to place a test token.")).toBeTruthy();
+    expect(within(editor()).queryByRole("button", { name: /centre/ })).toBeNull();
+    placeInCentre();
+    expect(within(editor()).queryByText("Click the map to place a test token.")).toBeNull();
     fireEvent.click(panel.getByRole("button", { name: "Add token" }));
+    expect(within(editor()).getByText("Click the map to place another token.")).toBeTruthy();
+    placeInCentre();
     // Both start on square centres (50 px squares), the second one square right of the first.
     const centres = [...document.querySelectorAll(".sight-test-token circle")].map((c) => [c.getAttribute("cx"), c.getAttribute("cy")]);
     expect(centres).toEqual([["425", "325"], ["475", "325"]]);
@@ -96,7 +106,9 @@ describe("map editor Sight step (FR-GM-19)", () => {
   it("opens and closes a door for the preview only", () => {
     const fake = mount(room({ walls: [{ id: "d", a: { x: 250, y: 0 }, b: { x: 250, y: 600 }, portal: { kind: "door", state: "locked" } }] })); openSight();
     const panel = within(within(editor()).getByRole("complementary", { name: "Test tokens" }));
+    placeInCentre();
     fireEvent.click(panel.getByRole("button", { name: "Add token" }));
+    placeInCentre();
     const second = within(editor()).getByRole("button", { name: /^Token 2\./ });
     for (let i = 0; i < 5; i++) fireEvent.keyDown(second, { key: "ArrowLeft" });
     fireEvent.click(panel.getByRole("button", { name: "Token 1" }));

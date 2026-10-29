@@ -2765,6 +2765,14 @@ button.stage-slot[aria-pressed="true"] { border-color: var(--accent); background
 .sight-test-token[aria-pressed="true"] circle, .sight-test-token:focus-visible circle { stroke-dasharray: none; }
 .sight-test-token.is-unseen { opacity: 0.45; }
 .sight-test-token-label { fill: var(--accent-ink); font-weight: 700; pointer-events: none; user-select: none; }
+/* Placing a test token: a crosshair on the map and a prompt across its top. */
+.map-editor-sight-preview.is-placing { cursor: crosshair; }
+.sight-place-prompt {
+  position: absolute; top: var(--space-2); left: 50%; transform: translateX(-50%); max-width: calc(100% - 2 * var(--space-2));
+  display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  background: var(--panel); color: var(--text); border: 1px solid var(--accent); border-radius: var(--radius);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); font-size: var(--fs-sm); font-weight: 600;
+}
 /* How many tokens the selected one sees, on the map's bottom-right corner. */
 .sight-popup {
   position: absolute; right: var(--space-2); bottom: var(--space-2); max-width: calc(100% - 2 * var(--space-2));
