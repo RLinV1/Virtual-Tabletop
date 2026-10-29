@@ -1,5 +1,5 @@
 import { sameValue, type UvttPreparation, type Wall, normalizeLegacyGridForBoard, type Command, type GridSpec, type MapImage, type MapTokenPolicy, type RoomState } from "@vtt/shared";
-import { gridsEqual, newGridSuggestionSession, parseGridDraft, toGridDraft, type GridDraft, type GridSuggestionSession } from "./gridDraft";
+import { gridsEqual, newGridPreparation, newGridSuggestionSession, parseGridDraft, toGridDraft, type GridDraft, type GridSuggestionSession, type GridPreparation } from "./gridDraft";
 
 /**
  * A map being prepared before the table sees it (KAN-59, FRONTEND-CONTRACT §13.2): the chosen
@@ -12,6 +12,7 @@ export interface MapPrep {
   draft: GridDraft;
   gridConfigured?: boolean;
   suggestionSession?: GridSuggestionSession;
+  preparation?: GridPreparation;
   uvtt?: Pick<UvttPreparation, "id" | "revision" | "diagnostics">;
   walls?: Record<string, Wall>;
   initialWalls?: Record<string, Wall>;
@@ -25,7 +26,8 @@ export interface MapPrep {
  */
 export function startPrep(map: MapImage, savedGrid: GridSpec | null | undefined, currentGrid: GridSpec): MapPrep {
   const initial = normalizeLegacyGridForBoard(savedGrid ?? currentGrid, map);
-  return { map, initial, draft: toGridDraft(initial), gridConfigured: !!savedGrid, suggestionSession: newGridSuggestionSession() };
+  return { map, initial, draft: toGridDraft(initial), gridConfigured: !!savedGrid,
+    suggestionSession: newGridSuggestionSession(), preparation: newGridPreparation(!savedGrid) };
 }
 
 /** Whether closing would lose alignment work: the draft no longer matches where it started. */

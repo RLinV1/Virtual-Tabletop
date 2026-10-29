@@ -92,7 +92,12 @@ try {
   await page.getByLabel("Search by name").fill("Grid benchmark 0");
   await page.getByRole("button", { name: "Edit grid", exact: true }).click();
   let editor = page.getByRole("dialog", { name: "Set up map", exact: true });
+  await editor.waitFor();
+  const manual = editor.getByText("Set up manually", { exact: true });
+  report.browser_wait_skipped = await manual.isVisible();
+  if (report.browser_wait_skipped) await manual.click();
   const cell = editor.getByLabel("Cell size", { exact: true });
+  await cell.waitFor();
   assert(await cell.isEnabled());
   await cell.fill("71.5");
   assert.equal(await cell.inputValue(), "71.5");

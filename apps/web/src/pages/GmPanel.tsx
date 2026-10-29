@@ -1,5 +1,5 @@
 import { GridActionsContext } from "./GridActionsContext";
-import { Fragment, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { sameValue, inactiveLabel, pendingDepartures, undoableAction, type Command, type MapTokenPolicy, type GridSpec, type LibraryAsset, type MapImage, type RoomState } from "@vtt/shared";
 import { api } from "../net/api";
 import { libraryAssetId } from "../net/builtinAssets";
@@ -15,7 +15,8 @@ import { gridsEqual, parseGridDraft, withGridSuggestion, type GridDraft } from "
 import { GridForm } from "./GridForm";
 import { HudLayout } from "./mapEditor/HudLayout";
 import { LibraryPicker } from "./LibraryPicker";
-import { useGridDetection } from "./useGridDetection";
+import { useGridPreparation, type GridDetection } from "./useGridPreparation";
+import { GridPreparation } from "./mapEditor/GridPreparation";
 import { FogSetup } from "./mapEditor/FogSetup";
 import { WallSetup } from "./mapEditor/WallSetup";
 import { draftConnection } from "./mapEditor/draftConnection";
@@ -82,13 +83,12 @@ export function GmPanel({
         connection={connection}
         walls={(draftConnection, draftState) => <WallSetup connection={draftConnection} state={draftState} token={token} />}
         fog={(draftConnection, draftState) => <FogSetup connection={draftConnection} state={draftState} />}
-        grid={(close) => (
-          <RoomGridEditor
+        grid={(close, detection) => (
+          <GridForm
             key={state.scene.map?.url ?? "no-map"}
-            roomId={state.roomId}
-            token={token}
-            directMap={Boolean(state.scene.map && !state.scene.map.assetId)}
-            libraryDetectionId={state.scene.map?.assetId}
+            detection={detection.status} detectionError={detection.error} detectionDenied={detection.accessDenied}
+            onUseSuggestion={(candidate) => onGridDraftChange(withGridSuggestion(gridDraft, candidate))}
+            advancedOpen
             grid={state.scene.grid}
             map={state.scene.map}
             draft={gridDraft}
@@ -102,7 +102,7 @@ export function GmPanel({
             {hasLibrary && state.scene.map?.assetId && (
               <SaveGridToLibrary assetId={state.scene.map.assetId} grid={state.scene.grid} />
             )}
-          </RoomGridEditor>
+          </GridForm>
         )}
       />
       {features.tableAdmin && (
@@ -114,37 +114,6 @@ export function GmPanel({
       )}
     </>
   );
-}
-
-function RoomGridEditor({ libraryDetectionId, ...props }: ComponentProps<typeof GridForm> & {
-  roomId: string; token: string; directMap: boolean;
-  /** A library map just uploaded here: its grid analysis, like a direct upload's. */
-  libraryDetectionId?: string | null;
-}) {
-  if (libraryDetectionId) return <LibraryMapGridEditor {...props} assetId={libraryDetectionId} advancedOpen />;
-  return props.directMap ? <DirectMapGridEditor {...props} advancedOpen /> : <GridForm {...props} advancedOpen />;
-}
-
-function LibraryMapGridEditor({ assetId, ...props }: ComponentProps<typeof GridForm> & { assetId: string }) {
-  const detection = useGridDetection("library", "", assetId);
-  return <GridForm
-    {...props}
-    detection={detection.status}
-    detectionError={detection.error}
-    detectionDenied={detection.accessDenied}
-    onUseSuggestion={(candidate) => props.onChange(withGridSuggestion(props.draft, candidate))}
-  />;
-}
-
-function DirectMapGridEditor(props: ComponentProps<typeof RoomGridEditor>) {
-  const detection = useGridDetection("room", props.token, props.roomId, props.map?.url ?? "");
-  return <GridForm
-    {...props}
-    detection={detection.status}
-    detectionError={detection.error}
-    detectionDenied={detection.accessDenied}
-    onUseSuggestion={(candidate) => props.onChange(withGridSuggestion(props.draft, candidate))}
-  />;
 }
 
 /**
@@ -232,7 +201,7 @@ function MapSection(props: {
   fixedMap?: boolean;
   gridApplying: boolean;
   /** The live map's grid form; `close` is called after a successful apply or a cancel. */
-  grid: (close: () => void) => ReactNode;
+  grid: (close: () => void, detection: GridDetection) => ReactNode;
   /** The live room and its connection: the walls and fog draft starts from them and saves through them. */
   room: RoomState;
   connection: RoomConnection;
@@ -248,6 +217,17 @@ function MapSection(props: {
   const [step, setStep] = useState<EditorStep>("map");
   /** The map being prepared, or null. Only this browser has it until Apply. */
   const [prep, setPrep] = useState<MapPrep | null>(null);
+  const analysisMap = prep?.map ?? props.map;
+  const preparation = useGridPreparation({
+    source: analysisMap?.assetId ? "library" : "room",
+    token: analysisMap?.assetId ? "" : props.token,
+    id: analysisMap?.assetId ?? props.roomId,
+    map: analysisMap,
+    enabled: editorOpen && !!analysisMap && !prep?.uvtt,
+    setup: prep,
+    update: (change) => setPrep((current) => current && current.suggestionSession === prep?.suggestionSession ? change(current) : current),
+  });
+  const { detection, waiting } = preparation;
   const [prepError, setPrepError] = useState<string | null>(null);
   const [applyingMap, setApplyingMap] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -398,6 +378,7 @@ function MapSection(props: {
   };
   /** Every way out of the editor comes here: unsaved work asks first. */
   const requestClose = () => {
+    if (waiting) return preparation.skip();
     if (busyNow) return;
     if (!ask("close")) closeEditor();
   };
@@ -604,10 +585,11 @@ function MapSection(props: {
       <Modal
         open={editorOpen}
         title="Edit map"
-        className="map-editor"
+        className={`map-editor${waiting ? " is-preparing" : ""}`}
         onClose={requestClose}
+        closeLabel={waiting ? "Set up manually" : "Close"}
         onAfterClose={() => (editMapRef.current ?? gridOpenerRef.current ?? emptyUploadRef.current)?.focus()}
-        headerContent={(
+        headerContent={!waiting && (
           <nav className="map-editor-steps" role="tablist" aria-label="Map setup steps">
             {steps.map(({ key, label }) => (
               <button
@@ -636,7 +618,7 @@ function MapSection(props: {
           </nav>
         )}
       >
-        <div className="map-editor-shell">
+        {waiting ? <GridPreparation label={preparation.label} onSkip={preparation.skip} /> : <div className="map-editor-shell">
           {prep?.uvtt && prep.uvtt.diagnostics.length > 0 && <details className="uvtt-diagnostics"><summary>{prep.uvtt.diagnostics.length} import warnings</summary><ul>{prep.uvtt.diagnostics.map((issue, i) => <li key={i}>{issue.path}: {issue.message}</li>)}</ul></details>}
           <div className="map-editor-body" role="tabpanel">
             <GridActionsContext.Provider value={gridActionSlot}>
@@ -703,13 +685,12 @@ function MapSection(props: {
               </fieldset>
             )}
 
-                <RoomGridEditor
+                <GridForm
                   key={prep.map.url}
-                  roomId={props.roomId}
-                  token={props.token}
-                  directMap={!prep.uvtt && !prep.map.assetId}
-                  libraryDetectionId={prep.uvtt ? null : prep.map.assetId}
-                  autoSuggest={!prep.uvtt && !prep.gridConfigured}
+                  detection={detection.status} detectionError={detection.error} detectionDenied={detection.accessDenied}
+                  detectionNotice={prep.preparation?.notice} focusCanvas={!prep.uvtt && !prep.gridConfigured} advancedOpen
+                  onUseSuggestion={(candidate) => setPrep((now) => now && now.suggestionSession === prep.suggestionSession
+                    ? { ...now, draft: withGridSuggestion(now.draft, candidate) } : now)}
                   suggestionSession={prep.suggestionSession}
                   grid={prep.initial}
                   map={prep.map}
@@ -745,7 +726,7 @@ function MapSection(props: {
                 ))}
               </fieldset>
             )}
-{props.grid(() => props.onGridClose())}</HudLayout>
+{props.grid(() => props.onGridClose(), detection)}</HudLayout>
             ) : (
               <p className="map-editor-empty">Choose a map in the Map step first.</p>
             ))}
@@ -758,7 +739,7 @@ function MapSection(props: {
               : <Fragment key={`${editorGeneration}:${liveMapUrl}`}>{props.fog(draftEdits, draftState)}</Fragment>)}
             </GridActionsContext.Provider>
           </div>
-        </div>
+        </div>}
       </Modal>
       {props.hasLibrary && (
         <Modal

@@ -32,12 +32,26 @@ Both raster map upload paths SHALL return while analysis runs asynchronously and
 - **THEN** busy work waits without consuming a failure attempt, and oversized work ends in error while manual setup remains available
 
 ### Requirement: Guarded automatic draft prefilling
-An unconfigured map's untouched draft SHALL automatically adopt a valid cached estimate at most once per editor session. Manual interaction SHALL be tracked separately from equality, including the first anchor, keyboard alignment, field edits and discard. Automatic adoption SHALL preserve units and style. Saved grids, save attempts, dismissal, map replacement and access loss SHALL prevent automatic replacement. Use suggestion SHALL remain available for explicit adoption after interaction. Saving SHALL remain explicit. Polling SHALL stop when analysis is absent or access is denied.
+An unconfigured raster map's editor SHALL wait for analysis before revealing its canvas, fields, tabs and save/apply actions. Preparation SHALL be shared across steps, keyed to the original analysis target and editor session. The initial status lookup SHALL show Checking grid…, queued analysis SHALL show Waiting to fit grid… and running analysis SHALL show Fitting grid…, with a centered spinner, polite announcements and no percentage or estimated completion time. The spinner SHALL respect reduced motion. Valid queued/running responses SHALL allow an indefinite wait with cancellation always available.
 
-#### Scenario: Delayed result after manual alignment
-- **WHEN** a candidate arrives after the first anchor or typing begins
+A usable candidate SHALL update geometry and the editable phase in one state change so the first visible editor frame is already fitted. Automatic adoption SHALL preserve units and line style and SHALL never run after a session becomes editable. Configured maps, UVTT grids and shipped calibrations SHALL bypass waiting. Cached results SHALL reveal prepared setup without an artificial delay. Completed no_grid and failed fitting SHALL reveal manual setup with a short neutral explanation; missing or denied analysis SHALL fall back quietly. Each status request SHALL time out after 10 seconds; request failure or timeout SHALL reveal manual setup and prevent later automatic adoption without imposing a deadline on queue/processing time.
+
+The waiting X SHALL have the accessible label Set up manually. X, Escape, backdrop and a visible Set up manually button SHALL synchronously latch manual intent and reveal setup without discarding the upload or cancelling server analysis. Results SHALL remain cached, and session-level polling SHALL continue after skip so a later estimate is available through Use suggestion. A simultaneous skip SHALL prevent automatic adoption. The grid canvas SHALL receive focus when setup becomes editable; normal closing behavior SHALL then resume.
+
+Manual interaction SHALL be tracked separately from equality, including the first anchor, keyboard alignment, field edits and discard. Saved grids, save attempts, dismissal, map replacement and access loss SHALL prevent automatic replacement. Use suggestion SHALL remain available for explicit adoption after interaction. Saving SHALL remain explicit. Polling SHALL stop when analysis is absent or access is denied, and responses from superseded or unmounted sessions SHALL be ignored.
+
+#### Scenario: Delayed result after skipping
+- **WHEN** the GM skips waiting and a candidate arrives later, including after the first anchor or typing begins
 - **THEN** the draft stays unchanged and Use suggestion permits explicit adoption
 
-#### Scenario: Untouched unconfigured map
-- **WHEN** a valid estimate arrives before manual interaction in an unconfigured editor
-- **THEN** geometry is prefilled once without saving or changing units and style
+#### Scenario: Unconfigured map finishes fitting
+- **WHEN** a valid estimate arrives while an unconfigured editor is waiting
+- **THEN** its first visible editable frame contains the fitted geometry without saving or changing units and style
+
+#### Scenario: Slow queue with responsive status requests
+- **WHEN** analysis remains queued or running for more than 15 seconds and each status request succeeds
+- **THEN** setup continues waiting until completion or manual skip
+
+#### Scenario: Status timeout followed by recovered analysis
+- **WHEN** a status request exceeds 10 seconds and a later request returns a candidate
+- **THEN** manual setup is revealed at timeout and the later candidate requires explicit Use suggestion

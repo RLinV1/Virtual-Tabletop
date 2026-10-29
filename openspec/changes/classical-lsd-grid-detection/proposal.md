@@ -10,7 +10,7 @@ The reviewed native-resolution classical LSD detector produces editable grid est
 - Analyze new raster map uploads asynchronously up to a separate default 16 MP analysis ceiling. Tokens, UVTT grids and shipped calibrations stay authoritative.
 - Persist source identity, configuration fingerprint, attempts, candidates and completed no-grid outcomes per upload; hide obsolete metadata without backfilling maps.
 - Limit grid execution to one analysis, with disposable processes, deadlines, bounded retries and a bounded local pending buffer.
-- Prefill untouched unconfigured editor drafts once; retain explicit Use suggestion and explicit saves. Open private setup before placing unconfigured library maps.
+- Wait for a stable estimate before revealing unconfigured raster setup, then apply geometry and reveal the private draft together. Keep checking, queued and running status text without a processing deadline. X, Escape, backdrop and Set up manually skip waiting while server analysis continues and remains cached; later results require explicit Use suggestion. Configured maps, UVTT grids and shipped calibrations bypass waiting. Open private setup before placing unconfigured library maps; saves and room placement remain explicit.
 - **BREAKING**: Remove candidate confidence from the private shared HTTP contract and UI.
 
 ## Capabilities

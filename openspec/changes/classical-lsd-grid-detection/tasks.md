@@ -25,3 +25,12 @@
 
   Docker acceptance passed on 2026-10-26 in an isolated Compose project. All 27 maps retained geometry within 1e-6 px, with one active grid job and one active wall job. The enforced grid limit was 2 GiB; grid/wall cgroup peaks were 644,042,752 / 1,368,784,896 bytes with zero OOM events. A real database restart reused all 27 map results and one no_grid result with zero new detector invocations. Full-stack uploads, S3 artwork preservation, Python/npm suites and all 18 browser cases passed. See `docs/QA-classical-grid.md` and `docs/classical-grid-evidence.json`.
 - [x] 4.4 Run lint, typecheck, complete tests, Python wall/grid suites, build and relevant Playwright checks; deliver branch and verification report without supplied maps, merge or deployment.
+
+## 5. Wait before revealing setup
+
+- [x] 5.1 Add shared editor-session preparation and bounded status requests; reveal fitted geometry atomically, preserve units/style, and latch every manual fallback or skip.
+- [x] 5.2 Integrate the waiting step into library and room setup, including uploads and pending selections/reopening; coordinate one poller per session, accessible dismissal/status/focus, and configured/UVTT bypasses.
+- [x] 5.3 Verify transitions, first visible geometry, all skips and races, stale/unmounted sessions, failures/timeouts and waits beyond 15 seconds; retain private drafts and explicit saving/placement.
+- [x] 5.4 Update the proposal, design, delta specs and ADR 0044; run lint, typecheck, full application tests, build, all configured grid/UVTT browsers and isolated Docker fitting/skip checks, and record results without merging or deploying.
+
+  Waiting-step verification passed: 2,168 application tests (one existing environment-dependent skip), all 49 Python regressions, 24 grid and six UVTT browser cases across every configured profile, plus 12 repeated fitting/skip cases on the final race-guard build. Real Docker fitting revealed candidate geometry on the first editable frame; X preserved manual typing after server completion, cached reopening reused the estimate, and room placement stayed explicit. The isolated QA stack was stopped without changing the user's stack or original checkout. See `docs/QA-grid-preparation.md` and `/private/tmp/vtt-grid-preparation-qa/` for evidence.

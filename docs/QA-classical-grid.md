@@ -1,5 +1,7 @@
 # Classical LSD grid estimates — local verification
 
+The subsequent [grid preparation revision](QA-grid-preparation.md) waits before revealing setup and supports an explicit manual skip. The editor-availability timings below describe the earlier interaction; detector/cache/resource evidence remains applicable.
+
 Implementation branch: `feat/classical-lsd-grid`, isolated worktree `/private/tmp/vtt-classical-lsd-grid`, based on fetched main `5a8a420`. No merge or deployment. ADR 0044 remains proposed pending architecture-owner review. The supplied images and original experiment/environment/results were read without modification; they are not included in the branch.
 
 ## Behavior and contract

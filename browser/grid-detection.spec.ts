@@ -28,6 +28,9 @@ async function openAsset(page: Page, name: string) {
 }
 async function discard(page: Page) {
   const editor = page.getByRole("dialog", { name: /^(Set up map|Edit map)$/ });
+  if (await editor.locator(".modal-close").getAttribute("aria-label") === "Set up manually") {
+    await editor.locator(".modal-close").click();
+  }
   await editor.getByLabel("Close", { exact: true }).click();
   const prompt = page.getByRole("dialog", { name: "Save changes?", exact: true });
   if (await prompt.isVisible()) await prompt.getByRole("button", { name: "Discard", exact: true }).click();
@@ -66,6 +69,7 @@ test("grid estimates prefill once, protect typed/anchor drafts, saved grids and 
   // Typing before a delayed result, even returning to the initial value, blocks prefilling.
   mode = "pending";
   editor = await openAsset(page, "Grid two");
+  await editor.getByText("Set up manually", { exact: true }).click();
   const initial = await editor.getByLabel("Cell size", { exact: true }).inputValue();
   await editor.getByLabel("Cell size", { exact: true }).fill("71");
   await editor.getByLabel("Cell size", { exact: true }).fill(initial);
@@ -80,6 +84,7 @@ test("grid estimates prefill once, protect typed/anchor drafts, saved grids and 
   // Placing the first anchor is intent even though no draft geometry has changed.
   mode = "pending";
   editor = await openAsset(page, "Grid two");
+  await editor.getByLabel("Set up manually", { exact: true }).click();
   const canvas = editor.getByRole("group", { name: "Place grid anchors on the map" });
   await canvas.focus();
   await canvas.press("Enter");
@@ -96,6 +101,7 @@ test("grid estimates prefill once, protect typed/anchor drafts, saved grids and 
   // Discard blocks a late result across tab remounts within the same editor session.
   mode = "pending";
   editor = await openAsset(page, "Grid two");
+  await editor.press("Escape");
   await editor.getByRole("button", { name: "Discard", exact: true }).click();
   await editor.getByRole("tab", { name: /Walls/ }).click();
   mode = "candidate";
@@ -161,4 +167,74 @@ test("an unconfigured library selection opens private setup before placement and
   await editor.getByLabel("Close", { exact: true }).click();
   await page.getByRole("dialog", { name: /Discard|Save|Apply/ }).getByRole("button", { name: "Discard", exact: true }).click();
   expect(placements).toBe(0);
+});
+
+test("setup waits through checking, queue and fitting and first reveals the fitted grid (FR-GM-03)", async ({ page }, testInfo) => {
+  await account(page);
+  const map = await upload(page, "Waiting for grid");
+  let release!: () => void;
+  const lookup = new Promise<void>((resolve) => { release = resolve; });
+  let phase: "checking" | "queued" | "running" | "suggested" = "checking";
+  await page.route(`**/api/library/${map.id}/grid-detection`, async (route) => {
+    if (phase === "checking") await lookup;
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(phase === "suggested" ? estimate : { status: phase, attempt: 1 }) });
+  });
+  await page.goto("/library");
+  await page.evaluate(() => {
+    const seen: string[] = [];
+    Object.assign(window, { firstVisibleGridCells: seen });
+    new MutationObserver(() => {
+      const field = document.querySelector<HTMLInputElement>(".map-editor input[max='2000']");
+      if (field) seen.push(field.value);
+    }).observe(document.body, { subtree: true, childList: true, attributes: true });
+  });
+  const editor = await openAsset(page, map.name);
+  await expect(editor.getByText("Checking grid…")).toBeVisible();
+  await expect(editor.getByRole("tab")).toHaveCount(0);
+  await expect(editor.getByLabel("Cell size", { exact: true })).toHaveCount(0);
+  await expect(editor.getByRole("button", { name: "Save changes" })).toHaveCount(0);
+  await expect(editor.getByLabel("Set up manually", { exact: true })).toBeVisible();
+  phase = "queued"; release();
+  await expect(editor.getByText("Waiting to fit grid…")).toBeVisible();
+  phase = "running";
+  await expect(editor.getByText("Fitting grid…")).toBeVisible();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  expect(await editor.locator(".map-grid-spinner").evaluate((element) => getComputedStyle(element).animationName)).toBe("none");
+  await editor.screenshot({ path: testInfo.outputPath("grid-fitting.png") });
+  phase = "suggested";
+  await expect(editor.getByLabel("Cell size", { exact: true })).toHaveValue("64.125");
+  await expect(editor.getByRole("group", { name: "Place grid anchors on the map" })).toBeFocused();
+  const seen = await page.evaluate(() => (window as unknown as { firstVisibleGridCells: string[] }).firstVisibleGridCells);
+  expect(seen.length).toBeGreaterThan(0);
+  expect([...new Set(seen)]).toEqual(["64.125"]);
+  const saved = (await (await page.request.get("/api/library")).json() as LibraryAsset[]).find((value) => value.id === map.id);
+  expect(saved?.grid).toBeNull();
+  await editor.screenshot({ path: testInfo.outputPath("grid-ready.png") });
+  await discard(page);
+});
+
+test("X, manual action, Escape and backdrop skip fitting and preserve manual setup after completion (FR-GM-03)", async ({ page }) => {
+  await account(page);
+  const map = await upload(page, "Manual grid setup");
+  let complete = false;
+  await page.route(`**/api/library/${map.id}/grid-detection`, (route) => route.fulfill({ contentType: "application/json",
+    body: JSON.stringify(complete ? estimate : { status: "running", attempt: 1 }) }));
+  await page.goto("/library");
+  for (const action of ["X", "button", "Escape", "backdrop"]) {
+    complete = false;
+    const editor = await openAsset(page, map.name);
+    await expect(editor.getByText("Fitting grid…")).toBeVisible();
+    if (action === "X") await editor.getByLabel("Set up manually", { exact: true }).click();
+    else if (action === "button") await editor.getByText("Set up manually", { exact: true }).click();
+    else if (action === "Escape") await editor.press("Escape");
+    else await page.mouse.click(2, 2);
+    await expect(editor.getByLabel("Cell size", { exact: true })).toBeVisible();
+    await expect(editor.getByRole("group", { name: "Place grid anchors on the map" })).toBeFocused();
+    await editor.getByLabel("Cell size", { exact: true }).fill("71");
+    complete = true;
+    await expect(editor.getByRole("button", { name: "Use suggestion" })).toBeVisible();
+    await expect(editor.getByLabel("Cell size", { exact: true })).toHaveValue("71");
+    await discard(page);
+  }
+  expect((await (await page.request.get("/api/library")).json() as LibraryAsset[]).find((value) => value.id === map.id)?.grid).toBeNull();
 });

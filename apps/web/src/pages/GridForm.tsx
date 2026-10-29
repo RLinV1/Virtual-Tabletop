@@ -29,6 +29,8 @@ export function GridForm({
   detection,
   detectionError,
   detectionDenied = false,
+  detectionNotice,
+  focusCanvas = false,
   onUseSuggestion,
   autoSuggest = false,
   suggestionSession,
@@ -54,6 +56,8 @@ export function GridForm({
   /** Hide analysis UI after a request error so manual editing can continue quietly. */
   detectionError?: string | null;
   detectionDenied?: boolean;
+  detectionNotice?: string | null;
+  focusCanvas?: boolean;
   onUseSuggestion?: (candidate: Extract<GridDetectionStatus, { status: "suggested" }>["candidate"]) => void;
   autoSuggest?: boolean;
   suggestionSession?: GridSuggestionSession;
@@ -143,6 +147,7 @@ export function GridForm({
       }}
     >
       <MapGridPreview
+        autoFocus={focusCanvas}
         map={map ?? DEFAULT_PREVIEW_MAP}
         grid={shown}
         geometryRevision={geometryRevision}
@@ -180,6 +185,7 @@ export function GridForm({
         </div>
       </div>
       <div className="grid-editor-footer">
+        {detectionNotice && detection?.status !== "suggested" && <p role="status" className="muted grid-message">{detectionNotice}</p>}
         <div className="grid-scale">
           <span>Each square represents</span>
           <input type="number" aria-label="Distance per square" step="any" min="0" required

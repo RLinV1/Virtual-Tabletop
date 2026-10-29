@@ -23,7 +23,7 @@ const midpoint = (a: Point, b: Point): Point => ({ x: (a.x + b.x) / 2, y: (a.y +
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y);
 
 /** Shared map editor. Anchors, provisional geometry and navigation stay local. */
-export function MapGridPreview({ map, grid, onChange, onInteraction, onPreviewChange, previewEnabled = true, disabled = false, geometryRevision = 0 }: {
+export function MapGridPreview({ map, grid, onChange, onInteraction, onPreviewChange, previewEnabled = true, disabled = false, geometryRevision = 0, autoFocus = false }: {
   map: BoardSize & { url: string | null };
   grid: GridSpec;
   onChange: (grid: GridSpec) => void;
@@ -36,8 +36,16 @@ export function MapGridPreview({ map, grid, onChange, onInteraction, onPreviewCh
   disabled?: boolean;
   /** Explicit numeric edits also invalidate anchors when the field is temporarily invalid. */
   geometryRevision?: number;
+  autoFocus?: boolean;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
+  useEffect(() => {
+    if (!autoFocus) return;
+    let live = true;
+    // A newly opened dialog enters the top layer in its parent's effect first.
+    queueMicrotask(() => { if (live) svgRef.current?.focus(); });
+    return () => { live = false; };
+  }, [autoFocus]);
   const helpId = useId();
   const keysId = useId();
   const statusId = useId();
