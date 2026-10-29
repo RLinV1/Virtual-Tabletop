@@ -90,8 +90,8 @@ export function WallSetup({ connection, state, token, detection: detectionEnable
       .then(setAvailability)
       .catch(() => { if (!abort.signal.aborted) setAvailability({ available: false, reason: "Couldn't reach the server." }); });
     return () => abort.abort();
-    // The answer depends on the room's current map.
-  }, [detectionEnabled, state.roomId, token, mapUrl]);
+    // The answer depends on the room's current map and its size (stored walls fit one size only).
+  }, [detectionEnabled, state.roomId, token, mapUrl, map?.width, map?.height]);
 
   // The latest analysis of this map, then every change the server announces for it.
   useEffect(() => {

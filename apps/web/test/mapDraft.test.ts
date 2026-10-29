@@ -89,6 +89,14 @@ describe("map editor drafts (map-editor-drafts)", () => {
     expect(Object.keys(withDetectedWalls(fresh(), twice, newId).walls)).toHaveLength(1);
   });
 
+  it("keeps the window when a stored segment comes plain and then with one, and puts it on a plain draft wall", () => {
+    const window = { kind: "window", state: "closed" } as const;
+    const found = [{ a: { x: 0, y: 0 }, b: { x: 100, y: 0 } }, { a: { x: 0, y: 0 }, b: { x: 100, y: 0 }, portal: window }];
+    expect(Object.values(withDetectedWalls(fresh(), found, newId).walls).map((w) => w.portal)).toEqual([window]);
+    const onPlain = withDetectedWalls({ ...fresh(), walls: { w1: room.walls.w1 } }, [found[1]!], newId);
+    expect(onPlain.walls).toEqual({ w1: { ...room.walls.w1, portal: window } });
+  });
+
   it("clears with one command when every wall goes", () => {
     expect(planDraftSave(room, applyToDraft(fresh(), { type: "wall.clear", expectedMapUrl }, newId)!)).toEqual([{ type: "wall.clear", expectedMapUrl }]);
   });

@@ -52,5 +52,8 @@ describe("image upload limit (FR-GM-02)", () => {
     const fresh = await server.createRoom("GM", { cookie, roomName: "B" });
     expect((await roomUpload(fresh.guestToken)).status).toBe(429);
     expect((await libraryUpload(cookie)).status).toBe(429);
+    // A UVTT import stores an image too: refused before the file is read.
+    expect((await fetch(`${server.base}/api/library/uvtt/imports`, { method: "POST", headers: { cookie }, body: imageForm() })).status).toBe(429);
+    expect((await fetch(`${server.base}/api/rooms/${fresh.roomId}/uvtt/imports`, { method: "POST", headers: { authorization: `Bearer ${fresh.guestToken}` }, body: imageForm() })).status).toBe(429);
   });
 });

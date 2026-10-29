@@ -36,7 +36,7 @@ Current state that shapes the approach:
 
 `viewerSight(state, viewer): Point[][] | null` returns `null` when the viewer is the GM or line of sight is off (no limit), otherwise one polygon per owned, non-hidden token. "In sight" means inside any polygon, with points within 1 board pixel of a polygon edge counting as inside, so a door the token is looking at (whose midpoint lies on the sight edge) is visible.
 
-Algorithm: angular sweep — cast rays to each segment endpoint the origin can see (never to hidden ones) and at ±a small angle on either side, find the nearest hit, sort by angle. Pure and deterministic (invariant 2). Budget: 1500 walls (`MAX_WALLS`) and one origin in under 5 ms in Node, checked by a test. If the plain O(rays × walls) version misses the budget, prune segments by bounding box before switching algorithms.
+Algorithm: angular sweep — cast rays to each segment endpoint the origin can see (never to hidden ones) and at ±a small angle on either side, find the nearest hit, sort by angle. Pure and deterministic (invariant 2). Budget: 1500 walls (`MAX_WALLS`) and one origin in under 5 ms in Node. The test gates at 15 ms, since it runs beside other test files on shared CI cores; that still catches the ~25 ms unbucketed scan. If the plain O(rays × walls) version misses the budget, prune segments by bounding box before switching algorithms.
 
 *Alternative:* compute sight on the client. Rejected: the client would need the plain walls, which ADR 0029 keeps GM-only.
 

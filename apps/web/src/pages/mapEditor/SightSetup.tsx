@@ -58,7 +58,9 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
     setMessage(result.ok ? null : result.message);
   };
   const unit = grid.unitLabel;
-  const squares = Math.min(MAX_SQUARES, Math.max(1, Math.round((range ?? grid.unitsPerCell * MAX_SQUARES) / grid.unitsPerCell)));
+  const squares = Math.max(1, Math.round((range ?? grid.unitsPerCell * MAX_SQUARES) / grid.unitsPerCell));
+  // A longer range typed as an exact distance stretches the slider, so dragging it never cuts the range short.
+  const maxSquares = Math.max(MAX_SQUARES, squares);
 
   const total = Object.values(state.tokens).filter((t) => !t.hidden).length;
   const setRange = (next: number) => void send({ type: "scene.setSightRange", range: Math.min(grid.unitsPerCell * 1000, Math.max(grid.unitsPerCell, next)) });
@@ -154,8 +156,8 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
               <label className="stack">
                 <span className="small-print">Distance: {range} {unit} ({squares} {squares === 1 ? "square" : "squares"})</span>
                 <input
-                  type="range" className="range range-filled" aria-label="Sight range in squares" min={1} max={MAX_SQUARES} step={1}
-                  value={squares} style={rangeFill(squares, 1, MAX_SQUARES)}
+                  type="range" className="range range-filled" aria-label="Sight range in squares" min={1} max={maxSquares} step={1}
+                  value={squares} style={rangeFill(squares, 1, maxSquares)}
                   onChange={(e) => setRange(e.target.valueAsNumber * grid.unitsPerCell)}
                 />
               </label>

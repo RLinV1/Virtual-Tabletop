@@ -63,11 +63,12 @@ describe("stored walls need no vision service (FR-GM-09)", () => {
     expect(Object.values(gm.state.walls).filter((w) => w.portal)).toHaveLength(stored.filter((w) => w.portal).length);
   });
 
-  it("serves the map's own image as the preview (no builtin dir in tests: 404 is tolerated by the client)", async () => {
+  it("serves the map's own image as the preview", async () => {
     const { room, base } = await roomOn({ url: crypt.url, width: crypt.width, height: crypt.height });
     await api(room.guestToken, base, { method: "POST" });
     const res = await api(room.guestToken, `${base}/preview?map=${encodeURIComponent(crypt.url)}`);
-    expect([200, 404]).toContain(res.status);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/webp");
   });
 
   it("still refuses an uploaded map, and the same URL at another size, without the vision service", async () => {

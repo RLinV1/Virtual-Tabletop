@@ -208,7 +208,7 @@ export function applyToDraft(draft: MapDraft, command: CommandInput, newId: () =
  */
 export function withDetectedWalls(draft: MapDraft, detected: readonly { a: Point; b: Point; portal?: Portal }[], newId: () => string): MapDraft {
   const walls: Record<string, Wall> = {};
-  const seen = new Set<string>();
+  const seen = new Map<string, string>();
   const existing = new Map<string, Wall>();
   for (const wall of Object.values(draft.walls)) {
     const key = wallKey(wall);
@@ -216,12 +216,12 @@ export function withDetectedWalls(draft: MapDraft, detected: readonly { a: Point
   }
   for (const { a, b, portal } of detected) {
     const key = wallKey({ a, b });
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const retained = existing.get(key);
-    const id = retained?.id ?? newId();
-    // Stored walls for built-in maps carry their doors and windows (ADR 0029 amendment).
-    walls[id] = retained ?? { id, a, b, ...(portal && { portal }) };
+    const id = seen.get(key) ?? existing.get(key)?.id ?? newId();
+    seen.set(key, id);
+    const wall = walls[id] ?? existing.get(key) ?? { id, a, b };
+    // Stored walls for built-in maps carry their doors and windows (ADR 0029 amendment). A plain
+    // wall gains one found on the same segment; one it already has wins.
+    walls[id] = !wall.portal && portal ? { ...wall, portal } : wall;
   }
   return { ...draft, walls };
 }

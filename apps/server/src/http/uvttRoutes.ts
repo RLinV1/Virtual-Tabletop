@@ -9,6 +9,7 @@ import type { RoomRegistry } from "../domain/roomRegistry";
 import { RateLimiter } from "../identity/rateLimit";
 import type { Sessions } from "../identity/sessions";
 import { requireAccount } from "../identity/middleware";
+import { refused } from "../identity/routes";
 import type { AssetStore } from "../store/assetStore";
 import type { LibraryAssetRecord } from "../store/libraryStore";
 import type { RoomStore } from "../store/roomStore";
@@ -18,7 +19,7 @@ import type { UvttValidationPool } from "../uvtt/validationPool";
 import { createUvttLibraryMap, receiveUvtt, writeUvttImage } from "../uvtt/uploads";
 import { toWire } from "./library";
 
-interface Deps { store: RoomStore; registry: RoomRegistry; sessions: Sessions; assets: AssetStore; preparations: UvttPreparations; pool: UvttValidationPool; uploadDir: string; builtinImageDir: string | null; now: () => number }
+interface Deps { store: RoomStore; registry: RoomRegistry; sessions: Sessions; assets: AssetStore; preparations: UvttPreparations; pool: UvttValidationPool; uploadDir: string; builtinImageDir: string | null; uploads: RateLimiter; now: () => number }
 interface Auth { room: LiveRoom; actorId: string; roomId: string }
 const expired = "This preparation expired or the server restarted. Re-import the file.";
 
@@ -41,6 +42,8 @@ export function registerUvttRoutes(app: Express, deps: Deps) {
       attempts.sweep();
       const limit = attempts.hit(`library:${account.user.ownerId}`);
       if (!limit.ok) { res.setHeader("Retry-After", limit.retryAfterSec); res.status(429).json({ error: "Too many import attempts. Try again in a minute." }); return; }
+      // Imports store an image too, so they share the account's upload budget (FR-GM-02).
+      if (refused(res, deps.uploads.hit(`upload:${account.user.ownerId}`), "Too many uploads. Try again later.")) return;
       const started = deps.now();
       let code = "rejected";
       try {
@@ -85,7 +88,9 @@ export function registerUvttRoutes(app: Express, deps: Deps) {
       attempts.sweep();
       const limit = attempts.hit(`${auth.roomId}:${auth.actorId}`);
       if (!limit.ok) { res.setHeader("Retry-After", limit.retryAfterSec); res.status(429).json({ error: "Too many import attempts. Try again in a minute." }); return; }
-      const ownerId = await deps.store.findRoomOwner(auth.roomId) ?? `participant:${auth.actorId}`;
+      const owner = await deps.store.findRoomOwner(auth.roomId);
+      if (refused(res, deps.uploads.hit(`upload:${owner ?? auth.roomId}`), "Too many uploads. Try again later.")) return;
+      const ownerId = owner ?? `participant:${auth.actorId}`;
       deps.preparations.assertCanCreate(auth.roomId, auth.actorId, ownerId);
       const baseline = await auth.room.captureScene(auth.actorId);
       if (!baseline) { res.status(403).json({ error: "Your GM seat ended." }); return; }
