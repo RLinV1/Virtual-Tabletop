@@ -47,6 +47,7 @@ import {
 } from "./effects";
 import { playNuke, playStrike, type FxHost, type RunningFx } from "./fx";
 import { loadFxTextures } from "./fxTextures";
+import { armSound, withSound } from "./fxSound";
 import { getClientSettings, graphicsBudget, subscribeGraphicsSettings } from "../ui/clientSettings";
 import { averageColor, fogPalette, makeFogCanvas, makeFogMaskCanvas, type Rgb } from "./fogTexture";
 import { areaColorValue, areaOrigin, areaShape, areaSizeFromDrag, fogDraftPoints, fogRegionAt, formatDistance, hitMark, measure, portalAt, sweepPoints, templateMark, type BoardTool, type FogDraft, type Mark } from "./tools";
@@ -439,6 +440,7 @@ export class BoardView {
   async init() {
     // Fetched in the background: until they arrive, attacks draw their vector look.
     void loadFxTextures();
+    armSound();
     await this.app.init({
       width: Math.max(1, this.host.clientWidth),
       height: Math.max(1, this.host.clientHeight),
@@ -2040,14 +2042,17 @@ export class BoardView {
     const from = this.tokens.get(effect.fromId);
     const to = this.tokens.get(effect.toId);
     if (!from || !to || from.container.destroyed || to.container.destroyed) return;
-    this.startFx(
-      playStrike(this.fxHost(), {
+    const host = this.fxHost();
+    this.startFx(withSound(
+      playStrike(host, {
         def: effect.animation,
         from: { x: from.container.position.x, y: from.container.position.y },
         to: { x: to.container.position.x, y: to.container.position.y },
         radius: to.radius,
       }),
-    );
+      effect.animation,
+      host.reducedMotion,
+    ));
   }
 
   private playNukeFx(effect: Extract<AttackEffect, { kind: "nuke" }>) {
@@ -2055,13 +2060,13 @@ export class BoardView {
     for (const entry of [...this.fxRuns]) this.endFx(entry);
     const { width, height } = this.app.screen;
     const host = { ...this.fxHost(), layer: this.screenFxLayer };
-    this.startFx(playNuke(host, {
+    this.startFx(withSound(playNuke(host, {
       onImpact: this.callbacks.nukeImpact,
       def: effect.animation,
       origin: { x: width / 2, y: height / 2 },
       unit: Math.min(64, height / 10),
       extent: Math.hypot(width, height) / 2,
-    }));
+    }), effect.animation, host.reducedMotion));
   }
 
   private endAttackFx(fx: AttackFx) {

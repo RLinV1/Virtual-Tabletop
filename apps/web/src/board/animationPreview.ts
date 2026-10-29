@@ -3,6 +3,7 @@ import { graphicsBudget, subscribeGraphicsSettings } from "../ui/clientSettings"
 import type { AnimationDef } from "@vtt/shared";
 import { playNuke, playStrike, type FxHost, type RunningFx } from "./fx";
 import { loadFxTextures } from "./fxTextures";
+import { armSound, withSound } from "./fxSound";
 import { shakeScreen } from "./screenShake";
 import {
   DEFAULT_STAGE_ART, STAGE_CELL, mapPlacement, stageGridOrigin, standInPositions,
@@ -226,6 +227,7 @@ export class AnimationPreview {
     const box = this.hostSize();
     // Fetched while the renderer starts, so cached art, type and effect textures are in place for the first frame.
     const art = Promise.all([loadStageArt(), loadStageFont(), loadFxTextures()]);
+    armSound();
     try {
       await this.app.init({
         width: box.width,
@@ -364,10 +366,13 @@ export class AnimationPreview {
     // A nuke shakes the whole page at its blast, as it does on the board (unless the system asks
     // for reduced motion: the editor plays everything else in full).
     if (def.shape === "nuke" && !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) this.stopShake = shakeScreen(def);
-    this.run =
+    this.run = withSound(
       def.shape === "nuke"
         ? playNuke({ ...host, layer: this.screenFxLayer }, { def, origin: { x: width / 2, y: height / 2 }, unit: STAGE_CELL, extent: Math.hypot(width, height) / 2 })
-        : playStrike(host, { def, from: attacker, to: target, radius: STAGE_TOKEN_RADIUS });
+        : playStrike(host, { def, from: attacker, to: target, radius: STAGE_TOKEN_RADIUS }),
+      def,
+      false,
+    );
     if (this.run.animated === false && this.run.duration !== undefined) {
       this.run.update(0);
       this.app.render();
