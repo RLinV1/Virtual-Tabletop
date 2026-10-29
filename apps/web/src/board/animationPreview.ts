@@ -2,6 +2,8 @@ import { Application, Assets, CanvasTextMetrics, Container, Graphics, Sprite, Te
 import { graphicsBudget, subscribeGraphicsSettings } from "../ui/clientSettings";
 import type { AnimationDef } from "@vtt/shared";
 import { playNuke, playStrike, type FxHost, type RunningFx } from "./fx";
+import { loadFxTextures } from "./fxTextures";
+import { shakeScreen } from "./screenShake";
 import {
   DEFAULT_STAGE_ART, STAGE_CELL, mapPlacement, stageGridOrigin, standInPositions,
   type StageMapGrid, type StageScene, type StageSide, type StageSlot,
@@ -208,6 +210,8 @@ export class AnimationPreview {
   private run: RunningFx | null = null;
   private frame = 0;
   private finishTimer = 0;
+  /** Stops the page shake a playing nuke started. */
+  private stopShake: (() => void) | null = null;
   private stopSettingsWatch: (() => void) | null = null;
   private started = -1;
   private lastFrame = -Infinity;
@@ -220,8 +224,8 @@ export class AnimationPreview {
   /** Resolves false when the browser cannot create a WebGL context (the stage stays empty). */
   async init(): Promise<boolean> {
     const box = this.hostSize();
-    // Fetched while the renderer starts, so cached art and type are in place for the first frame.
-    const art = Promise.all([loadStageArt(), loadStageFont()]);
+    // Fetched while the renderer starts, so cached art, type and effect textures are in place for the first frame.
+    const art = Promise.all([loadStageArt(), loadStageFont(), loadFxTextures()]);
     try {
       await this.app.init({
         width: box.width,
@@ -357,6 +361,9 @@ export class AnimationPreview {
       screen: { width, height },
       reducedMotion: false,
     };
+    // A nuke shakes the whole page at its blast, as it does on the board (unless the system asks
+    // for reduced motion: the editor plays everything else in full).
+    if (def.shape === "nuke" && !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) this.stopShake = shakeScreen(def);
     this.run =
       def.shape === "nuke"
         ? playNuke({ ...host, layer: this.screenFxLayer }, { def, origin: { x: width / 2, y: height / 2 }, unit: STAGE_CELL, extent: Math.hypot(width, height) / 2 })
@@ -396,6 +403,8 @@ export class AnimationPreview {
   stop() {
     window.clearTimeout(this.finishTimer);
     this.finishTimer = 0;
+    this.stopShake?.();
+    this.stopShake = null;
     cancelAnimationFrame(this.frame);
     this.frame = 0;
     if (this.run) {

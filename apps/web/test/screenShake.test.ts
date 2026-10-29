@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import type { AnimationDef } from "@vtt/shared";
 import { shakeScreen } from "../src/board/screenShake";
@@ -23,5 +24,25 @@ describe("whole-screen nuke shake (FR-TAC-06, ADR 0038)", () => {
     const animate = vi.fn();
     shakeScreen({ ...nuke, shake: 0 }, { animate } as unknown as HTMLElement);
     expect(animate).not.toHaveBeenCalled();
+  });
+});
+
+describe("shaking an open modal with the page (FR-TAC-09)", () => {
+  it("shakes every open dialog along with the page root, on top of its own placement", () => {
+    document.body.innerHTML = `<div id="root"></div><dialog open></dialog>`;
+    const root = document.getElementById("root")!;
+    const dialog = document.querySelector("dialog")!;
+    const rootAnimate = vi.fn(() => ({ cancel: vi.fn() }));
+    const dialogCancel = vi.fn();
+    const dialogAnimate = vi.fn((_frames: Keyframe[], _options: KeyframeAnimationOptions) => ({ cancel: dialogCancel }));
+    root.animate = rootAnimate as unknown as HTMLElement["animate"];
+    dialog.animate = dialogAnimate as unknown as HTMLElement["animate"];
+    const stop = shakeScreen(nuke);
+    expect(rootAnimate).toHaveBeenCalledTimes(1);
+    expect(dialogAnimate).toHaveBeenCalledTimes(1);
+    expect(dialogAnimate.mock.calls[0]![1].composite).toBe("add");
+    stop();
+    expect(dialogCancel).toHaveBeenCalled();
+    document.body.innerHTML = "";
   });
 });

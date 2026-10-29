@@ -3,6 +3,7 @@ import type { AnimationDef, Point } from "@vtt/shared";
 import { withDefaults } from "./effectPresets";
 import { WHITE, burst, clamp01, easeOut, hex, mix, ring, stepSparks, type Spark } from "./fxKit";
 import { SparkRenderer } from "./fxParticles";
+import { RING_RADIUS, StampLayer, stamp } from "./fxTextures";
 import { graphicsBudget } from "../ui/clientSettings";
 import { STRIKE_SHAPES, type StrikeCtx, type StrikeShape } from "./fxStrikes";
 
@@ -107,6 +108,10 @@ interface FxScene {
   g: Graphics;
   /** Drawn plainly, over `g`. */
   top: Graphics;
+  /** Textured sprites over `g`, additive like it (`fxTextures.ts`). */
+  stamps: StampLayer;
+  /** Coloured pictures with transparency, drawn plainly over everything. */
+  props: StampLayer;
   dispose(): void;
 }
 
@@ -130,12 +135,14 @@ function makeScene(host: FxHost, def: Pick<AnimationDef, "glow">, bloomed: boole
     halo.filters = [blur];
     glowLayer.addChild(halo);
   }
-  glowLayer.addChild(g);
-  root.addChild(glowLayer, top);
+  const stamps = new StampLayer();
+  const props = new StampLayer("normal");
+  glowLayer.addChild(g, stamps.container);
+  root.addChild(glowLayer, top, props.container);
   host.layer.addChild(root);
   let disposed = false;
   return {
-    root, g, top,
+    root, g, top, stamps, props,
     dispose() {
       if (disposed) return;
       disposed = true;
@@ -158,7 +165,7 @@ export function playStrike(host: FxHost, params: StrikeFxParams): RunningFx {
   const reduced = host.reducedMotion;
   const r = Math.max(8, params.radius) * def.size;
   const scene = makeScene(host, def, !reduced);
-  const { g, top } = scene;
+  const { g, top, stamps, props } = scene;
   const key = {};
 
   if (reduced) {
@@ -192,7 +199,7 @@ export function playStrike(host: FxHost, params: StrikeFxParams): RunningFx {
   const gravity = def.gravity * r * 5;
 
   const c: StrikeCtx = {
-    d: def, g, top, from, to, dir, normal, dist, r,
+    d: def, g, top, stamps, props, from, to, dir, normal, dist, r,
     side: Math.random() < 0.5 ? -1 : 1,
     D: duration, L: landAt, impactLen,
     primary, secondary, accent, palette,
@@ -207,8 +214,14 @@ export function playStrike(host: FxHost, params: StrikeFxParams): RunningFx {
   };
   const drawing = spec.make(c);
   let last = 0;
+  // Each play turns the impact burst its own way.
+  const burstTurn = Math.random() * Math.PI;
+  const flashTint = mix(secondary, WHITE, 0.6);
 
-  /** Flash, disc and rings at the target; `k` runs 0 -> 1 across the impact phase. */
+  /**
+   * Flash, disc and rings at the target; `k` runs 0 -> 1 across the impact phase. Each is the
+   * painted texture when it has loaded, else the vector circle it replaces.
+   */
   const drawImpact = (k: number) => {
     const e = easeOut(k);
     const fade = 1 - k;
@@ -216,13 +229,23 @@ export function playStrike(host: FxHost, params: StrikeFxParams): RunningFx {
     const full = spec.impact === "full";
     if (def.flash > 0) {
       const flash = full ? { size: r * (1 + e) * big, alpha: def.flash * 0.8 * fade * fade } : { size: r * (0.8 + e * 0.6), alpha: def.flash * 0.6 * fade * fade };
-      top.circle(to.x, to.y, flash.size).fill({ color: WHITE, alpha: flash.alpha });
+      // The burst's rays reach a third of its picture: three radii across covers the flash.
+      if (!stamp(stamps, "impact-burst", to, flash.size * 3, flashTint, flash.alpha * 1.4, burstTurn + k * 0.5)) {
+        top.circle(to.x, to.y, flash.size).fill({ color: WHITE, alpha: flash.alpha });
+      }
     }
-    if (full) g.circle(to.x, to.y, r * (0.6 + e * 0.8) * big).fill({ color: primary, alpha: fade * 0.5 });
+    if (full) {
+      const disc = r * (0.6 + e * 0.8) * big;
+      if (!stamp(stamps, "glow", to, disc * 4, primary, fade * 0.55)) g.circle(to.x, to.y, disc).fill({ color: primary, alpha: fade * 0.5 });
+    }
     const ringColors = [secondary, WHITE, accent];
     for (let i = 0; i < def.rings; i++) {
       const kk = clamp01((k - i * 0.1) / (1 - i * 0.1));
-      ring(g, to, r * (0.3 + easeOut(kk) * 1.5) * big * (full ? 1 : 0.8) * (1 + i * 0.2), Math.max(2, r * 0.14 * (1 - kk)), ringColors[i % 3]!, (1 - kk) * (0.95 - i * 0.08));
+      const radius = r * (0.3 + easeOut(kk) * 1.5) * big * (full ? 1 : 0.8) * (1 + i * 0.2);
+      const alpha = (1 - kk) * (0.95 - i * 0.08);
+      if (!stamp(stamps, "shockwave-ring", to, radius / RING_RADIUS, ringColors[i % 3]!, alpha, burstTurn * (i + 1))) {
+        ring(g, to, radius, Math.max(2, r * 0.14 * (1 - kk)), ringColors[i % 3]!, alpha);
+      }
     }
   };
 
@@ -233,6 +256,8 @@ export function playStrike(host: FxHost, params: StrikeFxParams): RunningFx {
       last = elapsed;
       g.clear();
       top.clear();
+      stamps.begin();
+      props.begin();
       if (!c.landed && elapsed >= landAt) {
         c.landed = true;
         burst(sparks, to, Math.max(0, sparkCount - sparks.length), r * 4 * spec.big, Math.max(1.5, r * 0.06), palette, 0.9, gravity, spinRate * 0.3);
@@ -243,11 +268,14 @@ export function playStrike(host: FxHost, params: StrikeFxParams): RunningFx {
         if (spec.impact !== "none") drawImpact(k);
         drawing.after?.(k, elapsed);
       }
+      stamps.end();
+      props.end();
       stepSparks(sparks, dt);
       particles.draw(sparks, def.particleShape);
+      // The map shakes as the strike lands (the whole page shakes only for a nuke).
       if (c.landed && def.shake > 0) {
-        const k = clamp01((elapsed - landAt) / Math.min(impactLen, 0.35));
-        const amp = def.shake * 9 * (1 - k);
+        const k = clamp01((elapsed - landAt) / Math.min(impactLen, 0.5));
+        const amp = def.shake * 16 * spec.big ** 0.5 * (1 - k) ** 1.5;
         setShake(host.shakeTarget, key, k >= 1 ? null : { x: Math.sin(elapsed * 95) * amp, y: Math.cos(elapsed * 83) * amp });
       }
       return true;
