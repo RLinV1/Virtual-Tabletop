@@ -16,6 +16,9 @@ Implementation note: implement with Sonnet 5.5 subagents. Group 1 first; then gr
 - [x] 3.2 Add the "5 · Sight" step to the room editor (switch, Unlimited or a distance field with the unit label, slider in whole squares with the orange `range range-filled` style, player picker, preview mask), needing an applied map; verify web tests for the step and for Save and Discard
 - [x] 3.3 Verify with Playwright: set 30 ft on Sunken Crypt, save, and the player board shows a lit disc; screenshot
 
+- [x] 3.4 Replace the five Battle map step buttons with one Edit map button that opens the editor on its first step; update the guide text and web tests
+- [x] 3.5 Add an editor-only test token to the Sight preview (drag or arrow keys, sight updates on drop); verify with a web test and a Playwright screenshot
+
 ## 4. Done check
 
 - [ ] 4.1 Run `npm run lint && npm run typecheck && npm test`

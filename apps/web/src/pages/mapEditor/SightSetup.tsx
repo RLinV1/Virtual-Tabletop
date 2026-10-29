@@ -1,12 +1,15 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { Eye, EyeSlash, Infinity as InfinityIcon, Ruler } from "@phosphor-icons/react";
-import { filterStateForViewer, viewerSight, type RoomState } from "@vtt/shared";
+import { EMPTY_STATS, filterStateForViewer, viewerSight, type Participant, type Point, type RoomState, type Token } from "@vtt/shared";
 import type { EditorConnection } from "../../net/roomConnection";
 import { makeSightMaskCanvas, sightColor } from "../../board/sightMask";
 import { rangeFill } from "../../ui/rangeFill";
 import { HudLayout } from "./HudLayout";
 
 const MAX_SQUARES = 60;
+/** The editor-only test viewer: never a room participant, never sent anywhere. */
+const TEST_ID = "sight-test-token";
+const TEST_VIEWER: Participant = { id: TEST_ID, role: "player", displayName: "Test token" };
 
 /**
  * The map editor's Sight step (map-editor-sight-step): line of sight on or off and the sight range
@@ -16,19 +19,30 @@ const MAX_SQUARES = 60;
 export function SightSetup({ connection, state }: { connection: EditorConnection; state: RoomState }) {
   const { map, grid } = state.scene;
   const players = Object.values(state.participants).filter((p) => p.role === "player" && !p.left && !p.revoked);
-  const [viewerId, setViewerId] = useState("");
+  const [viewerId, setViewerId] = useState(TEST_ID);
   const [message, setMessage] = useState<string | null>(null);
-  const viewer = players.find((p) => p.id === viewerId) ?? players[0];
+  const viewer = viewerId === TEST_ID ? TEST_VIEWER : (players.find((p) => p.id === viewerId) ?? TEST_VIEWER);
+  const testing = viewer === TEST_VIEWER;
+  // The test token's drop point drives the preview; `dragAt` only moves the marker, like a drag on the board.
+  const [testAt, setTestAt] = useState<Point | null>(null);
+  const [dragAt, setDragAt] = useState<Point | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
   const range = state.scene.sightRange ?? null;
   const enabled = state.scene.lineOfSight === true;
-  // The room as the chosen player would receive it, with line of sight forced on so the range can be tuned first.
+  const testPos = useMemo(() => testAt ?? (map ? { x: map.width / 2, y: map.height / 2 } : { x: 0, y: 0 }), [testAt, map]);
+  // The room as the chosen viewer would receive it, with line of sight forced on so the range can be tuned first.
   const preview = useMemo(() => {
-    if (!map || !viewer) return null;
+    if (!map) return null;
     const { sightRange: _drop, ...rest } = state.scene;
     const scene = { ...rest, lineOfSight: true, ...(range !== null && { sightRange: range }) };
-    const seen = { ...state, scene };
-    return { polygons: viewerSight(seen, viewer), tokens: Object.values(filterStateForViewer(seen, viewer).tokens) };
-  }, [map, viewer, state, range]);
+    const test: Token = {
+      id: TEST_ID, name: "Test token", position: testPos, size: 1, rotation: 0, color: "#c2410c", imageUrl: null,
+      ownerIds: [TEST_ID], hidden: false, stats: EMPTY_STATS, conditions: [],
+    };
+    const seen = testing ? { ...state, scene, tokens: { ...state.tokens, [TEST_ID]: test } } : { ...state, scene };
+    const tokens = Object.values(filterStateForViewer(seen, viewer).tokens).filter((t) => t.id !== TEST_ID);
+    return { polygons: viewerSight(seen, viewer), tokens };
+  }, [map, viewer, testing, state, range, testPos]);
   const polygons = preview?.polygons ?? null;
 
   // The mask as an image the preview SVG can scale with the map (letterboxed like the other steps).
@@ -49,11 +63,43 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
   const total = Object.values(state.tokens).filter((t) => !t.hidden).length;
   const setRange = (next: number) => void send({ type: "scene.setSightRange", range: Math.min(grid.unitsPerCell * 1000, Math.max(grid.unitsPerCell, next)) });
 
+  // Pointer position in map pixels, clamped to the map.
+  const toMap = (e: PointerEvent<SVGSVGElement>): Point | null => {
+    const m = svgRef.current?.getScreenCTM();
+    if (!m) return null;
+    const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(m.inverse());
+    return { x: Math.min(map.width, Math.max(0, p.x)), y: Math.min(map.height, Math.max(0, p.y)) };
+  };
+  const dragTo = (e: PointerEvent<SVGSVGElement>) => { if (dragAt) setDragAt(toMap(e) ?? dragAt); };
+  const drop = () => { if (dragAt) { setTestAt(dragAt); setDragAt(null); } };
+  const nudge = (e: KeyboardEvent<SVGGElement>) => {
+    const step = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+    if (!step) return;
+    e.preventDefault();
+    const x = Math.min(map.width, Math.max(0, testPos.x + step[0]! * grid.cellSize));
+    const y = Math.min(map.height, Math.max(0, testPos.y + step[1]! * grid.cellSize));
+    setTestAt({ x, y });
+  };
+  const marker = dragAt ?? testPos;
+  const radius = grid.cellSize / 2 - 4;
+
   return (
     <HudLayout className="map-editor-split">
       <svg
-        className="map-editor-sight-preview" viewBox={`0 0 ${map.width} ${map.height}`} preserveAspectRatio="xMidYMid meet"
-        role="img" aria-label={viewer ? `What ${viewer.displayName} would see` : "The map"}
+        ref={svgRef}
+        className={`map-editor-sight-preview${testing ? " is-testing" : ""}${dragAt ? " is-dragging" : ""}`}
+        viewBox={`0 0 ${map.width} ${map.height}`} preserveAspectRatio="xMidYMid meet"
+        aria-label={`What ${viewer.displayName} would see`}
+        onPointerDown={(e) => {
+          if (!testing || e.button !== 0) return;
+          const p = toMap(e);
+          if (!p) return;
+          e.currentTarget.setPointerCapture(e.pointerId);
+          setDragAt(p);
+        }}
+        onPointerMove={dragTo}
+        onPointerUp={drop}
+        onPointerCancel={() => setDragAt(null)}
       >
         <image href={map.url} width={map.width} height={map.height} />
         {mask && <image href={mask} width={map.width} height={map.height} opacity={0.78} />}
@@ -63,6 +109,15 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
         {preview?.tokens.map((t) => (
           <circle key={t.id} cx={t.position.x} cy={t.position.y} r={(t.size * grid.cellSize) / 2 - 4} fill={t.color} className="sight-preview-token" strokeWidth={Math.max(2, grid.cellSize / 20)} />
         ))}
+        {testing && (
+          <g
+            className="sight-test-token" tabIndex={0} role="button" onKeyDown={nudge}
+            aria-label="Test token. Drag it on the map, or use the arrow keys to move it one square."
+          >
+            <circle cx={marker.x} cy={marker.y} r={radius} strokeWidth={Math.max(2, grid.cellSize / 16)} />
+            <circle cx={marker.x} cy={marker.y} r={radius * 0.28} className="sight-test-token-dot" />
+          </g>
+        )}
       </svg>
       <aside className="map-editor-hud" aria-label="Sight settings">
         <section className="stack">
@@ -120,19 +175,15 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
         </section>
         <section className="stack">
           <h3 className="map-editor-heading">Preview</h3>
-          {players.length === 0 ? (
-            <p className="muted small-print">Invite a player to preview what they would see.</p>
-          ) : (
-            <>
-              <label className="stack">
-                <span className="small-print">Preview as</span>
-                <select value={viewer?.id ?? ""} onChange={(e) => setViewerId(e.target.value)}>
-                  {players.map((p) => <option key={p.id} value={p.id}>{p.displayName}</option>)}
-                </select>
-              </label>
-              <p className="map-editor-count">{viewer?.displayName} sees {preview?.tokens.length ?? 0} of {total} {total === 1 ? "token" : "tokens"}.</p>
-            </>
-          )}
+          <label className="stack">
+            <span className="small-print">Preview as</span>
+            <select value={viewer.id} onChange={(e) => setViewerId(e.target.value)}>
+              <option value={TEST_ID}>Test token</option>
+              {players.map((p) => <option key={p.id} value={p.id}>{p.displayName}</option>)}
+            </select>
+          </label>
+          {testing && <p className="muted small-print">Drag the test token on the map. Its sight updates when you drop it, like a token on the board. Only you see it.</p>}
+          <p className="map-editor-count">{viewer.displayName} sees {preview?.tokens.length ?? 0} of {total} {total === 1 ? "token" : "tokens"}.</p>
         </section>
         {message && <p className="error" role="alert">{message}</p>}
       </aside>

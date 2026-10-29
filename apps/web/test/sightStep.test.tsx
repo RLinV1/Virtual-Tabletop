@@ -31,7 +31,7 @@ const withPlayer = (state: RoomState) => {
   return state;
 };
 const token = { id: "hero", name: "Hero", position: { x: 100, y: 100 }, size: 1, rotation: 0, color: "#ffffff", imageUrl: null, assetId: null, ownerIds: [], hidden: false, stats: EMPTY_STATS, conditions: [] };
-const openSight = () => { fireEvent.click(screen.getByRole("button", { name: "Change Map" })); fireEvent.click(within(editor()).getByRole("tab", { name: "5 · Sight" })); };
+const openSight = () => { fireEvent.click(screen.getByRole("button", { name: "Edit map" })); fireEvent.click(within(editor()).getByRole("tab", { name: "5 · Sight" })); };
 const lineOfSightBox = () => within(editor()).getByRole("button", { name: /^Line of sight (on|off)$/ });
 const limited = () => within(editor()).getByRole("radio", { name: /^Limited$/ });
 const unlimited = () => within(editor()).getByRole("radio", { name: /^Unlimited$/ });
@@ -62,6 +62,18 @@ describe("map editor Sight step (FR-GM-19)", () => {
       { type: "scene.setLineOfSight", enabled: true },
       { type: "scene.setSightRange", range: 60 },
     ]));
+  });
+
+  it("previews sight from a test token the GM moves, without sending anything", () => {
+    const state = room({ walls: [{ id: "w", a: { x: 250, y: 0 }, b: { x: 250, y: 600 } }] });
+    state.tokens = { hero: { ...token, position: { x: 100, y: 300 } } };
+    const fake = mount(state); openSight();
+    expect((within(editor()).getByLabelText("Preview as") as HTMLSelectElement).value).toBe("sight-test-token");
+    expect(within(editor()).getByText("Test token sees 0 of 1 token.")).toBeTruthy();
+    const marker = within(editor()).getByRole("button", { name: /^Test token\./ });
+    for (let i = 0; i < 4; i++) fireEvent.keyDown(marker, { key: "ArrowLeft" });
+    expect(within(editor()).getByText("Test token sees 1 of 1 token.")).toBeTruthy();
+    expect(fake.commands).toEqual([]);
   });
 
   it("the slider moves the range in whole squares", async () => {
@@ -117,7 +129,7 @@ describe("token dialog hand-off from the leave-step prompt (FR-GM-04)", () => {
     return mount(state);
   };
   const prepared = async () => {
-    fireEvent.click(screen.getByRole("button", { name: "Change Map" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit map" }));
     fireEvent.click(screen.getByRole("button", { name: "From library" }));
     fireEvent.click(await screen.findByTitle(replacement.name));
     fireEvent.click(within(editor()).getByRole("tab", { name: "3 · Walls" }));

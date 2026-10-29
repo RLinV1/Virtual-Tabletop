@@ -34,7 +34,7 @@ function mount(state = room()) {
   return { ...fake, rerender: (next: RoomState) => view.rerender(panel(next)) };
 }
 async function importFile() {
-  fireEvent.click(screen.getByRole("button", { name: "Change Map" }));
+  fireEvent.click(screen.getByRole("button", { name: "Edit map" }));
   fireEvent.change(screen.getByLabelText("Upload battle map"), { target: { files: [new File(["json"], "map.dd2vtt")] } });
   await screen.findByText(/Unsaved changes: only you see them/);
 }
@@ -100,7 +100,7 @@ describe("private UVTT editor (FR-GM-06/07/09/12)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     const discard = await screen.findByRole("button", { name: "Discard" }); fireEvent.click(discard);
     await waitFor(() => expect(api.uvtt.discard).toHaveBeenCalledWith("r1", TOKEN, "opaque"));
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Change Map" })));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Edit map" })));
   });
   it("switches between Grid and Walls with edited UVTT geometry without applying it", async () => {
     const fake = mount(); await importFile();

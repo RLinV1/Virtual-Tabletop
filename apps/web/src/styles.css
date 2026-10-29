@@ -2718,3 +2718,9 @@ dialog.modal.checkpoint-preview-modal { width: min(64rem, calc(100vw - 2rem)); }
 .sight-range-exact { display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .sight-range-input { display: inline-flex; align-items: center; gap: var(--space-1); }
 .sight-range-input input { width: 5.5rem; text-align: right; font-variant-numeric: tabular-nums; }
+.map-editor-sight-preview.is-testing { cursor: crosshair; touch-action: none; }
+.map-editor-sight-preview.is-dragging { cursor: grabbing; }
+.sight-test-token { cursor: grab; outline: none; }
+.sight-test-token circle:first-child { fill: var(--accent); stroke: var(--text); stroke-dasharray: 10 6; }
+.sight-test-token-dot { fill: var(--text); }
+.sight-test-token:focus-visible circle:first-child { stroke-dasharray: none; }

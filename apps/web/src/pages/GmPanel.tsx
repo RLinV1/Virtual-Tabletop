@@ -179,14 +179,6 @@ function draftScene(scene: RoomState["scene"], draft: MapDraft): RoomState["scen
 }
 
 type EditorStep = "map" | "grid" | "walls" | "fog" | "sight";
-/** Manage › Battle map's ways into the editor, one per step. */
-const OPENERS: { key: EditorStep; label: string }[] = [
-  { key: "map", label: "Change Map" },
-  { key: "grid", label: "Edit Grid" },
-  { key: "walls", label: "Manage Walls" },
-  { key: "fog", label: "Manage Fog" },
-  { key: "sight", label: "Manage Sight" },
-];
 /** Unsaved work the editor asks about, and where it goes once the GM answers (map-section-step-buttons). */
 type PendingKind = "map" | "grid" | "draft";
 type Pending = { kind: PendingKind; then: EditorStep | "close" };
@@ -275,7 +267,6 @@ function MapSection(props: {
   const uploadRef = useRef<HTMLInputElement>(null);
   const emptyUploadRef = useRef<HTMLInputElement>(null);
   const editMapRef = useRef<HTMLButtonElement>(null);
-  const gridOpenerRef = useRef<HTMLButtonElement>(null);
   /** Whether a map uploaded here is also kept in the account's library (on by default, ADR 0004). */
   const [saveToLibrary, setSaveToLibrary] = useState(true);
   /** The library row made by this editor's latest upload, whose grid analysis the Grid step shows. */
@@ -587,19 +578,15 @@ function MapSection(props: {
             : "No map yet."}
         </p>
         {props.map ? (
-          // Each opens the one editor on its own step; its tabs still reach the others (map-section-step-buttons).
-          // A fixed map offers only the steps its editor has (ADR 0033).
+          // Opens the editor on its first step (Grid for a fixed map, ADR 0033); its tabs reach the others.
           <div className="row button-row" data-tour="gm-grid">
-            {OPENERS.filter(({ key }) => steps.some((s) => s.key === key)).map(({ key, label }) => (
-              <button key={key} ref={key === "grid" ? gridOpenerRef : undefined} type="button" className="secondary small" onClick={(e) => {
-                editMapRef.current = e.currentTarget;
-                e.currentTarget.focus();
-                setStep(key);
-                setEditorOpen(true);
-              }}>
-                {label}
-              </button>
-            ))}
+            <button ref={editMapRef} type="button" className="secondary small" onClick={(e) => {
+              e.currentTarget.focus();
+              setStep(steps[0]!.key);
+              setEditorOpen(true);
+            }}>
+              Edit map
+            </button>
           </div>
         ) : props.fixedMap ? null : (
           <div className="row button-row" data-tour="gm-grid">
@@ -632,7 +619,7 @@ function MapSection(props: {
         title="Edit map"
         className="map-editor"
         onClose={requestClose}
-        onAfterClose={() => (editMapRef.current ?? gridOpenerRef.current ?? emptyUploadRef.current)?.focus()}
+        onAfterClose={() => (editMapRef.current ?? emptyUploadRef.current)?.focus()}
         headerContent={(
           <nav className="map-editor-steps" role="tablist" aria-label="Map setup steps">
             {steps.map(({ key, label }) => (
