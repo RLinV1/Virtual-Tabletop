@@ -37,6 +37,7 @@ import {
   type LibraryCreatureRecord,
   type NewCreatureRecord,
   type NewRoomOptions,
+  shippedSlug,
 } from "./libraryStore";
 import type { KeepSeatConflict, MemberRecord } from "./membershipStore";
 import type { RedisSeqSource } from "./redisSeq";
@@ -366,16 +367,26 @@ export class PostgresRoomStore implements RoomStore {
 
   async seedShippedMaps(ownerGmId: string, rows: LibraryAssetRecord[]) {
     return this.prisma.$transaction(async (tx) => {
-      const { count } = await tx.gmIdentity.updateMany({
-        where: { id: ownerGmId, shippedMapsSeededAt: null },
-        data: { shippedMapsSeededAt: new Date() },
-      });
-      if (count !== 1) return false;
+      // The row lock makes concurrent callers take turns, so a slug is never inserted twice.
+      const locked = await tx.$queryRaw<{ seeded: string[] }[]>`
+        SELECT shipped_maps_seeded AS seeded FROM gm_identities WHERE id = ${ownerGmId}::uuid FOR UPDATE`;
+      if (locked.length !== 1) return false;
+      const seeded = new Set(locked[0]!.seeded);
+      const fresh = rows.filter((r) => !seeded.has(shippedSlug(r)));
+      if (fresh.length === 0) return false;
       await tx.libraryAsset.createMany({
-        data: rows.map((a) => ({
+        data: fresh.map((a) => ({
           id: a.id, ownerGmId: a.ownerGmId, kind: a.kind, objectKey: a.objectKey, url: a.url, name: a.name,
           width: a.width, height: a.height, grid: a.grid ?? Prisma.DbNull, createdAt: new Date(a.createdAt),
         })),
+      });
+      await tx.gmIdentity.update({
+        where: { id: ownerGmId },
+        data: { shippedMapsSeeded: [...seeded, ...fresh.map(shippedSlug)] },
+      });
+      await tx.gmIdentity.updateMany({
+        where: { id: ownerGmId, shippedMapsSeededAt: null },
+        data: { shippedMapsSeededAt: new Date() },
       });
       return true;
     });

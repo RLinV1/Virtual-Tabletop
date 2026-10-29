@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_GRID, type GridDetectionStatus, type LibraryAsset } from "@vtt/shared";
+import { DEFAULT_GRID, EMPTY_STATS, type GridDetectionStatus, type LibraryAsset } from "@vtt/shared";
 import { accountStore } from "../src/account/accountStore";
 import { api, ApiError } from "../src/net/api";
 import * as imageFile from "../src/net/imageFile";
@@ -32,8 +32,7 @@ function library(selected = asset) {
   const view = render(<LibraryMapEditor asset={selected} onClose={close} onSaved={saved} />);
   return { ...view, close, saved };
 }
-function roomEditor() {
-  const state = room({ withMap: false });
+function roomEditor(state = room({ withMap: false })) {
   state.scene.grid = { ...DEFAULT_GRID, unitsPerCell: 10, unitLabel: "m", lineColor: "#ffffff", lineWidth: 3, lineOpacity: 0.4 };
   const fake = fakeConnection();
   const view = render(<GmPanel connection={fake.connection} state={state} token={TOKEN}
@@ -341,6 +340,35 @@ describe("upload and room preparation entry points (FR-GM-03, KAN-59)", () => {
     expect(fake.commands).toEqual([expect.objectContaining({ type: "scene.setMap", grid: expect.objectContaining({
       cellSize: 64.125, offsetX: 7.25, offsetY: 13.5, unitsPerCell: 10, unitLabel: "m", lineColor: "#ffffff", lineWidth: 3, lineOpacity: 0.4,
     }) })]);
+  });
+
+  it("keeps fitted setup private through the token-placement dialog and retains the Sight step", async () => {
+    signedIn();
+    const lookup = deferred<GridDetectionStatus | null>();
+    vi.mocked(api.detection.library).mockReturnValue(lookup.promise);
+    const state = room();
+    state.tokens.hero = { id: "hero", name: "Hero", position: { x: 100, y: 100 }, size: 1, rotation: 0,
+      color: "#ffffff", imageUrl: null, assetId: null, ownerIds: [], hidden: false, stats: EMPTY_STATS, conditions: [] };
+    const fake = roomEditor(state);
+    fireEvent.click(screen.getByRole("button", { name: "Edit map" }));
+    const editor = screen.getByRole("dialog", { name: "Edit map" });
+    fireEvent.click(within(editor).getByRole("button", { name: "From library" })); await flush();
+    fireEvent.click(screen.getByTitle(asset.name)); await flush();
+    expect(screen.getByText("Checking grid…")).toBeTruthy();
+    expect(screen.queryByRole("tab")).toBeNull();
+    await act(async () => lookup.resolve(fitted));
+    expect(cell().value).toBe("64.125");
+    expect(within(editor).getByRole("tab", { name: "5 · Sight" })).toBeTruthy();
+    fireEvent.click(within(editor).getByRole("button", { name: "Apply map" })); await flush();
+    const policy = within(screen.getByRole("dialog", { name: "Tokens already on the table" }));
+    expect(fake.commands).toEqual([]); expect(api.library.update).not.toHaveBeenCalled();
+    fireEvent.click(policy.getByRole("radio", { name: /^Keep positions/ }));
+    fireEvent.click(policy.getByRole("button", { name: "Apply map" })); await flush();
+    expect(fake.commands).toEqual([expect.objectContaining({ type: "scene.setMap", tokenPolicy: "keep",
+      map: expect.objectContaining({ assetId: asset.id }), grid: expect.objectContaining({
+        cellSize: 64.125, offsetX: 7.25, offsetY: 13.5, unitsPerCell: 10, unitLabel: "m",
+        lineColor: "#ffffff", lineWidth: 3, lineOpacity: 0.4,
+      }) })]);
   });
 
   it.each(["X", "button", "Escape", "backdrop"])("%s in room loading preserves private preparation and blocks delayed completion", async (action) => {

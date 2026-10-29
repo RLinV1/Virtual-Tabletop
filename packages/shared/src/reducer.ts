@@ -116,6 +116,14 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
     case "GridSet":
       return { ...state, scene: { ...state.scene, grid: event.grid } };
 
+    case "LineOfSightSet":
+      return { ...state, scene: { ...state.scene, lineOfSight: event.to } };
+
+    case "SightRangeSet": {
+      const { sightRange: _old, ...scene } = state.scene;
+      return { ...state, scene: event.to === null ? scene : { ...scene, sightRange: event.to } };
+    }
+
     case "TokenCreated":
       return { ...state, tokens: { ...state.tokens, [event.token.id]: event.token } };
 

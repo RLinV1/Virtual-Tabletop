@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { Point } from "./geometry";
-import { MAX_WALLS } from "./state";
+import { MAX_WALLS, Portal } from "./state";
 
 /**
  * Automatic wall detection (FR-GM-11, ADR 0029). A Python worker consumes a BullMQ job and
@@ -18,7 +18,13 @@ export const MAX_WALL_PREVIEW_BYTES = 2 * 1024 * 1024;
  * One detected segment, in the map image's own pixels. `confidence` (0..1) is the learned model's
  * mean wall probability along the segment (ADR 0038); detectors without a score omit it.
  */
-export const DetectedWall = z.object({ a: Point, b: Point, confidence: z.number().min(0).max(1).optional() }).strict();
+export const DetectedWall = z.object({
+  a: Point,
+  b: Point,
+  confidence: z.number().min(0).max(1).optional(),
+  /** Only stored walls of a shipped map carry a door or window; the vision worker never sends one. */
+  portal: Portal.optional(),
+}).strict();
 export type DetectedWall = z.infer<typeof DetectedWall>;
 
 /** Detected walls scoring below this are shown as doubtful in the preview (ADR 0038). */
@@ -98,6 +104,8 @@ export const WallDetectionAvailability = z.object({
   available: z.boolean(),
   /** Why not, in words for the GM. */
   reason: z.string().max(200).optional(),
+  /** Whether the vision service can run, for Detect like this; absent means the same as `available`. */
+  sampleAvailable: z.boolean().optional(),
 });
 export type WallDetectionAvailability = z.infer<typeof WallDetectionAvailability>;
 

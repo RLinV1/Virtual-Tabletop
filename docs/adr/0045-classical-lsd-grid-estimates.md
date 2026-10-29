@@ -1,4 +1,4 @@
-# ADR 0044: Versioned private classical LSD grid estimates
+# ADR 0045: Versioned private classical LSD grid estimates
 
 ## Status
 

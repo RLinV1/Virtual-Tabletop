@@ -1,7 +1,9 @@
-import { Application, Container } from "pixi.js";
+import { Application, Container, Graphics } from "pixi.js";
 import type { AnimationDef, AnimationShape } from "@vtt/shared";
 import { playNuke, playStrike, type FxHost } from "./fx";
-import { STAGE_CELL, STAGE_TOKEN_RADIUS, drawStageGrid, drawStageToken, standInPositions } from "./animationPreview";
+import { loadFxTextures } from "./fxTextures";
+import { STAGE_TOKEN_RADIUS, drawStageBackdrop, drawStageGrid, drawStandIn, loadStageArt } from "./animationPreview";
+import { STAGE_CELL, standInPositions } from "./previewStage";
 
 /**
  * Library card thumbnails (ADR 0038): one still frame per animation, rendered by the same `fx.ts`
@@ -15,14 +17,16 @@ const THUMB_HEIGHT = 180;
 /** The logical stage the effect is drawn on, as in the editor's preview (the image is this, scaled down). */
 const LOGICAL_WIDTH = 360;
 const LOGICAL_HEIGHT = 270;
+/** The renderer's background, which a read-back still leaves out. */
+const STAGE_BACKGROUND = "#14171b";
 /** Step of the fast-forward to the still frame; particles need a few small steps to appear. */
 const STEP_S = 1 / 30;
 
 /** How far into the animation its most recognisable frame is: after the strike lands, before it fades. */
 const PEAK: Record<AnimationShape, number> = {
-  slash: 0.5, claw: 0.5, whirlwind: 0.5, slam: 0.6, shadow: 0.55,
-  projectile: 0.45, volley: 0.45, dagger: 0.45, fireball: 0.42, meteor: 0.46, explosion: 0.65,
-  bolt: 0.5, chain: 0.5, beam: 0.5, frost: 0.55, poison: 0.75, smite: 0.5, sonic: 0.5, tornado: 0.6,
+  slash: 0.5, claw: 0.5, whirlwind: 0.5, slam: 0.6, shadow: 0.6,
+  projectile: 0.45, volley: 0.45, dagger: 0.45, fireball: 0.42, meteor: 0.46, explosion: 0.68,
+  bolt: 0.5, chain: 0.5, beam: 0.5, frost: 0.55, poison: 0.75, smite: 0.68, sonic: 0.5, tornado: 0.6,
   nuke: 0.5,
 };
 
@@ -93,8 +97,11 @@ interface Rig {
 
 async function createRig(): Promise<Rig | null> {
   const app = new Application();
+  // Without the art the stills fall back to the plain grid and discs, like the editor's preview;
+  // without the effect textures, to the vector look.
+  const [art] = await Promise.all([loadStageArt(), loadFxTextures()]);
   try {
-    await app.init({ width: THUMB_WIDTH, height: THUMB_HEIGHT, background: "#14171b", antialias: true, resolution: 1, autoStart: false });
+    await app.init({ width: THUMB_WIDTH, height: THUMB_HEIGHT, background: STAGE_BACKGROUND, antialias: true, resolution: 1, autoStart: false });
   } catch {
     return null;
   }
@@ -102,11 +109,16 @@ async function createRig(): Promise<Rig | null> {
   const fxLayer = new Container();
   world.scale.set(THUMB_WIDTH / LOGICAL_WIDTH);
   const { attacker, target } = standInPositions(LOGICAL_WIDTH, LOGICAL_HEIGHT);
-  const a = drawStageToken(0x3b82f6);
-  const t = drawStageToken(0xef4444);
+  // Library cards always show the default stage; the GM's own art is the editor preview's alone.
+  const a = drawStandIn("attacker", art?.attacker ?? null);
+  const t = drawStandIn("target", art?.target ?? null);
   a.position.set(attacker.x, attacker.y);
   t.position.set(target.x, target.y);
-  world.addChild(drawStageGrid(LOGICAL_WIDTH, LOGICAL_HEIGHT), a, t, fxLayer);
+  if (art) world.addChild(drawStageBackdrop(art.arena, LOGICAL_WIDTH, LOGICAL_HEIGHT));
+  // The still is read back without the renderer's background, and the effect textures add their
+  // black square to whatever lies under them: without the map they need the stage colour there.
+  else world.addChild(new Graphics().rect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT).fill(STAGE_BACKGROUND));
+  world.addChild(drawStageGrid(LOGICAL_WIDTH, LOGICAL_HEIGHT, art ? 0.055 : 0.08), a, t, fxLayer);
   app.stage.addChild(world);
   return { app, world, fxLayer };
 }

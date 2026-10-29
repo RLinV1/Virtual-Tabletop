@@ -44,6 +44,8 @@ export const REVERSIBLE_EVENT_TYPES = [
   "GroupRenamed",
   "GroupDeleted",
   "TokensGrouped",
+  "LineOfSightSet", // ADR 0044
+  "SightRangeSet",
 ] as const;
 
 type MapSetEvent = Extract<DomainEvent, { type: "MapSet" }>;
@@ -266,6 +268,10 @@ function inverseOfOne(event: SingleInverse): DomainEvent {
       return { type: "WallsRemoved", walls: event.walls };
     case "WallsRemoved":
       return { type: "WallsAdded", walls: event.walls };
+    case "LineOfSightSet":
+      return { type: "LineOfSightSet", from: event.to, to: event.from };
+    case "SightRangeSet":
+      return { type: "SightRangeSet", from: event.to, to: event.from };
     case "WallUpdated":
       return { type: "WallUpdated", wall: event.previous, previous: event.wall };
     case "PortalChanged":
@@ -358,6 +364,14 @@ export function undoConflict(state: RoomState, entry: UndoEntry): string | null 
       if (now?.kind !== event.to?.kind || now?.state !== event.to?.state) {
         return `Can't undo: that ${event.to?.kind ?? "wall"} has changed since.`;
       }
+      continue;
+    }
+    if (event.type === "LineOfSightSet") {
+      if ((state.scene.lineOfSight ?? false) !== event.to) return "Can't undo: line of sight has changed since.";
+      continue;
+    }
+    if (event.type === "SightRangeSet") {
+      if ((state.scene.sightRange ?? null) !== event.to) return "Can't undo: the sight range has changed since.";
       continue;
     }
     // Fog regions are never edited in place, so "still current" is just "still there" (or still gone).
@@ -546,6 +560,10 @@ export function describeUndo(entry: UndoEntry, tokens: RoomState["tokens"]): { v
     const what = `${first.walls.length} ${first.walls.length === 1 ? "wall" : "walls"}`;
     return { verb: `removal of ${what}`, noun: `removing ${what}` };
   }
+  if (first.type === "LineOfSightSet") {
+    return first.to ? { verb: "turning line of sight on", noun: "turning line of sight on" } : { verb: "turning line of sight off", noun: "turning line of sight off" };
+  }
+  if (first.type === "SightRangeSet") return { verb: "sight range change", noun: "changing the sight range" };
   if (first.type === "WallUpdated") return { verb: "wall or portal edit", noun: "editing a wall or portal" };
   if (first.type === "PortalChanged") {
     const words = describePortalChange(first.from, first.to);

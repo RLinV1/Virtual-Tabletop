@@ -87,6 +87,14 @@ describe("map editor walls (FR-GM-09, FR-GM-11)", () => {
     expect(tool("Pick")).toBeTruthy();
   });
 
+  it("offers Detect walls but not Pick when only a built-in map's stored walls are available", async () => {
+    const availability = vi.spyOn(api.walls, "availability").mockResolvedValue({ available: true, sampleAvailable: false });
+    mount();
+    expect(await screen.findByRole("button", { name: "Detect walls" })).toBeTruthy();
+    expect(screen.queryByRole("radio", { name: "Pick" })).toBeNull();
+    expect(availability.mock.calls[0]![0]).toBeTruthy();
+  });
+
   it("adds a wall per segment of a chain, snapped to grid corners, and Enter ends the chain", async () => {
     const { commands } = mount();
     const svg = canvas();
@@ -298,7 +306,7 @@ describe("map editor in the GM panel (FR-GM-09, FR-GM-17)", () => {
 
   /** Opens the editor with Manage Fog and fogs the whole map, in the draft. */
   const fogInDraft = () => {
-    fireEvent.click(screen.getByRole("button", { name: "Manage Fog" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit map" })); fireEvent.click(screen.getByRole("tab", { name: "4 · Fog" }));
     const editor = screen.getByRole("dialog", { name: "Edit map" });
     fireEvent.click(within(editor).getByRole("button", { name: "Fog whole map" }));
     return editor;
@@ -317,7 +325,7 @@ describe("map editor in the GM panel (FR-GM-09, FR-GM-17)", () => {
 
   it("does not apply a delayed detection to a reopened editor", async () => {
     const fake = mount(room());
-    fireEvent.click(screen.getByRole("button", { name: "Manage Walls" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit map" })); fireEvent.click(screen.getByRole("tab", { name: "3 · Walls" }));
     fake.notify({ status: "done", wallCount: 7, width: 800, height: 600 });
     await waitFor(() => expect(screen.getByTestId("wall-candidates").children).toHaveLength(7));
     let complete!: (result: DetectedWallsResponse) => void;
@@ -325,7 +333,7 @@ describe("map editor in the GM panel (FR-GM-09, FR-GM-17)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Apply 7 walls" }));
     const editor = screen.getByRole("dialog", { name: "Edit map" });
     fireEvent.click(within(editor).getByRole("button", { name: "Close" }));
-    fireEvent.click(screen.getByRole("button", { name: "Edit Grid" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit map" })); fireEvent.click(screen.getByRole("tab", { name: "2 · Grid" }));
     await act(async () => { complete({ resultId: "result-a", walls: detectedRows(7) }); });
     expect(screen.queryByText(/Unsaved changes/)).toBeNull();
     expect(fake.commands).toEqual([]);
@@ -335,7 +343,7 @@ describe("map editor in the GM panel (FR-GM-09, FR-GM-17)", () => {
     const fake = mount(room());
     const walls = Array.from({ length: MAX_WALLS_PER_ADD + 1 }, (_, i) => ({ a: { x: i * 5, y: 0 }, b: { x: i * 5, y: 50 } }));
     vi.mocked(api.walls.detected).mockResolvedValue({ resultId: "large-result", walls });
-    fireEvent.click(screen.getByRole("button", { name: "Manage Walls" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit map" })); fireEvent.click(screen.getByRole("tab", { name: "3 · Walls" }));
     fake.notify({ status: "done", wallCount: walls.length, width: 800, height: 600 });
     await waitFor(() => expect(screen.getByTestId("wall-candidates").children).toHaveLength(walls.length));
     fireEvent.click(screen.getByRole("button", { name: `Apply ${walls.length} walls` }));
@@ -359,7 +367,7 @@ describe("map editor in the GM panel (FR-GM-09, FR-GM-17)", () => {
 
   it("uses saved wall IDs for subsequent portal edits in the same editor", async () => {
     const fake = mount(room());
-    fireEvent.click(screen.getByRole("button", { name: "Manage Walls" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit map" })); fireEvent.click(screen.getByRole("tab", { name: "3 · Walls" }));
     click(canvas(), { x: 100, y: 100 });
     click(canvas(), { x: 200, y: 100 });
     fireEvent.keyDown(canvas(), { key: "Enter" });
@@ -392,9 +400,9 @@ describe("map editor in the GM panel (FR-GM-09, FR-GM-17)", () => {
   it("opens the full-screen editor from Edit Grid and reaches the Walls and Fog steps", async () => {
     mount(room());
     expect(screen.getByText(/800 × 600 px · 0 walls/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Edit Grid" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit map" })); fireEvent.click(screen.getByRole("tab", { name: "2 · Grid" }));
     const editor = screen.getByRole("dialog", { name: "Edit map" });
-    expect(within(editor).getAllByRole("tab").map((t) => t.textContent)).toEqual(["1 · Map", "2 · Grid", "3 · Walls", "4 · Fog"]);
+    expect(within(editor).getAllByRole("tab").map((t) => t.textContent)).toEqual(["1 · Map", "2 · Grid", "3 · Walls", "4 · Fog", "5 · Sight"]);
     expect(within(editor).getByRole("tab", { name: "2 · Grid" }).getAttribute("aria-selected")).toBe("true");
 
     fireEvent.click(within(editor).getByRole("tab", { name: "3 · Walls" }));
@@ -410,36 +418,34 @@ describe("map editor in the GM panel (FR-GM-09, FR-GM-17)", () => {
 
   it("shows the title and the steps in one header row", () => {
     mount(room());
-    fireEvent.click(screen.getByRole("button", { name: "Edit Grid" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit map" })); fireEvent.click(screen.getByRole("tab", { name: "2 · Grid" }));
     const editor = screen.getByRole("dialog", { name: "Edit map" });
     const head = editor.querySelector(".modal-head")!;
     expect(within(head as HTMLElement).getByRole("heading", { name: "Edit map" })).toBeTruthy();
-    expect(within(head as HTMLElement).getAllByRole("tab")).toHaveLength(4);
+    expect(within(head as HTMLElement).getAllByRole("tab")).toHaveLength(5);
     expect(within(head as HTMLElement).getByRole("button", { name: "Close" })).toBeTruthy();
   });
 
-  it("offers Upload map instead of the step buttons when the room has no map", () => {
+  it("offers Upload map instead of Edit map when the room has no map", () => {
     mount(room({ withMap: false }));
     expect(screen.getByText("No map yet.")).toBeTruthy();
     expect(screen.getByLabelText("Upload battle map")).toBeTruthy();
-    for (const name of ["Change Map", "Edit Grid", "Manage Walls", "Manage Fog"]) {
-      expect(screen.queryByRole("button", { name })).toBeNull();
-    }
+    expect(screen.queryByRole("button", { name: "Edit map" })).toBeNull();
     expect(screen.queryByRole("dialog", { name: "Edit map" })).toBeNull();
   });
 
-  it("opens the editor on each button's own step, and gives focus back to that button (map-section-step-buttons)", async () => {
+  it("opens the editor on the Map step from one Edit map button, and gives focus back to it", async () => {
     mount(room());
-    const steps = { "Change Map": "1 · Map", "Edit Grid": "2 · Grid", "Manage Walls": "3 · Walls", "Manage Fog": "4 · Fog" };
-    for (const [name, tab] of Object.entries(steps)) {
-      const button = screen.getByRole("button", { name });
-      button.focus();
-      fireEvent.click(button);
-      const editor = screen.getByRole("dialog", { name: "Edit map" });
-      expect(within(editor).getByRole("tab", { name: tab }).getAttribute("aria-selected")).toBe("true");
-      fireEvent.click(within(editor).getByRole("button", { name: "Close" }));
-      await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit map" })).toBeNull());
-      expect(document.activeElement).toBe(button);
+    for (const name of ["Change Map", "Edit Grid", "Manage Walls", "Manage Fog", "Manage Sight"]) {
+      expect(screen.queryByRole("button", { name })).toBeNull();
     }
+    const button = screen.getByRole("button", { name: "Edit map" });
+    button.focus();
+    fireEvent.click(button);
+    const editor = screen.getByRole("dialog", { name: "Edit map" });
+    expect(within(editor).getByRole("tab", { name: "1 · Map" }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(within(editor).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit map" })).toBeNull());
+    expect(document.activeElement).toBe(button);
   });
 });

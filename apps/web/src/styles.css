@@ -709,8 +709,10 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 .client-settings .range-value { flex: none; min-width: 3.5ch; color: var(--muted); font-family: var(--font-ui); font-variant-numeric: tabular-nums; }
 .client-settings .settings-volume { gap: 0; }
 .client-settings input.range { width: 100%; height: 2.25rem; min-height: 2.25rem; }
-.client-settings input.range::-webkit-slider-runnable-track { background: linear-gradient(to right, var(--accent) var(--range-progress), var(--border-strong) var(--range-progress)); }
-.client-settings input.range::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--accent); }
+.client-settings input.range::-webkit-slider-runnable-track,
+input.range-filled::-webkit-slider-runnable-track { background: linear-gradient(to right, var(--accent) var(--range-progress), var(--border-strong) var(--range-progress)); }
+.client-settings input.range::-moz-range-progress,
+input.range-filled::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--accent); }
 .effects-glow, .effects-orb { position: absolute; border-radius: 50%; }
 .effects-veil { position: absolute; background: rgba(0, 0, 0, 0.55); }
 .effects-text, .effects-label { position: absolute; font-weight: 800; line-height: 1; white-space: nowrap; transform: translateX(-50%); text-shadow: 0 0 6px rgba(0, 0, 0, 0.9), 0 2px 0 rgba(0, 0, 0, 0.8); }
@@ -2701,7 +2703,35 @@ dialog.modal.checkpoint-preview-modal { width: min(64rem, calc(100vw - 2rem)); }
   .animation-preview-toolbar { padding: var(--space-2); }
   .animation-preview-meta { display: none; }
   .animation-preview-toolbar .checkbox { margin-left: auto; font-size: var(--fs-sm); }
+  .animation-preview-toolbar .stage-button { margin-left: auto; }
 }
+
+/* Map & tokens: library art for the preview stage, preview only. Rims match the stage's stand-ins. */
+.animation-editor-modal { --stage-attacker: #3b82f6; --stage-target: #ef4444; }
+.animation-preview-toolbar .stage-button { display: inline-flex; align-items: center; gap: var(--space-2); white-space: nowrap; }
+button.stage-button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.stage-button-art { display: inline-flex; align-items: center; }
+.stage-button-map { width: 1.75rem; height: 1.25rem; object-fit: cover; border-radius: 2px; }
+.stage-button-token { width: 1.2rem; height: 1.2rem; object-fit: cover; border-radius: 50%; margin-left: -0.3rem; border: 1px solid; box-shadow: 0 0 0 1px var(--panel); }
+.stage-button-token.attacker, .stage-slot.attacker img { border-color: var(--stage-attacker); }
+.stage-button-token.target, .stage-slot.target img { border-color: var(--stage-target); }
+.stage-panel { display: grid; gap: var(--space-4); }
+.stage-slots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
+button.stage-slot {
+  display: grid; justify-items: center; gap: 0.1rem; min-height: 0; padding: var(--space-2) var(--space-1);
+  background: var(--field); border: 1px solid var(--border); color: var(--text); font-weight: 500;
+}
+button.stage-slot:hover:not(:disabled) { filter: none; border-color: var(--border-strong); }
+button.stage-slot[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.stage-slot img { width: 2.75rem; height: 2.75rem; object-fit: cover; border-radius: var(--radius); margin-bottom: var(--space-1); }
+.stage-slot img.round { border-radius: 50%; border: 1.5px solid; }
+.stage-slot-label { font-family: var(--font-label); font-size: var(--fs-sm); }
+.stage-slot-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: var(--muted); }
+.stage-choice { display: grid; gap: var(--space-2); }
+.stage-choice-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.stage-choice-head h4 { margin: 0; font-size: var(--fs-sm); }
+.stage-panel-actions { display: flex; justify-content: space-between; gap: var(--space-2); }
+.picker-item[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
 
 .animation-editor-save-error { position: sticky; top: 0; z-index: 1; padding: var(--space-2); background: var(--panel); border: 1px solid var(--danger); }
 
@@ -2719,3 +2749,18 @@ dialog.modal.checkpoint-preview-modal { width: min(64rem, calc(100vw - 2rem)); }
 .attack-target-list { display: flex; flex-direction: column; gap: var(--space-2); border: 0; margin: 0; padding: var(--space-2); min-width: 14rem; }
 
 .start-from-builtin { min-width: 14rem; }
+
+/* Map editor Sight step (map-editor-sight-step): the preview letterboxes like the other steps' canvases. */
+.map-editor-sight-preview { width: 100%; height: 100%; min-height: 0; display: block; background: var(--bg); border-radius: var(--radius); }
+.sight-preview-wall { stroke: var(--accent); stroke-linecap: round; opacity: 0.55; }
+.sight-preview-portal { stroke: #e8c46a; stroke-linecap: round; }
+.sight-preview-token { stroke: var(--text); }
+.sight-range-exact { display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.sight-range-input { display: inline-flex; align-items: center; gap: var(--space-1); }
+.sight-range-input input { width: 5.5rem; text-align: right; font-variant-numeric: tabular-nums; }
+.map-editor-sight-preview.is-testing { cursor: crosshair; touch-action: none; }
+.map-editor-sight-preview.is-dragging { cursor: grabbing; }
+.sight-test-token { cursor: grab; outline: none; }
+.sight-test-token circle:first-child { fill: var(--accent); stroke: var(--text); stroke-dasharray: 10 6; }
+.sight-test-token-dot { fill: var(--text); }
+.sight-test-token:focus-visible circle:first-child { stroke-dasharray: none; }

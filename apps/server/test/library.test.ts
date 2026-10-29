@@ -1,6 +1,6 @@
 import sharp from "sharp";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_GRID, GM_TOKEN_HEADER, type GmRoomSummary, type LibraryAsset, type LibraryUsageResponse } from "@vtt/shared";
+import { DEFAULT_GRID, GM_TOKEN_HEADER, SHIPPED_MAPS, type GmRoomSummary, type LibraryAsset, type LibraryUsageResponse } from "@vtt/shared";
 import { newGuestToken, startServer, type TestClient } from "./helpers";
 
 let server: Awaited<ReturnType<typeof startServer>>;
@@ -66,19 +66,19 @@ describe("shipped maps in every library (builtin-library-assets, ADR 0036)", () 
     const gm = await newGm();
     const first = (await (await gmFetch(gm, "/api/library")).json()) as LibraryAsset[];
     expect(first.filter((a) => a.kind === "map").map((a) => a.name).sort()).toEqual(
-      ["Hollowfrost Keep", "Temple of the Green Sun", "The Broken Span"],
+      SHIPPED_MAPS.map((m) => m.name).sort(),
     );
     expect(first.find((a) => a.name === "Hollowfrost Keep")).toMatchObject({
       url: "/img/map-ice.webp", width: 3269, height: 1882, grid: { cellSize: 70, offsetX: 47, offsetY: 46 },
     });
     expect(JSON.stringify(first)).not.toContain("objectKey");
 
-    expect(((await (await gmFetch(gm, "/api/library")).json()) as LibraryAsset[])).toHaveLength(3);
+    expect(((await (await gmFetch(gm, "/api/library")).json()) as LibraryAsset[])).toHaveLength(SHIPPED_MAPS.length);
     const frost = first.find((a) => a.name === "Hollowfrost Keep")!;
     expect((await gmFetch(gm, `/api/library/${frost.id}`, { method: "DELETE" })).status).toBe(204);
     const after = (await (await gmFetch(gm, "/api/library")).json()) as LibraryAsset[];
     expect(after.map((a) => a.name)).not.toContain("Hollowfrost Keep");
-    expect(after).toHaveLength(2);
+    expect(after).toHaveLength(SHIPPED_MAPS.length - 1);
   });
 
   it("deletes only the row of a seeded map; the shipped image URL is not a stored object", async () => {

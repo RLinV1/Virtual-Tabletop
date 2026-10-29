@@ -1,6 +1,6 @@
 # Grid preparation before revealing setup
 
-Branch: `feat/classical-lsd-grid`. This follow-up extends the unmerged `classical-lsd-grid-detection` change and ADR 0044. No merge or deployment is included.
+Branch: `feat/classical-lsd-grid`. This follow-up extends the unmerged `classical-lsd-grid-detection` change and ADR 0045. No merge or deployment is included.
 
 ## Behavior
 
@@ -20,6 +20,12 @@ Runtime changes are limited to web preparation, polling and modal presentation. 
 - Existing explicit saving, private room preparation, UVTT and detector invocation-count tests remain passing, including cached polling/reopening and placement without re-analysis.
 - All 49 existing grid/fitter/supervisor and wall Python tests passed in the pinned Python 3.11 environment.
 - All 24 grid and six UVTT Playwright cases passed across Chromium desktop/touch, Firefox desktop/narrow and WebKit desktop/touch against the isolated Docker app. After strengthening the eager-completion race guard, the 12 fitting/skip cases were repeated on the rebuilt final app and passed in every profile. Checks cover initial status/queue/running transitions, first-frame geometry, canvas focus, reduced motion and X/manual/Escape/backdrop skip alongside the existing saving, first-anchor/typing, map-switching, denied-polling and UVTT flows. Desktop and narrow waiting/editor screenshots were reviewed; the waiting modal exposes a real clickable backdrop.
+
+## Integration with current main — 2026-10-29
+
+Merged main through `4277da7` (PR #131), retaining its Sight step, token-placement dialog, account upload limits and per-map shipped seeding alongside grid preparation and the recovery index. The grid ADR is now 0045 because main assigned 0044 to line of sight.
+
+The merged frontend passed all 982 existing web tests. A new integration regression additionally verifies that an estimated grid stays private through the token-placement dialog, preserves units/style and exposes the Sight tab only after preparation; all 39 preparation and ten Sight tests passed. All 796 shared tests and 128 focused server integration/store tests passed, with 31 external-service cases skipped. Repository lint and full typechecking passed; the regenerated Prisma client includes both changes' schema fields. No temporary images or changes to the user's running Docker stack are included.
 
 ## Isolated Docker and real fitting
 

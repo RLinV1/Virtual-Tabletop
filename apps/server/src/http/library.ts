@@ -25,6 +25,8 @@ import type { DetectionRecord } from "../store/gridDetectionStore";
 import { requireAccountOwner, resolveOwner, type Owner } from "../ownership/resolveOwner";
 import { imageUploader } from "./imageUpload";
 import { inspectMapUpload } from "../domain/uploadAnalysis";
+import { refused } from "../identity/routes";
+import type { RateLimiter } from "../identity/rateLimit";
 
 const AssetIdParam = z.uuid();
 
@@ -36,9 +38,9 @@ const AssetIdParam = z.uuid();
  */
 export function registerLibraryRoutes(
   app: Express,
-  deps: { store: RoomStore; uploadDir: string; assets: AssetStore; detection: GridDetectionDispatcher },
+  deps: { store: RoomStore; uploadDir: string; assets: AssetStore; detection: GridDetectionDispatcher; uploads: RateLimiter },
 ) {
-  const { store, uploadDir, assets, detection } = deps;
+  const { store, uploadDir, assets, detection, uploads } = deps;
   const receiveImage = imageUploader(uploadDir);
 
   /**
@@ -66,6 +68,8 @@ export function registerLibraryRoutes(
   app.post("/api/library", (req, res) => {
     void withGm(req, res, async (gmId, owner) => {
       if (!requireAccountOwner(owner, res)) return;
+      // One budget with room uploads, keyed by the same owner id (FR-GM-02).
+      if (refused(res, uploads.hit(`upload:${gmId}`), "Too many uploads. Try again later.")) return;
       const upload = await receiveImage(req, res);
       if (!upload.ok) return void res.status(upload.status).json({ error: upload.error });
       const fields = LibraryUploadFields.safeParse(req.body);

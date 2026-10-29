@@ -7,6 +7,7 @@ import {
 } from "@vtt/shared";
 import { api } from "../../net/api";
 import { useRoomSnapshot, type EditorConnection } from "../../net/roomConnection";
+import { rangeFill } from "../../ui/rangeFill";
 import { WallProperties } from "./WallProperties";
 import { DOUBTFUL_COLOR, WallCanvas, type CanvasMode } from "./WallCanvas";
 import { HudLayout } from "./HudLayout";
@@ -79,15 +80,18 @@ export function WallSetup({ connection, state, token, detection: detectionEnable
   const status = detection.mapUrl === mapUrl ? detection.status : null;
   // Detection is offered only while the vision service is up; otherwise its controls are left out, not greyed.
   const canDetect = detectionEnabled && availability?.available === true;
+  // Picking a wall colour needs the vision service even when a built-in map's stored walls are available.
+  const canSample = canDetect && (availability?.sampleAvailable ?? true);
 
   useEffect(() => {
     if (!detectionEnabled) return;
     const abort = new AbortController();
-    api.walls.availability(abort.signal)
+    api.walls.availability(state.roomId, token, abort.signal)
       .then(setAvailability)
       .catch(() => { if (!abort.signal.aborted) setAvailability({ available: false, reason: "Couldn't reach the server." }); });
     return () => abort.abort();
-  }, [detectionEnabled]);
+    // The answer depends on the room's current map and its size (stored walls fit one size only).
+  }, [detectionEnabled, state.roomId, token, mapUrl, map?.width, map?.height]);
 
   // The latest analysis of this map, then every change the server announces for it.
   useEffect(() => {
@@ -250,7 +254,7 @@ export function WallSetup({ connection, state, token, detection: detectionEnable
         <section className="stack">
           <h3 className="map-editor-heading">Tools</h3>
           <div className="map-editor-modes" role="radiogroup" aria-label="Wall tool">
-            {MODES.filter(({ needsDetection }) => !needsDetection || canDetect).map(({ key, label, icon: Icon }) => (
+            {MODES.filter(({ needsDetection }) => !needsDetection || canSample).map(({ key, label, icon: Icon }) => (
               <button
                 key={key}
                 type="button"
@@ -287,9 +291,11 @@ export function WallSetup({ connection, state, token, detection: detectionEnable
               <span className="small-print">Colour range: {tolerance}</span>
               <input
                 type="range"
+                className="range range-filled"
                 min={SAMPLE_TOLERANCE_MIN}
                 max={SAMPLE_TOLERANCE_MAX}
                 value={tolerance}
+                style={rangeFill(tolerance, SAMPLE_TOLERANCE_MIN, SAMPLE_TOLERANCE_MAX)}
                 onChange={(event) => setTolerance(Number(event.target.value))}
                 title="Lower finds only walls close to the clicked colour; higher finds paler or darker ones, and more noise."
               />
@@ -351,10 +357,12 @@ export function WallSetup({ connection, state, token, detection: detectionEnable
                 <span className="small-print">Strictness: {strictness === null ? "automatic" : strictness.toFixed(2)}</span>
                 <input
                   type="range"
+                  className="range range-filled"
                   min={STRICTNESS_MIN}
                   max={STRICTNESS_MAX}
                   step={0.05}
                   value={strictness ?? STRICTNESS_DEFAULT}
+                  style={rangeFill(strictness ?? STRICTNESS_DEFAULT, STRICTNESS_MIN, STRICTNESS_MAX)}
                   onChange={(event) => setStrictness(Number(event.target.value))}
                   title="Higher keeps only walls with a clear drawn edge; it can miss faint ones."
                 />
@@ -364,10 +372,12 @@ export function WallSetup({ connection, state, token, detection: detectionEnable
                 <span className="small-print">Shortest wall: {minLength === 0 ? "any" : `${minLength} ${minLength === 1 ? "cell" : "cells"}`}</span>
                 <input
                   type="range"
+                  className="range range-filled"
                   min={0}
                   max={MIN_LENGTH_MAX}
                   step={0.5}
                   value={minLength}
+                  style={rangeFill(minLength, 0, MIN_LENGTH_MAX)}
                   onChange={(event) => setMinLength(Number(event.target.value))}
                   title="Drops short pieces such as rubble. Detect again to apply."
                 />

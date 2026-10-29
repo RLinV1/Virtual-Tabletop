@@ -1,10 +1,12 @@
-import { useEffect, useId, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useId, useMemo, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from "react";
 import { ANIMATION_SHAPES, AnimationDef, MAX_ANIMATION_NAME, PARTICLE_SHAPES, type LibraryAnimation, type ParticleShape } from "@vtt/shared";
 import { SHAPE_DEFAULTS, withDefaults } from "../../board/effectPresets";
 import { api } from "../../net/api";
 import { AnimationPreviewStage } from "../../ui/AnimationPreviewStage";
 import { Modal } from "../../ui/Modal";
 import { SHAPE_LABELS } from "./animationLabels";
+import { StageButton, StagePanel } from "./StagePanel";
+import { clearStagePick, stageScene, useStagePicks } from "./stagePicks";
 
 const NEW_ANIMATION_NAME = "New animation";
 const PARTICLE_LABELS: Record<ParticleShape, string> = { spark: "Spark", star: "Star", square: "Square", shard: "Shard", ring: "Ring" };
@@ -46,6 +48,10 @@ const round2 = (v: number) => Math.round(v * 100) / 100;
 export function AnimationEditor({ animation, onSaved, onCancel }: { animation: LibraryAnimation | null; onSaved: (animation: LibraryAnimation) => void; onCancel: () => void }) {
   const formId = useId();
   const [step, setStep] = useState<Step>("appearance");
+  /** The side panel shows the stage art instead of a step's settings. */
+  const [stageOpen, setStageOpen] = useState(false);
+  const stagePicks = useStagePicks();
+  const scene = useMemo(() => stageScene(stagePicks), [stagePicks]);
   const [confirming, setConfirming] = useState(false);
   const [name, setName] = useState(animation?.name ?? NEW_ANIMATION_NAME);
   const [def, setDef] = useState<AnimationDef>(animation?.def ?? SHAPE_DEFAULTS.slash);
@@ -92,6 +98,7 @@ export function AnimationEditor({ animation, onSaved, onCancel }: { animation: L
     event.preventDefault();
     const key = STEPS[next]!.key;
     setStep(key);
+    setStageOpen(false);
     document.getElementById(`${formId}-${key}`)?.focus();
   };
   const title = animation ? `Edit ${animation.name}` : "New animation";
@@ -108,8 +115,8 @@ export function AnimationEditor({ animation, onSaved, onCancel }: { animation: L
           <>
             <nav className="map-editor-steps animation-editor-tabs" role="tablist" aria-label="Animation settings sections" onKeyDown={onTabKey}>
               {STEPS.map(({ key, label }) => (
-                <button key={key} id={`${formId}-${key}`} type="button" role="tab" tabIndex={step === key ? 0 : -1} aria-selected={step === key}
-                  aria-controls={`${formId}-settings`} className="map-editor-step" onClick={() => setStep(key)}>{label}</button>
+                <button key={key} id={`${formId}-${key}`} type="button" role="tab" tabIndex={step === key ? 0 : -1} aria-selected={!stageOpen && step === key}
+                  aria-controls={`${formId}-settings`} className="map-editor-step" onClick={() => { setStep(key); setStageOpen(false); }}>{label}</button>
               ))}
             </nav>
             <div className="animation-editor-actions">
@@ -122,17 +129,19 @@ export function AnimationEditor({ animation, onSaved, onCancel }: { animation: L
       >
         <form id={formId} className="animation-editor-workspace" onSubmit={save} aria-label={title}>
           <section className="animation-editor-canvas" aria-label="Animation preview">
-            <AnimationPreviewStage def={parsed.success ? parsed.data : def} >
+            <AnimationPreviewStage def={parsed.success ? parsed.data : def} scene={scene} onSceneMissing={clearStagePick}>
               <span className="animation-preview-meta">{SHAPE_LABELS[def.shape]} · {seconds(def.duration)}</span>
+              <StageButton picks={stagePicks} open={stageOpen} controls={`${formId}-stage`} onToggle={() => setStageOpen((o) => !o)} />
             </AnimationPreviewStage>
           </section>
           <aside className="animation-editor-controls" aria-label="Animation settings">
             <div className="animation-editor-panel-heading">
-              <h3>{STEPS.find(s => s.key === step)!.label}</h3>
-              <p className="muted small-print">{step === "appearance" ? "Choose the shape and its colours." : step === "timing" ? "Set the pace, scale and impact." : "Tune the path and particle movement."}</p>
+              <h3>{stageOpen ? "Map & tokens" : STEPS.find(s => s.key === step)!.label}</h3>
+              <p className="muted small-print">{stageOpen ? "Preview on art from your library. Only the preview changes; the animation saves without it."
+                : step === "appearance" ? "Choose the shape and its colours." : step === "timing" ? "Set the pace, scale and impact." : "Tune the path and particle movement."}</p>
             </div>
             {error && <p role="alert" className="error animation-editor-save-error">{error}</p>}
-            <div id={`${formId}-settings`} role="tabpanel" aria-labelledby={`${formId}-${step}`} className="animation-editor-fields">
+            {stageOpen ? <StagePanel id={`${formId}-stage`} picks={stagePicks} onDone={() => setStageOpen(false)} /> : <div id={`${formId}-settings`} role="tabpanel" aria-labelledby={`${formId}-${step}`} className="animation-editor-fields">
               {step === "appearance" && <div className="stack">
                 <label>
                   Name
@@ -209,7 +218,7 @@ export function AnimationEditor({ animation, onSaved, onCancel }: { animation: L
                 </fieldset>
 
               </div>}
-            </div>
+            </div>}
           </aside>
         </form>
       </Modal>

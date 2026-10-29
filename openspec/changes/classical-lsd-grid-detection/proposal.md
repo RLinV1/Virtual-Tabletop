@@ -25,4 +25,4 @@ The reviewed native-resolution classical LSD detector produces editable grid est
 
 ## Impact
 
-Python vision service and shared wall dependencies; Node upload routes, memory/Postgres stores, Prisma migration and dispatchers; shared private schemas; React grid editors and library selection; Compose resource settings and local verification tooling. ADR 0044 requires architecture-owner review before merge. Local implementation only: no merge, deployment or committed supplied maps.
+Python vision service and shared wall dependencies; Node upload routes, memory/Postgres stores, Prisma migration and dispatchers; shared private schemas; React grid editors and library selection; Compose resource settings and local verification tooling. ADR 0045 requires architecture-owner review before merge. Local implementation only: no merge, deployment or committed supplied maps.

@@ -48,6 +48,28 @@ describe("live strike particle budgets (FR-TAC-06)", () => {
   }
 });
 
+describe("the map shakes as a strike lands (FR-TAC-09, ADR 0038)", () => {
+  /** How far the map moves from where it was, at most, over the whole strike. */
+  const furthest = (shake: number) => {
+    const h = host(false);
+    const def = { ...SHAPE_DEFAULTS.slash, shake };
+    const fx = playStrike(h, { def, from: { x: 100, y: 300 }, to: { x: 420, y: 260 }, radius: 24 });
+    let most = 0;
+    for (let t = 0; t < def.duration; t += 1 / 60) {
+      fx.update(t);
+      most = Math.max(most, Math.hypot(h.shakeTarget.position.x, h.shakeTarget.position.y));
+    }
+    fx.destroy();
+    return most;
+  };
+
+  it("moves the map visibly at full shake, less at half, and not at all at zero", () => {
+    expect(furthest(1)).toBeGreaterThan(8);
+    expect(furthest(0.5)).toBeLessThan(furthest(1));
+    expect(furthest(0)).toBe(0);
+  });
+});
+
 describe("every strike shape plays and cleans up (library-animations, ADR 0038)", () => {
   for (const shape of strikeShapes) {
     it(`${shape} draws every frame, ends, and leaves nothing behind`, () => {

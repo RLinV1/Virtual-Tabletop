@@ -58,6 +58,8 @@ model GmIdentity {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   /// Set once the shipped maps were added to this owner's library (ADR 0036); never cleared.
   shippedMapsSeededAt DateTime? @map("shipped_maps_seeded_at") @db.Timestamptz(6)
+  /// Slugs of the shipped maps already added to this owner's library; never shrinks, so a deleted map stays deleted.
+  shippedMapsSeeded String[] @default([]) @map("shipped_maps_seeded")
 
   rooms     Room[]
   assets    LibraryAsset[]

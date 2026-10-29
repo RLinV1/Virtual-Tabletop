@@ -156,8 +156,9 @@ export interface LibraryStore {
   createAsset(asset: LibraryAssetRecord): Promise<void>;
   listAssets(ownerGmId: string): Promise<LibraryAssetRecord[]>;
   /**
-   * Inserts the shipped maps as the owner's rows, only if the owner was never seeded, and marks
-   * the owner seeded, in one step (ADR 0036). A deleted seeded map stays deleted. True if it seeded.
+   * Inserts the rows whose shipped slug (`shipped:<slug>` object key) the owner was not yet given,
+   * and records those slugs, in one step (ADR 0036). A deleted seeded map stays deleted. True if
+   * it inserted anything.
    */
   seedShippedMaps(ownerGmId: string, rows: LibraryAssetRecord[]): Promise<boolean>;
   /** The asset only if `ownerGmId` owns it — callers never see another GM's rows. */
@@ -245,3 +246,6 @@ export interface LibraryStore {
   /** Deletes the look, clearing it as anyone's look in use. Returns its object keys, or null. */
   deleteDiceLook(id: string, ownerGmId: string): Promise<string[] | null>;
 }
+
+/** The catalog slug of a seeded row, from its `shipped:<slug>` object key. */
+export const shippedSlug = (row: Pick<LibraryAssetRecord, "objectKey">) => row.objectKey.slice("shipped:".length);

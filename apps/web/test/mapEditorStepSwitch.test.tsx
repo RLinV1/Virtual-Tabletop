@@ -44,7 +44,7 @@ const selected = (name: string) => tab(name).getAttribute("aria-selected") === "
 
 /** Opens Manage Fog and fogs the whole map, in the draft. */
 function fogInDraft() {
-  fireEvent.click(screen.getByRole("button", { name: "Manage Fog" }));
+  fireEvent.click(screen.getByRole("button", { name: "Edit map" })); fireEvent.click(screen.getByRole("tab", { name: "4 · Fog" }));
   fireEvent.click(within(editor()).getByRole("button", { name: "Fog whole map" }));
 }
 
@@ -89,7 +89,7 @@ describe("map editor step switching (FR-GM-09, FR-GM-17)", () => {
 
   it("asks about grid changes when leaving Grid, and Apply grid applies them before switching", async () => {
     const { onGridApply } = mount({ ...toGridDraft(GRID), cellSize: "80" });
-    fireEvent.click(screen.getByRole("button", { name: "Edit Grid" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit map" })); fireEvent.click(screen.getByRole("tab", { name: "2 · Grid" }));
     fireEvent.click(tab("3 · Walls"));
     const ask = screen.getByRole("dialog", { name: "Apply grid changes?" });
     expect(selected("2 · Grid")).toBe(true);
@@ -102,7 +102,7 @@ describe("map editor step switching (FR-GM-09, FR-GM-17)", () => {
 
   it("doesn't ask when the edited grid matches the map's grid", () => {
     mount(toGridDraft(GRID));
-    fireEvent.click(screen.getByRole("button", { name: "Edit Grid" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit map" })); fireEvent.click(screen.getByRole("tab", { name: "2 · Grid" }));
     fireEvent.click(tab("3 · Walls"));
     expect(screen.queryByRole("dialog", { name: "Apply grid changes?" })).toBeNull();
     expect(selected("3 · Walls")).toBe(true);
@@ -110,7 +110,7 @@ describe("map editor step switching (FR-GM-09, FR-GM-17)", () => {
 
   it("asks about grid changes when closing instead of dropping them", async () => {
     const { onGridDraftCancel } = mount({ ...toGridDraft(GRID), cellSize: "80" });
-    fireEvent.click(screen.getByRole("button", { name: "Edit Grid" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit map" })); fireEvent.click(screen.getByRole("tab", { name: "2 · Grid" }));
     fireEvent.click(within(editor()).getByRole("button", { name: "Close" }));
     const ask = screen.getByRole("dialog", { name: "Apply grid changes?" });
     expect(onGridDraftCancel).not.toHaveBeenCalled();
@@ -122,7 +122,7 @@ describe("map editor step switching (FR-GM-09, FR-GM-17)", () => {
 
   it("switches freely when nothing is unsaved", () => {
     mount();
-    fireEvent.click(screen.getByRole("button", { name: "Edit Grid" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit map" })); fireEvent.click(screen.getByRole("tab", { name: "2 · Grid" }));
     for (const name of ["3 · Walls", "4 · Fog", "1 · Map", "2 · Grid"]) {
       fireEvent.click(tab(name));
       expect(selected(name)).toBe(true);
