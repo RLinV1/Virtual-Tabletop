@@ -199,6 +199,30 @@ describe("map editor walls (FR-GM-09, FR-GM-11)", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Detected walls" })).toBeNull());
   });
 
+  it("tells walls, doors and windows and their states apart in the preview and legend (FR-GM-11)", async () => {
+    const rows = detectedRows(4);
+    vi.spyOn(api.walls, "detected").mockResolvedValue({
+      resultId: "result-a",
+      walls: [
+        rows[0]!,
+        { ...rows[1]!, portal: { kind: "door", state: "locked" } },
+        { ...rows[2]!, portal: { kind: "window", state: "open" } },
+        { ...rows[3]!, portal: { kind: "door", state: "closed" }, confidence: 0.3 },
+      ],
+    });
+    const fake = mount();
+    await waitFor(() => expect((screen.getByRole("button", { name: "Detect walls" }) as HTMLButtonElement).disabled).toBe(false));
+    fake.notify({ status: "done", wallCount: 4, width: 800, height: 600 });
+    const dialog = await screen.findByRole("dialog", { name: "Detected walls" });
+    expect(within(dialog).getByText("4 walls found: 1 wall, 2 doors, 1 window.")).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: "Detected wall 2, door, locked" })).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: "Detected wall 3, window, open" })).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: "Detected wall 4, door, closed, doubtful" })).toBeTruthy();
+    const legend = within(within(dialog).getByRole("list", { name: "Detected wall colours" }));
+    for (const entry of ["Wall", "Door", "Window", "Closed", "Open", "Locked", "Doubtful"]) expect(legend.getByText(entry)).toBeTruthy();
+    expect(legend.queryByText("Erased")).toBeNull();
+  });
+
   it("Discard adds nothing and leaves Detect walls ready (FR-GM-09)", async () => {
     const fake = mount();
     const button = await screen.findByRole("button", { name: "Detect walls" });
@@ -234,11 +258,11 @@ describe("map editor walls (FR-GM-09, FR-GM-11)", () => {
       return { fake, dialog: await screen.findByRole("dialog", { name: "Detected walls" }) };
     };
 
-    it("draws doubtful walls amber and dashed in the preview, with a legend", async () => {
+    it("draws doubtful walls with a pink dashed halo in the preview, with a legend", async () => {
       const { dialog } = await detectWithScores();
       const marked = dialog.querySelectorAll("g[data-doubtful='true'] > line[stroke-dasharray]");
       expect(marked).toHaveLength(3);
-      expect(marked[0]!.getAttribute("stroke")).toBe("#ffb020");
+      expect(marked[0]!.getAttribute("stroke")).toBe("#ff5fa2");
       expect(marked[0]!.getAttribute("stroke-dasharray")).toBeTruthy();
       expect(within(dialog).getByRole("list", { name: "Detected wall colours" })).toBeTruthy();
     });

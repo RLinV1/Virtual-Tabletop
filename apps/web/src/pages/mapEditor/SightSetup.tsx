@@ -4,6 +4,7 @@ import { blocksMovement, EMPTY_STATS, filterStateForViewer, snapTokenCenter, vie
 import type { EditorConnection } from "../../net/roomConnection";
 import { makeSightMaskCanvas, sightColor } from "../../board/sightMask";
 import { rangeFill } from "../../ui/rangeFill";
+import { MapGuide } from "./EditorGuide";
 import { HudLayout } from "./HudLayout";
 
 const MAX_SQUARES = 60;
@@ -150,42 +151,51 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
   return (
     <HudLayout className="map-editor-split map-editor-sight-split">
       <aside className="map-editor-panel sight-token-panel" aria-label="Test tokens">
-        <h3 className="map-editor-heading">Test tokens</h3>
+        <div className="sight-panel-head">
+          <h3 className="map-editor-heading">Test tokens</h3>
+          <button
+            type="button" data-guide="sight-add" className="icon-button sight-add" aria-pressed={placing}
+            aria-label={placing ? "Cancel placing" : "Add token"} title={placing ? "Cancel placing" : "Add token"}
+            onClick={() => setPlacing(!placing)}
+          >
+            {placing ? <X size={18} aria-hidden="true" /> : <Plus size={18} aria-hidden="true" />}
+          </button>
+        </div>
         {tokens.length === 0 ? (
-          <p className="muted small-print">No tokens yet.</p>
+          <p className="muted small-print">Click the map to place a token.</p>
         ) : (
-          <ul className="sight-token-list">
-            <li>
-              <label className="sight-token-pick">
+          <>
+            {tokens.length > 1 && (
+              <label className="sight-token-pick sight-select-all">
                 <input
                   type="checkbox" checked={allShown} ref={(el) => { if (el) el.indeterminate = shown.size > 0 && !allShown; }}
                   onChange={() => setShown(allShown ? new Set() : new Set(tokens.map((t) => t.id)))}
                 />
                 <span>Select all</span>
               </label>
-            </li>
-            {tokens.map((t) => (
-              <li key={t.id}>
-                <label className="sight-token-pick">
-                  <input
-                    type="checkbox" aria-label={`Show ${t.name}'s sight`} checked={shown.has(t.id)}
-                    onChange={(e) => setShown((now) => { const next = new Set(now); if (e.target.checked) next.add(t.id); else next.delete(t.id); return next; })}
-                  />
-                  <span className="sight-token-swatch" aria-hidden="true" />
-                  <span>{t.name}</span>
-                </label>
-                <button type="button" className="tool-button icon-button" aria-label={`Remove ${t.name}`} onClick={() => remove(t.id)}>
-                  <Trash size={16} aria-hidden="true" />
-                </button>
-              </li>
-            ))}
-          </ul>
+            )}
+            <ul className="sight-token-list">
+              {tokens.map((t) => (
+                <li key={t.id} className={`sight-token-row${shown.has(t.id) ? " is-shown" : ""}`}>
+                  <label className="sight-token-pick">
+                    <input
+                      type="checkbox" aria-label={`Show ${t.name}'s sight`} checked={shown.has(t.id)}
+                      onChange={(e) => setShown((now) => { const next = new Set(now); if (e.target.checked) next.add(t.id); else next.delete(t.id); return next; })}
+                    />
+                    <span className="sight-token-swatch" aria-hidden="true">{t.name.replace("Token ", "")}</span>
+                    <span className="sight-token-name">{t.name}</span>
+                  </label>
+                  <button type="button" className="icon-button token-delete" aria-label={`Remove ${t.name}`} title={`Remove ${t.name}`} onClick={() => remove(t.id)}>
+                    <Trash size={16} aria-hidden="true" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
         )}
-        <button type="button" data-guide="sight-add" className="secondary small" aria-pressed={placing} onClick={() => setPlacing(!placing)}>
-          <Plus size={16} aria-hidden="true" /> {placing ? "Cancel" : "Add token"}
-        </button>
       </aside>
       <div className="sight-preview-stage">
+        <MapGuide />
         <svg
           ref={svgRef}
           className={`map-editor-sight-preview${drag ? " is-dragging" : ""}${placing ? " is-placing" : ""}`}
@@ -267,20 +277,22 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
         )}
       </div>
       <aside className="map-editor-hud" aria-label="Sight settings">
-        <section className="stack">
+        <section className="sight-section">
           <h3 className="map-editor-heading">Line of sight</h3>
-          <button
-            type="button"
-            data-guide="sight-toggle"
-            className="tool-button map-editor-mode"
-            aria-pressed={enabled}
-            onClick={() => void send({ type: "scene.setLineOfSight", enabled: !enabled })}
-          >
-            {enabled ? <Eye size={18} aria-hidden="true" /> : <EyeSlash size={18} aria-hidden="true" />}
-            <span>{enabled ? "Line of sight on" : "Line of sight off"}</span>
-          </button>
+          <div className="map-editor-modes" role="radiogroup" aria-label="Line of sight" data-guide="sight-toggle">
+            <button type="button" role="radio" aria-checked={!enabled} className="tool-button map-editor-mode"
+              onClick={() => { if (enabled) void send({ type: "scene.setLineOfSight", enabled: false }); }}>
+              <EyeSlash size={18} aria-hidden="true" />
+              <span>Off</span>
+            </button>
+            <button type="button" role="radio" aria-checked={enabled} className="tool-button map-editor-mode"
+              onClick={() => { if (!enabled) void send({ type: "scene.setLineOfSight", enabled: true }); }}>
+              <Eye size={18} aria-hidden="true" />
+              <span>On</span>
+            </button>
+          </div>
         </section>
-        <section className="stack">
+        <section className="sight-section">
           <h3 className="map-editor-heading">Range</h3>
           <div className="map-editor-modes" role="radiogroup" aria-label="Sight range">
             <button type="button" role="radio" aria-checked={range === null} className="tool-button map-editor-mode"
@@ -296,7 +308,7 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
           </div>
           {range !== null && (
             <>
-              <label className="stack">
+              <label className="sight-range-field">
                 <span className="small-print">Distance: {range} {unit} ({squares} {squares === 1 ? "square" : "squares"})</span>
                 <input
                   type="range" className="range range-filled" aria-label="Sight range in squares" min={1} max={maxSquares} step={1}

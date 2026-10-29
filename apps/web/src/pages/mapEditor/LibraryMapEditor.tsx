@@ -7,11 +7,11 @@ import { gridsEqual, parseGridDraft, toGridDraft, withGridSuggestion } from "../
 import { useGridDetection } from "../useGridDetection";
 import { createDraftConnection } from "./draftConnection";
 import { FogSetup } from "./FogSetup";
+import { GuideStepContext } from "./EditorGuide";
 import { HudLayout } from "./HudLayout";
 import { WallSetup } from "./WallSetup";
 import type { MapDraft } from "./mapDraft";
 import { boardChanged, boardFromDraft, draftFromBoard } from "./libraryBoardDraft";
-import { EditorGuide } from "./EditorGuide";
 
 type Step = "grid" | "walls" | "fog";
 const STEPS: { key: Step; label: string }[] = [
@@ -112,7 +112,6 @@ function MapSession({ asset, importDiagnostics, onSaved, onClose }: Omit<Props, 
       headerContent={<nav className="map-editor-steps" role="tablist" aria-label="Map setup steps">
         {STEPS.map(({ key, label }) => <button key={key} type="button" role="tab" aria-selected={step === key}
           className="map-editor-step" disabled={saving} onClick={() => setStep(key)}>{label}</button>)}
-        <EditorGuide step={step} />
         {dirty && <span className="map-editor-unsaved">
           <span className="map-editor-draft">Unsaved changes: not saved to this map yet</span>
           <button type="button" className="secondary small" disabled={saving} onClick={discard}>Discard</button>
@@ -121,6 +120,7 @@ function MapSession({ asset, importDiagnostics, onSaved, onClose }: Omit<Props, 
         {saveError && !prompt && <span role="alert" className="error map-editor-save-error">{saveError}</span>}
       </nav>}>
       <div className="map-editor-shell"><div className="map-editor-body" role="tabpanel" inert={saving}>
+        <GuideStepContext.Provider value={step}>
         {importDiagnostics && <p className="muted">Imported map saved to your library. Review its grid and geometry below.</p>}
         {importDiagnostics && importDiagnostics.length > 0 && <details className="uvtt-diagnostics"><summary>{importDiagnostics.length} import warnings</summary><ul>{importDiagnostics.map((issue, i) => <li key={i}>{issue.path}: {issue.message}</li>)}</ul></details>}
         {step === "grid" && <HudLayout className="map-editor-grid"><GridForm
@@ -135,6 +135,7 @@ function MapSession({ asset, importDiagnostics, onSaved, onClose }: Omit<Props, 
         {step !== "grid" && !loadError && !state && <p className="muted">Loading…</p>}
         {step === "walls" && state && <WallSetup connection={connection} state={state} token="" detection={false} />}
         {step === "fog" && state && <FogSetup connection={connection} state={state} />}
+        </GuideStepContext.Provider>
       </div></div>
     </Modal>
     <Modal open={prompt} title="Save changes?" onClose={() => { if (!busy.current) setPrompt(false); }}>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode, type WheelEvent } from "react";
+import { MapGuide } from "./EditorGuide";
 import { gridLineStyle, type GridSpec, type MapImage, type Point } from "@vtt/shared";
 
 /** A press that moves further than this is a drag, not a click. */
@@ -212,6 +213,7 @@ export function MapCanvas({
         </g>
         {children({ scale, px })}
       </svg>
+      <MapGuide />
       <div className="wall-canvas-zoom" role="group" aria-label="Zoom">
         <button type="button" className="secondary small" onClick={() => setCamera((c) => ({ ...c, zoom: Math.min(MAX_ZOOM, c.zoom * 1.5) }))}>+</button>
         <button type="button" className="secondary small" onClick={() => setCamera((c) => ({ ...c, zoom: Math.max(1, c.zoom / 1.5) }))}>−</button>

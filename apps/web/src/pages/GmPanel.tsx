@@ -23,7 +23,7 @@ import { draftConnection } from "./mapEditor/draftConnection";
 import { draftDirty, draftFrom, planDraftSave, type MapDraft } from "./mapEditor/mapDraft";
 import { adjustedMessage, offersTokenPolicy, prepCommand, prepDirty, startPrep, startUvttPrep, TOKEN_POLICY_CHOICES, type MapPrep } from "./mapPrep";
 import { FULL_ROOM, type RoomFeatures } from "./encounterEdit/roomFeatures";
-import { EditorGuide } from "./mapEditor/EditorGuide";
+import { EditorGuide, GuideStepContext } from "./mapEditor/EditorGuide";
 
 interface Props {
   connection: RoomConnection;
@@ -635,7 +635,6 @@ function MapSection(props: {
                 {label}
               </button>
             ))}
-            <EditorGuide step={step} />
             <span ref={setGridActionSlot} hidden={step !== "grid"} style={{ marginLeft: "auto" }} />
             {prep && step !== "grid" && <span className="map-editor-draft">Draft map: only you see it until Apply map</span>}
             {!prep && unsaved && (
@@ -655,9 +654,11 @@ function MapSection(props: {
           {prep?.uvtt && prep.uvtt.diagnostics.length > 0 && <details className="uvtt-diagnostics"><summary>{prep.uvtt.diagnostics.length} import warnings</summary><ul>{prep.uvtt.diagnostics.map((issue, i) => <li key={i}>{issue.path}: {issue.message}</li>)}</ul></details>}
           <div className="map-editor-body" role="tabpanel">
             <GridActionsContext.Provider value={gridActionSlot}>
+            <GuideStepContext.Provider value={step}>
             {step === "map" && (
               <div className="map-editor-split">
                 <div className="map-editor-stage">
+                  <div className="map-editor-guide-slot"><EditorGuide step="map" /></div>
                   {shown?.url ? <img className="map-editor-thumb" src={shown.url} alt="The current battle map" /> : <p className="map-editor-empty">No map yet. Upload one, or choose one from your library.</p>}
                 </div>
                 <aside className="map-editor-hud" aria-label="Map">
@@ -738,6 +739,7 @@ function MapSection(props: {
               ? <p className="map-editor-empty">Apply a map before setting up sight.</p>
               : !props.map ? <p className="map-editor-empty">Apply a map before setting up sight.</p>
               : <Fragment key={`${editorGeneration}:${liveMapUrl}`}>{props.sight(draftEdits, draftState)}</Fragment>)}
+            </GuideStepContext.Provider>
             </GridActionsContext.Provider>
           </div>
         </div>

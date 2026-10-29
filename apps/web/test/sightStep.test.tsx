@@ -32,7 +32,7 @@ const withPlayer = (state: RoomState) => {
 };
 const token = { id: "hero", name: "Hero", position: { x: 100, y: 100 }, size: 1, rotation: 0, color: "#ffffff", imageUrl: null, assetId: null, ownerIds: [], hidden: false, stats: EMPTY_STATS, conditions: [] };
 const openSight = () => { fireEvent.click(screen.getByRole("button", { name: "Edit map" })); fireEvent.click(within(editor()).getByRole("tab", { name: "5 · Sight" })); };
-const lineOfSightBox = () => within(editor()).getByRole("button", { name: /^Line of sight (on|off)$/ });
+const lineOfSightBox = () => within(editor()).getByRole("radio", { name: /^On$/ });
 const limited = () => within(editor()).getByRole("radio", { name: /^Limited$/ });
 const unlimited = () => within(editor()).getByRole("radio", { name: /^Unlimited$/ });
 // jsdom has no SVG geometry for a click, so tests place through the map's keyboard path.

@@ -4,7 +4,7 @@ The map editor has five steps with many controls each. A GM opening it for the f
 
 ## What Changes
 
-- A Guide button in the editor header, next to the step tabs, starts a short tour of the current step: each control is highlighted in turn with a one- or two-sentence card, with Next, Back and Done, and Escape to close.
+- A compact Guide icon button overlaid on the top-right of the map area (flush in the corner, zoom controls to its left) starts a short tour of the current step: each control is highlighted in turn with a one- or two-sentence card, with Next, Back and Done, and Escape to close.
 - Applies to every step of the room editor (Map, Grid, Walls, Fog, Sight) and to the library map editor's steps.
 - Controls not on screen in the current state are skipped.
 - The existing app guide component accepts an explicit step list and a CSS selector per step.

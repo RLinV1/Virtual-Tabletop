@@ -21,8 +21,12 @@ const MODES: { key: CanvasMode; label: string; icon: typeof Eraser; needsDetecti
   { key: "sample", label: "Pick", icon: Eyedropper, needsDetection: true },
 ];
 
-/** Detected walls the model was unsure about (wall-review) are drawn in this colour in the preview and its legend. */
-const DOUBTFUL_COLOR = "#ffb020";
+/** Detected walls the model was unsure about (wall-review) get a halo in this colour in the preview and its legend. */
+const DOUBTFUL_COLOR = "#ff5fa2";
+/** Preview stroke colours, shared with the Sight step: plain wall, door, window. */
+const KIND_COLOR = { wall: "#f0a24a", door: "#e8c46a", window: "#6cc6ff" } as const;
+const kindOf = (w: DetectedWall): "wall" | PortalKind => w.portal?.kind ?? "wall";
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /** What the Door / window tool turns a clicked wall into (ADR 0030). "wall" makes it plain again. */
 const PORTAL_KINDS: { key: PortalKind | "wall"; label: string }[] = [
@@ -179,6 +183,13 @@ export function WallSetup({ connection, state, token, detection: detectionEnable
   const confident = pendingWalls ? pendingWalls.walls.length - new Set([...erased, ...doubtfulKeys]).size : 0;
   const keeping = pendingWalls ? pendingWalls.walls.length - erased.size : 0;
   const reviewing = pendingWalls?.review ?? null;
+  const kindCounts = { wall: 0, door: 0, window: 0 };
+  const stateSeen = new Set<PortalState>();
+  pendingWalls?.walls.forEach((w) => { kindCounts[kindOf(w)]++; if (w.portal) stateSeen.add(w.portal.state); });
+  const hasPortals = kindCounts.door + kindCounts.window > 0;
+  const kindBreakdown = hasPortals
+    ? `: ${[plural(kindCounts.wall, "wall", "walls"), plural(kindCounts.door, "door", "doors"), plural(kindCounts.window, "window", "windows")].filter((t) => !t.startsWith("0 ")).join(", ")}`
+    : "";
   const reviewKey = reviewing === null ? null : doubtfulList[reviewing] ?? null;
   const toggleCandidate = (key: number) => setCandidates((current) => {
     if (!current) return current;
@@ -355,12 +366,19 @@ export function WallSetup({ connection, state, token, detection: detectionEnable
         >
           {pendingWalls && (
             <div className="stack">
-              <svg className="walls-preview-map" viewBox={`0 0 ${map.width} ${map.height}`} role="img" aria-label={`The map with ${pendingWalls.walls.length} detected ${pendingWalls.walls.length === 1 ? "wall" : "walls"} drawn over it.`}>
+              <svg className="walls-preview-map" style={{ aspectRatio: `${map.width} / ${map.height}` }} viewBox={`0 0 ${map.width} ${map.height}`} role="img" aria-label={`The map with ${pendingWalls.walls.length} detected ${pendingWalls.walls.length === 1 ? "wall" : "walls"} drawn over it.`}>
                 <image href={map.url} width={map.width} height={map.height} />
                 <g strokeLinecap="round" fill="none">
                   {pendingWalls.walls.map((w, i) => {
                     const gone = erased.has(i);
                     const unsure = doubtfulKeys.has(i) && !gone;
+                    const kind = kindOf(w);
+                    const portalState = w.portal?.state;
+                    const color = gone ? "#9aa5b1" : KIND_COLOR[kind];
+                    // Every doubtful wall keeps its kind colour and gains a dashed pink halo, so the dashes of the line itself still mean "open".
+                    const dash = gone ? "3 6" : portalState === "open" ? "8 6" : undefined;
+                    const haloed = unsure;
+                    const mid = { x: (w.a.x + w.b.x) / 2, y: (w.a.y + w.b.y) / 2 };
                     const toggle = () => toggleCandidate(i);
                     return (
                       <g
@@ -368,10 +386,12 @@ export function WallSetup({ connection, state, token, detection: detectionEnable
                         role="button"
                         tabIndex={0}
                         aria-pressed={gone}
-                        aria-label={`Detected wall ${i + 1}${doubtfulKeys.has(i) ? ", doubtful" : ""}${gone ? ", erased" : ""}`}
+                        aria-label={`Detected wall ${i + 1}${w.portal ? `, ${kind}, ${portalState}` : ""}${doubtfulKeys.has(i) ? ", doubtful" : ""}${gone ? ", erased" : ""}`}
                         className="walls-preview-wall"
                         opacity={gone ? 0.55 : 1}
                         data-doubtful={unsure ? "true" : undefined}
+                        data-kind={kind}
+                        data-state={portalState}
                         data-erased={gone ? "true" : undefined}
                         data-focus={reviewKey === i ? "true" : undefined}
                         onClick={toggle}
@@ -379,27 +399,45 @@ export function WallSetup({ connection, state, token, detection: detectionEnable
                       >
                         {reviewKey === i && <line x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y} stroke="#fff" strokeOpacity={0.9} strokeWidth={9} vectorEffect="non-scaling-stroke" />}
                         <line x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y} stroke="transparent" strokeWidth={14} vectorEffect="non-scaling-stroke" />
+                        {haloed && <line x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y} stroke={DOUBTFUL_COLOR} strokeWidth={w.portal ? 13 : 9} strokeDasharray="3 4" strokeOpacity={0.85} vectorEffect="non-scaling-stroke" />}
+                        {w.portal && !gone && <line x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y} stroke="#111" strokeWidth={9} vectorEffect="non-scaling-stroke" />}
                         <line
                           x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y}
-                          stroke={gone ? "#9aa5b1" : unsure ? DOUBTFUL_COLOR : "#3ec6e0"}
-                          strokeWidth={3}
-                          strokeDasharray={gone ? "3 6" : unsure ? "8 5" : undefined}
+                          stroke={color}
+                          strokeWidth={w.portal ? 6 : 3}
+                          strokeDasharray={dash}
                           vectorEffect="non-scaling-stroke"
                         />
+                        {portalState === "locked" && !gone && (
+                          // A zero-length round-capped line is a dot that keeps its screen size at any zoom.
+                          <line x1={mid.x} y1={mid.y} x2={mid.x} y2={mid.y} stroke="#111" strokeWidth={15} strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+                        )}
+                        {portalState === "locked" && !gone && (
+                          <line x1={mid.x} y1={mid.y} x2={mid.x} y2={mid.y} stroke={color} strokeWidth={10} strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+                        )}
                       </g>
                     );
                   })}
                 </g>
               </svg>
-              <p className="walls-status" role="status">{pendingWalls.walls.length} {pendingWalls.walls.length === 1 ? "wall" : "walls"} found.</p>
+              <p className="walls-status" role="status">{pendingWalls.walls.length} {pendingWalls.walls.length === 1 ? "wall" : "walls"} found{kindBreakdown}.</p>
               <p className="small-print">Click a wall to erase it, or again to bring it back.</p>
+              {(hasPortals || doubtfulKeys.size > 0 || erased.size > 0) && (
+                <ul className="walls-legend" aria-label="Detected wall colours">
+                  {kindCounts.wall > 0 && <li><span className="walls-legend-swatch" aria-hidden="true" />Wall</li>}
+                  {kindCounts.door > 0 && <li><span className="walls-legend-swatch portal" style={{ borderColor: KIND_COLOR.door }} aria-hidden="true" />Door</li>}
+                  {kindCounts.window > 0 && <li><span className="walls-legend-swatch portal" style={{ borderColor: KIND_COLOR.window }} aria-hidden="true" />Window</li>}
+                  {hasPortals && <li className="walls-legend-sep" role="presentation" aria-hidden="true" />}
+                  {stateSeen.has("closed") && <li><span className="walls-legend-swatch state" aria-hidden="true" />Closed</li>}
+                  {stateSeen.has("open") && <li><span className="walls-legend-swatch state open" aria-hidden="true" />Open</li>}
+                  {stateSeen.has("locked") && <li><span className="walls-legend-swatch state locked" aria-hidden="true" />Locked</li>}
+                  {hasPortals && (doubtfulKeys.size > 0 || erased.size > 0) && <li className="walls-legend-sep" role="presentation" aria-hidden="true" />}
+                  {doubtfulKeys.size > 0 && <li><span className="walls-legend-swatch doubtful" style={{ borderColor: DOUBTFUL_COLOR }} aria-hidden="true" />Doubtful</li>}
+                  {erased.size > 0 && <li><span className="walls-legend-swatch erased" aria-hidden="true" />Erased</li>}
+                </ul>
+              )}
               {doubtfulKeys.size > 0 && (
                 <div className="stack walls-review">
-                  <ul className="walls-legend" aria-label="Detected wall colours">
-                    <li><span className="walls-legend-swatch" aria-hidden="true" />Detected</li>
-                    <li><span className="walls-legend-swatch doubtful" style={{ borderColor: DOUBTFUL_COLOR }} aria-hidden="true" />Doubtful</li>
-                    <li><span className="walls-legend-swatch erased" aria-hidden="true" />Erased</li>
-                  </ul>
                   <p className="walls-status" role="status">{doubtfulLeft} doubtful {doubtfulLeft === 1 ? "wall" : "walls"}</p>
                   {reviewing === null ? (
                     <button type="button" className="secondary" disabled={doubtfulLeft === 0} onClick={() => setReview(0)}>Review doubtful walls</button>
