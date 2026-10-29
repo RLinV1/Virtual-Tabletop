@@ -151,6 +151,10 @@ export function filterEventForViewer(
       case "PortalChanged":
       case "MapSet":
         return { kind: "resync" };
+      // A range is in grid units, so a new square size moves every polygon's edge.
+      case "GridSet":
+        if (before.scene.sightRange !== undefined) return { kind: "resync" };
+        break;
       // A token the viewer owns before or after the event is a sight origin.
       case "TokenCreated":
       case "TokenDeleted":

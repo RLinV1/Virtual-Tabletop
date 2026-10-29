@@ -152,7 +152,9 @@ export function registerRoutes(
     void (async () => {
       const actor = await authenticate(req);
       if (!actor || actor.participant.role !== "gm") return res.status(403).json({ error: "GM only" });
-      if (refused(res, limits.uploadsPerRoom.hit(`upload:${actor.roomId}`), "Too many uploads. Try again later.")) return;
+      // Counted per room owner, not per room, so making more rooms buys no more uploads.
+      const owner = await store.findRoomOwner(actor.roomId);
+      if (refused(res, limits.uploadsPerOwner.hit(`upload:${owner ?? actor.roomId}`), "Too many uploads. Try again later.")) return;
       const upload = await receiveImage(req, res);
       if (!upload.ok) return res.status(upload.status).json({ error: upload.error });
       const fields = DirectUploadFields.safeParse(req.body);
@@ -357,7 +359,7 @@ export function registerRoutes(
     })().catch(internalError(req, res));
   });
 
-  registerLibraryRoutes(app, { store, uploadDir, assets, detection });
+  registerLibraryRoutes(app, { store, uploadDir, assets, detection, uploads: limits.uploadsPerOwner });
   registerEncounterRoutes(app, { store, registry });
   registerEncounterEditRoutes(app, { store, registry, rooms });
   registerLegacyRoutes(app, { store });

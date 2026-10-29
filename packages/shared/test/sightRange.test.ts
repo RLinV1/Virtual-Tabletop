@@ -67,6 +67,17 @@ describe("sight range (FR-GM-19)", () => {
     expect(filterEventForViewer({ seq: 1, at: new Date(0).toISOString(), actorId: gm.id, event }, baseRoom(), alice)).toEqual({ kind: "resync" });
   });
 
+  it("resyncs players on a grid change while a range is set, since the range is in squares", () => {
+    const grid = (s: RoomState) => ({ type: "GridSet", grid: { ...s.scene.grid, cellSize: s.scene.grid.cellSize + 20 }, previous: s.scene.grid }) as const;
+    const at = new Date(0).toISOString();
+    const limited = baseRoom();
+    limited.scene = { ...limited.scene, lineOfSight: true, sightRange: 30 };
+    expect(filterEventForViewer({ seq: 1, at, actorId: gm.id, event: grid(limited) }, limited, alice)).toEqual({ kind: "resync" });
+    const unlimited = baseRoom();
+    unlimited.scene = { ...unlimited.scene, lineOfSight: true };
+    expect(filterEventForViewer({ seq: 1, at, actorId: gm.id, event: grid(unlimited) }, unlimited, alice).kind).toBe("event");
+  });
+
   it("withholds a token beyond the range in the open and keeps one inside", () => {
     const s = baseRoom();
     const tok = (id: string, x: number, owner: string[]) =>
