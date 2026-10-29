@@ -16,6 +16,8 @@ export function LibraryPicker(props: {
   onClose?: () => void;
   /** False lists only the GM's own assets, e.g. for a creature's image (ADR 0012). */
   includeBuiltins?: boolean;
+  /** Marks the asset already chosen (null: none yet). Omitted, the items carry no chosen state. */
+  selectedId?: string | null;
 }) {
   const includeBuiltins = props.includeBuiltins ?? true;
   // A signed-out GM has no library, only the built-in art (builtin-library-assets).
@@ -73,7 +75,8 @@ export function LibraryPicker(props: {
       <ul className="plain picker-grid">
         {shown.map((a) => (
           <li key={a.id}>
-            <button type="button" className="picker-item" onClick={() => props.onPick(a)} title={a.name}>
+            <button type="button" className="picker-item" onClick={() => props.onPick(a)} title={a.name}
+              aria-pressed={props.selectedId === undefined ? undefined : props.selectedId === a.id}>
               <img src={a.url} alt="" loading="lazy" className={props.kind === "token" ? "round" : undefined} />
               <span>{a.name}</span>
             </button>

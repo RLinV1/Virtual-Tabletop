@@ -46,6 +46,7 @@ import {
   type AttackEffect,
 } from "./effects";
 import { playNuke, playStrike, type FxHost, type RunningFx } from "./fx";
+import { loadFxTextures } from "./fxTextures";
 import { getClientSettings, graphicsBudget, subscribeGraphicsSettings } from "../ui/clientSettings";
 import { averageColor, fogPalette, makeFogCanvas, makeFogMaskCanvas, type Rgb } from "./fogTexture";
 import { makeSightMaskCanvas, sightColor } from "./sightMask";
@@ -448,6 +449,8 @@ export class BoardView {
   ) {}
 
   async init() {
+    // Fetched in the background: until they arrive, attacks draw their vector look.
+    void loadFxTextures();
     await this.app.init({
       width: Math.max(1, this.host.clientWidth),
       height: Math.max(1, this.host.clientHeight),
