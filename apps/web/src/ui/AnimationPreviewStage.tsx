@@ -1,12 +1,20 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { AnimationDef } from "@vtt/shared";
 import { AnimationPreview } from "../board/animationPreview";
+import { DEFAULT_SCENE, type StageScene, type StageSlot } from "../board/previewStage";
 
 /**
  * The editor's preview (ADR 0038): a mount point for `AnimationPreview` and a Play button that
  * plays the values as they are now, saved or not. It sends nothing to any room and changes no data.
+ * `scene` is the GM's own map and token art for the stage; a picture that cannot load is reported
+ * through `onSceneMissing` and the stage keeps its default there.
  */
-export function AnimationPreviewStage({ def, children }: { def: AnimationDef; children?: ReactNode }) {
+export function AnimationPreviewStage({ def, scene = DEFAULT_SCENE, onSceneMissing, children }: {
+  def: AnimationDef;
+  scene?: StageScene;
+  onSceneMissing?: (slot: StageSlot) => void;
+  children?: ReactNode;
+}) {
   const host = useRef<HTMLDivElement>(null);
   const preview = useRef<AnimationPreview | null>(null);
   const [unavailable, setUnavailable] = useState(false);
@@ -25,6 +33,11 @@ export function AnimationPreviewStage({ def, children }: { def: AnimationDef; ch
       preview.current = null;
     };
   }, []);
+
+  // Runs after the stage above is made, so the first scene reaches it too.
+  useEffect(() => {
+    preview.current?.setScene(scene, onSceneMissing);
+  }, [scene, onSceneMissing]);
 
   return (
     <div className="animation-preview">

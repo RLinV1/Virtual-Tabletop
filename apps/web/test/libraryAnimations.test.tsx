@@ -10,6 +10,8 @@ Element.prototype.scrollIntoView = vi.fn();
 
 vi.mock("../src/net/api", () => ({
   api: { library: { animations: { list: vi.fn(), create: vi.fn(), update: vi.fn(), remove: vi.fn() } } },
+  // The editor's stage picker reads the account store, which registers for sign-out on load.
+  whenSignedOut: vi.fn(),
 }));
 // The preview owns a WebGL canvas; these tests never need it.
 vi.mock("../src/ui/AnimationPreviewStage", () => ({ AnimationPreviewStage: ({ def, children }: { def: { shape: string }; children: import("react").ReactNode }) => <div data-testid="preview" data-shape={def.shape}>{children}</div> }));
