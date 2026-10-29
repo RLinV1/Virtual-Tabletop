@@ -6,6 +6,7 @@ import type { Redis } from "ioredis";
 import {
   WALL_DETECTION_QUEUE,
   WallDetectionResult,
+  storedWallsFor,
   wallsFitMap,
   type DetectedWallsResponse,
   type MapImage,
@@ -94,6 +95,8 @@ interface Entry {
   jobId: string;
   /** The stored image this job holds a reference to, until it is done. */
   imageKey: string | null;
+  /** Built from a shipped map's stored walls, not by the vision worker. */
+  stored?: boolean;
   status: WallDetectionStatus;
   result: WallDetectionResult | null;
   timer: ReturnType<typeof setTimeout> | null;
@@ -159,6 +162,35 @@ export class WallDetections {
     return value;
   }
 
+  /** Whether this map's walls ship with the app, so detecting them needs no vision service. */
+  hasStoredWalls(map: Pick<MapImage, "url" | "width" | "height">) {
+    return storedWallsFor(map) !== null;
+  }
+
+  /** Records a finished detection from a shipped map's stored walls (no queue, no vision service). */
+  private startStored(roomId: string, map: Pick<MapImage, "url" | "width" | "height">, stored: NonNullable<ReturnType<typeof storedWallsFor>>) {
+    const walls = stored.map((w) => ({ a: w.a, b: w.b, confidence: 1, ...(w.portal ? { portal: w.portal } : {}) }));
+    const entry: Entry = {
+      roomId, mapUrl: map.url, map: { width: map.width, height: map.height }, jobId: `stored-${roomId}-${++this.attempts}`, imageKey: null, stored: true,
+      status: { status: "done", wallCount: walls.length, width: map.width, height: map.height },
+      result: { walls, preview: { contentType: "image/png", width: map.width, height: map.height, data: "" } },
+      timer: null, publishing: false, retiring: false,
+    };
+    this.replace(entry, false);
+    this.notify(roomId, map.url, entry.status);
+  }
+
+  /** The preview image: the worker's render, or for stored walls the map itself (the client draws the walls over it). */
+  async preview(roomId: string, mapUrl: string): Promise<{ contentType: string; bytes: Uint8Array } | null> {
+    const entry = this.entries.get(entryKey(roomId, mapUrl));
+    if (!entry?.result) return null;
+    if (!entry.stored) return { contentType: entry.result.preview.contentType, bytes: Buffer.from(entry.result.preview.data, "base64") };
+    const bytes = await this.readMap(mapUrl);
+    if (!bytes) return null;
+    const ext = path.extname(mapUrl).toLowerCase();
+    return { contentType: ext === ".webp" ? "image/webp" : ext === ".png" ? "image/png" : "image/jpeg", bytes };
+  }
+
   /** Queues an analysis of this room's map. Refuses while one for the same map is still running. */
   async start(
     roomId: string,
@@ -166,6 +198,12 @@ export class WallDetections {
     cellSize: number,
     request: WallDetectionRequest = {},
   ): Promise<StartResult> {
+    // A plain Detect walls on a shipped map with stored walls needs no vision service.
+    const stored = request.sample ? null : storedWallsFor(map);
+    if (stored) {
+      this.startStored(roomId, map, stored);
+      return "queued";
+    }
     if (!this.queue) return "unavailable";
     if (!uploadKey(map.url) && !builtinImageName(map.url)) return "unreadable";
     const existing = this.entries.get(entryKey(roomId, map.url));
@@ -329,12 +367,12 @@ export class WallDetections {
     if (this.entries.get(entryKey(entry.roomId, entry.mapUrl)) === entry) this.notify(entry.roomId, entry.mapUrl, status);
   }
 
-  private replace(entry: Entry) {
+  private replace(entry: Entry, track = true) {
     const key = entryKey(entry.roomId, entry.mapUrl);
     const old = this.entries.get(key);
     if (old) this.drop(old);
     this.entries.set(key, entry);
-    this.byJob.set(entry.jobId, entry);
+    if (track) this.byJob.set(entry.jobId, entry);
     while (this.entries.size > MAX_RESULTS) {
       const oldest = this.entries.values().next().value as Entry;
       this.drop(oldest);

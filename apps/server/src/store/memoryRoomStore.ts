@@ -26,6 +26,7 @@ import {
   type LibraryCreatureRecord,
   type NewCreatureRecord,
   type NewRoomOptions,
+  shippedSlug,
 } from "./libraryStore";
 import type { KeepSeatConflict, MemberRecord } from "./membershipStore";
 import { SeqConflictError, type CredentialRecord, type NewEvent, type RoomStore } from "./roomStore";
@@ -247,13 +248,17 @@ export class MemoryRoomStore implements RoomStore {
     }));
   }
 
-  private seededOwners = new Set<string>();
+  private seededSlugs = new Map<string, Set<string>>();
 
   async seedShippedMaps(ownerGmId: string, rows: LibraryAssetRecord[]) {
-    if (this.seededOwners.has(ownerGmId)) return false;
-    this.seededOwners.add(ownerGmId);
-    for (const row of rows) this.assets.set(row.id, structuredClone(row));
-    return true;
+    const seeded = this.seededSlugs.get(ownerGmId) ?? new Set<string>();
+    this.seededSlugs.set(ownerGmId, seeded);
+    const fresh = rows.filter((r) => !seeded.has(shippedSlug(r)));
+    for (const row of fresh) {
+      seeded.add(shippedSlug(row));
+      this.assets.set(row.id, structuredClone(row));
+    }
+    return fresh.length > 0;
   }
 
   async findDetection(target: DetectionTarget): Promise<DetectionRecord | null> {

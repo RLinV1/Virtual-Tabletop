@@ -3,6 +3,7 @@ import { randomInt, randomUUID } from "node:crypto";
 import {
   can,
   concealedFrom,
+  concealmentFor,
   templateConcealedFrom,
   decide,
   decideJoin,
@@ -93,6 +94,8 @@ export type SubmitResult =
 export class LiveRoom {
   private state: RoomState;
   private seq: number;
+  /** Per-viewer concealment for the ephemeral relay; rebuilt per state because line of sight makes it costly (ADR 0044). */
+  private concealments = new Map<string, ReturnType<typeof concealmentFor>>();
   private clients = new Set<RoomClient>();
   private tail: Promise<unknown> = Promise.resolve();
   /** Sorted asset ids last written to the reference index, as a comparable key. */
@@ -429,11 +432,13 @@ export class LiveRoom {
       if (!viewer || !isActive(viewer)) continue;
       // A token the viewer may not see, or one dragged into fog they don't own, sends them nothing:
       // the preview point would trace it through the concealed area (FR-GM-17, ADR 0016).
-      if (token && concealedFrom(this.state.fog, token, viewer)) continue;
-      if (token && payload.type === "tokenDragPreview" && concealedFrom(this.state.fog, { ...token, position: payload.at }, viewer)) continue;
+      let concealment = this.concealments.get(viewer.id);
+      if (!concealment) this.concealments.set(viewer.id, (concealment = concealmentFor(this.state, viewer)));
+      if (token && concealedFrom(concealment, token, viewer)) continue;
+      if (token && payload.type === "tokenDragPreview" && concealedFrom(concealment, { ...token, position: payload.at }, viewer)) continue;
       // An aim follows the rules for the area it would place: GM-only reaches GMs only (ADR 0007),
       // and one aimed from under fog reaches no player but its sender (ADR 0016).
-      if (preview && templateConcealedFrom(this.state.fog, { ...preview, id: "", ownerId: sender.id }, viewer)) continue;
+      if (preview && templateConcealedFrom(concealment, { ...preview, id: "", ownerId: sender.id }, viewer)) continue;
       if (gmOnlyAim && viewer.role !== "gm") continue;
       // A dice drop is one message per throw, not pointer chatter, and a lost one shows the throw
       // in the wrong place: it is delivered reliably, still unsequenced (ADR 0014).
@@ -491,6 +496,7 @@ export class LiveRoom {
     for (const c of committed) {
       const before = this.state;
       this.state = reduceCommitted(this.state, c);
+      this.concealments.clear();
       this.seq = c.seq;
       this.broadcast(c, before);
       if (c.event.type === "ParticipantLeft") this.endSession(c.event.participant.id, "left");

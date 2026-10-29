@@ -69,6 +69,10 @@ export type MapImage = z.infer<typeof MapImage>;
 export const Scene = z.object({
   map: MapImage.nullable(),
   grid: GridSpec,
+  /** Player line of sight; absent = off (ADR 0044). */
+  lineOfSight: z.boolean().optional(),
+  /** How far a token sees, in grid units; absent = unlimited (ADR 0044). */
+  sightRange: z.number().positive().optional(),
 });
 export type Scene = z.infer<typeof Scene>;
 
@@ -360,6 +364,12 @@ export interface RoomState {
    * reduced-motion version, as if each had asked for it. Public. Older rooms read as false.
    */
   reducedEffects: boolean;
+  /**
+   * The viewer's line of sight as polygons in board coordinates (FR-GM-19, ADR 0044). Derived per
+   * viewer by `filterStateForViewer`, never set by `reduce` and never persisted. Present only for
+   * a player with line of sight on.
+   */
+  sight?: Point[][];
 }
 
 export function emptyRoomState(roomId: Id): RoomState {

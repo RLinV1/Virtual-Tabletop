@@ -13,13 +13,17 @@ export interface MapDraft {
   mapUrl: string;
   walls: Record<string, Wall>;
   fog: Record<string, FogRegion>;
+  /** Line of sight on or off (Sight step). */
+  lineOfSight: boolean;
+  /** Sight range in grid units; null is unlimited. */
+  sightRange: number | null;
 }
 
 /** Walls and fog drawn in the editor carry ids with this prefix; the room gives them real ones on Save. */
 export const DRAFT_ID = "draft:";
 
 export function draftFrom(state: Pick<RoomState, "scene" | "walls" | "fog">): MapDraft {
-  return { mapUrl: state.scene.map?.url ?? "", walls: state.walls, fog: state.fog };
+  return { mapUrl: state.scene.map?.url ?? "", walls: state.walls, fog: state.fog, lineOfSight: state.scene.lineOfSight ?? false, sightRange: state.scene.sightRange ?? null };
 }
 
 const pointKey = (p: Point) => `${Math.round(p.x * 10)},${Math.round(p.y * 10)}`;
@@ -103,7 +107,10 @@ export function planDraftSave(room: Pick<RoomState, "scene" | "walls" | "fog">, 
   const removeIds = Object.values(room.fog).filter((f) => !retainedFogIds.has(f.id)).map((f) => f.id);
   const add = Object.values(draft.fog).filter((f) => !fogMatches.has(f.id)).map(fogAdd);
   if (removeIds.length > 0 || add.length > 0) commands.push({ type: "fog.replace", removeIds, add });
-  return commands.map((command) => ({ ...command, expectedMapUrl: draft.mapUrl }));
+  const sight: CommandInput[] = [];
+  if ((room.scene.lineOfSight ?? false) !== draft.lineOfSight) sight.push({ type: "scene.setLineOfSight", enabled: draft.lineOfSight });
+  if ((room.scene.sightRange ?? null) !== draft.sightRange) sight.push({ type: "scene.setSightRange", range: draft.sightRange });
+  return [...commands.map((command) => ({ ...command, expectedMapUrl: draft.mapUrl })), ...sight];
 }
 
 /** Whether two walls are the same kind of portal, or both plain. */
@@ -186,6 +193,10 @@ export function applyToDraft(draft: MapDraft, command: CommandInput, newId: () =
       }
       return { ...draft, fog };
     }
+    case "scene.setLineOfSight":
+      return { ...draft, lineOfSight: command.enabled };
+    case "scene.setSightRange":
+      return { ...draft, sightRange: command.range };
     default:
       return null;
   }
@@ -195,21 +206,22 @@ export function applyToDraft(draft: MapDraft, command: CommandInput, newId: () =
  * Walls from a finished detection, as the draft's whole set of walls; a wall found twice counts
  * once. A wall the draft already had keeps its door or window (ADR 0030).
  */
-export function withDetectedWalls(draft: MapDraft, detected: readonly { a: Point; b: Point }[], newId: () => string): MapDraft {
+export function withDetectedWalls(draft: MapDraft, detected: readonly { a: Point; b: Point; portal?: Portal }[], newId: () => string): MapDraft {
   const walls: Record<string, Wall> = {};
-  const seen = new Set<string>();
+  const seen = new Map<string, string>();
   const existing = new Map<string, Wall>();
   for (const wall of Object.values(draft.walls)) {
     const key = wallKey(wall);
     if (!existing.has(key)) existing.set(key, wall);
   }
-  for (const { a, b } of detected) {
+  for (const { a, b, portal } of detected) {
     const key = wallKey({ a, b });
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const retained = existing.get(key);
-    const id = retained?.id ?? newId();
-    walls[id] = retained ?? { id, a, b };
+    const id = seen.get(key) ?? existing.get(key)?.id ?? newId();
+    seen.set(key, id);
+    const wall = walls[id] ?? existing.get(key) ?? { id, a, b };
+    // Stored walls for built-in maps carry their doors and windows (ADR 0029 amendment). A plain
+    // wall gains one found on the same segment; one it already has wins.
+    walls[id] = !wall.portal && portal ? { ...wall, portal } : wall;
   }
   return { ...draft, walls };
 }

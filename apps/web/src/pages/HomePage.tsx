@@ -83,6 +83,10 @@ const THUMBS: Record<string, { src: string; alt: string }> = {
     src: "/img/home/temple-green-sun-thumb.webp",
     alt: "A top-down battle map of an overgrown temple plaza with a sun mosaic, lily ponds and a side chamber, framed by jungle.",
   },
+  "builtin:sunken-crypt": {
+    src: "/img/home/sunken-crypt-thumb.webp",
+    alt: "A top-down battle map of a stone crypt: a pillared entry hall, a long corridor to a pillared chapel, a side vault behind a banded door, a guard room seen through a window, and a winding gallery.",
+  },
 };
 
 /** The shelf in the library chapter: the real built-ins, whole, with their real size and grid. */

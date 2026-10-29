@@ -14,3 +14,7 @@ Each account gets the shipped maps as real `library_assets` rows, once. `gm_iden
 ## Consequences
 
 Existing rooms keep working: `boardFromRoom` resolves a shipped URL to the owner's row. Token art stays a client catalog. Re-measuring a shipped map does not update already-seeded rows.
+
+## Amendment: seeding per map (`openspec/changes/shipped-maps-line-of-sight`)
+
+A once-per-account flag cannot deliver a map added later: every existing account is already marked seeded. Migration 0017 adds `gm_identities.shipped_maps_seeded text[] not null default '{}'` and backfills the three original slugs (`broken-span`, `hollowfrost-keep`, `temple-green-sun`) for every row whose `shipped_maps_seeded_at` is set. `seedShippedMaps` now inserts rows only for catalog slugs not yet in the list and appends them, in one transaction that holds a row lock on the owner's identity, so concurrent calls never insert a slug twice. Deleting a library row never removes its slug, so a deleted map stays deleted. `shipped_maps_seeded_at` is still set on first seeding. The memory store keeps a per-owner set of slugs. Rollback: old code ignores the new column.

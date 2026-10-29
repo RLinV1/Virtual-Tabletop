@@ -137,7 +137,7 @@ export async function buildApp({
 
   app.use(attachAccount(sessions));
   app.use(requireSameOrigin(sessions, clientOrigin.split(",").map((o) => o.trim())));
-  registerUvttRoutes(app, { store, registry, sessions, assets: assetStore, preparations, pool, uploadDir, builtinImageDir, now });
+  registerUvttRoutes(app, { store, registry, sessions, assets: assetStore, preparations, pool, uploadDir, builtinImageDir, uploads: limits.uploadsPerOwner, now });
   // UVTT draft edits authorize and parse above; library geometry has its own authorized 1 MiB parser.
   const json = express.json({ limit: "64kb" });
   app.use((req, res, next) => (/^\/api\/library\/[^/]+\/board$/.test(req.path) ? next() : json(req, res, next)));
