@@ -2399,7 +2399,7 @@ dialog.modal.map-editor {
   background: var(--raised); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
 }
 .map-editor-thumb { max-width: 100%; max-height: 100%; object-fit: contain; }
-.map-editor-hud {
+.map-editor-hud, .map-editor-panel {
   min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: var(--space-3);
   padding: var(--space-3); background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
 }
@@ -2486,7 +2486,8 @@ dialog.modal.map-editor {
    the HUD is capped and scrolls on its own, so it never pushes the canvas off-screen. */
 @media (max-width: 760px), (orientation: portrait) {
   .map-editor-split { grid-template-columns: 1fr; grid-template-rows: minmax(50dvh, 1fr) auto; }
-  .map-editor-hud { max-height: 36dvh; }
+  .map-editor-split.map-editor-sight-split { grid-template-columns: 1fr; grid-template-rows: auto minmax(50dvh, 1fr) auto; }
+  .map-editor-hud, .map-editor-panel { max-height: 36dvh; }
 }
 @media (max-width: 760px) {
   .map-editor .modal-body { padding: var(--space-2); }
@@ -2718,9 +2719,24 @@ dialog.modal.checkpoint-preview-modal { width: min(64rem, calc(100vw - 2rem)); }
 .sight-range-exact { display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .sight-range-input { display: inline-flex; align-items: center; gap: var(--space-1); }
 .sight-range-input input { width: 5.5rem; text-align: right; font-variant-numeric: tabular-nums; }
-.map-editor-sight-preview.is-testing { cursor: crosshair; touch-action: none; }
-.map-editor-sight-preview.is-dragging { cursor: grabbing; }
-.sight-test-token { cursor: grab; outline: none; }
-.sight-test-token circle:first-child { fill: var(--accent); stroke: var(--text); stroke-dasharray: 10 6; }
-.sight-test-token-dot { fill: var(--text); }
-.sight-test-token:focus-visible circle:first-child { stroke-dasharray: none; }
+.map-editor-sight-preview.is-dragging, .map-editor-sight-preview.is-dragging .sight-test-token { cursor: grabbing; }
+/* Test tokens on the left, the preview in the middle, settings on the right. */
+.map-editor-split.map-editor-sight-split { grid-template-columns: 13rem minmax(0, 1fr) var(--hud-width, 17rem); }
+.sight-preview-stage { position: relative; min-height: 0; }
+.sight-token-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.sight-token-list li { display: flex; gap: var(--space-1); }
+.sight-token-pick { flex: 1; justify-content: flex-start; gap: var(--space-2); }
+.sight-token-pick[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.sight-token-swatch { width: 14px; height: 14px; border-radius: 50%; background: var(--accent); border: 2px solid var(--text); flex: none; }
+.sight-test-token { cursor: grab; outline: none; touch-action: none; }
+.sight-test-token circle { fill: var(--accent); stroke: var(--text); stroke-dasharray: 10 6; }
+.sight-test-token[aria-pressed="true"] circle, .sight-test-token:focus-visible circle { stroke-dasharray: none; }
+.sight-test-token.is-unseen { opacity: 0.45; }
+.sight-test-token-label { fill: var(--accent-ink); font-weight: 700; pointer-events: none; user-select: none; }
+/* How many tokens the selected one sees, on the map's bottom-right corner. */
+.sight-popup {
+  position: absolute; right: var(--space-2); bottom: var(--space-2); max-width: calc(100% - 2 * var(--space-2));
+  display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  background: var(--panel); color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--radius);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5); font-size: var(--fs-sm);
+}

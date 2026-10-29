@@ -64,15 +64,29 @@ describe("map editor Sight step (FR-GM-19)", () => {
     ]));
   });
 
-  it("previews sight from a test token the GM moves, without sending anything", () => {
+  it("previews sight with test tokens only, added, moved and removed without sending anything", () => {
     const state = room({ walls: [{ id: "w", a: { x: 250, y: 0 }, b: { x: 250, y: 600 } }] });
     state.tokens = { hero: { ...token, position: { x: 100, y: 300 } } };
     const fake = mount(state); openSight();
-    expect((within(editor()).getByLabelText("Preview as") as HTMLSelectElement).value).toBe("sight-test-token");
-    expect(within(editor()).getByText("Test token sees 0 of 1 token.")).toBeTruthy();
-    const marker = within(editor()).getByRole("button", { name: /^Test token\./ });
-    for (let i = 0; i < 4; i++) fireEvent.keyDown(marker, { key: "ArrowLeft" });
-    expect(within(editor()).getByText("Test token sees 1 of 1 token.")).toBeTruthy();
+    const panel = within(within(editor()).getByRole("complementary", { name: "Test tokens" }));
+    expect(document.querySelectorAll(".sight-preview-token")).toHaveLength(0);
+    expect(screen.queryByLabelText("Preview as")).toBeNull();
+    const popup = () => editor().querySelector<HTMLElement>(".sight-popup");
+    expect(popup()).toBeNull();
+
+    fireEvent.click(panel.getByRole("button", { name: "Add token" }));
+    fireEvent.click(panel.getByRole("button", { name: "Token 1" }));
+    expect(popup()?.textContent).toBe("Token 1 sees 1 of 1 other token.");
+
+    // Token 2 starts a square right of Token 1; five squares left puts it behind the wall.
+    const second = within(editor()).getByRole("button", { name: /^Token 2\./ });
+    for (let i = 0; i < 5; i++) fireEvent.keyDown(second, { key: "ArrowLeft" });
+    expect(popup()?.textContent).toBe("Token 1 sees 0 of 1 other token.");
+
+    fireEvent.click(panel.getByRole("button", { name: "Remove Token 2" }));
+    expect(popup()?.textContent).toBe("Token 1 has no other tokens to see. Add one to test.");
+    fireEvent.click(within(popup()!).getByRole("button", { name: "Close" }));
+    expect(popup()).toBeNull();
     expect(fake.commands).toEqual([]);
   });
 
