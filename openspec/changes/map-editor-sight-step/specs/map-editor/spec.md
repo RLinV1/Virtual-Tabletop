@@ -20,7 +20,7 @@ The room's map editor SHALL have a fifth step, "5 · Sight", after Fog. It SHALL
 - **THEN** the step asks the GM to apply a map first
 
 ### Requirement: The Sight step previews sight from test tokens
-The Sight step SHALL show only test tokens on its preview, never the room's tokens. A side panel on the left SHALL list the test tokens and let the GM add and remove them; the step SHALL start with one at the centre of the map. The GM SHALL move a test token by dragging it (pressing on the map elsewhere SHALL NOT move it) or one square at a time with the arrow keys. With no token selected, the preview SHALL show the combined sight of every test token. Clicking a test token SHALL select it: the preview SHALL show that token's sight only, and a small notice at the bottom right of the map SHALL say how many of the other test tokens it sees. Sight SHALL update when a token is dropped. Test tokens SHALL exist only in the editor: they SHALL NOT be sent to the server, saved, or shown to anyone else.
+The Sight step SHALL show only test tokens on its preview, never the room's tokens. A side panel on the left SHALL list the test tokens and let the GM add and remove them; the step SHALL start with one at the centre of the map. The GM SHALL move a test token by dragging it (pressing on the map elsewhere SHALL NOT move it) or one square at a time with the arrow keys. A dropped or added test token SHALL snap to the grid as a token dropped on the board does, and holding Alt while dropping SHALL place it without snapping. With no token selected, the preview SHALL show the combined sight of every test token. Clicking a test token SHALL select it: the preview SHALL show that token's sight only, and a small notice at the bottom right of the map SHALL say how many of the other test tokens it sees. Sight SHALL update when a token is dropped. Clicking a door or window on the preview SHALL open it, or close it if open, for the preview only; the room's walls SHALL NOT change. Test tokens SHALL exist only in the editor: they SHALL NOT be sent to the server, saved, or shown to anyone else.
 
 #### Scenario: Add a token behind a wall
 - **WHEN** the GM adds a second test token on the far side of a wall and clicks the first one
@@ -29,6 +29,10 @@ The Sight step SHALL show only test tokens on its preview, never the room's toke
 #### Scenario: Move it into view
 - **WHEN** the GM then moves the second token to the first token's side of the wall
 - **THEN** the notice says the first token sees 1 of 1 other token
+
+#### Scenario: Open a door in the preview
+- **WHEN** a closed door stands between two test tokens and the GM clicks it on the preview
+- **THEN** the door shows open, the selected token sees the other one, and no command is sent
 
 #### Scenario: Remove a token
 - **WHEN** the GM removes a test token from the left panel

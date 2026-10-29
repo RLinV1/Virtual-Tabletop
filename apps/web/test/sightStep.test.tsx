@@ -75,6 +75,9 @@ describe("map editor Sight step (FR-GM-19)", () => {
     expect(popup()).toBeNull();
 
     fireEvent.click(panel.getByRole("button", { name: "Add token" }));
+    // Both start on square centres (50 px squares), the second one square right of the first.
+    const centres = [...document.querySelectorAll(".sight-test-token circle")].map((c) => [c.getAttribute("cx"), c.getAttribute("cy")]);
+    expect(centres).toEqual([["425", "325"], ["475", "325"]]);
     fireEvent.click(panel.getByRole("button", { name: "Token 1" }));
     expect(popup()?.textContent).toBe("Token 1 sees 1 of 1 other token.");
 
@@ -87,6 +90,22 @@ describe("map editor Sight step (FR-GM-19)", () => {
     expect(popup()?.textContent).toBe("Token 1 has no other tokens to see. Add one to test.");
     fireEvent.click(within(popup()!).getByRole("button", { name: "Close" }));
     expect(popup()).toBeNull();
+    expect(fake.commands).toEqual([]);
+  });
+
+  it("opens and closes a door for the preview only", () => {
+    const fake = mount(room({ walls: [{ id: "d", a: { x: 250, y: 0 }, b: { x: 250, y: 600 }, portal: { kind: "door", state: "locked" } }] })); openSight();
+    const panel = within(within(editor()).getByRole("complementary", { name: "Test tokens" }));
+    fireEvent.click(panel.getByRole("button", { name: "Add token" }));
+    const second = within(editor()).getByRole("button", { name: /^Token 2\./ });
+    for (let i = 0; i < 5; i++) fireEvent.keyDown(second, { key: "ArrowLeft" });
+    fireEvent.click(panel.getByRole("button", { name: "Token 1" }));
+    const popup = () => editor().querySelector<HTMLElement>(".sight-popup")?.textContent;
+    expect(popup()).toBe("Token 1 sees 0 of 1 other token.");
+    fireEvent.click(within(editor()).getByRole("button", { name: /^Door, locked\./ }));
+    expect(popup()).toBe("Token 1 sees 1 of 1 other token.");
+    fireEvent.click(within(editor()).getByRole("button", { name: /^Door, open\./ }));
+    expect(popup()).toBe("Token 1 sees 0 of 1 other token.");
     expect(fake.commands).toEqual([]);
   });
 

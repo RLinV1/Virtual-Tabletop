@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { Eye, EyeSlash, Infinity as InfinityIcon, Plus, Ruler, Trash, X } from "@phosphor-icons/react";
-import { EMPTY_STATS, filterStateForViewer, viewerSight, type Participant, type Point, type RoomState, type Token } from "@vtt/shared";
+import { blocksMovement, EMPTY_STATS, filterStateForViewer, snapTokenCenter, viewerSight, type Participant, type Point, type RoomState, type Token, type Wall } from "@vtt/shared";
 import type { EditorConnection } from "../../net/roomConnection";
 import { makeSightMaskCanvas, sightColor } from "../../board/sightMask";
 import { rangeFill } from "../../ui/rangeFill";
@@ -13,6 +13,12 @@ const TEST_VIEWER: Participant = { id: TEST_ID, role: "player", displayName: "Te
 
 interface TestToken { id: string; name: string; position: Point }
 
+const isPortal = (w: Wall) => w.portal !== undefined || w.uvttPortal !== undefined;
+const isOpen = (w: Wall) => !blocksMovement(w);
+/** The wall with its door or window opened, or closed if it was open. */
+const flipped = (w: Wall): Wall =>
+  w.portal ? { ...w, portal: { ...w.portal, state: isOpen(w) ? "closed" : "open" } } : { ...w, uvttPortal: { ...w.uvttPortal, closed: isOpen(w) } };
+
 /**
  * The map editor's Sight step (map-editor-sight-step): line of sight on or off and the sight range
  * for the whole room, previewed with test tokens the GM adds, removes and drags. The room's own
@@ -22,8 +28,16 @@ interface TestToken { id: string; name: string; position: Point }
 export function SightSetup({ connection, state }: { connection: EditorConnection; state: RoomState }) {
   const { map, grid } = state.scene;
   const [message, setMessage] = useState<string | null>(null);
+  // Snapped to a square like a token dropped on the board, and kept on the map.
+  const place = (p: Point): Point => {
+    if (!map) return p;
+    const inside = (q: Point): Point => ({ x: Math.min(map.width, Math.max(0, q.x)), y: Math.min(map.height, Math.max(0, q.y)) });
+    const s = snapTokenCenter(inside(p), 1, grid);
+    // A snap past the edge steps back one square.
+    return { x: s.x > map.width ? s.x - grid.cellSize : s.x < 0 ? s.x + grid.cellSize : s.x, y: s.y > map.height ? s.y - grid.cellSize : s.y < 0 ? s.y + grid.cellSize : s.y };
+  };
   const centre = (offset = 0): Point =>
-    map ? { x: Math.min(map.width, map.width / 2 + offset * grid.cellSize), y: map.height / 2 } : { x: 0, y: 0 };
+    map ? place({ x: map.width / 2 + offset * grid.cellSize, y: map.height / 2 }) : { x: 0, y: 0 };
   const [tokens, setTokens] = useState<TestToken[]>(() => (map ? [{ id: "test-1", name: "Token 1", position: centre() }] : []));
   const nextNumber = useRef(2);
   const [selected, setSelected] = useState<string | null>(null);
@@ -32,6 +46,17 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
   // Where on the token it was grabbed, so it moves with the pointer instead of jumping its centre to it.
   const grab = useRef<Point>({ x: 0, y: 0 });
   const svgRef = useRef<SVGSVGElement>(null);
+  // Doors and windows opened or closed for the preview only: the room's walls don't change.
+  const [toggled, setToggled] = useState<ReadonlySet<string>>(new Set());
+  const walls = useMemo(
+    () => Object.fromEntries(Object.values(state.walls).map((w) => [w.id, toggled.has(w.id) ? flipped(w) : w])),
+    [state.walls, toggled],
+  );
+  const toggle = (id: string) => setToggled((now) => {
+    const next = new Set(now);
+    if (!next.delete(id)) next.add(id);
+    return next;
+  });
   const range = state.scene.sightRange ?? null;
   const enabled = state.scene.lineOfSight === true;
 
@@ -45,9 +70,9 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
       id: t.id, name: t.name, position: t.position, size: 1, rotation: 0, color: "#c2410c", imageUrl: null,
       ownerIds: selected === null || selected === t.id ? [TEST_ID] : [], hidden: false, stats: EMPTY_STATS, conditions: [],
     });
-    const seen = { ...state, scene, tokens: Object.fromEntries(tokens.map((t) => [t.id, asToken(t)])) };
+    const seen = { ...state, scene, walls, tokens: Object.fromEntries(tokens.map((t) => [t.id, asToken(t)])) };
     return { polygons: viewerSight(seen, TEST_VIEWER), visible: new Set(Object.keys(filterStateForViewer(seen, TEST_VIEWER).tokens)) };
-  }, [map, tokens, selected, state, range]);
+  }, [map, tokens, selected, state, walls, range]);
   const polygons = preview?.polygons ?? null;
 
   // The mask as an image the preview SVG can scale with the map (letterboxed like the other steps).
@@ -89,9 +114,10 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
     const p = drag && toMap(e);
     if (p) setDrag({ id: drag.id, at: clamp({ x: p.x + grab.current.x, y: p.y + grab.current.y }) });
   };
-  const drop = () => {
+  // Alt drops it where it is, as on the board.
+  const drop = (e: PointerEvent<SVGSVGElement>) => {
     if (!drag) return;
-    moveTo(drag.id, drag.at);
+    moveTo(drag.id, e.altKey ? drag.at : place(drag.at));
     setDrag(null);
   };
   const onTokenKey = (t: TestToken) => (e: KeyboardEvent<SVGGElement>) => {
@@ -103,7 +129,7 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
     const step = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
     if (!step) return;
     e.preventDefault();
-    moveTo(t.id, clamp({ x: t.position.x + step[0]! * grid.cellSize, y: t.position.y + step[1]! * grid.cellSize }));
+    moveTo(t.id, place({ x: t.position.x + step[0]! * grid.cellSize, y: t.position.y + step[1]! * grid.cellSize }));
   };
 
   const radius = grid.cellSize / 2 - 4;
@@ -115,7 +141,7 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
     <HudLayout className="map-editor-split map-editor-sight-split">
       <aside className="map-editor-panel sight-token-panel" aria-label="Test tokens">
         <h3 className="map-editor-heading">Test tokens</h3>
-        <p className="muted small-print">Drag them on the map to check what they see. Only you see them, and they aren't saved.</p>
+        <p className="muted small-print">Drag them on the map to check what they see. They snap to the grid; hold Alt to place one freely. Only you see them, and they aren't saved.</p>
         {tokens.length === 0 ? (
           <p className="muted small-print">Add a token to preview sight.</p>
         ) : (
@@ -136,6 +162,9 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
         <button type="button" className="secondary" onClick={add}>
           <Plus size={16} aria-hidden="true" /> Add token
         </button>
+        {Object.values(state.walls).some(isPortal) && (
+          <p className="muted small-print">Click a door or window on the map to open or close it here. Windows never block sight. The room's doors don't change.</p>
+        )}
       </aside>
       <div className="sight-preview-stage">
         <svg
@@ -143,16 +172,33 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
           className={`map-editor-sight-preview${drag ? " is-dragging" : ""}`}
           viewBox={`0 0 ${map.width} ${map.height}`} preserveAspectRatio="xMidYMid meet"
           aria-label="Sight preview"
-          onPointerDown={(e) => { if (e.target === e.currentTarget || e.target instanceof SVGImageElement || e.target instanceof SVGLineElement) setSelected(null); }}
+          onPointerDown={(e) => { if (!(e.target as Element).closest(".sight-test-token, .sight-portal")) setSelected(null); }}
           onPointerMove={dragTo}
           onPointerUp={drop}
           onPointerCancel={() => setDrag(null)}
         >
           <image href={map.url} width={map.width} height={map.height} />
           {mask && <image href={mask} width={map.width} height={map.height} opacity={0.78} />}
-          {Object.values(state.walls).map((w) => (
-            <line key={w.id} x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y} className={w.portal ? "sight-preview-portal" : "sight-preview-wall"} strokeWidth={Math.max(2, grid.cellSize / 20)} />
+          {Object.values(walls).filter((w) => !isPortal(w)).map((w) => (
+            <line key={w.id} x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y} className="sight-preview-wall" strokeWidth={Math.max(2, grid.cellSize / 20)} />
           ))}
+          {Object.values(walls).filter(isPortal).map((w) => {
+            const kind = w.portal?.kind === "window" ? "Window" : "Door";
+            const open = isOpen(w);
+            const status = open ? "open" : w.portal?.state === "locked" ? "locked" : "closed";
+            return (
+              <g
+                key={w.id} className={`sight-portal${open ? " is-open" : ""}`} tabIndex={0} role="button" aria-pressed={open}
+                aria-label={`${kind}, ${status}. Press to ${open ? "close" : "open"} it in this preview.`}
+                onClick={() => toggle(w.id)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(w.id); } }}
+              >
+                {/* A wide invisible line so a thin door is easy to click. */}
+                <line x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y} className="sight-portal-hit" strokeWidth={Math.max(16, grid.cellSize / 3)} />
+                <line x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y} className="sight-preview-portal" strokeWidth={Math.max(3, grid.cellSize / 12)} />
+              </g>
+            );
+          })}
           {tokens.map((t) => {
             const at = drag?.id === t.id ? drag.at : t.position;
             const unseen = chosen !== null && t.id !== chosen.id && !preview?.visible.has(t.id);
