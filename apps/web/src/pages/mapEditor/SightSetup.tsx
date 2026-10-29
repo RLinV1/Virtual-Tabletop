@@ -42,7 +42,10 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
   const nextNumber = useRef(1);
   // The step opens asking for a first token; Add token asks again. The next click on the map places it.
   const [placing, setPlacing] = useState(true);
-  const [selected, setSelected] = useState<string | null>(null);
+  // The tokens whose sight is shown: they are the ones the test viewer owns.
+  const [shown, setShown] = useState<ReadonlySet<string>>(new Set());
+  // The popup's Close hides it until `shown` is replaced.
+  const [closedFor, setClosedFor] = useState<ReadonlySet<string> | null>(null);
   // A drag only moves the marker; sight updates on drop, like a drag on the board.
   const [drag, setDrag] = useState<{ id: string; at: Point } | null>(null);
   // Where on the token it was grabbed, so it moves with the pointer instead of jumping its centre to it.
@@ -63,18 +66,18 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
   const enabled = state.scene.lineOfSight === true;
 
   // The room with only the test tokens, as a player owning them would receive it. Line of sight is
-  // forced on so the range can be tuned before it is turned on. With one selected, only it is owned.
+  // forced on so the range can be tuned before it is turned on. Only the shown tokens are owned.
   const preview = useMemo(() => {
     if (!map || tokens.length === 0) return null;
     const { sightRange: _drop, ...rest } = state.scene;
     const scene = { ...rest, lineOfSight: true, ...(range !== null && { sightRange: range }) };
     const asToken = (t: TestToken): Token => ({
       id: t.id, name: t.name, position: t.position, size: 1, rotation: 0, color: "#c2410c", imageUrl: null,
-      ownerIds: selected === null || selected === t.id ? [TEST_ID] : [], hidden: false, stats: EMPTY_STATS, conditions: [],
+      ownerIds: shown.has(t.id) ? [TEST_ID] : [], hidden: false, stats: EMPTY_STATS, conditions: [],
     });
     const seen = { ...state, scene, walls, tokens: Object.fromEntries(tokens.map((t) => [t.id, asToken(t)])) };
     return { polygons: viewerSight(seen, TEST_VIEWER), visible: new Set(Object.keys(filterStateForViewer(seen, TEST_VIEWER).tokens)) };
-  }, [map, tokens, selected, state, walls, range]);
+  }, [map, tokens, shown, state, walls, range]);
   const polygons = preview?.polygons ?? null;
 
   // The mask as an image the preview SVG can scale with the map (letterboxed like the other steps).
@@ -99,12 +102,15 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
   const moveTo = (id: string, position: Point) => setTokens((now) => now.map((t) => (t.id === id ? { ...t, position } : t)));
   const add = (at?: Point) => {
     const n = nextNumber.current++;
-    setTokens((now) => [...now, { id: `test-${n}`, name: `Token ${n}`, position: at ? place(at) : centre(now.length) }]);
+    const id = `test-${n}`;
+    // Showing everyone stays that way when another token joins.
+    if (tokens.every((t) => shown.has(t.id))) setShown(new Set([...shown, id]));
+    setTokens((now) => [...now, { id, name: `Token ${n}`, position: at ? place(at) : centre(now.length) }]);
     setPlacing(false);
   };
   const remove = (id: string) => {
     setTokens((now) => now.filter((t) => t.id !== id));
-    if (selected === id) setSelected(null);
+    setShown((now) => new Set([...now].filter((x) => x !== id)));
   };
   // Pointer position in map pixels.
   const toMap = (e: PointerEvent<SVGElement>): Point | null => {
@@ -126,7 +132,7 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
   const onTokenKey = (t: TestToken) => (e: KeyboardEvent<SVGGElement>) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      setSelected(selected === t.id ? null : t.id);
+      setShown(new Set([t.id]));
       return;
     }
     const step = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
@@ -136,25 +142,38 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
   };
 
   const radius = grid.cellSize / 2 - 4;
-  const chosen = tokens.find((t) => t.id === selected) ?? null;
-  const others = tokens.length - 1;
-  const seenCount = chosen ? tokens.filter((t) => t.id !== chosen.id && preview?.visible.has(t.id)).length : 0;
+  const others = tokens.filter((t) => !shown.has(t.id));
+  const seenCount = others.filter((t) => preview?.visible.has(t.id)).length;
+  const allShown = tokens.length > 0 && others.length === 0;
+  const who = shown.size === 1 ? tokens.find((t) => shown.has(t.id))?.name : "They";
 
   return (
     <HudLayout className="map-editor-split map-editor-sight-split">
       <aside className="map-editor-panel sight-token-panel" aria-label="Test tokens">
         <h3 className="map-editor-heading">Test tokens</h3>
-        <p className="muted small-print">Drag them on the map to check what they see. They snap to the grid; hold Alt to place one freely. Only you see them, and they aren't saved.</p>
         {tokens.length === 0 ? (
-          <p className="muted small-print">Place a token on the map to preview sight.</p>
+          <p className="muted small-print">No tokens yet.</p>
         ) : (
           <ul className="sight-token-list">
+            <li>
+              <label className="sight-token-pick">
+                <input
+                  type="checkbox" checked={allShown} ref={(el) => { if (el) el.indeterminate = shown.size > 0 && !allShown; }}
+                  onChange={() => setShown(allShown ? new Set() : new Set(tokens.map((t) => t.id)))}
+                />
+                <span>Select all</span>
+              </label>
+            </li>
             {tokens.map((t) => (
               <li key={t.id}>
-                <button type="button" className="tool-button sight-token-pick" aria-pressed={selected === t.id} onClick={() => setSelected(selected === t.id ? null : t.id)}>
+                <label className="sight-token-pick">
+                  <input
+                    type="checkbox" aria-label={`Show ${t.name}'s sight`} checked={shown.has(t.id)}
+                    onChange={(e) => setShown((now) => { const next = new Set(now); if (e.target.checked) next.add(t.id); else next.delete(t.id); return next; })}
+                  />
                   <span className="sight-token-swatch" aria-hidden="true" />
                   <span>{t.name}</span>
-                </button>
+                </label>
                 <button type="button" className="tool-button icon-button" aria-label={`Remove ${t.name}`} onClick={() => remove(t.id)}>
                   <Trash size={16} aria-hidden="true" />
                 </button>
@@ -162,12 +181,9 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
             ))}
           </ul>
         )}
-        <button type="button" className="secondary" aria-pressed={placing} onClick={() => setPlacing(!placing)}>
+        <button type="button" data-guide="sight-add" className="secondary small" aria-pressed={placing} onClick={() => setPlacing(!placing)}>
           <Plus size={16} aria-hidden="true" /> {placing ? "Cancel" : "Add token"}
         </button>
-        {Object.values(state.walls).some(isPortal) && (
-          <p className="muted small-print">Click a door or window on the map to open or close it here. Windows never block sight. The room's doors don't change.</p>
-        )}
       </aside>
       <div className="sight-preview-stage">
         <svg
@@ -181,7 +197,6 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
             if ((e.target as Element).closest(".sight-test-token, .sight-portal")) return;
             const p = placing && e.button === 0 && toMap(e);
             if (p) add(p);
-            else setSelected(null);
           }}
           onPointerMove={dragTo}
           onPointerUp={drop}
@@ -205,18 +220,18 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
               >
                 {/* A wide invisible line so a thin door is easy to click. */}
                 <line x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y} className="sight-portal-hit" strokeWidth={Math.max(16, grid.cellSize / 3)} />
-                <line x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y} className="sight-preview-portal" strokeWidth={Math.max(3, grid.cellSize / 12)} />
+                <line x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y} className={w.portal?.kind === "window" ? "sight-preview-window" : "sight-preview-portal"} strokeWidth={Math.max(3, grid.cellSize / 12)} />
               </g>
             );
           })}
           {tokens.map((t) => {
             const at = drag?.id === t.id ? drag.at : t.position;
-            const unseen = chosen !== null && t.id !== chosen.id && !preview?.visible.has(t.id);
+            const unseen = !shown.has(t.id) && !preview?.visible.has(t.id);
             return (
               <g
                 key={t.id}
                 className={`sight-test-token${unseen ? " is-unseen" : ""}`}
-                tabIndex={0} role="button" aria-pressed={selected === t.id}
+                tabIndex={0} role="button" aria-pressed={shown.has(t.id)}
                 aria-label={`${t.name}. Drag it, or use the arrow keys to move it one square. Press Enter to show only its sight.`}
                 onKeyDown={onTokenKey(t)}
                 onPointerDown={(e) => {
@@ -225,7 +240,7 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
                   // Capture on the SVG so the drag follows the pointer off the token and off the map.
                   svgRef.current?.setPointerCapture(e.pointerId);
                   grab.current = { x: t.position.x - p.x, y: t.position.y - p.y };
-                  setSelected(t.id);
+                  setShown(new Set([t.id]));
                   setDrag({ id: t.id, at: t.position });
                 }}
               >
@@ -242,14 +257,10 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
             <span>{tokens.length === 0 ? "Click the map to place a test token." : "Click the map to place another token."}</span>
           </div>
         )}
-        {chosen && (
+        {shown.size > 0 && others.length > 0 && closedFor !== shown && (
           <div className="sight-popup" role="status">
-            <span>
-              {others === 0
-                ? `${chosen.name} has no other tokens to see. Add one to test.`
-                : `${chosen.name} sees ${seenCount} of ${others} other ${others === 1 ? "token" : "tokens"}.`}
-            </span>
-            <button type="button" className="icon-button" aria-label="Close" onClick={() => setSelected(null)}>
+            <span>{`${who} ${shown.size === 1 ? "sees" : "see"} ${seenCount} of ${others.length} other ${others.length === 1 ? "token" : "tokens"}.`}</span>
+            <button type="button" className="icon-button" aria-label="Close" onClick={() => setClosedFor(shown)}>
               <X size={14} aria-hidden="true" />
             </button>
           </div>
@@ -260,6 +271,7 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
           <h3 className="map-editor-heading">Line of sight</h3>
           <button
             type="button"
+            data-guide="sight-toggle"
             className="tool-button map-editor-mode"
             aria-pressed={enabled}
             onClick={() => void send({ type: "scene.setLineOfSight", enabled: !enabled })}
@@ -267,7 +279,6 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
             {enabled ? <Eye size={18} aria-hidden="true" /> : <EyeSlash size={18} aria-hidden="true" />}
             <span>{enabled ? "Line of sight on" : "Line of sight off"}</span>
           </button>
-          <p className="muted small-print">Players see only what their own tokens can see. Walls, closed doors and fog block it.</p>
         </section>
         <section className="stack">
           <h3 className="map-editor-heading">Range</h3>
@@ -283,9 +294,7 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
               <span>Limited</span>
             </button>
           </div>
-          {range === null ? (
-            <p className="muted small-print">Sight runs to the nearest wall or the map edge.</p>
-          ) : (
+          {range !== null && (
             <>
               <label className="stack">
                 <span className="small-print">Distance: {range} {unit} ({squares} {squares === 1 ? "square" : "squares"})</span>

@@ -23,6 +23,7 @@ import { draftConnection } from "./mapEditor/draftConnection";
 import { draftDirty, draftFrom, planDraftSave, type MapDraft } from "./mapEditor/mapDraft";
 import { adjustedMessage, offersTokenPolicy, prepCommand, prepDirty, startPrep, startUvttPrep, TOKEN_POLICY_CHOICES, type MapPrep } from "./mapPrep";
 import { FULL_ROOM, type RoomFeatures } from "./encounterEdit/roomFeatures";
+import { EditorGuide } from "./mapEditor/EditorGuide";
 
 interface Props {
   connection: RoomConnection;
@@ -634,6 +635,7 @@ function MapSection(props: {
                 {label}
               </button>
             ))}
+            <EditorGuide step={step} />
             <span ref={setGridActionSlot} hidden={step !== "grid"} style={{ marginLeft: "auto" }} />
             {prep && step !== "grid" && <span className="map-editor-draft">Draft map: only you see it until Apply map</span>}
             {!prep && unsaved && (
@@ -662,7 +664,7 @@ function MapSection(props: {
                   <h3 className="map-editor-heading">Battle map</h3>
                   <p className="muted">Upload a map image, or place one from your library. It stays private until you apply it with its grid.</p>
                   {props.hasLibrary && (
-                    <label className="inline">
+                    <label className="inline" data-guide="map-save-library">
                       <input type="checkbox" checked={saveToLibrary} disabled={busy} onChange={(e) => setSaveToLibrary(e.target.checked)} />
                       <span>Also save uploads to my library</span>
                     </label>
@@ -684,11 +686,11 @@ function MapSection(props: {
                       }}
                     />
                   </label>
-                  <button type="button" className="secondary" disabled={!props.map || exporting} onClick={() => void exportMap()}>{exporting ? "Exporting…" : "Export applied map (UVTT)"}</button>
+                  <button type="button" className="secondary" data-guide="map-export" disabled={!props.map || exporting} onClick={() => void exportMap()}>{exporting ? "Exporting…" : "Export applied map (UVTT)"}</button>
                   <p className="muted small-print">UVTT files: up to 40 MiB. Preview and edit geometry in Walls before Apply.</p>
                   {Object.values(props.room.walls).some((w) => w.portal) && <p className="muted small-print">Export preserves open/closed state. UVTT does not carry door/window identity or locks.</p>}
                   {props.hasLibrary && (
-                    <button type="button" className="secondary" disabled={busy} onClick={() => setPicking(true)}>
+                    <button type="button" className="secondary" data-guide="map-library" disabled={busy} onClick={() => setPicking(true)}>
                       From library
                     </button>
                   )}

@@ -88,7 +88,9 @@ describe("map editor Sight step (FR-GM-19)", () => {
     // Both start on square centres (50 px squares), the second one square right of the first.
     const centres = [...document.querySelectorAll(".sight-test-token circle")].map((c) => [c.getAttribute("cx"), c.getAttribute("cy")]);
     expect(centres).toEqual([["425", "325"], ["475", "325"]]);
-    fireEvent.click(panel.getByRole("button", { name: "Token 1" }));
+    // The first token was shown on its own; the second joined it, as everyone was shown.
+    expect(popup()).toBeNull();
+    fireEvent.click(panel.getByRole("checkbox", { name: "Show Token 2's sight" }));
     expect(popup()?.textContent).toBe("Token 1 sees 1 of 1 other token.");
 
     // Token 2 starts a square right of Token 1; five squares left puts it behind the wall.
@@ -97,8 +99,6 @@ describe("map editor Sight step (FR-GM-19)", () => {
     expect(popup()?.textContent).toBe("Token 1 sees 0 of 1 other token.");
 
     fireEvent.click(panel.getByRole("button", { name: "Remove Token 2" }));
-    expect(popup()?.textContent).toBe("Token 1 has no other tokens to see. Add one to test.");
-    fireEvent.click(within(popup()!).getByRole("button", { name: "Close" }));
     expect(popup()).toBeNull();
     expect(fake.commands).toEqual([]);
   });
@@ -111,7 +111,7 @@ describe("map editor Sight step (FR-GM-19)", () => {
     placeInCentre();
     const second = within(editor()).getByRole("button", { name: /^Token 2\./ });
     for (let i = 0; i < 5; i++) fireEvent.keyDown(second, { key: "ArrowLeft" });
-    fireEvent.click(panel.getByRole("button", { name: "Token 1" }));
+    fireEvent.click(panel.getByRole("checkbox", { name: "Show Token 2's sight" }));
     const popup = () => editor().querySelector<HTMLElement>(".sight-popup")?.textContent;
     expect(popup()).toBe("Token 1 sees 0 of 1 other token.");
     fireEvent.click(within(editor()).getByRole("button", { name: /^Door, locked\./ }));
@@ -119,6 +119,48 @@ describe("map editor Sight step (FR-GM-19)", () => {
     fireEvent.click(within(editor()).getByRole("button", { name: /^Door, open\./ }));
     expect(popup()).toBe("Token 1 sees 0 of 1 other token.");
     expect(fake.commands).toEqual([]);
+  });
+
+  it("Select all, the empty map, pressing a token and Close decide whose sight is shown", () => {
+    mount(room({ walls: [{ id: "w", a: { x: 250, y: 0 }, b: { x: 250, y: 600 } }] })); openSight();
+    const panel = within(within(editor()).getByRole("complementary", { name: "Test tokens" }));
+    placeInCentre();
+    fireEvent.click(panel.getByRole("button", { name: "Add token" }));
+    placeInCentre();
+    const svg = document.querySelector(".map-editor-sight-preview")!;
+    const box = (name: string) => panel.getByRole("checkbox", { name }) as HTMLInputElement;
+    const all = () => panel.getByRole("checkbox", { name: "Select all" }) as HTMLInputElement;
+    const popup = () => editor().querySelector<HTMLElement>(".sight-popup");
+    expect(all().checked).toBe(true);
+    fireEvent.click(all());
+    expect([box("Show Token 1's sight").checked, box("Show Token 2's sight").checked, all().checked]).toEqual([false, false, false]);
+    fireEvent.click(box("Show Token 1's sight"));
+    expect(all().indeterminate).toBe(true);
+    expect(popup()?.textContent).toBe("Token 1 sees 1 of 1 other token.");
+    // Close hides the notice without changing what is shown, until that changes.
+    fireEvent.click(within(popup()!).getByRole("button", { name: "Close" }));
+    expect(popup()).toBeNull();
+    expect(box("Show Token 1's sight").checked).toBe(true);
+    // The empty map changes nothing.
+    fireEvent.pointerDown(svg);
+    expect(box("Show Token 1's sight").checked).toBe(true);
+    // Pressing a token focuses it.
+    fireEvent.keyDown(within(editor()).getByRole("button", { name: /^Token 2\./ }), { key: "Enter" });
+    expect([box("Show Token 1's sight").checked, box("Show Token 2's sight").checked]).toEqual([false, true]);
+    // Several shown: "They".
+    fireEvent.click(panel.getByRole("button", { name: "Add token" }));
+    placeInCentre();
+    fireEvent.click(box("Show Token 1's sight"));
+    expect(popup()?.textContent).toBe("They see 1 of 1 other token.");
+  });
+
+  it("draws windows in their own colour class", () => {
+    mount(room({ walls: [
+      { id: "d", a: { x: 250, y: 0 }, b: { x: 250, y: 300 }, portal: { kind: "door", state: "closed" } },
+      { id: "win", a: { x: 250, y: 300 }, b: { x: 250, y: 600 }, portal: { kind: "window", state: "closed" } },
+    ] })); openSight();
+    expect(document.querySelectorAll(".sight-preview-portal")).toHaveLength(1);
+    expect(document.querySelectorAll(".sight-preview-window")).toHaveLength(1);
   });
 
   it("the slider moves the range in whole squares", async () => {

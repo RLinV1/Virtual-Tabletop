@@ -11,6 +11,7 @@ import { HudLayout } from "./HudLayout";
 import { WallSetup } from "./WallSetup";
 import type { MapDraft } from "./mapDraft";
 import { boardChanged, boardFromDraft, draftFromBoard } from "./libraryBoardDraft";
+import { EditorGuide } from "./EditorGuide";
 
 type Step = "grid" | "walls" | "fog";
 const STEPS: { key: Step; label: string }[] = [
@@ -111,6 +112,7 @@ function MapSession({ asset, importDiagnostics, onSaved, onClose }: Omit<Props, 
       headerContent={<nav className="map-editor-steps" role="tablist" aria-label="Map setup steps">
         {STEPS.map(({ key, label }) => <button key={key} type="button" role="tab" aria-selected={step === key}
           className="map-editor-step" disabled={saving} onClick={() => setStep(key)}>{label}</button>)}
+        <EditorGuide step={step} />
         {dirty && <span className="map-editor-unsaved">
           <span className="map-editor-draft">Unsaved changes: not saved to this map yet</span>
           <button type="button" className="secondary small" disabled={saving} onClick={discard}>Discard</button>

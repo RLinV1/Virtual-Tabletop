@@ -20,19 +20,31 @@ The room's map editor SHALL have a fifth step, "5 · Sight", after Fog. It SHALL
 - **THEN** the step asks the GM to apply a map first
 
 ### Requirement: The Sight step previews sight from test tokens
-The Sight step SHALL show only test tokens on its preview, never the room's tokens. A side panel on the left SHALL list the test tokens and let the GM add and remove them. The step SHALL open with no test token and a prompt asking the GM to place one; Add token SHALL ask again. While it asks, the next click on the map SHALL place the token there; the prompt SHALL offer no other placement control (a keyboard user presses Enter on the focused map to place it in the middle). The GM SHALL move a test token by dragging it (pressing on the map elsewhere SHALL NOT move it) or one square at a time with the arrow keys. A dropped or added test token SHALL snap to the grid as a token dropped on the board does, and holding Alt while dropping SHALL place it without snapping. With no token selected, the preview SHALL show the combined sight of every test token. Clicking a test token SHALL select it: the preview SHALL show that token's sight only, and a small notice at the bottom right of the map SHALL say how many of the other test tokens it sees. Sight SHALL update when a token is dropped. Clicking a door or window on the preview SHALL open it, or close it if open, for the preview only; the room's walls SHALL NOT change. Test tokens SHALL exist only in the editor: they SHALL NOT be sent to the server, saved, or shown to anyone else.
+The Sight step SHALL show only test tokens on its preview, never the room's tokens. A side panel on the left SHALL list the test tokens and let the GM add and remove them. The step SHALL open with no test token and a prompt asking the GM to place one; Add token SHALL ask again. While it asks, the next click on the map SHALL place the token there; the prompt SHALL offer no other placement control (a keyboard user presses Enter on the focused map to place it in the middle). The GM SHALL move a test token by dragging it (pressing on the map elsewhere SHALL NOT move it) or one square at a time with the arrow keys. A dropped or added test token SHALL snap to the grid as a token dropped on the board does, and holding Alt while dropping SHALL place it without snapping. Each test token in the panel SHALL have a checkbox (named "Show <name>'s sight") that includes it among the tokens whose sight the preview shows, and a Select all checkbox above the list SHALL show every token, or none if all were shown. Clicking the empty map SHALL NOT change which tokens are shown. Pressing a test token on the map, or pressing Enter on it, SHALL show that token alone. A token added while every token was shown (or the first token) SHALL be shown; otherwise the shown set SHALL stay as it is, and removing a token SHALL remove it from the shown set. With nothing shown, no token sees and the whole map is covered. While at least one token is shown and another is not, a small notice at the bottom right of the map SHALL say how many of the tokens not shown the shown ones see ("<name> sees" for one, "They see" for several); its Close SHALL hide it until the shown set next changes and SHALL NOT change that set. Windows SHALL be drawn in a different colour from doors on the preview. Sight SHALL update when a token is dropped. Clicking a door or window on the preview SHALL open it, or close it if open, for the preview only; the room's walls SHALL NOT change. Test tokens SHALL exist only in the editor: they SHALL NOT be sent to the server, saved, or shown to anyone else.
 
 #### Scenario: Place the first token
 - **WHEN** the GM opens the Sight step
 - **THEN** there is no test token and a prompt asks the GM to place one; clicking the map places it there
 
 #### Scenario: Add a token behind a wall
-- **WHEN** the GM adds a second test token on the far side of a wall and clicks the first one
+- **WHEN** the GM adds a second test token on the far side of a wall and shows only the first one
 - **THEN** the notice says the first token sees 0 of 1 other token, and no command is sent
 
 #### Scenario: Move it into view
 - **WHEN** the GM then moves the second token to the first token's side of the wall
 - **THEN** the notice says the first token sees 1 of 1 other token
+
+#### Scenario: Select all and the empty map
+- **WHEN** the GM ticks Select all, then clicks an empty part of the map
+- **THEN** every test token's sight is shown, and clicking the map leaves that unchanged
+
+#### Scenario: Press a token
+- **WHEN** the GM presses a test token on the map while several are shown
+- **THEN** only that token's sight is shown
+
+#### Scenario: Windows have their own colour
+- **WHEN** the map has a door and a window
+- **THEN** the window is drawn in a different colour from the door
 
 #### Scenario: Open a door in the preview
 - **WHEN** a closed door stands between two test tokens and the GM clicks it on the preview
