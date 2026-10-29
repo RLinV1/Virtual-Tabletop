@@ -252,18 +252,21 @@ uses. `apps/web/src/styles.css` `:root` is the source of truth; this table mirro
 | `--border-strong` | `#6a7280` | Control boundaries; at least 3:1 on every surface (WCAG 1.4.11) |
 | `--text` | `#e3e6ea` | Body |
 | `--muted` | `#8e96a2` | Secondary, labels |
-| `--accent` | `#b9582f` | The single accent (rust): primary action, active turn |
+| `--accent` | `#b3552d` | The single accent (rust): primary action, active turn |
 | `--accent-ink` | `#fff8f3` | Text on accent fills |
+| `--accent-text` | `#e08a62` | Rust as text on dark surfaces (badges); `--accent` itself is only 3.5:1 on the panel |
 | `--focus` | `#e08a62` | Focus ring, a lighter rust that shows on rust fills too |
 | `--ok` `--warn` `--danger` | `#6fbf73` `#d9a441` `#e0685c` | Status only, never decoration |
+| `--danger-strong` | `#b5463d` | Fill of destructive buttons, under `--accent-ink` |
 
-One accent, under 80% saturation (rust is 59%). Status colours are never the only signal —
+One accent, under 80% saturation (rust is 60%). Status colours are never the only signal —
 the active turn carries a glyph and position as well as rust, conditions carry a shape and
 an abbreviation as well as a fill (FR-TAC-08).
 
 Measured contrast on `--panel`: text 13.8:1, muted 5.8:1, danger 5.2:1, focus 6.6:1,
-border-strong 3.6:1, border 1.2:1 (decorative only). Accent ink on accent is 4.4:1, just under the WCAG AA 4.5:1 for normal
-text; darkening `--accent` slightly would clear it (follow-up).
+border-strong 3.6:1, border 1.2:1 (decorative only, so inputs use `--border-strong`). Accent ink on accent is 4.7:1
+and on `--danger-strong` 5.1:1; `--accent` was darkened from `#b9582f` (4.4:1) to clear WCAG AA 4.5:1, and hover
+darkens rather than brightens so it stays above it.
 
 **Typography.** A geometric grotesk for the interface and a true monospace for anything
 numeric — initiative scores, hit points, dice results, seq numbers all need tabular figures
