@@ -227,17 +227,27 @@ export function registerRoutes(
    */
   const MapQuery = z.object({ map: z.string().min(1).max(2048) });
 
-  /** Whether wall detection can run (map-editor D4). Names no room, so it needs no credential. */
+  /**
+   * Whether wall detection can run (map-editor D4). With no room it needs no credential. With
+   * `?room=` (GM only) a room whose current map ships with stored walls can always detect them.
+   */
   app.get("/api/wall-detection/availability", (req, res) => {
     res.setHeader("Cache-Control", "no-store");
-    void walls.availability().then((value) => res.json(value)).catch(internalError(req, res));
+    void (async () => {
+      const value = await walls.availability();
+      const roomId = typeof req.query.room === "string" ? req.query.room : null;
+      if (!roomId) return res.json(value);
+      if (!(await isRoomGm(req, roomId))) return res.status(403).json({ error: "GM only" });
+      const map = (await registry.get(roomId))?.currentMap();
+      if (!map || !walls.hasStoredWalls(map)) return res.json(value);
+      return res.json({ available: true, sampleAvailable: value.available });
+    })().catch(internalError(req, res));
   });
 
   app.post("/api/rooms/:roomId/wall-detection", (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     void (async () => {
       if (!(await isRoomGm(req, req.params.roomId))) return res.status(403).json({ error: "GM only" });
-      if (!walls.available) return res.status(503).json({ error: "Wall detection isn't set up on this server." });
       const limit = limits.wallDetectionsPerRoom.hit(`walls:${req.params.roomId}`);
       if (refused(res, limit, "Too many wall detections for this room. Try again later.")) return;
       const body = WallDetectionRequest.safeParse(req.body ?? {});
@@ -245,6 +255,10 @@ export function registerRoutes(
       const room = await registry.get(req.params.roomId);
       const map = room?.currentMap();
       if (!room || !map) return res.status(404).json({ error: "Set a map first." });
+      // Stored walls of a shipped map are served even without the vision service.
+      if (!walls.available && (body.data.sample || !walls.hasStoredWalls(map))) {
+        return res.status(503).json({ error: "Wall detection isn't set up on this server." });
+      }
       // A sampled wall must be on the map: board coordinates are the map's pixels (invariant 8).
       const { sample } = body.data;
       if (sample && !(sample.x >= 0 && sample.y >= 0 && sample.x <= map.width && sample.y <= map.height)) {
@@ -291,10 +305,10 @@ export function registerRoutes(
       if (!(await isRoomGm(req, req.params.roomId))) return res.status(403).json({ error: "GM only" });
       const query = MapQuery.safeParse(req.query);
       if (!query.success) return res.status(400).json({ error: "Name the map" });
-      const result = walls.result(req.params.roomId, query.data.map);
-      if (!result) return res.status(404).json({ error: "No wall detection for that map" });
-      res.type(result.preview.contentType);
-      return res.send(Buffer.from(result.preview.data, "base64"));
+      const preview = await walls.preview(req.params.roomId, query.data.map);
+      if (!preview) return res.status(404).json({ error: "No wall detection for that map" });
+      res.type(preview.contentType);
+      return res.send(Buffer.from(preview.bytes));
     })().catch(internalError(req, res));
   });
 

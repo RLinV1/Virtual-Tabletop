@@ -70,6 +70,8 @@ export const DomainEvent = z.discriminatedUnion("type", [
     grid: GridSpec,
     previous: GridSpec,
   }),
+  z.object({ type: z.literal("LineOfSightSet"), from: z.boolean(), to: z.boolean() }),
+  z.object({ type: z.literal("SightRangeSet"), from: z.number().nullable(), to: z.number().nullable() }),
   z.object({
     type: z.literal("TokenCreated"),
     token: Token,

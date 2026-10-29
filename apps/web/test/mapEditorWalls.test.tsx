@@ -87,6 +87,14 @@ describe("map editor walls (FR-GM-09, FR-GM-11)", () => {
     expect(tool("Pick")).toBeTruthy();
   });
 
+  it("offers Detect walls but not Pick when only a built-in map's stored walls are available", async () => {
+    const availability = vi.spyOn(api.walls, "availability").mockResolvedValue({ available: true, sampleAvailable: false });
+    mount();
+    expect(await screen.findByRole("button", { name: "Detect walls" })).toBeTruthy();
+    expect(screen.queryByRole("radio", { name: "Pick" })).toBeNull();
+    expect(availability.mock.calls[0]![0]).toBeTruthy();
+  });
+
   it("adds a wall per segment of a chain, snapped to grid corners, and Enter ends the chain", async () => {
     const { commands } = mount();
     const svg = canvas();
@@ -394,7 +402,7 @@ describe("map editor in the GM panel (FR-GM-09, FR-GM-17)", () => {
     expect(screen.getByText(/800 × 600 px · 0 walls/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Edit Grid" }));
     const editor = screen.getByRole("dialog", { name: "Edit map" });
-    expect(within(editor).getAllByRole("tab").map((t) => t.textContent)).toEqual(["1 · Map", "2 · Grid", "3 · Walls", "4 · Fog"]);
+    expect(within(editor).getAllByRole("tab").map((t) => t.textContent)).toEqual(["1 · Map", "2 · Grid", "3 · Walls", "4 · Fog", "5 · Sight"]);
     expect(within(editor).getByRole("tab", { name: "2 · Grid" }).getAttribute("aria-selected")).toBe("true");
 
     fireEvent.click(within(editor).getByRole("tab", { name: "3 · Walls" }));
@@ -414,7 +422,7 @@ describe("map editor in the GM panel (FR-GM-09, FR-GM-17)", () => {
     const editor = screen.getByRole("dialog", { name: "Edit map" });
     const head = editor.querySelector(".modal-head")!;
     expect(within(head as HTMLElement).getByRole("heading", { name: "Edit map" })).toBeTruthy();
-    expect(within(head as HTMLElement).getAllByRole("tab")).toHaveLength(4);
+    expect(within(head as HTMLElement).getAllByRole("tab")).toHaveLength(5);
     expect(within(head as HTMLElement).getByRole("button", { name: "Close" })).toBeTruthy();
   });
 

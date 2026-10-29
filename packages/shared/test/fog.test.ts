@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   Command,
   concealedFrom,
+  concealmentFor,
   decide,
   describeUndo,
   filterEventForViewer,
@@ -127,8 +128,8 @@ describe("content under fog is not sent to players (FR-GM-17, FR-GM-23)", () => 
 
   it("still withholds a hidden token outside fog", () => {
     const { state, token } = withToken(baseRoom(), { hidden: true });
-    expect(concealedFrom(state.fog, token, alice)).toBe(true);
-    expect(concealedFrom(state.fog, token, gm)).toBe(false);
+    expect(concealedFrom(concealmentFor(state, alice), token, alice)).toBe(true);
+    expect(concealedFrom(concealmentFor(state, gm), token, gm)).toBe(false);
   });
 
   it("resyncs players on fog changes, and passes them to the GM", () => {

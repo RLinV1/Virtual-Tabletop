@@ -709,8 +709,10 @@ label.checkbox { flex-direction: row; align-items: center; gap: 0.4rem; font-siz
 .client-settings .range-value { flex: none; min-width: 3.5ch; color: var(--muted); font-family: var(--font-ui); font-variant-numeric: tabular-nums; }
 .client-settings .settings-volume { gap: 0; }
 .client-settings input.range { width: 100%; height: 2.25rem; min-height: 2.25rem; }
-.client-settings input.range::-webkit-slider-runnable-track { background: linear-gradient(to right, var(--accent) var(--range-progress), var(--border-strong) var(--range-progress)); }
-.client-settings input.range::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--accent); }
+.client-settings input.range::-webkit-slider-runnable-track,
+input.range-filled::-webkit-slider-runnable-track { background: linear-gradient(to right, var(--accent) var(--range-progress), var(--border-strong) var(--range-progress)); }
+.client-settings input.range::-moz-range-progress,
+input.range-filled::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--accent); }
 .effects-glow, .effects-orb { position: absolute; border-radius: 50%; }
 .effects-veil { position: absolute; background: rgba(0, 0, 0, 0.55); }
 .effects-text, .effects-label { position: absolute; font-weight: 800; line-height: 1; white-space: nowrap; transform: translateX(-50%); text-shadow: 0 0 6px rgba(0, 0, 0, 0.9), 0 2px 0 rgba(0, 0, 0, 0.8); }
@@ -2707,3 +2709,12 @@ dialog.modal.checkpoint-preview-modal { width: min(64rem, calc(100vw - 2rem)); }
 .attack-target-list { display: flex; flex-direction: column; gap: var(--space-2); border: 0; margin: 0; padding: var(--space-2); min-width: 14rem; }
 
 .start-from-builtin { min-width: 14rem; }
+
+/* Map editor Sight step (map-editor-sight-step): the preview letterboxes like the other steps' canvases. */
+.map-editor-sight-preview { width: 100%; height: 100%; min-height: 0; display: block; background: var(--bg); border-radius: var(--radius); }
+.sight-preview-wall { stroke: var(--accent); stroke-linecap: round; opacity: 0.55; }
+.sight-preview-portal { stroke: #e8c46a; stroke-linecap: round; }
+.sight-preview-token { stroke: var(--text); }
+.sight-range-exact { display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.sight-range-input { display: inline-flex; align-items: center; gap: var(--space-1); }
+.sight-range-input input { width: 5.5rem; text-align: right; font-variant-numeric: tabular-nums; }

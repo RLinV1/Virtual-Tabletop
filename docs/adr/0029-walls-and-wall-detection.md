@@ -164,3 +164,9 @@ The first version put the image in the job as base64, about 34 MB for the larges
 - The worker reads the key itself with its existing Redis connection, accepts only a key of exactly that shape (so a job cannot make it read another Redis key), and fails the job if the image is missing or over 25 MB. It still never fetches a URL and holds no storage credentials.
 
 Rejected: the worker fetching the image from the app server (new credentials and an HTTP surface on the worker), compressing the base64 (the images are already compressed), and downscaling (it costs detection accuracy and needs an image library in the server). The app server and the worker must be deployed together.
+
+## Amendment: stored walls for built-in maps (`openspec/changes/shipped-maps-line-of-sight`)
+
+A built-in map ships with its walls stored beside its catalog entry. Detect walls on a built-in map that has stored walls for that exact map (URL, width and height all match) returns them immediately, with the vision service not consulted, so it works even when the service is down. Availability is per map: a built-in map without stored walls, and every other map, behave exactly as before. Detect like this still uses the vision service; validation and GM-only visibility are unchanged.
+
+Schema changes, all backward compatible: `DetectedWall` gains an optional `portal`, so stored doors and windows travel through the detection result, and `wall.applyDetected` copies it onto the walls it creates (vision results never set it, so their behaviour is unchanged). `GET /api/wall-detection/availability` takes an optional `room`; with it the check is GM-only and per map, and the answer gains `sampleAvailable`, which stays tied to the vision service so Detect like this is offered only when the service can run it. Needs review by the Real-Time Architecture owner with ADR 0044.

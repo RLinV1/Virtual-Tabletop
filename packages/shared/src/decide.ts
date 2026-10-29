@@ -15,7 +15,7 @@ import { normalizeName } from "./names";
 import type { SessionEndReason } from "./protocol";
 import { blocksMovement } from "./portals";
 import { inverseOf, sameValue, undoableAction, undoConflict } from "./undo";
-import { concealedFrom, fogConcealsSide, isInFog, portalConcealedFrom, templateConcealedFrom } from "./visibility";
+import { concealedFrom, concealmentFor, fogConcealsSide, isInFog, portalConcealedFrom, templateConcealedFrom } from "./visibility";
 import { wallsFitMap, type DetectedWallsResponse } from "./wallDetection";
 import { MAX_GROUP_NAME, MAX_GROUPS, MAX_AREA_TEMPLATES, MAX_LINE_WIDTH_CELLS, MAX_CHECKPOINT_NAME, MAX_CHAT_MENTIONS, MAX_FOG_REGIONS, MAX_PLAYERS_PER_ROOM, MAX_WALLS, tableOf, type AreaTemplate, type ChatMention, type DiceLookOnTable, type Initiative, type Participant, type Portal, type RoomState, type TableState, type Token, type Wall } from "./state";
 
@@ -220,6 +220,19 @@ export function decide(
         ...resnapToGrid(state, command.grid),
       );
 
+    case "scene.setLineOfSight":
+      if (!can.administer(actor)) return forbidden();
+      if (command.enabled === (state.scene.lineOfSight ?? false)) return reject("invalid", `Line of sight is already ${command.enabled ? "on" : "off"}.`);
+      return accept({ type: "LineOfSightSet", from: state.scene.lineOfSight ?? false, to: command.enabled });
+
+    case "scene.setSightRange": {
+      if (!can.administer(actor)) return forbidden();
+      const current = state.scene.sightRange ?? null;
+      if (command.range === current) return reject("invalid", `Sight range is already ${current === null ? "unlimited" : current}.`);
+      if (command.range !== null && command.range > 1000 * state.scene.grid.unitsPerCell) return reject("invalid", "Sight range is too large.");
+      return accept({ type: "SightRangeSet", from: current, to: command.range });
+    }
+
     case "token.create": {
       if (!can.administer(actor)) return forbidden();
       const off = presetRefusal(state, { attacks: command.attacks.length > 0, conditions: command.conditions.length > 0, ac: command.stats.ac });
@@ -319,7 +332,7 @@ export function decide(
       const token = state.tokens[command.tokenId];
       // A player asking about a token they can't see (hidden, or under fog) gets the same answer
       // as a missing one, so rejections don't leak that it exists (FR-GM-23, ADR 0016).
-      if (!token || concealedFrom(state.fog, token, actor)) return notFound("token");
+      if (!token || concealedFrom(concealmentFor(state, actor), token, actor)) return notFound("token");
       if (!can.moveToken(actor, token)) return forbidden();
       const blocked = moveBlockedByWalls(state, token, command.to, actor);
       if (blocked) return blocked;
@@ -333,7 +346,7 @@ export function decide(
 
     case "token.configure": {
       const token = state.tokens[command.tokenId];
-      if (!token || concealedFrom(state.fog, token, actor)) return notFound("token");
+      if (!token || concealedFrom(concealmentFor(state, actor), token, actor)) return notFound("token");
       if (!can.editToken(actor, token)) return forbidden();
       const changes = command.changes;
       const gmFields = changes.name !== undefined || changes.position !== undefined || changes.size !== undefined ||
@@ -476,7 +489,7 @@ export function decide(
 
     case "token.setStats": {
       const token = state.tokens[command.tokenId];
-      if (!token || concealedFrom(state.fog, token, actor)) return notFound("token");
+      if (!token || concealedFrom(concealmentFor(state, actor), token, actor)) return notFound("token");
       if (!can.editToken(actor, token)) return forbidden();
       const off = presetRefusal(state, { ac: command.stats.ac });
       if (off) return off;
@@ -509,7 +522,7 @@ export function decide(
 
     case "token.setConditions": {
       const token = state.tokens[command.tokenId];
-      if (!token || concealedFrom(state.fog, token, actor)) return notFound("token");
+      if (!token || concealedFrom(concealmentFor(state, actor), token, actor)) return notFound("token");
       if (!can.editToken(actor, token)) return forbidden();
       const off = presetRefusal(state, { conditions: command.conditions.length > 0 });
       if (off) return off;
@@ -565,9 +578,10 @@ export function decide(
       let attack: AttackContext | undefined;
       if (command.attack) {
         // Authorization first; a token the actor can't see is answered as a missing one (ADR 0010).
+        const concealment = concealmentFor(state, actor);
         const visible = (id: string) => {
           const token = state.tokens[id];
-          return token && !concealedFrom(state.fog, token, actor) ? token : null;
+          return token && !concealedFrom(concealment, token, actor) ? token : null;
         };
         const attacker = visible(command.attack.actorTokenId);
         if (!attacker) return notFound("token");
@@ -711,7 +725,7 @@ export function decide(
     case "template.remove": {
       const template = state.templates[command.templateId];
       // A template the player can't see (GM-only, or someone else's under fog) answers like a missing one (FR-GM-23).
-      if (!template || templateConcealedFrom(state.fog, template, actor)) return notFound("template");
+      if (!template || templateConcealedFrom(concealmentFor(state, actor), template, actor)) return notFound("template");
       if (!can.removeTemplate(actor, template)) return forbidden();
       return accept({ type: "TemplateRemoved", template });
     }
@@ -764,7 +778,7 @@ export function decide(
       if (exclude && [...erased].some((i) => i >= detected.length)) return reject("invalid", "The detected walls changed. Check the preview again.");
       const kept = detected.filter((_, i) => !erased.has(i));
       if (kept.length === 0) return reject("invalid", "Every detected wall was erased.");
-      const walls: Wall[] = kept.map((w) => ({ id: ctx.newId(), a: w.a, b: w.b }));
+      const walls: Wall[] = kept.map((w) => ({ id: ctx.newId(), a: w.a, b: w.b, ...(w.portal ? { portal: w.portal } : {}) }));
       // Applying replaces: one action, so one undo puts the old walls back.
       return accept(...removeAllWalls(state), { type: "WallsAdded", walls });
     }
@@ -838,7 +852,7 @@ export function decide(
       if (command.state === "locked" && !can.administer(actor)) return forbidden();
       const wall = Object.hasOwn(state.walls, command.wallId) ? state.walls[command.wallId] : undefined;
       // A plain wall, a missing one and a portal under fog read the same to a player.
-      if (!wall?.portal || portalConcealedFrom(state.fog, wall, actor)) return notFound("portal");
+      if (!wall?.portal || portalConcealedFrom(concealmentFor(state, actor), wall, actor)) return notFound("portal");
       const from = wall.portal;
       if (from.state === "locked" && !can.administer(actor)) return reject("invalid", `That ${from.kind} is locked.`);
       if (from.state === command.state) return reject("invalid", `That ${from.kind} is already ${command.state}.`);

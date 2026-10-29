@@ -17,6 +17,7 @@ import { HudLayout } from "./mapEditor/HudLayout";
 import { LibraryPicker } from "./LibraryPicker";
 import { useGridDetection } from "./useGridDetection";
 import { FogSetup } from "./mapEditor/FogSetup";
+import { SightSetup } from "./mapEditor/SightSetup";
 import { WallSetup } from "./mapEditor/WallSetup";
 import { draftConnection } from "./mapEditor/draftConnection";
 import { draftDirty, draftFrom, planDraftSave, type MapDraft } from "./mapEditor/mapDraft";
@@ -82,6 +83,7 @@ export function GmPanel({
         connection={connection}
         walls={(draftConnection, draftState) => <WallSetup connection={draftConnection} state={draftState} token={token} />}
         fog={(draftConnection, draftState) => <FogSetup connection={draftConnection} state={draftState} />}
+        sight={(draftConnection, draftState) => <SightSetup connection={draftConnection} state={draftState} />}
         grid={(close) => (
           <RoomGridEditor
             key={state.scene.map?.url ?? "no-map"}
@@ -170,13 +172,20 @@ function DepartedPlayers({ state, onReview }: { state: RoomState; onReview: (par
   );
 }
 
-type EditorStep = "map" | "grid" | "walls" | "fog";
+/** The room's scene with the draft's sight settings, for steps that show the draft. */
+function draftScene(scene: RoomState["scene"], draft: MapDraft): RoomState["scene"] {
+  const { sightRange: _drop, ...rest } = scene;
+  return { ...rest, lineOfSight: draft.lineOfSight, ...(draft.sightRange !== null && { sightRange: draft.sightRange }) };
+}
+
+type EditorStep = "map" | "grid" | "walls" | "fog" | "sight";
 /** Manage › Battle map's ways into the editor, one per step. */
 const OPENERS: { key: EditorStep; label: string }[] = [
   { key: "map", label: "Change Map" },
   { key: "grid", label: "Edit Grid" },
   { key: "walls", label: "Manage Walls" },
   { key: "fog", label: "Manage Fog" },
+  { key: "sight", label: "Manage Sight" },
 ];
 /** Unsaved work the editor asks about, and where it goes once the GM answers (map-section-step-buttons). */
 type PendingKind = "map" | "grid" | "draft";
@@ -184,13 +193,14 @@ type Pending = { kind: PendingKind; then: EditorStep | "close" };
 const PENDING_TEXT: Record<PendingKind, { title: string; body: string; save: string }> = {
   map: { title: "Apply this map?", body: "This map is still a draft only you can see. Apply it with its grid, or discard it? The table keeps its current map until you apply.", save: "Apply map" },
   grid: { title: "Apply grid changes?", body: "You changed this map's grid. Apply it for the table, or discard your changes?", save: "Apply grid" },
-  draft: { title: "Save changes?", body: "You changed this map's walls or fog. Save them for the table, or discard them?", save: "Save" },
+  draft: { title: "Save changes?", body: "You changed this map's walls, fog or sight. Save them for the table, or discard them?", save: "Save" },
 };
 const STEPS: { key: EditorStep; label: string }[] = [
   { key: "map", label: "1 · Map" },
   { key: "grid", label: "2 · Grid" },
   { key: "walls", label: "3 · Walls" },
   { key: "fog", label: "4 · Fog" },
+  { key: "sight", label: "5 · Sight" },
 ];
 /** Encounter templates inherit walls from their map; only grid and fog are editable here. */
 const FIXED_MAP_STEPS: { key: EditorStep; label: string }[] = [
@@ -237,6 +247,8 @@ function MapSection(props: {
   walls: (connection: RoomConnection, state: RoomState) => ReactNode;
   /** The Fog step, the same for fog. */
   fog: (connection: RoomConnection, state: RoomState) => ReactNode;
+  /** The Sight step, the same for line of sight and sight range. */
+  sight: (connection: RoomConnection, state: RoomState) => ReactNode;
 }) {
   const [busy, setBusy] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -250,6 +262,11 @@ function MapSection(props: {
   const [exporting, setExporting] = useState(false);
   /** What to do with existing tokens (KAN-67); only asked when a map and tokens are there to move. */
   const [policy, setPolicy] = useState<MapTokenPolicy>("scale");
+  /** The token-choice dialog is open (token-policy-dialog); Apply map asks here instead of in the Grid step. */
+  const [askingPolicy, setAskingPolicy] = useState(false);
+  /** Where to go once the token dialog's Apply map succeeds, when the leave-step prompt opened it. */
+  const [afterPolicy, setAfterPolicy] = useState<EditorStep | "close" | null>(null);
+  const applyRef = useRef<HTMLButtonElement>(null);
   /** The map just applied with tokens present, to find its Undo entry and the count it moved. */
   const [changedMapUrl, setChangedMapUrl] = useState<string | null>(null);
   const [undoError, setUndoError] = useState<string | null>(null);
@@ -297,7 +314,7 @@ function MapSection(props: {
     ),
     [props.connection, props.roomId, props.token, editorSession],
   );
-  const draftState: RoomState = draft ? { ...props.room, walls: draft.walls, fog: draft.fog } : props.room;
+  const draftState: RoomState = draft ? { ...props.room, walls: draft.walls, fog: draft.fog, scene: draftScene(props.room.scene, draft) } : props.room;
   const unsaved = draft !== null && draftDirty(props.room, draft);
   /** Sends the draft's difference, one command at a time; stops at the first refusal. */
   const saveDraft = async (): Promise<boolean> => {
@@ -338,7 +355,7 @@ function MapSection(props: {
     props.connection,
     (change) => setPrep((current) => {
       if (!current?.uvtt || activeImportSession.current !== importSession) return current;
-      const next = change({ mapUrl: current.map.url, walls: current.walls ?? {}, fog: {} });
+      const next = change({ mapUrl: current.map.url, walls: current.walls ?? {}, fog: {}, lineOfSight: false, sightRange: null });
       return { ...current, walls: next.walls };
     }),
     async () => { throw new Error("UVTT geometry is already supplied."); },
@@ -374,10 +391,10 @@ function MapSection(props: {
       if (gridDirty) return "grid";
       return unsaved ? "draft" : null;
     }
-    if (prep?.uvtt) return to === "fog" ? "map" : null;
-    if (prep && (from === "map" || from === "grid") && (to === "walls" || to === "fog")) return "map";
+    if (prep?.uvtt) return to === "fog" || to === "sight" ? "map" : null;
+    if (prep && (from === "map" || from === "grid") && (to === "walls" || to === "fog" || to === "sight")) return "map";
     if (from === "grid" && to !== "grid" && gridDirty) return "grid";
-    if ((from === "walls" || from === "fog") && to !== from && unsaved) return "draft";
+    if ((from === "walls" || from === "fog" || from === "sight") && to !== from && unsaved) return "draft";
     return null;
   };
   const busyNow = applyingMap || props.gridApplying || saving || pendingSaving;
@@ -412,6 +429,13 @@ function MapSection(props: {
   };
   const savePending = async () => {
     if (!pending || pendingSaving || pendingBlocked(pending.kind)) return;
+    // Tokens on the table: the token dialog asks first, then carries on where the GM was going.
+    if (pending.kind === "map" && askPolicy) {
+      setAfterPolicy(pending.then);
+      setPending(null);
+      requestApply();
+      return;
+    }
     setPendingSaving(true);
     setPendingError(null);
     try {
@@ -431,7 +455,13 @@ function MapSection(props: {
     else discardDraft();
     finishPending(pending.then);
   };
-  const applyPrep = async (): Promise<boolean> => {
+  /** Apply map: ask what to do with the tokens first when there are some to move. */
+  const requestApply = () => {
+    if (!askPolicy) return void applyPrep();
+    setPolicy("scale");
+    setAskingPolicy(true);
+  };
+  const applyPrep = async (choice: MapTokenPolicy = "scale"): Promise<boolean> => {
     if (!prep || applyingMap) return false;
     const grid = parseGridDraft(prep.draft, prep.map);
     if (!grid) {
@@ -450,9 +480,9 @@ function MapSection(props: {
           revision = saved.revision;
           setPrep((now) => now?.uvtt?.id === saved.id ? { ...now, uvtt: { ...now.uvtt, revision }, walls: Object.fromEntries(saved.walls.map((w, i) => [`draft:${i}`, { ...w, id: `draft:${i}` }])), validated: { grid: saved.grid, walls: saved.walls } } : now);
         }
-        applied = await props.onImport(prep.uvtt.id, revision, askPolicy ? policy : undefined, setPrepError);
+        applied = await props.onImport(prep.uvtt.id, revision, askPolicy ? choice : undefined, setPrepError);
       } else {
-        const command = prepCommand(prep, askPolicy ? policy : undefined);
+        const command = prepCommand(prep, askPolicy ? choice : undefined);
         if (command) applied = await props.onSetMap(command, setPrepError);
       }
       if (applied) {
@@ -681,24 +711,6 @@ function MapSection(props: {
             )}
             {step === "grid" && (prep ? (
               <HudLayout className="map-editor-grid">
-            {askPolicy && (
-              <fieldset className="stack token-policy">
-                <legend>Tokens already on the table</legend>
-                {TOKEN_POLICY_CHOICES.map((choice) => (
-                  <label key={choice.value} className="checkbox">
-                    <input
-                      type="radio"
-                      name="token-policy"
-                      value={choice.value}
-                      checked={policy === choice.value}
-                      onChange={() => setPolicy(choice.value)}
-                    />
-                    <span>{choice.label} <span className="muted">{choice.hint}</span></span>
-                  </label>
-                ))}
-              </fieldset>
-            )}
-
                 <RoomGridEditor
                   key={prep.map.url}
                   roomId={props.roomId}
@@ -711,7 +723,7 @@ function MapSection(props: {
                   hasDraft={prepDirty(prep)}
                   onChange={(draft) => setPrep((now) => (now ? { ...now, draft } : now))}
                   onCancel={requestClose}
-                  onApply={async () => { await applyPrep(); }}
+                  onApply={async () => { requestApply(); }}
                   applying={applyingMap}
                   error={prepError}
                   submitLabel="Apply map"
@@ -722,37 +734,44 @@ function MapSection(props: {
               </HudLayout>
             ) : props.map ? (
               <HudLayout className="map-editor-grid">
-            {askPolicy && (
-              <fieldset className="stack token-policy">
-                <legend>Tokens already on the table</legend>
-                {TOKEN_POLICY_CHOICES.map((choice) => (
-                  <label key={choice.value} className="checkbox">
-                    <input
-                      type="radio"
-                      name="token-policy"
-                      value={choice.value}
-                      checked={policy === choice.value}
-                      onChange={() => setPolicy(choice.value)}
-                    />
-                    <span>{choice.label} <span className="muted">{choice.hint}</span></span>
-                  </label>
-                ))}
-              </fieldset>
-            )}
 {props.grid(() => props.onGridClose())}</HudLayout>
             ) : (
               <p className="map-editor-empty">Choose a map in the Map step first.</p>
             ))}
             {step === "walls" && (importedState ? <div className="map-editor-import">
               <WallSetup key={prep?.uvtt?.id} connection={importEdits} state={importedState} token={props.token} detection={false} initialMode="select" />
-              <div className="map-editor-import-apply"><button type="button" disabled={applyingMap} onClick={() => void applyPrep()}>{applyingMap ? "Applying map…" : "Apply map"}</button>{prepError && <p role="alert" className="error">{prepError}</p>}</div>
+              <div className="map-editor-import-apply"><button type="button" disabled={applyingMap} onClick={requestApply}>{applyingMap ? "Applying map…" : "Apply map"}</button>{prepError && <p role="alert" className="error">{prepError}</p>}</div>
             </div> : prep ? <p className="map-editor-empty">Apply this map before setting up its walls.</p> : <Fragment key={`${editorGeneration}:${liveMapUrl}`}>{props.walls(draftEdits, draftState)}</Fragment>)}
             {step === "fog" && (prep
               ? <p className="map-editor-empty">Apply the draft map in the Grid step first, then set up its fog here.</p>
               : <Fragment key={`${editorGeneration}:${liveMapUrl}`}>{props.fog(draftEdits, draftState)}</Fragment>)}
+            {step === "sight" && (prep
+              ? <p className="map-editor-empty">Apply a map before setting up sight.</p>
+              : !props.map ? <p className="map-editor-empty">Apply a map before setting up sight.</p>
+              : <Fragment key={`${editorGeneration}:${liveMapUrl}`}>{props.sight(draftEdits, draftState)}</Fragment>)}
             </GridActionsContext.Provider>
           </div>
         </div>
+      </Modal>
+      <Modal open={askingPolicy} title="Tokens already on the table" onClose={() => { setAskingPolicy(false); setAfterPolicy(null); }} initialFocus={applyRef}>
+        <form className="stack token-policy" onSubmit={(e) => {
+          e.preventDefault();
+          setAskingPolicy(false);
+          const then = afterPolicy;
+          setAfterPolicy(null);
+          void applyPrep(policy).then((ok) => { if (ok && then) finishPending(then); });
+        }}>
+          {TOKEN_POLICY_CHOICES.map((choice) => (
+            <label key={choice.value} className="checkbox">
+              <input type="radio" name="token-policy" value={choice.value} checked={policy === choice.value} onChange={() => setPolicy(choice.value)} />
+              <span>{choice.label} <span className="muted">{choice.hint}</span></span>
+            </label>
+          ))}
+          <div className="row button-row">
+            <button type="submit" ref={applyRef}>Apply map</button>
+            <button type="button" className="secondary" onClick={() => { setAskingPolicy(false); setAfterPolicy(null); }}>Cancel</button>
+          </div>
+        </form>
       </Modal>
       {props.hasLibrary && (
         <Modal
