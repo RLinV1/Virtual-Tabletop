@@ -23,6 +23,7 @@ import { draftConnection } from "./mapEditor/draftConnection";
 import { draftDirty, draftFrom, planDraftSave, type MapDraft } from "./mapEditor/mapDraft";
 import { adjustedMessage, offersTokenPolicy, prepCommand, prepDirty, startPrep, startUvttPrep, TOKEN_POLICY_CHOICES, type MapPrep } from "./mapPrep";
 import { FULL_ROOM, type RoomFeatures } from "./encounterEdit/roomFeatures";
+import { EditorGuide, GuideStepContext } from "./mapEditor/EditorGuide";
 
 interface Props {
   connection: RoomConnection;
@@ -653,16 +654,18 @@ function MapSection(props: {
           {prep?.uvtt && prep.uvtt.diagnostics.length > 0 && <details className="uvtt-diagnostics"><summary>{prep.uvtt.diagnostics.length} import warnings</summary><ul>{prep.uvtt.diagnostics.map((issue, i) => <li key={i}>{issue.path}: {issue.message}</li>)}</ul></details>}
           <div className="map-editor-body" role="tabpanel">
             <GridActionsContext.Provider value={gridActionSlot}>
+            <GuideStepContext.Provider value={step}>
             {step === "map" && (
               <div className="map-editor-split">
                 <div className="map-editor-stage">
+                  <div className="map-editor-guide-slot"><EditorGuide step="map" /></div>
                   {shown?.url ? <img className="map-editor-thumb" src={shown.url} alt="The current battle map" /> : <p className="map-editor-empty">No map yet. Upload one, or choose one from your library.</p>}
                 </div>
                 <aside className="map-editor-hud" aria-label="Map">
                   <h3 className="map-editor-heading">Battle map</h3>
                   <p className="muted">Upload a map image, or place one from your library. It stays private until you apply it with its grid.</p>
                   {props.hasLibrary && (
-                    <label className="inline">
+                    <label className="inline" data-guide="map-save-library">
                       <input type="checkbox" checked={saveToLibrary} disabled={busy} onChange={(e) => setSaveToLibrary(e.target.checked)} />
                       <span>Also save uploads to my library</span>
                     </label>
@@ -684,11 +687,11 @@ function MapSection(props: {
                       }}
                     />
                   </label>
-                  <button type="button" className="secondary" disabled={!props.map || exporting} onClick={() => void exportMap()}>{exporting ? "Exporting…" : "Export applied map (UVTT)"}</button>
+                  <button type="button" className="secondary" data-guide="map-export" disabled={!props.map || exporting} onClick={() => void exportMap()}>{exporting ? "Exporting…" : "Export applied map (UVTT)"}</button>
                   <p className="muted small-print">UVTT files: up to 40 MiB. Preview and edit geometry in Walls before Apply.</p>
                   {Object.values(props.room.walls).some((w) => w.portal) && <p className="muted small-print">Export preserves open/closed state. UVTT does not carry door/window identity or locks.</p>}
                   {props.hasLibrary && (
-                    <button type="button" className="secondary" disabled={busy} onClick={() => setPicking(true)}>
+                    <button type="button" className="secondary" data-guide="map-library" disabled={busy} onClick={() => setPicking(true)}>
                       From library
                     </button>
                   )}
@@ -736,6 +739,7 @@ function MapSection(props: {
               ? <p className="map-editor-empty">Apply a map before setting up sight.</p>
               : !props.map ? <p className="map-editor-empty">Apply a map before setting up sight.</p>
               : <Fragment key={`${editorGeneration}:${liveMapUrl}`}>{props.sight(draftEdits, draftState)}</Fragment>)}
+            </GuideStepContext.Provider>
             </GridActionsContext.Provider>
           </div>
         </div>
