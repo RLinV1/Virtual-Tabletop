@@ -131,6 +131,16 @@ Fresh vision containers were created immediately before the measured workload. D
 
 Raw logs, browser screenshots/traces, Compose configurations, geometry, cache and memory evidence are retained outside git in `/private/tmp/vtt-grid-docker-agent-20261026/`. The agent's QA containers and temporary Vite process were stopped afterward; its volumes were retained without touching the user's running stack. No supplied images were committed.
 
+## PR review follow-up — 2026-10-29
+
+PR #127's three validated follow-up findings are addressed:
+
+- Memory recovery indexes only current queued/running uploads, updating membership on creation, status changes, retries and deletion. Completed results stay cached without participating in the two-second recovery scan. A regression with 30 terminal records and three unfinished records reduces recovery copies from 33 to three; an idle pass after completion/deletion copies none. Busy deferral, explicit retry, stale claims and room/library deletion remain covered.
+- Changed source bytes and obsolete configuration jobs have independent scheduling tests. The obsolete case uses matching bytes and creates its queued row after dispatcher startup, with periodic recovery delayed. An isolated test-module mutation that removes the configuration-version comparison makes the new case fail (`no_grid` instead of `queued`); repository production guards were not modified for that check.
+- A CI-run positive-image regression passes six deterministic PNG/JPEG/WebP fixtures through decoding, LSD and fitting, checking cell size and wrap-aware offsets within 2 px. It adds no aggregate accuracy gate or confidence assertion, and writes no fixture images to disk.
+
+Fresh lint and full typechecking passed. The server suite passed **498 tests**, with **46 external-service cases skipped**, using `--maxWorkers=2` and database/Redis/S3 environment variables disabled. An initial default-parallel run hit worker/HTTP timeouts; reducing worker concurrency passed without changing test deadlines. All **50 Python grid/supervisor/wall regressions** passed in the pinned Python 3.11 environment, with the localhost supervisor test rerun with loopback access after the sandbox refused its listener. Existing multi-client library placement, private preparation and room synchronization tests passed in the server run. The user's Docker stack and original checkout were untouched.
+
 ## Remaining merge prerequisite
 
 Local Docker acceptance is complete. ADR 0044 still requires architecture-owner review before merge. No merge, deployment, calibrated-accuracy claim or hosted-performance claim was made.

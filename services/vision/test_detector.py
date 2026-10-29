@@ -7,6 +7,7 @@ import numpy as np
 from PIL import Image
 
 from detector import detect, detect_bytes, fit_segments
+from fixtures import POSITIVES, render
 from grid_config import MAX_BYTES, VERSION
 
 
@@ -21,6 +22,19 @@ def image_bytes(size=(160, 120), mode="RGB", format="PNG", orientation=None):
 
 
 class DetectorContractTest(unittest.TestCase):
+    def test_positive_images_preserve_grid_geometry(self):
+        """Exercise decoding, native LSD, and fitting on representative PNG/JPEG/WebP grids."""
+        fixtures = {fixture.name: fixture for fixture in POSITIVES}
+        for name in ("ink-plain", "ink-offset-zero", "ink-small", "light-on-dark", "jpeg-high", "webp-compressed"):
+            with self.subTest(fixture=name):
+                fixture = fixtures[name]
+                result = detect_bytes(render(fixture), 768, 648)
+                self.assertEqual(result["kind"], "candidate")
+                self.assertLessEqual(abs(result["cellSize"] - fixture.cell), 2)
+                for key, expected in (("offsetX", fixture.offset_x), ("offsetY", fixture.offset_y)):
+                    phase_error = abs(result[key] - expected) % fixture.cell
+                    self.assertLessEqual(min(phase_error, fixture.cell - phase_error), 2, key)
+
     def test_supported_images_and_empty_evidence(self):
         for format in ("PNG", "JPEG", "WEBP"):
             self.assertEqual(detect_bytes(image_bytes(format=format), 160, 120), {"kind": "no_grid"})

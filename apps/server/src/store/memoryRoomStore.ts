@@ -48,6 +48,8 @@ export class MemoryRoomStore implements RoomStore {
   private uploads = new Map<string, Set<string>>();
   private roomDetections = new Map<string, DetectionRecord>();
   private roomDetectionUpdatedAt = new Map<string, number>();
+  /** Only unfinished, current-version uploads need the frequent recovery scan. */
+  private recoveryTargets = new Map<string, DetectionTarget>();
   private users = new Map<string, UserRecord>();
   private sessions = new Map<string, SessionRecord>();
   /** `${roomId}/${participantId}` -> the account holding that seat (ADR 0017 M1). */
@@ -158,13 +160,12 @@ export class MemoryRoomStore implements RoomStore {
     keys.add(objectKey);
     this.uploads.set(roomId, keys);
     if (purpose === "map" && width && height && analysis?.sourceHash && analysis.detectionVersion === DETECTION_VERSION) {
-      const key = `${roomId}:${objectKey}`;
-      this.roomDetections.set(key, {
-        target: { scope: "room", roomId, objectKey }, objectKey, width, height,
+      const target = { scope: "room" as const, roomId, objectKey };
+      this.setDetection(target, {
+        target, objectKey, width, height,
         sourceHash: analysis.sourceHash, configVersion: analysis.detectionVersion,
         status: analysis.detectionError ? "error" : "queued", attempt: 1, candidate: null, error: analysis.detectionError ?? null,
       });
-      this.roomDetectionUpdatedAt.set(key, Date.now());
     }
   }
 
@@ -179,6 +180,7 @@ export class MemoryRoomStore implements RoomStore {
     for (const key of uploadKeys) {
       this.roomDetections.delete(`${roomId}:${key}`);
       this.roomDetectionUpdatedAt.delete(`${roomId}:${key}`);
+      this.trackDetection({ scope: "room", roomId, objectKey: key });
     }
     for (const [code, id] of this.invites) if (id === roomId) this.invites.delete(code);
     for (const [hash, row] of this.credentials) if (row.roomId === roomId) this.credentials.delete(hash);
@@ -246,6 +248,8 @@ export class MemoryRoomStore implements RoomStore {
       ...asset,
       ...(asset.detectionStatus && !asset.detectionUpdatedAt && { detectionUpdatedAt: new Date().toISOString() }),
     }));
+    const target = { scope: "library" as const, id: asset.id };
+    this.trackDetection(target, this.readDetection(target)?.status);
   }
 
   private seededOwners = new Set<string>();
@@ -253,7 +257,11 @@ export class MemoryRoomStore implements RoomStore {
   async seedShippedMaps(ownerGmId: string, rows: LibraryAssetRecord[]) {
     if (this.seededOwners.has(ownerGmId)) return false;
     this.seededOwners.add(ownerGmId);
-    for (const row of rows) this.assets.set(row.id, structuredClone(row));
+    for (const row of rows) {
+      this.assets.set(row.id, structuredClone(row));
+      const target = { scope: "library" as const, id: row.id };
+      this.trackDetection(target, this.readDetection(target)?.status);
+    }
     return true;
   }
 
@@ -311,16 +319,16 @@ export class MemoryRoomStore implements RoomStore {
     return attempt;
   }
 
+  /** Recover pending and stale work without walking completed upload history. */
   async recoverDetections(limit = 100) {
     const jobs: DetectionJob[] = [];
-    const targets: DetectionTarget[] = [...this.roomDetections.values()].map((row) => row.target);
-    for (const asset of this.assets.values()) {
-      if (asset.kind === "map" && asset.detectionStatus) targets.push({ scope: "library", id: asset.id });
-    }
-    for (const target of targets) {
+    for (const target of this.recoveryTargets.values()) {
       if (jobs.length >= limit) break;
       const row = this.readDetection(target);
-      if (!row) continue;
+      if (!row || row.status !== "queued" && row.status !== "running") {
+        this.trackDetection(target);
+        continue;
+      }
       if (row.status === "running") {
         const updatedAt = target.scope === "room"
           ? this.roomDetectionUpdatedAt.get(`${target.roomId}:${target.objectKey}`)
@@ -341,11 +349,20 @@ export class MemoryRoomStore implements RoomStore {
       this.roomDetectionUpdatedAt.set(key, Date.now());
     } else {
       const asset = this.assets.get(target.id);
-      if (asset) this.assets.set(target.id, {
+      if (!asset) return;
+      this.assets.set(target.id, {
         ...asset, detectionStatus: row.status, detectionAttempt: row.attempt,
         detectionResult: row.candidate, detectionError: row.error, detectionUpdatedAt: new Date().toISOString(),
       });
     }
+    this.trackDetection(target, row.status);
+  }
+
+  /** Keep recovery membership in step with creation, status changes, and deletion. */
+  private trackDetection(target: DetectionTarget, status?: DetectionRecord["status"]) {
+    const key = JSON.stringify(target.scope === "room" ? [target.scope, target.roomId, target.objectKey] : [target.scope, target.id]);
+    if (status === "queued" || status === "running") this.recoveryTargets.set(key, { ...target });
+    else this.recoveryTargets.delete(key);
   }
 
   async listAssets(ownerGmId: string) {
@@ -385,6 +402,7 @@ export class MemoryRoomStore implements RoomStore {
     const asset = this.assets.get(id);
     if (!asset || asset.ownerGmId !== ownerGmId) return null;
     this.assets.delete(id);
+    this.trackDetection({ scope: "library", id });
     for (const ids of this.refs.values()) ids.delete(id);
     // As `ON DELETE SET NULL` does in Postgres: the creatures stay, without their image.
     for (const creature of this.creatures.values()) if (creature.imageAssetId === id) creature.imageAssetId = null;

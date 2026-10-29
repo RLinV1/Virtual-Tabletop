@@ -77,15 +77,28 @@ describe("bounded local grid scheduling (FR-GM-03)", () => {
     }
   });
 
-  it("rejects changed source bytes and obsolete jobs before invoking the detector", async () => {
+  it("rejects changed source bytes before invoking the detector", async () => {
     const store = new MemoryRoomStore();
     const r = await row(store);
     const run = vi.fn<Detector>(async () => ({ status: "no_grid" }));
     const dispatcher = await createGridDetectionDispatcher(store, { ...assets, readPrivate: async () => Buffer.from("changed") }, { detector: run });
     try {
-      await dispatcher.enqueue({ ...r.job, configVersion: "obsolete" });
       await until(async () => (await store.findDetection(r.job.target))?.status === "error");
       expect((await store.findDetection(r.job.target))?.error).toBe("source_changed");
+      expect(run).not.toHaveBeenCalled();
+    } finally { await dispatcher.close(); }
+  });
+
+  it("rejects an obsolete job before claiming a queued row with matching bytes", async () => {
+    const store = new MemoryRoomStore();
+    const run = vi.fn<Detector>(async () => ({ status: "no_grid" }));
+    const dispatcher = await createGridDetectionDispatcher(store, assets, { detector: run, recoveryIntervalMs: 60_000 });
+    try {
+      // Create after startup recovery so only this obsolete job can claim the row.
+      const r = await row(store);
+      await dispatcher.enqueue({ ...r.job, configVersion: "obsolete" });
+      await dispatcher.close();
+      expect((await store.findDetection(r.job.target))?.status).toBe("queued");
       expect(run).not.toHaveBeenCalled();
     } finally { await dispatcher.close(); }
   });
