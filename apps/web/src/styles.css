@@ -2781,7 +2781,7 @@ button.stage-slot[aria-pressed="true"] { border-color: var(--accent); background
 .start-from-builtin { min-width: 14rem; }
 
 /* Map editor Sight step (map-editor-sight-step): the preview letterboxes like the other steps' canvases. */
-.map-editor-sight-preview { width: 100%; height: 100%; min-height: 0; display: block; background: var(--bg); border-radius: var(--radius); }
+.sight-preview-stage > .wall-canvas { height: 100%; }
 .sight-preview-wall { stroke: var(--accent); stroke-linecap: round; opacity: 0.55; }
 .sight-preview-portal { stroke: #e8c46a; stroke-linecap: round; }
 .sight-preview-window { stroke: #6cc6ff; stroke-linecap: round; }
@@ -2802,7 +2802,7 @@ button.stage-slot[aria-pressed="true"] { border-color: var(--accent); background
 .sight-panel-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .map-editor .sight-add, .map-editor .sight-token-row .icon-button { width: 2.25rem; min-width: 2.25rem; min-height: 2.25rem; height: 2.25rem; }
 .sight-add { border-color: var(--border-strong); color: var(--text); }
-.sight-add[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.sight-add[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
 .sight-token-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .sight-token-row { display: flex; align-items: center; gap: var(--space-1); min-height: 40px; padding: 0 var(--space-1) 0 var(--space-2); border-radius: var(--radius); }
 .sight-token-row:hover, .sight-token-row:focus-within { background: var(--hover); }
@@ -2831,9 +2831,9 @@ button.stage-slot[aria-pressed="true"] { border-color: var(--accent); background
 .sight-test-token.is-unseen { opacity: 0.45; }
 .sight-test-token-label { fill: var(--accent-ink); font-weight: 700; pointer-events: none; user-select: none; }
 /* Placing a test token: a crosshair on the map and a prompt across its top. */
-.map-editor-sight-preview.is-placing { cursor: crosshair; }
+.wall-canvas-svg.mode-place { cursor: crosshair; }
 .sight-place-prompt {
-  position: absolute; top: var(--space-2); left: 50%; transform: translateX(-50%); max-width: calc(100% - 2 * (44px + 2 * var(--space-2)));
+  position: absolute; top: calc(var(--space-2) * 2 + 44px); left: 50%; transform: translateX(-50%); max-width: calc(100% - 2 * var(--space-2));
   display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3);
   background: var(--panel); color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--radius);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6); font-size: var(--fs-sm); font-weight: 600; pointer-events: none;
@@ -2856,6 +2856,7 @@ dialog.modal.walls-preview-modal { width: min(64rem, calc(100vw - 2rem)); }
 .map-editor-stage, .map-grid-canvas-wrap { position: relative; }
 .map-grid-canvas-wrap { display: flex; flex-direction: column; }
 .map-editor-grid .map-grid-canvas-wrap { flex: 1; min-height: 0; }
+.map-editor-filter-slot { position: absolute; z-index: 3; top: var(--space-2); left: var(--space-2); }
 .map-editor-guide-slot { position: absolute; z-index: 2; top: var(--space-2); right: var(--space-2); }
 .map-editor .wall-canvas-zoom { right: calc(var(--space-2) + 44px + var(--space-1)); }
 /* Stacked editor: the side panel sits below the map, so it cannot be folded away. */
@@ -2869,3 +2870,16 @@ dialog.modal.walls-preview-modal { width: min(64rem, calc(100vw - 2rem)); }
   background: var(--raised); color: var(--text); border: 1px solid var(--text); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
 }
 .map-editor .map-editor-guide:hover { background: var(--accent); border-color: var(--accent-ink); }
+
+/* gm-token-sight-view: the Token view row's sub-label in the Show menu, and the quiet pill shown while no token is selected. */
+.board-filters .tool-button[data-active="true"] { border-color: var(--accent); }
+.board-filters .tool-button[data-active="true"]::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.board-filters-sight { display: flex; flex-direction: column; }
+.board-filters-sub { margin: 0 0 var(--space-2) calc(23px + var(--space-2)); font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; }
+.board-status {
+  position: absolute; z-index: 4; bottom: 2.25rem; margin: 0 auto; width: fit-content; max-width: calc(100% - 4.25rem - 4 * var(--space-3));
+  left: calc(var(--space-3) + 4.25rem + var(--space-2)); right: var(--space-3);
+  display: flex; align-items: center; gap: var(--space-2); padding: 0.3rem 0.65rem;
+  background: var(--raised); color: var(--muted); border: 1px solid var(--border); border-radius: 999px;
+  font-size: var(--fs-sm); pointer-events: none;
+}

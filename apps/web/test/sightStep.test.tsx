@@ -52,6 +52,64 @@ describe("map editor Sight step (FR-GM-19)", () => {
     expect(await screen.findByText("Apply a map before setting up sight.")).toBeTruthy();
   });
 
+  it("shows the grid on Sight, Walls and Fog, and one Show-menu Grid choice carries over and sends nothing (FR-GM-19)", () => {
+    const fake = mount(withPlayer(room())); openSight();
+    const lines = () => editor().querySelectorAll(".map-editor-grid-lines line").length;
+    const menu = () => within(editor()).getByRole("button", { name: "Show" });
+    const gridBox = () => { if (!within(editor()).queryByRole("group", { name: "Show on your view" })) fireEvent.click(menu()); return within(editor()).getByRole("checkbox", { name: "Grid" }) as HTMLInputElement; };
+    const step = (name: string) => fireEvent.click(within(editor()).getByRole("tab", { name }));
+    const preview = () => document.querySelector(".map-editor-sight-preview .map-editor-grid-lines")!;
+    expect(lines()).toBeGreaterThan(0);
+    expect(preview().getAttribute("pointer-events")).toBe("none");
+    expect(gridBox().checked).toBe(true);
+    fireEvent.click(gridBox());
+    expect(lines()).toBe(0);
+    step("3 · Walls");
+    expect(gridBox().checked).toBe(false);
+    expect(lines()).toBe(0);
+    step("4 · Fog");
+    expect(lines()).toBe(0);
+    fireEvent.click(gridBox());
+    expect(lines()).toBeGreaterThan(0);
+    step("3 · Walls");
+    expect(lines()).toBeGreaterThan(0);
+    step("5 · Sight");
+    expect(lines()).toBeGreaterThan(0);
+    expect(fake.commands).toEqual([]);
+  });
+
+  it("keeps the Add token button a plus while placing, and Escape or a second press stops placing", () => {
+    mount(withPlayer(room())); openSight();
+    const add = () => within(editor()).getByRole("button", { name: "Add token" });
+    expect(add().getAttribute("aria-pressed")).toBe("true");
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(add().getAttribute("aria-pressed")).toBe("true");
+    placeInCentre();
+    expect(add().getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(add());
+    expect(add().getAttribute("aria-pressed")).toBe("true");
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(add().getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(add());
+    fireEvent.click(add());
+    expect(add().getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("zooms the preview with +, - and Fit like Walls and Fog, sending nothing", () => {
+    const fake = mount(withPlayer(room())); openSight();
+    const svg = () => document.querySelector(".map-editor-sight-preview")!;
+    const zoom = within(within(editor()).getByRole("group", { name: "Zoom" }));
+    const before = svg().getAttribute("viewBox");
+    fireEvent.click(zoom.getByRole("button", { name: "+" }));
+    expect(svg().getAttribute("viewBox")).not.toBe(before);
+    fireEvent.click(zoom.getByRole("button", { name: "Fit" }));
+    expect(svg().getAttribute("viewBox")).toBe(before);
+    fireEvent.click(zoom.getByRole("button", { name: "+" }));
+    fireEvent.click(zoom.getByRole("button", { name: "−" }));
+    expect(svg().getAttribute("viewBox")).toBe(before);
+    expect(fake.commands).toEqual([]);
+  });
+
   it("sends line of sight and the range only on Save changes", async () => {
     const fake = mount(withPlayer(room())); openSight();
     fireEvent.click(lineOfSightBox());
@@ -114,9 +172,12 @@ describe("map editor Sight step (FR-GM-19)", () => {
     fireEvent.click(panel.getByRole("checkbox", { name: "Show Token 2's sight" }));
     const popup = () => editor().querySelector<HTMLElement>(".sight-popup")?.textContent;
     expect(popup()).toBe("Token 1 sees 0 of 1 other token.");
-    fireEvent.click(within(editor()).getByRole("button", { name: /^Door, locked\./ }));
+    fireEvent.keyDown(within(editor()).getByRole("button", { name: /^Door, locked\./ }), { key: "Enter" });
     expect(popup()).toBe("Token 1 sees 1 of 1 other token.");
-    fireEvent.click(within(editor()).getByRole("button", { name: /^Door, open\./ }));
+    // A pointer press and release on the door, as MapCanvas delivers it, closes it again.
+    const hit = within(editor()).getByRole("button", { name: /^Door, open\./ }).querySelector(".sight-portal-hit")!;
+    fireEvent.pointerDown(hit, { button: 0, pointerId: 1 });
+    fireEvent.pointerUp(hit, { button: 0, pointerId: 1 });
     expect(popup()).toBe("Token 1 sees 0 of 1 other token.");
     expect(fake.commands).toEqual([]);
   });
