@@ -8,6 +8,7 @@ import { useGridPreparation } from "../useGridPreparation";
 import { GridPreparation } from "./GridPreparation";
 import { createDraftConnection } from "./draftConnection";
 import { FogSetup } from "./FogSetup";
+import { GuideStepContext } from "./EditorGuide";
 import { HudLayout } from "./HudLayout";
 import { WallSetup } from "./WallSetup";
 import type { MapDraft } from "./mapDraft";
@@ -135,6 +136,7 @@ function MapSession({ asset, importDiagnostics, onSaved, onClose }: Omit<Props, 
       </nav>}>
       {waiting ? <GridPreparation label={preparation.label} onSkip={preparation.skip} /> :
       <div className="map-editor-shell"><div className="map-editor-body" role="tabpanel" inert={saving}>
+        <GuideStepContext.Provider value={step}>
         {importDiagnostics && <p className="muted">Imported map saved to your library. Review its grid and geometry below.</p>}
         {importDiagnostics && importDiagnostics.length > 0 && <details className="uvtt-diagnostics"><summary>{importDiagnostics.length} import warnings</summary><ul>{importDiagnostics.map((issue, i) => <li key={i}>{issue.path}: {issue.message}</li>)}</ul></details>}
         {step === "grid" && <HudLayout className="map-editor-grid"><GridForm
@@ -152,6 +154,7 @@ function MapSession({ asset, importDiagnostics, onSaved, onClose }: Omit<Props, 
         {step !== "grid" && !loadError && !state && <p className="muted">Loading…</p>}
         {step === "walls" && state && <WallSetup connection={connection} state={state} token="" detection={false} />}
         {step === "fog" && state && <FogSetup connection={connection} state={state} />}
+        </GuideStepContext.Provider>
       </div></div>}
     </Modal>
     <Modal open={prompt} title="Save changes?" onClose={() => { if (!busy.current) setPrompt(false); }}>

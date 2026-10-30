@@ -23,9 +23,9 @@ Runtime changes are limited to web preparation, polling and modal presentation. 
 
 ## Integration with current main — 2026-10-29
 
-Merged main through `4277da7` (PR #131), retaining its Sight step, token-placement dialog, account upload limits and per-map shipped seeding alongside grid preparation and the recovery index. The grid ADR is now 0045 because main assigned 0044 to line of sight.
+Merged main through `039ab27` (PR #130), retaining its Sight step, editor guides, detected-wall preview, token-placement dialog, account upload limits and per-map shipped seeding alongside grid preparation and the recovery index. The grid ADR is now 0045 because main assigned 0044 to line of sight.
 
-The merged frontend passed all 982 existing web tests. A new integration regression additionally verifies that an estimated grid stays private through the token-placement dialog, preserves units/style and exposes the Sight tab only after preparation; all 39 preparation and ten Sight tests passed. All 796 shared tests and 128 focused server integration/store tests passed, with 31 external-service cases skipped. Repository lint and full typechecking passed; the regenerated Prisma client includes both changes' schema fields. No temporary images or changes to the user's running Docker stack are included.
+The latest merged frontend passed all 999 web tests, including all 39 preparation cases and ten editor-guide cases. Preparation checks also verify that the Guide button is absent while waiting and appears with the fitted editor. The token-placement regression verifies that an estimated grid stays private through confirmation, preserves units/style and exposes the Sight tab only after preparation. Earlier integration checks passed all 796 shared tests and 128 focused server integration/store tests, with 31 external-service cases skipped; the subsequent main changes are frontend-only. Repository lint and full typechecking passed; the regenerated Prisma client includes both changes' schema fields. No temporary images or changes to the user's running Docker stack are included.
 
 ## Isolated Docker and real fitting
 

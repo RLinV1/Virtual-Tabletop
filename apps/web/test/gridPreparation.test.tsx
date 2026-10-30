@@ -74,6 +74,7 @@ describe("wait before revealing map setup (FR-GM-03)", () => {
     expect(screen.queryByRole("tab")).toBeNull();
     expect(screen.queryByRole("group", { name: "Place grid anchors on the map" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Guide$/ })).toBeNull();
     await act(async () => lookup.resolve({ status: "queued", attempt: 1 }));
     expect(screen.getByText("Waiting to fit grid…")).toBeTruthy();
     await advance(1500);
@@ -89,6 +90,7 @@ describe("wait before revealing map setup (FR-GM-03)", () => {
     expect(new Set(visibleCells)).toEqual(new Set(["64.125"]));
     expect(cell().value).toBe("64.125");
     expect(screen.getByLabelText("Offset X")).toHaveProperty("value", "7.25");
+    expect(screen.getByRole("button", { name: /^Guide$/ })).toBeTruthy();
     expect(document.activeElement).toBe(screen.getByRole("group", { name: "Place grid anchors on the map" }));
     expect(api.library.update).not.toHaveBeenCalled();
     expect(view.saved).not.toHaveBeenCalled();

@@ -1,5 +1,6 @@
 import { CornersOut, MagnifyingGlassMinus, MagnifyingGlassPlus } from "@phosphor-icons/react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { MapGuide } from "./mapEditor/EditorGuide";
 import { gridLineStyle, type GridSpec, type Point } from "@vtt/shared";
 import { gridLines } from "../board/gridLines";
 import { canRenderGrid, minimumGridCellSizeForDisplay, type BoardSize } from "../board/gridRenderLimit";
@@ -481,6 +482,8 @@ export function MapGridPreview({ map, grid, onChange, onInteraction, onPreviewCh
         </div>
       </div>
       <p id={statusId} className="map-grid-status small-print" role="status">{status}</p>
+      <div className="map-grid-canvas-wrap">
+      <MapGuide />
       <svg ref={svgRef} className={`map-grid-canvas${space ? " is-panning" : ""}`}
         viewBox={ready ? `${vx} ${vy} ${vw} ${vh}` : `0 0 ${map.width} ${map.height}`}
         role="group" aria-label="Place grid anchors on the map" aria-describedby={`${statusId} ${helpId} ${keysId}`} tabIndex={0}
@@ -514,6 +517,7 @@ export function MapGridPreview({ map, grid, onChange, onInteraction, onPreviewCh
           </g>
         )}
       </svg>
+      </div>
       <p id={helpId} className="muted small-print map-grid-help">
         Hold Shift to place freely. Scroll to zoom; middle-drag or Space-drag moves the view.
       </p>
