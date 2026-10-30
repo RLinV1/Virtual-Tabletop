@@ -10,11 +10,13 @@ import {
   type AttackPreset,
   type ConditionId,
   type Participant,
+  type Point,
   type RoomState,
   type Token,
   type TokenGroup,
   type TokenUpdate,
 } from "@vtt/shared";
+import { MoveControl } from "../ui/MoveControl";
 import type { RoomConnection } from "../net/roomConnection";
 import { api } from "../net/api";
 import { useAccount } from "../account/accountStore";
@@ -235,6 +237,13 @@ export function TokenRoster({
             groups={Object.values(state.groups)}
             groupId={state.tokenGroups[editing.id] ?? null}
             features={presetOf(state).features}
+            // The GM moves by Board X/Y here (or the board's token card); a step from here would
+            // be undone by saving the editor's stale X/Y, so the editor only offers it to owners.
+            move={!isGm && can.moveToken(you, editing) ? {
+              step: state.scene.grid.cellSize,
+              bounds: state.scene.map ? { width: state.scene.map.width, height: state.scene.map.height } : undefined,
+              onMove: (to) => send({ type: "token.move", tokenId: editing.id, to }),
+            } : undefined}
             onSave={async (changes, groupId) => {
               if (Object.keys(changes).length > 0 && !(await send({ type: "token.configure", tokenId: editing.id, changes }))) return;
               if (groupId !== undefined && !(await send({ type: "group.assign", groupId, tokenIds: [editing.id] }))) return;
@@ -355,6 +364,7 @@ export function TokenEditor({
   groups = [],
   groupId: savedGroupId = null,
   features = ALL_FEATURES,
+  move,
   onSave,
   onDelete,
   onDuplicate,
@@ -371,6 +381,8 @@ export function TokenEditor({
   groupId?: string | null;
   /** What the room's game preset turns on (KAN-63); everything when omitted. */
   features?: PresetFeatures;
+  /** A one-square Move control, the keyboard path to moving this token (WCAG 2.5.7). */
+  move?: { step: number; bounds?: { width: number; height: number }; onMove: (to: Point) => Promise<unknown> };
   /** `groupId` is undefined when the group did not change. */
   onSave: (changes: TokenUpdate, groupId?: string | null) => Promise<void>;
   onDelete: () => void;
@@ -494,6 +506,7 @@ export function TokenEditor({
           </label>
         )}
       </div>
+      {move && <MoveControl name={token.name} at={token.position} step={move.step} bounds={move.bounds} onMove={move.onMove} />}
 
       {features.conditions && (
         <details className="token-editor-section">

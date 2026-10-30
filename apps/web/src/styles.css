@@ -11,11 +11,13 @@
   --border-strong: #6a7280;
   --text: #e3e6ea;
   --muted: #8e96a2;
-  --accent: #b9582f;        /* rust: primary actions, active turn (white text 4.9:1) */
+  --accent: #b3552d;        /* rust: primary actions, active turn (accent-ink on it 4.7:1; #b9582f was 4.44) */
   --accent-ink: #fff8f3;    /* text on rust */
-  --accent-soft: rgba(185, 88, 47, 0.14);
+  --accent-soft: rgba(179, 85, 45, 0.14);
+  --accent-text: #e08a62;   /* rust as text on dark surfaces: 6.6:1 on --panel (--accent itself is 3.5) */
   --focus: #e08a62;         /* focus ring: lighter rust, visible on rust fills too */
   --danger: #e0685c;
+  --danger-strong: #b5463d; /* filled danger buttons: accent-ink on it 5.1:1 (--danger was 3.17) */
   --ok: #6fbf73;
   --warn: #d9a441;
   --shadow: rgba(4, 6, 10, 0.55);
@@ -84,17 +86,19 @@ input, select, button {
   font-size: var(--fs-md);
   color: inherit;
   background: var(--field);
-  border: 1px solid var(--border);
+  /* A control boundary, so --border-strong: --border was 1.23:1 on the panel (WCAG 1.4.11). */
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius);
   padding: 0.35rem 0.55rem;
   min-height: 2.1rem;
 }
-input:hover, select:hover { border-color: var(--border-strong); }
+input:hover, select:hover { border-color: var(--muted); }
 input[type="checkbox"], input[type="radio"] { min-height: 0; width: 1rem; height: 1rem; accent-color: var(--accent); }
 /* A rust fill is reserved for the primary action; everything else is quieter. */
 button { cursor: pointer; background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
 button { transition: filter 0.15s, border-color 0.15s, color 0.15s, background-color 0.15s, transform 0.1s; }
-button:hover:not(:disabled) { filter: brightness(1.08); }
+/* Darken, not brighten: a brighter rust drops accent-ink below 4.5:1 (4.12 at 1.08). */
+button:hover:not(:disabled) { filter: brightness(0.92); }
 button:active:not(:disabled) { transform: translateY(1px); }
 button:disabled { opacity: 0.55; cursor: default; }
 button.link {
@@ -180,8 +184,15 @@ label.inline { flex-direction: row; align-items: center; gap: 0.35rem; color: va
   font-family: var(--font-body); font-size: var(--fs-sm); font-weight: 500; letter-spacing: 0;
 }
 .tabbar.topbar-tabs .tab:hover:not(:disabled) { border-color: var(--muted); }
-.tabbar.topbar-tabs .tab.selected { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-.sidebar-collapsed .tabbar.topbar-tabs .tab.selected { background: transparent; border-color: var(--accent); color: var(--text); }
+/* `:hover` too: `.tabbar .tab:hover` below has the same specificity and would put --text on rust (3.7:1). */
+.tabbar.topbar-tabs .tab.selected,
+.tabbar.topbar-tabs .tab.selected:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+/* Collapsed, the fill goes; weight and a thick underline keep it selected without colour (WCAG 1.4.1). */
+.sidebar-collapsed .tabbar.topbar-tabs .tab.selected,
+.sidebar-collapsed .tabbar.topbar-tabs .tab.selected:hover:not(:disabled) {
+  background: transparent; border-color: var(--accent); color: var(--text);
+  font-weight: 700; box-shadow: inset 0 -3px 0 var(--accent);
+}
 /* One line each: a squeezed bar must not fold "Activity log" onto two lines. */
 .tabbar.topbar-tabs .tab, .topbar-end > .tool-button { white-space: nowrap; flex-shrink: 0; }
 /* Participants as a row of initials; the list and Remove open on click. */
@@ -251,6 +262,15 @@ a.tool-button { text-decoration: none; }
 .token-card dt { color: var(--muted); }
 .token-card dd { margin: 0; }
 .token-card-actions { margin-top: var(--space-2); gap: var(--space-2); }
+/* One-square steps as a cross, the non-drag way to move a token (WCAG 2.5.7). */
+.move-control {
+  display: grid; grid-template-areas: ". up ." "left . right" ". down ."; grid-template-columns: repeat(3, 2.5rem);
+  gap: var(--space-1); justify-content: start; margin-top: var(--space-2);
+}
+.move-step { width: 2.5rem; height: 2.5rem; min-height: 0; padding: 0; display: grid; place-items: center; }
+.move-step[aria-disabled="true"] { opacity: 0.55; cursor: default; }
+.token-card .arrow-keys-switch { margin-top: var(--space-2); }
+.token-card .arrow-keys-switch + .small-print { margin: var(--space-1) 0 0; }
 
 /* Placing a new token (place-token-on-board): top centre, clear of the toolbar and notices. */
 .placement-bar {
@@ -320,7 +340,7 @@ a.tool-button { text-decoration: none; }
   width: 1.1rem; min-height: 0; height: 3.5rem; padding: 0;
   display: grid; place-items: center;
   background: var(--panel); color: var(--muted);
-  border: 1px solid var(--border); border-right: none;
+  border: 1px solid var(--border-strong); border-right: none;
   border-radius: var(--radius) 0 0 var(--radius);
 }
 .sidebar-handle:hover:not(:disabled) { filter: none; color: var(--text); background: var(--raised); }
@@ -476,6 +496,9 @@ input.range-opacity::-webkit-slider-thumb { margin-top: -4px; }
   padding: 0 0.5rem; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--bg);
 }
 .color-wheel-hex:focus-within { border-color: var(--accent); }
+/* The input drops its own outline, so the field draws the ring around chip and text (WCAG 2.4.7). */
+.color-wheel-hex:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
+.color-wheel-error { margin: 0; font-size: var(--fs-sm); }
 .color-wheel-hex input {
   flex: 1; min-width: 0; border: none; background: transparent; padding: 0.35rem 0; min-height: 0;
   font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-sm); text-transform: lowercase;
@@ -498,7 +521,7 @@ button.color-swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--panel), 0
 .grid-suggestion { grid-column: 1 / -1; border: 1px solid var(--line, #72777f); padding: 0.75rem; border-radius: 0.4rem; }
 .grid-suggestion p { margin: 0 0 0.5rem; }
 .grid-suggestion p:last-child { margin-bottom: 0; }
-.grid-suggestion-warning { color: #b65c16; font-weight: 600; }
+.grid-suggestion-warning { color: var(--warn); font-weight: 600; }
 .grid-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
 
 /* Name and Delete on the first line, owner and visibility under it. */
@@ -537,7 +560,7 @@ button.small { min-height: 0; padding: 0.2rem 0.5rem; font-size: var(--fs-sm); }
   padding: 0 0.3rem; border: 1px solid var(--border-strong); border-radius: 2px;
   color: var(--muted); font-style: normal; white-space: nowrap;
 }
-.badge.active-badge { color: var(--accent); border-color: var(--accent); }
+.badge.active-badge { color: var(--accent-text); border-color: var(--accent); }
 
 .chip {
   background: transparent; border: 1px solid var(--border-strong); color: var(--text);
@@ -945,9 +968,9 @@ dialog.modal.dice-look-modal { width: min(40rem, calc(100vw - 2rem)); }
 .picker-button {
   width: 100%; min-height: 40px; display: flex; align-items: center; gap: 0.4rem; text-align: left;
   padding: 0.35rem 0.55rem; font-weight: 400;
-  background: var(--field); color: var(--text); border: 1px solid var(--border);
+  background: var(--field); color: var(--text); border: 1px solid var(--border-strong);
 }
-.picker-button:hover:not(:disabled) { border-color: var(--border-strong); filter: none; }
+.picker-button:hover:not(:disabled) { border-color: var(--muted); filter: none; }
 .picker-button[aria-expanded="true"] { border-color: var(--accent); }
 .picker-button > svg { flex: none; color: var(--muted); }
 .picker-label { font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -966,7 +989,8 @@ dialog.modal.dice-look-modal { width: min(40rem, calc(100vw - 2rem)); }
 }
 .picker-list[hidden] { display: none; }
 .picker-option { display: flex; align-items: center; gap: 0.45rem; min-height: 36px; padding: 0 var(--space-2); border-radius: var(--radius); cursor: pointer; }
-.picker-option.active { background: var(--accent-soft); }
+/* The keyboard's current option (aria-activedescendant): a ring, not only a 14% tint (WCAG 2.4.7). */
+.picker-option.active { background: var(--accent-soft); outline: 2px solid var(--focus); outline-offset: -2px; }
 .picker-check { flex: none; visibility: hidden; color: var(--accent); }
 .picker-option[aria-selected="true"] .picker-check { visibility: visible; }
 .picker-option .picker-detail { padding-left: var(--space-3); }
@@ -1174,7 +1198,7 @@ dialog.modal.dice-look-modal { width: min(40rem, calc(100vw - 2rem)); }
 .confirm { display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.85rem; }
 .confirm p { margin: 0; }
 .confirm .row { justify-content: flex-end; }
-button.danger-fill { background: var(--danger); border-color: var(--danger); color: var(--accent-ink); }
+button.danger-fill { background: var(--danger-strong); border-color: var(--danger-strong); color: var(--accent-ink); }
 
 .library-picker { display: flex; flex-direction: column; gap: 0.5rem; border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem; }
 .picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(5.5rem, 1fr)); gap: 0.4rem; max-height: 16rem; overflow-y: auto; }
@@ -2450,7 +2474,8 @@ dialog.modal.map-editor.is-preparing {
   right: calc(var(--hud-width, 17rem) - 1px); display: flex; align-items: center; justify-content: center;
 }
 .hud-layout[data-hud-collapsed="true"] > .hud-handle { cursor: default; right: 0; }
-.hud-handle:hover, .hud-handle:focus-visible { background: var(--accent-soft); outline: none; }
+/* The tint is a hover cue only; keyboard focus keeps the global ring (WCAG 2.4.7). */
+.hud-handle:hover, .hud-handle:focus-visible { background: var(--accent-soft); }
 .hud-fold {
   width: 22px; min-width: 0; height: 44px; min-height: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center;
   background: var(--raised); color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--radius); cursor: pointer;

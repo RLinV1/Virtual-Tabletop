@@ -1,6 +1,6 @@
 import { CornersOut, Eye } from "@phosphor-icons/react";
 import { Suspense, forwardRef, lazy, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
-import { DEFAULT_TOKEN_COLOR, EMPTY_STATS, type ReplayFrame, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
+import { DEFAULT_TOKEN_COLOR, EMPTY_STATS, can, type ReplayFrame, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { guardedConnection } from "../net/previewConnection";
 import { DEFAULT_TOOL_OPTIONS, ToolRail, toolFor, type ToolOptions } from "../ui/ToolRail";
@@ -18,6 +18,7 @@ import { boardDieSize, centreThrow, crowdedOffset, onMap, throwLanding, type Boa
 import { cursorSquare, moveCursor, placementCommand, startCursor, type PlacementGhost, type PlacingSource, type TokenDraft } from "./placement";
 import type { BoardTool } from "./tools";
 import { TokenCard } from "./TokenCard";
+import { ARROW_STEPS, ownsArrowKeys, stepTo } from "../ui/MoveControl";
 
 /** Loaded when the first effect or condition needs it, so the board paints before the libraries arrive. */
 const EffectsOverlay = lazy(() => import("./EffectsOverlay"));
@@ -204,6 +205,39 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
   const placingRef = useRef(placing);
   placingRef.current = placing;
   const source = placing?.source ?? null;
+
+  /** Arrow keys move the selected token one square while the token card's switch is on (WCAG 2.1.1, 2.5.7). */
+  const [arrowKeys, setArrowKeys] = usePersistentState<boolean>("vtt.ui.arrowKeyMove", false, (v): v is boolean => typeof v === "boolean");
+  // One move at a time for the buttons and the keys together: a second step must start from the landed square.
+  const movePending = useRef(false);
+  const moveToken = useCallback(async (tokenId: string, to: Point) => {
+    if (movePending.current) return;
+    movePending.current = true;
+    try {
+      const result = await guarded.command({ type: "token.move", tokenId, to });
+      // Unlike a drag there is no snap-back to show, so say why even when offline.
+      if (!result.ok) setRefusal({ message: result.message, at: Date.now() });
+    } finally {
+      movePending.current = false;
+    }
+  }, [guarded]);
+  const keyMovable = arrowKeys && !readOnly && selected && can.moveToken(you, selected) ? selected : null;
+  const scene = renderedState.scene;
+  useEffect(() => {
+    if (!keyMovable) return;
+    const onKey = (e: KeyboardEvent) => {
+      const step = ARROW_STEPS[e.key];
+      if (!step || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      // Placing a token, a field, a tab list or an open dialog keeps its own arrows.
+      if (placingRef.current || ownsArrowKeys(e.target) || document.querySelector("dialog[open]")) return;
+      e.preventDefault();
+      const bounds = scene.map ? { width: scene.map.width, height: scene.map.height } : undefined;
+      const to = stepTo(keyMovable.position, scene.grid.cellSize, step[0], step[1], bounds);
+      if (to) void moveToken(keyMovable.id, to);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [keyMovable, scene, moveToken]);
   const ghost = useMemo<PlacementGhost | null>(
     () => source && (source.kind === "create" ? ghostOf(source.draft) : source.ghost),
     [source],
@@ -658,6 +692,8 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
           // Out of the way of the editor and the placement ghost.
           onEdit={onEditToken && (() => { deselect(); onEditToken(selected.id); })}
           onDuplicate={() => { deselect(); duplicateToken(selected.id); }}
+          onMove={(to) => moveToken(selected.id, to)}
+          arrowKeys={{ on: arrowKeys, onToggle: setArrowKeys }}
         />
       )}
       {placing && (
