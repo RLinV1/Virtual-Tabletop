@@ -32,8 +32,8 @@ export function accountLimits(now: () => number = Date.now) {
     replaysPerParticipant: new RateLimiter(30, MINUTE, now),
     /** Wall detection runs per room, so one room can't hold the few server-wide job slots (FR-GM-11). */
     wallDetectionsPerRoom: new RateLimiter(10, 15 * MINUTE, now),
-    /** Image uploads per room: each one is stored and may queue grid and wall analysis (FR-GM-02). */
-    uploadsPerRoom: new RateLimiter(60, 15 * MINUTE, now),
+    /** Image uploads per account, in rooms and the library together: each one is stored and may queue analysis (FR-GM-02). */
+    uploadsPerOwner: new RateLimiter(60, 15 * MINUTE, now),
   };
 }
 export type AccountLimits = ReturnType<typeof accountLimits>;

@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { AreaColor, MAX_LINE_WIDTH_CELLS } from "@vtt/shared";
 import { isBoolean, usePersistentState } from "./usePersistentState";
-import { CaretDoubleLeft, CaretDoubleRight, Circle, CloudFog, Cursor, Eraser, Eye, LineSegment, PaintBrush, PencilSimple, Polygon, Ruler, Square, Target, Trash, Triangle } from "@phosphor-icons/react";
+import { CaretDoubleLeft, CaretDoubleRight, Circle, CloudFog, Cursor, Eraser, Eye, Lightbulb, LineSegment, PaintBrush, PencilSimple, Polygon, Ruler, Square, Target, Trash, Triangle } from "@phosphor-icons/react";
 import { AREA_SHADES, AREA_SIZES, DRAW_COLORS, type AreaShape, type BoardTool, type DrawShape, type FogMode } from "../board/tools";
 
 /** The options each tool remembers while another tool is active. */
@@ -74,6 +74,8 @@ export function ToolRail({
   onOptions,
   onClear,
   selectOnly = false,
+  lineOfSight,
+  onToggleLineOfSight,
 }: {
   active: BoardTool["kind"];
   options: ToolOptions;
@@ -86,6 +88,9 @@ export function ToolRail({
   onClear: () => void;
   /** Only Select, with no marks to clear: a template being edited (ADR 0033). */
   selectOnly?: boolean;
+  /** GM only: whether the scene's line of sight is on (ADR 0044). */
+  lineOfSight?: boolean;
+  onToggleLineOfSight?: () => void;
 }) {
   const [collapsed, setCollapsed] = usePersistentState("vtt.ui.toolRail", false, isBoolean);
   const toggle = (
@@ -124,6 +129,19 @@ export function ToolRail({
             <span className="rail-label">{t.label}</span>
           </button>
         ))}
+        {isGm && !selectOnly && onToggleLineOfSight && (
+          <button
+            type="button"
+            className="tool-button rail-button labelled"
+            aria-pressed={!!lineOfSight}
+            aria-label="Line of sight"
+            title={`Line of sight: ${lineOfSight ? "on" : "off"}`}
+            onClick={onToggleLineOfSight}
+          >
+            <Lightbulb size={18} aria-hidden="true" />
+            <span className="rail-label">Sight</span>
+          </button>
+        )}
         {!selectOnly && (
           <>
             <span className="rail-divider" aria-hidden="true" />

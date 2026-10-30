@@ -25,6 +25,8 @@ describe("Human-readable activity formatter (FR-REC-01)", () => {
     ],
     MapSet: [{ type: "MapSet", map: { url: "/map.png", width: 100, height: 100 }, previous: null }, "Mara set the map"],
     GridSet: [{ type: "GridSet", grid: state.scene.grid, previous: state.scene.grid }, "Mara updated the grid"],
+    LineOfSightSet: [{ type: "LineOfSightSet", from: false, to: true }, "Mara turned line of sight on"],
+    SightRangeSet: [{ type: "SightRangeSet", from: null, to: 60 }, "Mara set sight range to 60 ft"],
     TokenCreated: [{ type: "TokenCreated", token }, "Mara created Goblin"],
     TokenMoved: [{ type: "TokenMoved", tokenId: token.id, from: { x: 35, y: 35 }, to: { x: 105, y: 35 } }, "Mara moved Goblin from (35, 35) to (105, 35)"],
     TokenAppearanceSet: [{ type: "TokenAppearanceSet", tokenId: token.id, name: "Ogre", size: 2, rotation: 90, previous: { name: "Goblin", size: 1, rotation: 0 } }, "Mara updated Goblin to Ogre (size 2, rotation 90°)"],

@@ -252,9 +252,11 @@ export const api = {
       if (!res.ok) throw await errorFrom(res);
       return WallDetectionStatus.parse(await res.json());
     },
-    /** Whether this server can detect walls now (map-editor D4); names no room. */
-    async availability(signal?: AbortSignal): Promise<WallDetectionAvailability> {
-      const res = await fetch("/api/wall-detection/availability", { signal, cache: "no-store" });
+    /** Whether this server can detect walls now (map-editor D4); with a room, for that room's current map. */
+    async availability(roomId?: string, token?: string, signal?: AbortSignal): Promise<WallDetectionAvailability> {
+      const res = await fetch(`/api/wall-detection/availability${roomId ? `?room=${encodeURIComponent(roomId)}` : ""}`, {
+        signal, cache: "no-store", headers: token ? { authorization: `Bearer ${token}` } : {},
+      });
       if (!res.ok) throw await errorFrom(res);
       return WallDetectionAvailability.parse(await res.json());
     },

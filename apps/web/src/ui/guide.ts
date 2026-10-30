@@ -11,6 +11,8 @@ export type Role = "gm" | "player";
 export interface GuideStep {
   /** Matches a `data-tour` attribute on the element to spotlight. */
   target: string;
+  /** A CSS selector for the element to spotlight, instead of `[data-tour=target]` (the map editor's tours). */
+  selector?: string;
   title: string;
   body: string;
   /** The step asks the viewer to use the spotlit control, so clicks inside it get through. */
@@ -84,7 +86,7 @@ const STEPS: StepSpec[] = [
   },
   { target: "tab-gm", title: "Manage tab", body: { gm: "Room setup: the battle map, the grid, and players who have left." } },
   { target: "gm-map", title: "Battle map", body: { gm: "Your map, its grid and its walls." } },
-  { target: "gm-grid", title: "Map setup", body: { gm: "Upload a map or choose one from your library. Once there is one, Change Map, Edit Grid, Manage Walls and Manage Fog open the map editor on that step: swap the map, line up its grid, detect or draw its walls, and fog the parts the table shouldn't see yet." } },
+  { target: "gm-grid", title: "Map setup", body: { gm: "Upload a map or choose one from your library. Once there is one, Edit map opens the map editor: swap the map, line up its grid, detect or draw its walls, fog the parts the table shouldn't see yet, and set line of sight." } },
   {
     target: "rulings",
     title: "Rulings",

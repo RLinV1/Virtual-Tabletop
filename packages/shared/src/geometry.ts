@@ -131,6 +131,24 @@ export function pointInPolygon(p: Point, points: readonly Point[]): boolean {
   return inside;
 }
 
+/**
+ * Whether `p` counts as in a fog region: inside it, or within 1 board px of its boundary. The one
+ * rule for fog concealment and the sight exemption, so a token on an edge can't disagree with itself (ADR 0044).
+ */
+export function inFogRegion(points: readonly Point[], p: Point): boolean {
+  if (pointInPolygon(p, points)) return true;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const a = points[j]!;
+    const b = points[i]!;
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 === 0 ? 0 : Math.min(1, Math.max(0, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2));
+    if (Math.hypot(a.x + t * dx - p.x, a.y + t * dy - p.y) <= 1) return true;
+  }
+  return false;
+}
+
 /** Center first, then at most twenty square perimeter rings in stable row order. */
 export function* placementCandidates(
   origin: Point,

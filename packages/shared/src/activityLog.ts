@@ -86,6 +86,11 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
       return `${actorName} removed the map${restored.length ? `, restoring ${restored.join(" and ")}` : ""}`;
     }
     case "GridSet": return `${actorName} updated the grid`;
+    case "LineOfSightSet": return `${actorName} turned line of sight ${event.to ? "on" : "off"}`;
+    case "SightRangeSet": {
+      const n = event.to === null ? null : Math.round(event.to * 10) / 10;
+      return `${actorName} set sight range to ${n === null ? "unlimited" : `${n} ${before.scene.grid.unitLabel}`}`;
+    }
     case "TokenCreated": return `${actorName} created ${event.token.name}${event.token.hidden ? " (hidden)" : ""}`;
     case "TokenMoved": return `${actorName} moved ${tokenName(event.tokenId)} from ${formatPoint(event.from)} to ${formatPoint(event.to)}`;
     case "TokenAppearanceSet": return `${actorName} updated ${event.previous.name} to ${event.name} (size ${event.size}, rotation ${event.rotation}°)`;

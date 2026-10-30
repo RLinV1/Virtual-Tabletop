@@ -34,7 +34,7 @@ function mount(state = room()) {
   return { ...fake, rerender: (next: RoomState) => view.rerender(panel(next)) };
 }
 async function importFile() {
-  fireEvent.click(screen.getByRole("button", { name: "Change Map" }));
+  fireEvent.click(screen.getByRole("button", { name: "Edit map" }));
   fireEvent.change(screen.getByLabelText("Upload battle map"), { target: { files: [new File(["json"], "map.dd2vtt")] } });
   await screen.findByText(/Unsaved changes: only you see them/);
 }
@@ -100,7 +100,7 @@ describe("private UVTT editor (FR-GM-06/07/09/12)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     const discard = await screen.findByRole("button", { name: "Discard" }); fireEvent.click(discard);
     await waitFor(() => expect(api.uvtt.discard).toHaveBeenCalledWith("r1", TOKEN, "opaque"));
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Change Map" })));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Edit map" })));
   });
   it("switches between Grid and Walls with edited UVTT geometry without applying it", async () => {
     const fake = mount(); await importFile();
@@ -141,7 +141,7 @@ describe("private UVTT editor (FR-GM-06/07/09/12)", () => {
     const state = room();
     state.tokens.hero = { id: "hero", name: "Hero", position: { x: 100, y: 100 }, size: 1, rotation: 0, color: "#ffffff", imageUrl: null, assetId: null, ownerIds: [], hidden: false, stats: EMPTY_STATS, conditions: [] };
     const fake = mount(state); await importFile();
-    fireEvent.click(screen.getByRole("radio", { name: /^Keep positions/ }));
+    expect(screen.queryByRole("radio", { name: /^Keep positions/ })).toBeNull();
     fireEvent.click(screen.getByRole("tab", { name: /· Walls$/ }));
     fireEvent.change(screen.getByLabelText("Selected geometry"), { target: { value: "draft:0" } });
     fireEvent.change(screen.getByLabelText("Use as"), { target: { value: "window" } });
@@ -150,8 +150,41 @@ describe("private UVTT editor (FR-GM-06/07/09/12)", () => {
     expect(fake.commands).toEqual([]);
     const revise = vi.spyOn(api.uvtt, "revise").mockImplementation(async (_room, _token, _id, edit) => ({ ...preparation, ...edit, revision: 2 }));
     fireEvent.click(screen.getByRole("button", { name: "Apply map" }));
+    const dialog = await screen.findByRole("dialog", { name: "Tokens already on the table" });
+    fireEvent.click(within(dialog).getByRole("radio", { name: /^Keep positions/ }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Apply map" }));
     await waitFor(() => expect(fake.commands).toEqual([{ type: "scene.importUVTT", importId: "opaque", revision: 2, tokenPolicy: "keep" }]));
     expect(revise.mock.calls[0]?.[3].walls[0]).toMatchObject({ portal: { kind: "window", state: "locked" }, uvttPortal: preparation.walls[0]!.uvttPortal });
+  });
+  describe("token choice dialog (FR-GM-04)", () => {
+    const withToken = () => {
+      const state = room();
+      state.tokens.hero = { id: "hero", name: "Hero", position: { x: 100, y: 100 }, size: 1, rotation: 0, color: "#ffffff", imageUrl: null, assetId: null, ownerIds: [], hidden: false, stats: EMPTY_STATS, conditions: [] };
+      return state;
+    };
+    it("asks on Apply map, not in the Grid step; Cancel sends nothing and keeps the draft; Recenter is sent", async () => {
+      const fake = mount(withToken()); await importFile();
+      expect(screen.queryByRole("radio")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Apply map" }));
+      let dialog = await screen.findByRole("dialog", { name: "Tokens already on the table" });
+      expect(within(dialog).getByRole("radio", { name: /^Scale to fit/ })).toHaveProperty("checked", true);
+      fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+      expect(screen.queryByRole("dialog", { name: "Tokens already on the table" })).toBeNull();
+      expect(fake.commands).toEqual([]);
+      expect(screen.getByText(/Unsaved changes: only you see them/)).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Apply map" }));
+      dialog = await screen.findByRole("dialog", { name: "Tokens already on the table" });
+      expect(within(dialog).getByRole("radio", { name: /^Scale to fit/ })).toHaveProperty("checked", true);
+      fireEvent.click(within(dialog).getByRole("radio", { name: /^Recenter/ }));
+      fireEvent.click(within(dialog).getByRole("button", { name: "Apply map" }));
+      await waitFor(() => expect(fake.commands).toEqual([{ type: "scene.importUVTT", importId: "opaque", revision: 1, tokenPolicy: "recenter" }]));
+    });
+    it("applies at once with no dialog and no policy when the room has no tokens", async () => {
+      const fake = mount(); await importFile();
+      fireEvent.click(screen.getByRole("button", { name: "Apply map" }));
+      await waitFor(() => expect(fake.commands).toEqual([{ type: "scene.importUVTT", importId: "opaque", revision: 1 }]));
+      expect(screen.queryByRole("dialog", { name: "Tokens already on the table" })).toBeNull();
+    });
   });
   it("preserves absence of optional portal fields when saving unchanged metadata", async () => {
     const save = vi.fn();
@@ -196,6 +229,7 @@ describe("private UVTT editor (FR-GM-06/07/09/12)", () => {
     state.tokens.hero = { id: "hero", name: "Hero", position: { x: 100, y: 100 }, size: 1, rotation: 0, color: "#ffffff", imageUrl: null, assetId: null, ownerIds: [], hidden: false, stats: EMPTY_STATS, conditions: [] };
     const fake = mount(state); await importFile();
     fireEvent.click(screen.getByRole("button", { name: "Apply map" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Tokens already on the table" })).getByRole("button", { name: "Apply map" }));
     await waitFor(() => expect(fake.commands).toHaveLength(1));
     fake.rerender(reduce(state, { type: "MapSet", map: preparation.map, previous: state.scene.map,
       gridChange: { grid: preparation.grid, previous: state.scene.grid },

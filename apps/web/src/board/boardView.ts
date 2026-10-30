@@ -54,6 +54,10 @@ import { averageColor, fogDistanceField, fogPalette, makeFogDensityCanvas, makeF
 import { WISP_ANCHOR, layoutFogPuffs, puffPose, type FogPuff } from "./fogPuffs";
 import { fogArt, loadFogArt } from "./fogArt";
 import { FogBody } from "./fogShader";
+import { makeSightMaskCanvas, sightColor } from "./sightMask";
+
+/** How long the old line-of-sight mask takes to fade out over the new one. */
+const SIGHT_FADE_MS = 160;
 import { areaColorValue, areaOrigin, areaShape, areaSizeFromDrag, fogDraftPoints, fogRegionAt, formatDistance, hitMark, measure, portalAt, sweepPoints, templateMark, type BoardTool, type FogDraft, type Mark } from "./tools";
 import { aimExpiry, expiredAims } from "./aims";
 import { PING_MS, pingPulse } from "./ping";
@@ -317,6 +321,14 @@ export class BoardView {
   private fogDensity: Texture | null = null;
   /** The GM's fog outlines, kept apart so the fog's feathering never blurs them. */
   private fogEdgeGraphics = new Graphics();
+  /** Line of sight (ADR 0044): opaque dark over the map with the viewer's sight polygons cut out, soft-edged. */
+  private sightLayer = new Container();
+  private sightSprite: Sprite | null = null;
+  /** The previous mask, fading out on top of the new one. */
+  private sightFading: Sprite | null = null;
+  private sightFadeStep: ((now: number) => boolean) | null = null;
+  private drawnSight: unknown = null;
+  private drawnSightKey = "";
   private fogLayer = new Container();
   /** The map's average colour, which the fog takes after (null until the map has loaded). */
   private fogBase: Rgb | null = null;
@@ -477,12 +489,14 @@ export class BoardView {
     this.fogMist.eventMode = "none";
     this.fogPuffLayer.eventMode = "none";
     this.fogMist.addChild(this.fogPuffLayer);
+    this.sightLayer.label = "sight-mask";
+    this.sightLayer.eventMode = "none";
     this.fogEdgeGraphics.eventMode = "none";
     this.fogLayer.eventMode = "none";
     this.fogLayer.addChild(this.fogMist, this.fogEdgeGraphics);
     this.wallGraphics.eventMode = "none";
     this.portalGraphics.eventMode = "none";
-    this.world.addChild(this.mapSprite, this.grid, this.fogLayer, this.wallGraphics, this.portalGraphics, this.tokenLayer, this.markLayer, this.fxLayer);
+    this.world.addChild(this.mapSprite, this.grid, this.fogLayer, this.wallGraphics, this.portalGraphics, this.tokenLayer, this.sightLayer, this.markLayer, this.fxLayer);
     this.fxLayer.addChild(this.ghostFootprint);
     this.screenLayer.addChild(this.world);
     this.app.stage.addChild(this.screenLayer, this.screenFxLayer);
@@ -698,6 +712,7 @@ export class BoardView {
     this.syncMap();
     this.syncGrid();
     this.syncWalls();
+    this.syncSight();
     this.syncTokens();
     if (state.templates !== this.drawnTemplates || state.fog !== this.drawnFog) {
       for (const id of this.removing) if (!state.templates[id]) this.removing.delete(id);
@@ -715,6 +730,57 @@ export class BoardView {
     if (this.placement) this.redrawGhost();
     this.syncConditionLoop();
     this.invalidate();
+  }
+
+  /** Darkens everything outside the viewer's sight polygons; draws nothing when `sight` is absent. */
+  private syncSight() {
+    const state = this.state;
+    if (!state) return;
+    const { width, height } = this.boardSize();
+    const cell = state.scene.grid.cellSize;
+    const key = `${width}x${height}@${cell}:${this.fogBase?.join(",") ?? ""}`;
+    if (state.sight === this.drawnSight && key === this.drawnSightKey) return;
+    this.drawnSight = state.sight;
+    this.drawnSightKey = key;
+    let next: Sprite | null = null;
+    if (state.sight) {
+      const { canvas, scale } = makeSightMaskCanvas(state.sight, width, height, cell, sightColor(this.fogBase));
+      next = new Sprite(Texture.from(canvas));
+      next.eventMode = "none";
+      next.scale.set(1 / scale);
+    }
+    this.finishSightFade();
+    const prev = this.sightSprite;
+    this.sightSprite = next;
+    // New mask below, so the old one on top can fade away over it.
+    if (next) this.sightLayer.addChildAt(next, 0);
+    if (!prev) return;
+    if (this.reducedMotion) return this.destroySightSprite(prev);
+    this.sightFading = prev;
+    let start = -1;
+    this.sightFadeStep = (now) => {
+      if (start < 0) start = now;
+      const t = Math.min(1, (now - start) / SIGHT_FADE_MS);
+      prev.alpha = 2 ** (-10 * t); // 1 - ease-out(t)
+      if (t < 1) return true;
+      this.finishSightFade();
+      return false;
+    };
+    this.animations.add(this.sightFadeStep);
+  }
+
+  /** Ends any crossfade in flight, dropping the old mask. */
+  private finishSightFade() {
+    if (this.sightFadeStep) this.animations.delete(this.sightFadeStep);
+    this.sightFadeStep = null;
+    if (this.sightFading) this.destroySightSprite(this.sightFading);
+    this.sightFading = null;
+  }
+
+  private destroySightSprite(sprite: Sprite) {
+    const texture = sprite.texture;
+    sprite.destroy();
+    texture.destroy(true);
   }
 
   /**
@@ -1347,7 +1413,10 @@ export class BoardView {
   private setFogBase(base: Rgb | null) {
     if (!base && !this.fogBase) return;
     this.fogBase = base;
-    if (this.initialized) this.invalidateFog();
+    if (this.initialized) {
+      this.invalidateFog();
+      this.syncSight();
+    }
   }
 
   /**

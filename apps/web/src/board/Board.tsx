@@ -639,6 +639,8 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
         }}
         onClear={() => viewRef.current?.clearMarks()}
         selectOnly={selectOnly}
+        lineOfSight={state.scene.lineOfSight ?? false}
+        onToggleLineOfSight={() => void guarded.command({ type: "scene.setLineOfSight", enabled: !state.scene.lineOfSight })}
       />
       )}
       {overlay}

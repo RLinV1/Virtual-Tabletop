@@ -347,7 +347,12 @@ describe("automatic wall detection through the queue (FR-GM-11, ADR 0029)", () =
 
     // Hollowfrost Keep ships in apps/web/public/img; it has no upload behind it.
     expect(await gm.command({ type: "scene.setMap", map: { url: "/img/map-ice.webp", width: 3269, height: 1882 } })).toMatchObject({ type: "ack" });
-    expect((await detect()).status).toBe(202);
+    // A sampled detection always uses the vision service, even where stored walls exist.
+    const sampled = await fetch(`${server.base}/api/rooms/${room.roomId}/wall-detection`, {
+      method: "POST", headers: { authorization: `Bearer ${room.guestToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ sample: { x: 10, y: 10 } }),
+    });
+    expect(sampled.status).toBe(202);
     const [, data] = queue.only();
     const shipped = await readFile(fileURLToPath(new URL("../../web/public/img/map-ice.webp", import.meta.url)));
     expect(Buffer.from(queue.imageOf(data)!).equals(shipped)).toBe(true);

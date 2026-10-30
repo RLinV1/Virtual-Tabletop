@@ -6,7 +6,7 @@ import { BUILTIN_ASSETS, builtinsMatching, isBuiltin, libraryAssetId } from "../
 
 describe("built-in library assets (builtin-library-assets)", () => {
   it("ships three maps, two goblins and two human portraits with unique built-in ids", () => {
-    expect(BUILTIN_ASSETS.filter((a) => a.kind === "map")).toHaveLength(3);
+    expect(BUILTIN_ASSETS.filter((a) => a.kind === "map")).toHaveLength(4);
     expect(BUILTIN_ASSETS.filter((a) => a.kind === "token")).toHaveLength(4);
     const ids = BUILTIN_ASSETS.map((a) => a.id);
     expect(new Set(ids).size).toBe(ids.length);
@@ -25,6 +25,7 @@ describe("built-in library assets (builtin-library-assets)", () => {
       "The Broken Span": { width: 3344, height: 1882, cellSize: 69.4, offsetX: 10, offsetY: 31 },
       "Hollowfrost Keep": { width: 3269, height: 1882, cellSize: 70, offsetX: 47, offsetY: 46 },
       "Temple of the Green Sun": { width: 2740, height: 1604, cellSize: 70, offsetX: 21, offsetY: 36 },
+      "Sunken Crypt": { width: 2800, height: 1680, cellSize: 70, offsetX: 0, offsetY: 0 },
     };
     for (const [name, e] of Object.entries(expected)) {
       const m = maps[name]!;
