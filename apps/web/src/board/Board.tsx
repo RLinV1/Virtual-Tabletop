@@ -1,4 +1,4 @@
-import { CornersOut } from "@phosphor-icons/react";
+import { CornersOut, Eye } from "@phosphor-icons/react";
 import { Suspense, forwardRef, lazy, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
 import { DEFAULT_TOKEN_COLOR, EMPTY_STATS, type ReplayFrame, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
@@ -6,6 +6,7 @@ import { guardedConnection } from "../net/previewConnection";
 import { DEFAULT_TOOL_OPTIONS, ToolRail, toolFor, type ToolOptions } from "../ui/ToolRail";
 import { usePersistentState } from "../ui/usePersistentState";
 import { BoardFilters } from "./BoardFilters";
+import { gmSightPolygons, viewedTokenIds } from "./gmSightView";
 import { canAnimateDice, type TrayRoll } from "../ui/Die3D";
 import { ThrownDice, type ActiveThrow } from "./ThrownDice";
 import { BoardView, type GmFogView } from "./boardView";
@@ -149,13 +150,25 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
   const [showWalls, setShowWalls] = usePersistentState<boolean>("vtt.ui.gmShowWalls", true, (v): v is boolean => typeof v === "boolean");
   /** GM only: whether this browser draws doors and windows. Players always see the ones they can reach. */
   const [showPortals, setShowPortals] = usePersistentState<boolean>("vtt.ui.gmShowPortals", true, (v): v is boolean => typeof v === "boolean");
+  /** GM only: darken this browser's board to what the selected token sees (gm-token-sight-view). View-only, nothing is sent. */
+  const [tokenView, setTokenView] = useState(false);
+  /** The tokens Token view shows the sight of: the clicked token, plus any Shift-clicked ones. */
+  const [viewedIds, setViewedIds] = useState<string[]>([]);
+  const gmCanSee = you.role === "gm" && !readOnly;
+  const losOn = state.scene.lineOfSight === true;
+  useEffect(() => {
+    if (tokenView && !(gmCanSee && losOn)) setTokenView(false);
+  }, [tokenView, gmCanSee, losOn]);
+  useEffect(() => {
+    if (!tokenView && viewedIds.length > 0) setViewedIds([]);
+  }, [tokenView, viewedIds]);
   const hasFog = Object.keys(state.fog).length > 0;
   const hasPortals = Object.values(state.walls).some((wall) => wall.portal);
   const hasWalls = Object.values(state.walls).some((wall) => !wall.portal);
   /** Strikes waiting for their thrown dice to land, by roll id, oldest first (KAN-76). */
   const waitingStrikes = useRef(new Map<string, { effect: AttackEffect; timer: number }>());
-  const latest = useRef({ state, renderedState, you, gridPreview, onPickTarget, onNukeImpact, gmFog: "tint" as GmFogView, showWalls: true, showPortals: true, readOnly: false, suppressLiveEffects: false });
-  latest.current = { state, renderedState, you, gridPreview, onPickTarget, onNukeImpact, gmFog, showWalls, showPortals, readOnly, suppressLiveEffects };
+  const latest = useRef({ tokenView: false, state, renderedState, boardState: renderedState, you, gridPreview, onPickTarget, onNukeImpact, gmFog: "tint" as GmFogView, showWalls: true, showPortals: true, readOnly: false, suppressLiveEffects: false });
+  latest.current = { tokenView: tokenView && gmCanSee, state, renderedState, boardState: renderedState, you, gridPreview, onPickTarget, onNukeImpact, gmFog, showWalls, showPortals, readOnly, suppressLiveEffects };
   // Sends nothing while previewing as a player, whatever the board is asked to do. Stable for as
   // long as the connection is, so entering and leaving a preview never rebuilds the board view.
   const guarded = useMemo(() => guardedConnection(connection, () => latest.current.readOnly), [connection]);
@@ -169,6 +182,13 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
     return () => clearTimeout(timer);
   }, [refusal]);
   const selected = selectedId ? renderedState.tokens[selectedId] ?? null : null;
+  const viewing = tokenView && gmCanSee ? viewedTokenIds(state, viewedIds) : [];
+  const boardState = useMemo(() => {
+    const sight = gmSightPolygons(state, viewing);
+    return sight ? { ...renderedState, sight } : renderedState;
+  }, [renderedState, state, viewing.join(",")]);
+  latest.current.boardState = boardState;
+  useEffect(() => viewRef.current?.setViewedTokens(viewing), [viewing.join(",")]);
   const [tool, setTool] = useState<BoardTool>({ kind: "select" });
   const [toolOptions, setToolOptions] = useState<ToolOptions>(DEFAULT_TOOL_OPTIONS);
   const toolRef = useRef(tool);
@@ -285,7 +305,12 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
         return result.ok;
       },
       placeToken: (at) => void placeRef.current(at),
-      selectToken: (tokenId) => setSelectedId(tokenId),
+      selectToken: (tokenId, extend) => {
+        // Shift-click adds or removes a token from Token view; the normal selection stays put.
+        if (extend && tokenId && latest.current.tokenView) return setViewedIds((now) => (now.includes(tokenId) ? now.filter((i) => i !== tokenId) : [...now, tokenId]));
+        setSelectedId(tokenId);
+        setViewedIds(tokenId ? [tokenId] : []);
+      },
       cancelPlacement: () => setPlacing(null),
       togglePortal: (wallId, lock) => {
         const portal = latest.current.state.walls[wallId]?.portal;
@@ -314,7 +339,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
       view.setShowPortals(latest.current.showPortals);
       view.setReadOnly(latest.current.readOnly);
       view.setGridPreview(latest.current.gridPreview);
-      view.update(latest.current.renderedState, latest.current.you);
+      view.update(latest.current.boardState, latest.current.you);
       view.setTool(toolRef.current);
       view.setPlacement(ghostRef.current);
     });
@@ -369,8 +394,8 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
   }, [connection]);
 
   useEffect(() => {
-    viewRef.current?.update(renderedState, you);
-  }, [renderedState, you]);
+    viewRef.current?.update(boardState, you);
+  }, [boardState, you]);
 
   useEffect(() => {
     if (replayFrame?.kind !== "event") return;
@@ -580,6 +605,10 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
           <BoardFilters
             value={{ fog: gmFog !== "off", walls: showWalls, portals: showPortals }}
             available={{ fog: hasFog, walls: hasWalls, portals: hasPortals }}
+            sight={gmCanSee && losOn ? {
+              checked: tokenView,
+              onChange: (on) => { setTokenView(on); setViewedIds(on && selectedId ? [selectedId] : []); },
+            } : undefined}
             onChange={(next) => {
               setGmFog(next.fog ? "tint" : "off");
               setShowWalls(next.walls);
@@ -588,6 +617,9 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
           />
         )}
       </div>
+      {tokenView && gmCanSee && viewing.length === 0 && (
+        <p className="board-status" role="status"><Eye size={14} aria-hidden="true" />Select a token to see its view</p>
+      )}
       {gridPreview && <p className="grid-preview-label" role="status">Preview · Not applied</p>}
       {!readOnly && !selectOnly && (
       <ToolRail

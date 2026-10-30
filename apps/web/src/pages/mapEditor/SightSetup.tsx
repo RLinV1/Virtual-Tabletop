@@ -1,10 +1,10 @@
-import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { Eye, EyeSlash, Infinity as InfinityIcon, Plus, Ruler, Trash, X } from "@phosphor-icons/react";
 import { blocksMovement, EMPTY_STATS, filterStateForViewer, snapTokenCenter, viewerSight, type Participant, type Point, type RoomState, type Token, type Wall } from "@vtt/shared";
 import type { EditorConnection } from "../../net/roomConnection";
 import { makeSightMaskCanvas, sightColor } from "../../board/sightMask";
 import { rangeFill } from "../../ui/rangeFill";
-import { MapGuide } from "./EditorGuide";
+import { MapCanvas } from "./MapCanvas";
 import { HudLayout } from "./HudLayout";
 
 const MAX_SQUARES = 60;
@@ -51,7 +51,8 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
   const [drag, setDrag] = useState<{ id: string; at: Point } | null>(null);
   // Where on the token it was grabbed, so it moves with the pointer instead of jumping its centre to it.
   const grab = useRef<Point>({ x: 0, y: 0 });
-  const svgRef = useRef<SVGSVGElement>(null);
+  // What the press that is still down began on, so its release can tell a door click from a map click.
+  const pressed = useRef<Element | null>(null);
   // Doors and windows opened or closed for the preview only: the room's walls don't change.
   const [toggled, setToggled] = useState<ReadonlySet<string>>(new Set());
   const walls = useMemo(
@@ -63,6 +64,19 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
     if (!next.delete(id)) next.add(id);
     return next;
   });
+  // Escape stops placing once a token exists (before that the step is always asking); it then doesn't also close the editor.
+  const canCancel = placing && tokens.length > 0;
+  useEffect(() => {
+    if (!canCancel) return;
+    const esc = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      setPlacing(false);
+    };
+    document.addEventListener("keydown", esc, true);
+    return () => document.removeEventListener("keydown", esc, true);
+  }, [canCancel]);
   const range = state.scene.sightRange ?? null;
   const enabled = state.scene.lineOfSight === true;
 
@@ -113,19 +127,29 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
     setTokens((now) => now.filter((t) => t.id !== id));
     setShown((now) => new Set([...now].filter((x) => x !== id)));
   };
-  // Pointer position in map pixels.
-  const toMap = (e: PointerEvent<SVGElement>): Point | null => {
-    const m = svgRef.current?.getScreenCTM();
-    if (!m) return null;
-    const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(m.inverse());
-    return { x: p.x, y: p.y };
+  // MapCanvas hands over map points; a press on a token starts its drag, on the empty map places a token while placing.
+  const press = (at: Point, e: PointerEvent<SVGSVGElement>) => {
+    const target = e.target as Element;
+    pressed.current = target;
+    if (target.closest(".sight-portal") || e.button !== 0) return;
+    const id = target.closest<SVGGElement>(".sight-test-token")?.dataset.id;
+    const t = tokens.find((x) => x.id === id);
+    if (t) {
+      grab.current = { x: t.position.x - at.x, y: t.position.y - at.y };
+      setShown(new Set([t.id]));
+      setDrag({ id: t.id, at: t.position });
+    } else if (placing) {
+      add(at);
+    }
   };
-  const dragTo = (e: PointerEvent<SVGSVGElement>) => {
-    const p = drag && toMap(e);
-    if (p) setDrag({ id: drag.id, at: clamp({ x: p.x + grab.current.x, y: p.y + grab.current.y }) });
+  const dragTo = (at: Point | null) => {
+    if (drag && at) setDrag({ id: drag.id, at: clamp({ x: at.x + grab.current.x, y: at.y + grab.current.y }) });
   };
   // Alt drops it where it is, as on the board.
-  const drop = (e: PointerEvent<SVGSVGElement>) => {
+  const release = (_at: Point, e: PointerEvent<SVGSVGElement>, moved: boolean) => {
+    const portal = pressed.current?.closest<SVGGElement>(".sight-portal");
+    pressed.current = null;
+    if (portal && !moved && portal.dataset.id) toggle(portal.dataset.id);
     if (!drag) return;
     moveTo(drag.id, e.altKey ? drag.at : place(drag.at));
     setDrag(null);
@@ -133,12 +157,14 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
   const onTokenKey = (t: TestToken) => (e: KeyboardEvent<SVGGElement>) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
+      e.stopPropagation();
       setShown(new Set([t.id]));
       return;
     }
     const step = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
     if (!step) return;
     e.preventDefault();
+    e.stopPropagation();
     moveTo(t.id, place({ x: t.position.x + step[0]! * grid.cellSize, y: t.position.y + step[1]! * grid.cellSize }));
   };
 
@@ -155,10 +181,10 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
           <h3 className="map-editor-heading">Test tokens</h3>
           <button
             type="button" data-guide="sight-add" className="icon-button sight-add" aria-pressed={placing}
-            aria-label={placing ? "Cancel placing" : "Add token"} title={placing ? "Cancel placing" : "Add token"}
+            aria-label="Add token" title={placing ? "Add token (press again or Esc to cancel)" : "Add token"}
             onClick={() => setPlacing(!placing)}
           >
-            {placing ? <X size={18} aria-hidden="true" /> : <Plus size={18} aria-hidden="true" />}
+            <Plus size={18} aria-hidden="true" />
           </button>
         </div>
         {tokens.length === 0 ? (
@@ -195,24 +221,14 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
         )}
       </aside>
       <div className="sight-preview-stage">
-        <MapGuide />
-        <svg
-          ref={svgRef}
+        <MapCanvas
+          map={map} grid={grid} mode={placing ? "place" : "view"} pan={false}
           className={`map-editor-sight-preview${drag ? " is-dragging" : ""}${placing ? " is-placing" : ""}`}
-          viewBox={`0 0 ${map.width} ${map.height}`} preserveAspectRatio="xMidYMid meet"
-          aria-label={placing ? "Sight preview. Click to place a test token, or press Enter to place it in the middle." : "Sight preview"}
-          tabIndex={placing ? 0 : undefined}
+          label={placing ? "Sight preview. Click to place a test token, or press Enter to place it in the middle." : "Sight preview"}
+          onPress={press} onMove={dragTo} onRelease={release} onCancel={() => setDrag(null)}
           onKeyDown={(e) => { if (placing && e.target === e.currentTarget && e.key === "Enter") { e.preventDefault(); add(); } }}
-          onPointerDown={(e) => {
-            if ((e.target as Element).closest(".sight-test-token, .sight-portal")) return;
-            const p = placing && e.button === 0 && toMap(e);
-            if (p) add(p);
-          }}
-          onPointerMove={dragTo}
-          onPointerUp={drop}
-          onPointerCancel={() => setDrag(null)}
         >
-          <image href={map.url} width={map.width} height={map.height} />
+          {() => (<>
           {mask && <image href={mask} width={map.width} height={map.height} opacity={0.78} />}
           {Object.values(walls).filter((w) => !isPortal(w)).map((w) => (
             <line key={w.id} x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y} className="sight-preview-wall" strokeWidth={Math.max(2, grid.cellSize / 20)} />
@@ -223,10 +239,9 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
             const status = open ? "open" : w.portal?.state === "locked" ? "locked" : "closed";
             return (
               <g
-                key={w.id} className={`sight-portal${open ? " is-open" : ""}`} tabIndex={0} role="button" aria-pressed={open}
+                key={w.id} data-id={w.id} className={`sight-portal${open ? " is-open" : ""}`} tabIndex={0} role="button" aria-pressed={open}
                 aria-label={`${kind}, ${status}. Press to ${open ? "close" : "open"} it in this preview.`}
-                onClick={() => toggle(w.id)}
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(w.id); } }}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); toggle(w.id); } }}
               >
                 {/* A wide invisible line so a thin door is easy to click. */}
                 <line x1={w.a.x} y1={w.a.y} x2={w.b.x} y2={w.b.y} className="sight-portal-hit" strokeWidth={Math.max(16, grid.cellSize / 3)} />
@@ -239,20 +254,11 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
             const unseen = !shown.has(t.id) && !preview?.visible.has(t.id);
             return (
               <g
-                key={t.id}
+                key={t.id} data-id={t.id}
                 className={`sight-test-token${unseen ? " is-unseen" : ""}`}
                 tabIndex={0} role="button" aria-pressed={shown.has(t.id)}
                 aria-label={`${t.name}. Drag it, or use the arrow keys to move it one square. Press Enter to show only its sight.`}
                 onKeyDown={onTokenKey(t)}
-                onPointerDown={(e) => {
-                  const p = e.button === 0 && toMap(e);
-                  if (!p) return;
-                  // Capture on the SVG so the drag follows the pointer off the token and off the map.
-                  svgRef.current?.setPointerCapture(e.pointerId);
-                  grab.current = { x: t.position.x - p.x, y: t.position.y - p.y };
-                  setShown(new Set([t.id]));
-                  setDrag({ id: t.id, at: t.position });
-                }}
               >
                 <circle cx={at.x} cy={at.y} r={radius} strokeWidth={Math.max(2, grid.cellSize / 16)} />
                 <text x={at.x} y={at.y} className="sight-test-token-label" fontSize={radius} dominantBaseline="central" textAnchor="middle">
@@ -261,7 +267,8 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
               </g>
             );
           })}
-        </svg>
+          </>)}
+        </MapCanvas>
         {placing && (
           <div className="sight-place-prompt" role="status">
             <span>{tokens.length === 0 ? "Click the map to place a test token." : "Click the map to place another token."}</span>

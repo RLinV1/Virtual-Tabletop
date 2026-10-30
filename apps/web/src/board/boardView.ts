@@ -99,8 +99,8 @@ export interface BoardCallbacks {
   cancelAttack(): void;
   /** The GM clicked a square while placing a new token (place-token-on-board). */
   placeToken(at: Point): void;
-  /** A press on a token that stayed put (a click, not a drag) selects it; a click on bare map clears (null). */
-  selectToken(tokenId: string | null): void;
+  /** A press on a token that stayed put (a click, not a drag) selects it (`extend`: Shift was held); a click on bare map clears (null). */
+  selectToken(tokenId: string | null, extend?: boolean): void;
   /** The GM right-clicked while placing: put the token back. */
   cancelPlacement(): void;
   /**
@@ -289,6 +289,8 @@ export class BoardView {
   private app = new Application();
   /** Token highlighted from the roster (FR-GM-24). */
   private focusedId: string | null = null;
+  /** Tokens the GM is looking through (gm-token-sight-view), ringed with a dashed outline. */
+  private viewedIds = new Set<string>();
   private world = new Container();
   /** Untransformed parent of the map world; screen-space blasts are its sibling. */
   private screenLayer = new Container();
@@ -1010,6 +1012,15 @@ export class BoardView {
     );
     // Force a redraw so the focus ring appears on the newly focused token and clears
     // from the previous one.
+    for (const view of this.tokens.values()) view.drawnKey = "";
+    this.syncTokens();
+    this.invalidate();
+  }
+
+  /** Ring the tokens the GM's Token view is showing the sight of. */
+  setViewedTokens(ids: readonly string[]) {
+    if (ids.length === this.viewedIds.size && ids.every((id) => this.viewedIds.has(id))) return;
+    this.viewedIds = new Set(ids);
     for (const view of this.tokens.values()) view.drawnKey = "";
     this.syncTokens();
     this.invalidate();
@@ -1852,9 +1863,10 @@ export class BoardView {
     const movable = !this.readOnly && can.moveToken(you, token);
     const focused = this.focusedId === token.id;
     const active = this.activeTokenId() === token.id;
+    const viewed = this.viewedIds.has(token.id);
     const key = JSON.stringify([
       token.name, token.size, token.rotation, token.color, token.hidden, owned, movable, grid.cellSize,
-      token.stats, token.conditions, focused, active, token.imageUrl,
+      token.stats, token.conditions, focused, active, viewed, token.imageUrl,
     ]);
     // Every visible token takes presses so a click can select it; only movable ones start a drag.
     view.container.eventMode = "static";
@@ -1876,7 +1888,7 @@ export class BoardView {
     view.label.position.set(0, r + 2);
     this.sharpenLabel(view.label);
 
-    this.drawDecor(view, token, r, focused, active, owned);
+    this.drawDecor(view, token, r, focused, active, owned, viewed);
     this.drawConditions(view, token.conditions, r);
     this.drawConditionLook(view, token.conditions);
   }
@@ -2171,7 +2183,7 @@ export class BoardView {
   }
 
   /** Focus ring, active-turn ring, and the HP bar (FR-TAC-07, FR-GM-21, FR-GM-24). */
-  private drawDecor(view: TokenView, token: Token, r: number, focused: boolean, active: boolean, owned: boolean) {
+  private drawDecor(view: TokenView, token: Token, r: number, focused: boolean, active: boolean, owned: boolean, viewed: boolean) {
     const g = view.decor.clear();
     // Direction remains visible even when the token has no art; labels and HP stay upright.
     const angle = (token.rotation - 90) * Math.PI / 180;
@@ -2189,6 +2201,15 @@ export class BoardView {
     // when colour is not available (FR-TAC-08 applies to the whole board, not just markers).
     if (active) g.circle(0, 0, r + 7).stroke({ width: 4, color: 0xf1c40f });
     if (focused) g.circle(0, 0, r + 3).stroke({ width: 2, color: 0xffffff, alpha: 0.9 });
+    // A dashed ring (gm-token-sight-view), so it differs from the solid ones by shape too.
+    if (viewed) {
+      const ring = r + 5;
+      const step = (Math.PI * 2) / 16;
+      for (let i = 0; i < 16; i++) {
+        const a = i * step;
+        g.moveTo(Math.cos(a) * ring, Math.sin(a) * ring).arc(0, 0, ring, a, a + step * 0.6).stroke({ width: 2.5, color: 0x38bdf8 });
+      }
+    }
 
     const fraction = hpFraction(token.stats);
     if (fraction === null) return;
@@ -2391,7 +2412,7 @@ export class BoardView {
     if (!drag) return;
     // A press that stays put is a click: select the token. Anything further is a drag and moves it.
     const clicked = downAt !== null && Math.hypot(e.global.x - downAt.x, e.global.y - downAt.y) < MIN_MARK_DRAG_PX;
-    if (clicked) this.callbacks.selectToken(drag.tokenId);
+    if (clicked) this.callbacks.selectToken(drag.tokenId, e.shiftKey);
     const token = this.state?.tokens[drag.tokenId];
     const view = this.tokens.get(drag.tokenId);
     if (!drag.movable) return;
