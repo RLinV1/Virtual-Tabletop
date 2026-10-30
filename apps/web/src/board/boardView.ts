@@ -5,11 +5,12 @@ import {
   Container,
   Graphics,
   Matrix,
+  Particle,
+  ParticleContainer,
   Sprite,
   Text,
   Texture,
   Ticker,
-  TilingSprite,
   type FederatedPointerEvent,
 } from "pixi.js";
 import {
@@ -49,7 +50,10 @@ import { playNuke, playStrike, type FxHost, type RunningFx } from "./fx";
 import { loadFxTextures } from "./fxTextures";
 import { armSound, withSound } from "./fxSound";
 import { getClientSettings, graphicsBudget, subscribeGraphicsSettings } from "../ui/clientSettings";
-import { averageColor, fogPalette, makeFogCanvas, makeFogMaskCanvas, type Rgb } from "./fogTexture";
+import { averageColor, fogDistanceField, fogPalette, makeFogDensityCanvas, makeFogDistanceCanvas, type Rgb } from "./fogTexture";
+import { WISP_ANCHOR, layoutFogPuffs, puffPose, type FogPuff } from "./fogPuffs";
+import { fogArt, loadFogArt } from "./fogArt";
+import { FogBody } from "./fogShader";
 import { areaColorValue, areaOrigin, areaShape, areaSizeFromDrag, fogDraftPoints, fogRegionAt, formatDistance, hitMark, measure, portalAt, sweepPoints, templateMark, type BoardTool, type FogDraft, type Mark } from "./tools";
 import { aimExpiry, expiredAims } from "./aims";
 import { PING_MS, pingPulse } from "./ping";
@@ -117,17 +121,8 @@ const MIN_MARK_DRAG_PX = 4;
 const GHOST_ID = "placement-ghost";
 /** How close (screen pixels) a click must be to a fog polygon's first corner to close it. */
 const FOG_CLOSE_PX = 12;
-/** How fast the clouds drift, in board pixels per second, and how often the drift is redrawn. */
-const FOG_DRIFT_PX_PER_S = 38;
-const FOG_DRIFT_INTERVAL_MS = 1000 / 20;
-/** The cloud texture is drawn this many times larger than its 512 px tile, so clouds span several cells. */
-const FOG_CLOUD_SCALE = 2.5;
-/**
- * A second, finer cloud layer over the first: another scale and angle, drifting the other way, so
- * the two tiles never line up and the fog churns instead of sliding. Its opacity over the base.
- */
-const FOG_WISP_SCALE = 1.55;
-const FOG_WISP_ALPHA = 0.55;
+/** The longest step the fog's clock takes in one frame, in seconds, so a stall does not jump it. */
+const FOG_MAX_STEP_S = 0.25;
 /**
  * The GM sees fog as a flat tint over the map and tokens, so what is under it stays visible
  * (gm-view-as-player), with a thin outline in the fog's own pale tone, faint enough not to read as a frame.
@@ -164,6 +159,13 @@ const FIGHT_REFOCUS_MS = 2500;
 const BOARD_FONT = '"Helvetica Neue", Arial, sans-serif';
 /** Longest brush stroke, in points, so one stroke can't grow without bound. */
 const MAX_STROKE_POINTS = 2000;
+
+/** A fog particle's colour: `shade` of the way from the fog's bank colour to its mist colour. */
+function fogTint(dark: Rgb, light: Rgb, shade: number): number {
+  const c = (i: 0 | 1 | 2) => Math.round(dark[i] + (light[i] - dark[i]) * shade);
+  return (c(0) << 16) | (c(1) << 8) | c(2);
+}
+
 /**
  * Tool cursors (KAN-69): 24px SVGs, light shapes with a dark outline so they read on any map.
  * Each hotspot is the point the tool acts on.
@@ -298,29 +300,32 @@ export class BoardView {
    * on top, and anything else under fog is not in a player's state at all (ADR 0016).
    */
   /**
-   * The cloud layers, shown only through `fogMaskSprite`: a low-resolution mask of the regions
-   * with a noise-broken, feathered border, rebuilt only when fog or the grid changes (not on drift).
+   * The players' mist (flowing-fog): the fog body, a shader quad over the part of the board on
+   * screen (`fogShader.ts`), and the puffs and wisps drifting over it, each laid out to stay on the
+   * board. No mask: a stencil mask here corrupted the GM's board after viewing as a player (the mist
+   * is hidden for the GM). The body's distance field and the particles' layout are rebuilt only
+   * when fog or the grid changes.
    */
   private fogMist = new Container();
-  private fogCloudA: TilingSprite | null = null;
-  private fogCloudB: TilingSprite | null = null;
-  private fogMaskSprite = new Sprite(Texture.EMPTY);
-  private fogMaskShape = "";
-  private fogMaskKey = "";
+  private fogBody: FogBody | null = null;
+  private fogPuffLayer = new ParticleContainer({ dynamicProperties: { position: true, rotation: true, vertex: true, color: true } });
+  private fogPuffs: Array<{ puff: FogPuff; particle: Particle }> = [];
+  private fogShape = "";
+  private fogShapeKey = "";
+  /** The fog's distance field, and the procedural clouds the body reads until the painted fog bank loads. */
+  private fogDistance: Texture | null = null;
+  private fogDensity: Texture | null = null;
   /** The GM's fog outlines, kept apart so the fog's feathering never blurs them. */
   private fogEdgeGraphics = new Graphics();
   private fogLayer = new Container();
-  /** The cloudy fog texture, made on first use and repeated across every region. */
-  private fogTexture: Texture | null = null;
   /** The map's average colour, which the fog takes after (null until the map has loaded). */
   private fogBase: Rgb | null = null;
-  /** The fog drift loop is in `animations`. */
+  /** The fog loop is in `animations`; it advances the fog's clock, in seconds. */
   private gmFogView: GmFogView = "tint";
   private readOnly = false;
   private fogLoopRegistered = false;
   private lastFogDraw = 0;
-  private fogOffset = { x: 0, y: 0 };
-  private wispOffset = { x: 0, y: 0 };
+  private fogTime = 0;
   /** Walls and portals. Plain walls reach the GM only; players get the portals they can see (ADR 0030). */
   private wallGraphics = new Graphics();
   private drawnWalls: RoomState["walls"] | null = null;
@@ -440,6 +445,13 @@ export class BoardView {
   async init() {
     // Fetched in the background: until they arrive, attacks draw their vector look.
     void loadFxTextures();
+    // Until the painted fog arrives, the fog body reads procedural clouds and has no puffs.
+    void loadFogArt().then((art) => {
+      if (!art || !this.initialized) return;
+      this.fogBody?.setBank(art.bank);
+      this.fogShape = "";
+      this.invalidateFog();
+    });
     armSound();
     await this.app.init({
       width: Math.max(1, this.host.clientWidth),
@@ -463,11 +475,11 @@ export class BoardView {
     this.measureLabel.visible = false;
     this.markLayer.addChild(this.marksGraphics, this.overlayGraphics, this.measureLabel);
     this.fogMist.eventMode = "none";
-    this.fogMaskSprite.eventMode = "none";
-    this.fogMist.mask = this.fogMaskSprite;
+    this.fogPuffLayer.eventMode = "none";
+    this.fogMist.addChild(this.fogPuffLayer);
     this.fogEdgeGraphics.eventMode = "none";
     this.fogLayer.eventMode = "none";
-    this.fogLayer.addChild(this.fogMaskSprite, this.fogMist, this.fogEdgeGraphics);
+    this.fogLayer.addChild(this.fogMist, this.fogEdgeGraphics);
     this.wallGraphics.eventMode = "none";
     this.portalGraphics.eventMode = "none";
     this.world.addChild(this.mapSprite, this.grid, this.fogLayer, this.wallGraphics, this.portalGraphics, this.tokenLayer, this.markLayer, this.fxLayer);
@@ -524,6 +536,9 @@ export class BoardView {
       // Keep world coordinates and camera unchanged when only pixel density changes.
       this.app.renderer.resize(this.app.screen.width, this.app.screen.height, Math.min(window.devicePixelRatio || 1, graphicsBudget().resolution));
       for (const entry of [...this.fxRuns]) this.endFx(entry);
+      // The fog's particle budget follows the quality setting.
+      this.fogShape = "";
+      if (this.state) this.invalidateFog();
       this.motionChanged();
       this.invalidate();
     });
@@ -641,6 +656,11 @@ export class BoardView {
     this.stopMotionWatch?.();
     this.hatch?.destroy(true);
     this.hatch = null;
+    // The fog art is shared by every board; only this board's own fog textures go.
+    this.fogDistance?.destroy(true);
+    this.fogDistance = null;
+    this.fogDensity?.destroy(true);
+    this.fogDensity = null;
     this.stopSettingsWatch?.();
     document.removeEventListener("visibilitychange", this.onVisibilityChange);
     this.viewListeners.clear();
@@ -1208,7 +1228,6 @@ export class BoardView {
     const edge = this.fogEdgeGraphics.clear();
     if (!state) {
       this.fogMist.visible = false;
-      this.fogMaskSprite.visible = false;
       return;
     }
     // Viewing as a player, `you` is that player, so fog is drawn exactly as they see it.
@@ -1219,7 +1238,6 @@ export class BoardView {
     // Only players get the mist; the GM sees a flat tint, and nothing at all with fog switched off.
     const mist = !gm && shown.length + pending.length > 0;
     this.fogMist.visible = mist;
-    this.fogMaskSprite.visible = mist;
     if (mist) {
       this.syncFogMist(state, [...shown, ...pending]);
       this.driftFog();
@@ -1238,46 +1256,74 @@ export class BoardView {
     this.syncFogLoop();
   }
 
-  /** Builds the mask (when fog or the grid changed) and the two cloud layers it reveals. */
+  /**
+   * Builds the fog body and colours it; when fog or the grid changed, also its distance field and
+   * the puffs and wisps.
+   */
   private syncFogMist(state: RoomState, regions: Point[][]) {
     const { width, height } = this.boardSize();
     const cell = state.scene.grid.cellSize;
-    const key = `${width}x${height}x${cell}`;
-    const cloud = this.fogCloud();
-    if (!this.fogCloudA || !this.fogCloudB) {
-      this.fogCloudA = new TilingSprite({ texture: cloud, width, height });
-      this.fogCloudB = new TilingSprite({ texture: cloud, width, height });
-      this.fogCloudA.eventMode = "none";
-      this.fogCloudB.eventMode = "none";
-      this.fogCloudA.tileScale.set(FOG_CLOUD_SCALE);
-      this.fogCloudB.tileScale.set(FOG_WISP_SCALE);
-      this.fogCloudB.alpha = FOG_WISP_ALPHA;
-      this.fogMist.addChild(this.fogCloudA, this.fogCloudB);
+    const art = fogArt();
+    if (!this.fogBody) {
+      this.fogDensity ??= Texture.from(makeFogDensityCanvas());
+      this.fogDensity.source.style.addressMode = "repeat";
+      this.fogBody = new FogBody(art?.bank ?? this.fogDensity, Texture.EMPTY);
+      this.fogMist.addChildAt(this.fogBody.mesh, 0);
     }
-    if (this.fogCloudA.texture !== cloud) {
-      this.fogCloudA.texture = cloud;
-      this.fogCloudB.texture = cloud;
-    }
+    const { dark, light } = fogPalette(this.fogBase);
+    this.fogBody.setPalette(dark, light);
+    const tint = (shade: number) => fogTint(dark, light, shade);
+    for (const { puff, particle } of this.fogPuffs) particle.tint = tint(puff.shade);
     // Pending and revealing regions change the shape too, so the key is the regions themselves.
+    const key = `${width}x${height}x${cell}`;
     const shape = JSON.stringify(regions);
-    if (key === this.fogMaskKey && shape === this.fogMaskShape) return;
-    this.fogMaskKey = key;
-    this.fogMaskShape = shape;
-    const { canvas, scale } = makeFogMaskCanvas(regions, width, height, cell);
-    const old = this.fogMaskSprite.texture;
-    this.fogMaskSprite.texture = Texture.from(canvas);
-    if (old !== Texture.EMPTY) old.destroy(true);
-    this.fogMaskSprite.scale.set(1 / scale);
+    if (key === this.fogShapeKey && shape === this.fogShape) return;
+    this.fogShapeKey = key;
+    this.fogShape = shape;
+    const field = fogDistanceField(regions, width, height, cell);
+    const old = this.fogDistance;
+    this.fogDistance = Texture.from(makeFogDistanceCanvas(field));
+    this.fogBody.setDistance(this.fogDistance, field.cols, field.rows, field.scale, cell);
+    old?.destroy(true);
+    this.fogPuffLayer.removeParticles();
+    this.fogPuffs = [];
+    if (art) {
+      for (const puff of layoutFogPuffs(regions, { width, height }, cell, graphicsBudget().fogPuffs)) {
+        const wisp = puff.kind === "wisp";
+        const particle = new Particle({
+          texture: wisp ? art.wisps[puff.art]! : art.puffs[puff.art]!,
+          anchorX: wisp ? WISP_ANCHOR : 0.5,
+          anchorY: 0.5,
+          tint: tint(puff.shade),
+        });
+        this.fogPuffLayer.addParticle(particle);
+        this.fogPuffs.push({ puff, particle });
+      }
+    }
+    this.poseFogPuffs();
+  }
+
+  /** Each puff and wisp where the fog's clock puts it. */
+  private poseFogPuffs() {
+    for (const { puff, particle } of this.fogPuffs) {
+      const pose = puffPose(puff, this.fogTime);
+      // A puff's size is its picture's side, a wisp's its picture's width.
+      const scale = (puff.size / particle.texture.frame.width) * pose.scale;
+      particle.x = pose.x;
+      particle.y = pose.y;
+      particle.rotation = pose.rotation;
+      particle.scaleX = scale;
+      particle.scaleY = scale;
+      particle.alpha = pose.alpha;
+    }
   }
 
   /**
-   * Slides the cloud layers; the mask stays put. The layers only cover the part of the board on
-   * screen: a mask filter allocates a texture the size of what it masks, which at high zoom over a
-   * whole map is far past what the GPU allows.
+   * Fits the fog body to the part of the board on screen, so the shader runs only for pixels that
+   * show, at any zoom.
    */
   private driftFog() {
-    const a = this.fogCloudA, b = this.fogCloudB;
-    if (!a || !b || !this.fogMist.visible) return;
+    if (!this.fogBody || !this.fogMist.visible) return;
     const { width, height } = this.boardSize();
     const k = this.world.scale.x;
     const screen = this.app.screen;
@@ -1285,13 +1331,8 @@ export class BoardView {
     const y0 = Math.max(0, Math.floor(-this.world.y / k) - 1);
     const x1 = Math.min(width, Math.ceil((screen.width - this.world.x) / k) + 1);
     const y1 = Math.min(height, Math.ceil((screen.height - this.world.y) / k) + 1);
-    const w = Math.max(1, x1 - x0), h = Math.max(1, y1 - y0);
-    for (const [layer, drift] of [[a, this.fogOffset], [b, this.wispOffset]] as const) {
-      layer.position.set(x0, y0);
-      layer.width = w;
-      layer.height = h;
-      layer.tilePosition.set(drift.x - x0, drift.y - y0);
-    }
+    this.fogBody.setRect(x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0));
+    this.fogBody.setTime(this.fogTime);
   }
 
   /** Puts the fog over the tokens (`covering`) or back under the walls, only when that changes. */
@@ -1306,23 +1347,12 @@ export class BoardView {
   private setFogBase(base: Rgb | null) {
     if (!base && !this.fogBase) return;
     this.fogBase = base;
-    this.fogTexture?.destroy(true);
-    this.fogTexture = null;
     if (this.initialized) this.invalidateFog();
   }
 
-  /** The seamless cloud texture, drawn once on first use. */
-  private fogCloud(): Texture {
-    if (!this.fogTexture) {
-      this.fogTexture = Texture.from(makeFogCanvas(this.fogBase));
-      this.fogTexture.source.style.addressMode = "repeat";
-    }
-    return this.fogTexture;
-  }
-
   /**
-   * Runs the fog drift only while fog exists, the page is shown, motion is allowed, and the
-   * viewer is a player: the GM's flat tint has no clouds, so there is nothing to animate.
+   * Runs the fog only while fog exists, the page is shown, motion is allowed, and the viewer is a
+   * player: the GM's flat tint has no clouds, so there is nothing to animate.
    */
   private fogLoopWanted() {
     const any = Object.keys(this.state?.fog ?? {}).length > 0 || this.pendingFog.length > 0;
@@ -1343,14 +1373,14 @@ export class BoardView {
       this.fogLoopRegistered = false;
       return false;
     }
-    if (now - this.lastFogDraw < FOG_DRIFT_INTERVAL_MS) {
+    if (now - this.lastFogDraw < graphicsBudget().frameMs - 1) {
       this.stepSkipped = true;
       return true;
     }
     const dt = this.lastFogDraw === 0 ? 0 : (now - this.lastFogDraw) / 1000;
     this.lastFogDraw = now;
-    this.fogOffset = { x: this.fogOffset.x + FOG_DRIFT_PX_PER_S * dt, y: this.fogOffset.y + FOG_DRIFT_PX_PER_S * 0.35 * dt };
-    this.wispOffset = { x: this.wispOffset.x - FOG_DRIFT_PX_PER_S * 1.6 * dt, y: this.wispOffset.y + FOG_DRIFT_PX_PER_S * 0.6 * dt };
+    this.fogTime += Math.min(dt, FOG_MAX_STEP_S);
+    this.poseFogPuffs();
     this.driftFog();
     return true;
   };
