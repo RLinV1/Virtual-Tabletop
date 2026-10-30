@@ -192,6 +192,7 @@ export function MapCanvas({
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={(e) => {
+          if (press.current) onCancel?.();
           press.current = null;
           endPointer(e);
         }}

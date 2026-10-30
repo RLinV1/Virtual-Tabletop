@@ -16,3 +16,7 @@ export function gmSightPolygons(state: Pick<RoomState, "scene" | "walls" | "toke
   const tokens = Object.fromEntries(own.map((id) => [id, { ...state.tokens[id]!, hidden: false, ownerIds: [VIEWER_ID] }]));
   return viewerSight({ scene: state.scene, walls: state.walls, fog: state.fog, tokens }, VIEWER);
 }
+
+/** Changes only when something that shapes the viewed tokens' sight does, so unrelated events leave the board mask alone. Scene, walls and fog are compared by reference. */
+export const sightKey = (state: Pick<RoomState, "tokens">, ids: readonly string[]): string =>
+  ids.map((id) => { const t = state.tokens[id]; return t ? `${id}:${t.position.x},${t.position.y},${t.size},${t.hidden}` : id; }).join("|");

@@ -6,7 +6,7 @@ import { guardedConnection } from "../net/previewConnection";
 import { DEFAULT_TOOL_OPTIONS, ToolRail, toolFor, type ToolOptions } from "../ui/ToolRail";
 import { usePersistentState } from "../ui/usePersistentState";
 import { BoardFilters } from "./BoardFilters";
-import { gmSightPolygons, viewedTokenIds } from "./gmSightView";
+import { gmSightPolygons, sightKey, viewedTokenIds } from "./gmSightView";
 import { canAnimateDice, type TrayRoll } from "../ui/Die3D";
 import { ThrownDice, type ActiveThrow } from "./ThrownDice";
 import { BoardView, type GmFogView } from "./boardView";
@@ -167,8 +167,8 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
   const hasWalls = Object.values(state.walls).some((wall) => !wall.portal);
   /** Strikes waiting for their thrown dice to land, by roll id, oldest first (KAN-76). */
   const waitingStrikes = useRef(new Map<string, { effect: AttackEffect; timer: number }>());
-  const latest = useRef({ tokenView: false, state, renderedState, boardState: renderedState, you, gridPreview, onPickTarget, onNukeImpact, gmFog: "tint" as GmFogView, showWalls: true, showPortals: true, readOnly: false, suppressLiveEffects: false });
-  latest.current = { tokenView: tokenView && gmCanSee, state, renderedState, boardState: renderedState, you, gridPreview, onPickTarget, onNukeImpact, gmFog, showWalls, showPortals, readOnly, suppressLiveEffects };
+  const latest = useRef({ tokenView: false, state, renderedState, boardState: renderedState, you, gridPreview, onPickTarget, onNukeImpact, gmFog: "tint" as GmFogView, showWalls: true, showPortals: true, readOnly: false, suppressLiveEffects: false, viewing: [] as string[] });
+  latest.current = { tokenView: tokenView && gmCanSee, state, renderedState, boardState: renderedState, you, gridPreview, onPickTarget, onNukeImpact, gmFog, showWalls, showPortals, readOnly, suppressLiveEffects, viewing: [] };
   // Sends nothing while previewing as a player, whatever the board is asked to do. Stable for as
   // long as the connection is, so entering and leaving a preview never rebuilds the board view.
   const guarded = useMemo(() => guardedConnection(connection, () => latest.current.readOnly), [connection]);
@@ -181,13 +181,16 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
     const timer = setTimeout(() => setRefusal(null), 4000);
     return () => clearTimeout(timer);
   }, [refusal]);
+  /** Closing the token panel deselects the token, and Token view goes with it. */
+  const deselect = () => { setSelectedId(null); setViewedIds([]); };
   const selected = selectedId ? renderedState.tokens[selectedId] ?? null : null;
   const viewing = tokenView && gmCanSee ? viewedTokenIds(state, viewedIds) : [];
-  const boardState = useMemo(() => {
-    const sight = gmSightPolygons(state, viewing);
-    return sight ? { ...renderedState, sight } : renderedState;
-  }, [renderedState, state, viewing.join(",")]);
+  const sightId = sightKey(state, viewing);
+  // Keyed on what shapes the sight, so an unrelated event keeps the same array and the mask is not rebuilt.
+  const sight = useMemo(() => gmSightPolygons(state, viewing), [state.scene, state.walls, state.fog, sightId]);
+  const boardState = useMemo(() => (sight ? { ...renderedState, sight } : renderedState), [renderedState, sight]);
   latest.current.boardState = boardState;
+  latest.current.viewing = viewing;
   useEffect(() => viewRef.current?.setViewedTokens(viewing), [viewing.join(",")]);
   const [tool, setTool] = useState<BoardTool>({ kind: "select" });
   const [toolOptions, setToolOptions] = useState<ToolOptions>(DEFAULT_TOOL_OPTIONS);
@@ -338,6 +341,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
       view.setShowWalls(latest.current.showWalls);
       view.setShowPortals(latest.current.showPortals);
       view.setReadOnly(latest.current.readOnly);
+      view.setViewedTokens(latest.current.viewing);
       view.setGridPreview(latest.current.gridPreview);
       view.update(latest.current.boardState, latest.current.you);
       view.setTool(toolRef.current);
@@ -650,10 +654,10 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
           state={state}
           you={you}
           readOnly={readOnly}
-          onClose={() => setSelectedId(null)}
+          onClose={deselect}
           // Out of the way of the editor and the placement ghost.
-          onEdit={onEditToken && (() => { setSelectedId(null); onEditToken(selected.id); })}
-          onDuplicate={() => { setSelectedId(null); duplicateToken(selected.id); }}
+          onEdit={onEditToken && (() => { deselect(); onEditToken(selected.id); })}
+          onDuplicate={() => { deselect(); duplicateToken(selected.id); }}
         />
       )}
       {placing && (

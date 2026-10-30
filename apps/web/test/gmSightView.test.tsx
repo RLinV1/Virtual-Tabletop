@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { EMPTY_STATS, type RoomState, type Token, type Wall } from "@vtt/shared";
 import { BoardFilters } from "../src/board/BoardFilters";
-import { gmSightPolygons, viewedTokenIds } from "../src/board/gmSightView";
+import { gmSightPolygons, sightKey, viewedTokenIds } from "../src/board/gmSightView";
 import { room } from "./mapEditorHarness";
 
 afterEach(cleanup);
@@ -62,5 +62,15 @@ describe("GM token view (FR-GM-19)", () => {
     expect(onChange).not.toHaveBeenCalled();
     rerender(<BoardFilters value={flags} available={flags} onChange={onChange} sight={{ checked: true, onChange: pick }} />);
     expect(screen.getByText("Shift-click to add tokens")).toBeTruthy();
+  });
+});
+
+describe("sightKey (FR-GM-19)", () => {
+  it("is stable for unrelated changes and changes when a viewed token moves", () => {
+    const s = state();
+    const key = sightKey(s, ["a"]);
+    expect(sightKey({ tokens: { ...s.tokens, b: tok("b", 650) } }, ["a"])).toBe(key);
+    expect(sightKey({ tokens: { ...s.tokens, a: tok("a", 120) } }, ["a"])).not.toBe(key);
+    expect(sightKey({ tokens: { ...s.tokens, a: tok("a", 100, true) } }, ["a"])).not.toBe(key);
   });
 });

@@ -225,7 +225,7 @@ export function SightSetup({ connection, state }: { connection: EditorConnection
           map={map} grid={grid} mode={placing ? "place" : "view"} pan={false}
           className={`map-editor-sight-preview${drag ? " is-dragging" : ""}${placing ? " is-placing" : ""}`}
           label={placing ? "Sight preview. Click to place a test token, or press Enter to place it in the middle." : "Sight preview"}
-          onPress={press} onMove={dragTo} onRelease={release} onCancel={() => setDrag(null)}
+          onPress={press} onMove={dragTo} onRelease={release} onCancel={() => { pressed.current = null; setDrag(null); }}
           onKeyDown={(e) => { if (placing && e.target === e.currentTarget && e.key === "Enter") { e.preventDefault(); add(); } }}
         >
           {() => (<>
