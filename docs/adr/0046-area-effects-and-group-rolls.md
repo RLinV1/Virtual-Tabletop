@@ -67,7 +67,7 @@ Undo does not reopen the effect, for two reasons:
 
 ### Visibility (FR-GM-22, FR-GM-23)
 
-- **Group roll.** A GM-only group roll never reaches a player. A public one reaches players with the entries for concealed tokens removed: hidden tokens, unowned tokens under fog, and entries marked `hidden`. Entries are removed rather than shown as "Unknown", so the number of entries reveals nothing. A roll with no visible entries is withheld entirely.
+- **Group roll.** A GM-only group roll never reaches a player. A public one reaches players with the entries for concealed tokens removed: hidden tokens, unowned tokens under fog or out of the player's line of sight (ADR 0044), and entries marked `hidden`. Entries are removed rather than shown as "Unknown", so the number of entries reveals nothing. A roll with no visible entries is withheld entirely.
 - **Area effect.** One projection, `areaEffectForViewer`, is used by both `filterStateForViewer` and `filterEventForViewer`:
   - every target's save becomes `null`;
   - concealed targets, and their per-target damage results, are removed;
@@ -87,4 +87,7 @@ Undo does not reopen the effect, for two reasons:
 - This adds new state, commands and events. No existing command or event changes meaning.
 - Every reader of `rolls` narrows on `isGroupRoll`, and the compiler finds each one.
 - An open effect counts as one pending ruling in the GM's Rulings list, Play tab badge and initiative reminder (`attack-rulings`).
+- A target concealed from a player when the roll or effect started, but later deleted, counts as visible to them, as old attack rolls already do (ADR 0044). The player may then see its name in a group roll entry or the open effect, and an effect withheld from them may reach them. Accepted.
+- A group roll entry or effect target concealed only by line of sight shows up once the token comes into view, because concealment follows current visibility (ADR 0044). Only entries marked `hidden` (hidden tokens, and unowned tokens under fog when rolled) stay concealed for good. Accepted.
+- A resolve is one batch: the player's visible HP and condition changes, a redacted seq for each change to a target they can't see, then `AreaEffectResolved`. Any redacted seqs in that batch tell the player that at least one concealed target was affected, though not which one or how. Other batched commands already have this side channel. Accepted.
 - This leaves out players making group rolls, rolling their own saves, a DC with automatic outcomes, and several open effects at once.
