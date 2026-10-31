@@ -6,6 +6,8 @@ import { gridsEqual, newGridPreparation, newGridSuggestionSession, parseGridDraf
  * image and its grid draft, held by the GM's browser only. Nothing reaches the room until Apply.
  */
 export interface MapPrep {
+  /** Explicitly discard the library base instead of reinterpreting its cell indices. */
+  resetTerrain?: boolean;
   map: MapImage;
   /** The grid the draft started from, to tell an edited draft from an untouched one. */
   initial: GridSpec;
@@ -33,13 +35,13 @@ export function startPrep(map: MapImage, savedGrid: GridSpec | null | undefined,
 /** Whether closing would lose alignment work: the draft no longer matches where it started. */
 export function prepDirty(prep: MapPrep): boolean {
   const parsed = parseGridDraft(prep.draft, prep.map);
-  return parsed === null || !gridsEqual(parsed, prep.initial) || !sameValue(prep.walls, prep.initialWalls);
+  return prep.resetTerrain === true || parsed === null || !gridsEqual(parsed, prep.initial) || !sameValue(prep.walls, prep.initialWalls);
 }
 
 /** The one command Apply sends: map and grid together, a single `MapSet` (ADR 0004). Null while the grid is invalid. */
 export function prepCommand(prep: MapPrep, tokenPolicy?: MapTokenPolicy): Extract<Command, { type: "scene.setMap" }> | null {
   const grid = parseGridDraft(prep.draft, prep.map);
-  return grid ? { type: "scene.setMap", map: prep.map, grid, ...(prep.map.assetId ? { includeLibraryBoard: true } : {}), ...(tokenPolicy ? { tokenPolicy } : {}) } : null;
+  return grid ? { type: "scene.setMap", map: prep.map, grid, ...(prep.map.assetId ? { includeLibraryBoard: true } : {}), ...(prep.resetTerrain ? { resetTerrain: true } : {}), ...(tokenPolicy ? { tokenPolicy } : {}) } : null;
 }
 
 /** The choices for tokens already on a map that is about to be replaced (KAN-67, ADR 0042). */

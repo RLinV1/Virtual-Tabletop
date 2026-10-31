@@ -1,16 +1,19 @@
+import { paintTerrain, terrainCells, compressTerrain, TerrainRuns, type PaintRun, type TerrainRun } from "@vtt/shared";
 import {
   MAX_WALLS_PER_ADD, MAX_WALLS_PER_REMOVE,
   polygonArea, wallsFitMap, removePortalOverlaps, sameValue,
-  type CommandInput, type FogRegion, type Point, type Portal, type RoomState, type Wall,
+  type PreparationEdit, type CommandInput, type FogRegion, type Point, type Portal, type RoomState, type Wall,
 } from "@vtt/shared";
 
 /**
  * The map editor's private copy of the room's walls and fog (map-editor-drafts). The Walls and Fog
- * steps edit it; nothing reaches the room until Save sends the difference with existing commands.
+ * steps edit it; Save submits their differences as one atomic preparation command.
  */
 export interface MapDraft {
   /** The applied map this draft belongs to. */
   mapUrl: string;
+  terrain?: TerrainRun[];
+  terrainContext?: { boardEpoch: number; revision: number };
   walls: Record<string, Wall>;
   fog: Record<string, FogRegion>;
   /** Line of sight on or off (Sight step). */
@@ -22,8 +25,8 @@ export interface MapDraft {
 /** Walls and fog drawn in the editor carry ids with this prefix; the room gives them real ones on Save. */
 export const DRAFT_ID = "draft:";
 
-export function draftFrom(state: Pick<RoomState, "scene" | "walls" | "fog">): MapDraft {
-  return { mapUrl: state.scene.map?.url ?? "", walls: state.walls, fog: state.fog, lineOfSight: state.scene.lineOfSight ?? false, sightRange: state.scene.sightRange ?? null };
+export function draftFrom(state: Pick<RoomState, "scene" | "walls" | "fog"> & Partial<Pick<RoomState, "terrain" | "boardEpoch" | "terrainRevision">>): MapDraft {
+  return { terrain: state.terrain?.base, terrainContext: { boardEpoch: state.boardEpoch ?? 0, revision: state.terrainRevision ?? 0 }, mapUrl: state.scene.map?.url ?? "", walls: state.walls, fog: state.fog, lineOfSight: state.scene.lineOfSight ?? false, sightRange: state.scene.sightRange ?? null };
 }
 
 const pointKey = (p: Point) => `${Math.round(p.x * 10)},${Math.round(p.y * 10)}`;
@@ -76,9 +79,9 @@ function matchEntities<T extends { id: string }>(room: Record<string, T>, draft:
   return matches;
 }
 
-export function planDraftSave(room: Pick<RoomState, "scene" | "walls" | "fog">, draft: MapDraft): CommandInput[] {
+export function planDraftSave(room: Pick<RoomState, "scene" | "walls" | "fog"> & Partial<Pick<RoomState, "terrain" | "boardEpoch" | "terrainRevision">>, draft: MapDraft): CommandInput[] {
   if (room.scene.map?.url !== draft.mapUrl) throw new Error("The map changed. Reopen the editor before saving.");
-  const commands: CommandInput[] = [];
+  const commands: PreparationEdit[] = [];
   const fogMatches = matchEntities(room.fog, draft.fog, fogKey);
 
   const roomWalls = Object.values(room.walls);
@@ -107,17 +110,28 @@ export function planDraftSave(room: Pick<RoomState, "scene" | "walls" | "fog">, 
   const removeIds = Object.values(room.fog).filter((f) => !retainedFogIds.has(f.id)).map((f) => f.id);
   const add = Object.values(draft.fog).filter((f) => !fogMatches.has(f.id)).map(fogAdd);
   if (removeIds.length > 0 || add.length > 0) commands.push({ type: "fog.replace", removeIds, add });
-  const sight: CommandInput[] = [];
+  if (!sameValue(room.terrain?.base ?? [], draft.terrain ?? [])) {
+    const old = terrainCells(room.terrain?.base ?? []), next = terrainCells(draft.terrain ?? []);
+    const removed = new Map([...old].filter(([key]) => !next.has(key)));
+    const changed = new Map([...next].filter(([key, kind]) => old.get(key) !== kind));
+    const paint: PaintRun[] = [...compressTerrain(removed).map((r) => ({ ...r, kind: null })), ...compressTerrain(changed)];
+    const context = draft.terrainContext ?? { boardEpoch: room.boardEpoch ?? 0, revision: room.terrainRevision ?? 0 };
+    // A run has bounded coordinates; 256 runs leave ample room below the 32-KiB paint cap.
+    for (const [index, part] of chunks(paint, 256).entries()) commands.push({ type: "terrain.paint", layerId: "base", paint: part, context: { ...context, revision: context.revision + index } });
+  }
+  const sight: PreparationEdit[] = [];
   if ((room.scene.lineOfSight ?? false) !== draft.lineOfSight) sight.push({ type: "scene.setLineOfSight", enabled: draft.lineOfSight });
   if ((room.scene.sightRange ?? null) !== draft.sightRange) sight.push({ type: "scene.setSightRange", range: draft.sightRange });
-  return [...commands.map((command) => ({ ...command, expectedMapUrl: draft.mapUrl })), ...sight];
+  const edits = [...commands.map((command) => command.type === "terrain.paint" ? command : { ...command, expectedMapUrl: draft.mapUrl }), ...sight];
+  return edits.length ? [{ type: "scene.savePreparation", expectedMapUrl: draft.mapUrl,
+    context: draft.terrainContext ?? { boardEpoch: room.boardEpoch ?? 0, revision: room.terrainRevision ?? 0 }, edits }] : [];
 }
 
 /** Whether two walls are the same kind of portal, or both plain. */
 const samePortal = (a: Portal | undefined, b: Portal | undefined) => a?.kind === b?.kind && a?.state === b?.state;
 
 /** Whether Save would send anything. */
-export const draftDirty = (room: Pick<RoomState, "scene" | "walls" | "fog">, draft: MapDraft) => room.scene.map?.url === draft.mapUrl && planDraftSave(room, draft).length > 0;
+export const draftDirty = (room: Pick<RoomState, "scene" | "walls" | "fog"> & Partial<Pick<RoomState, "terrain" | "boardEpoch" | "terrainRevision">>, draft: MapDraft) => room.scene.map?.url === draft.mapUrl && planDraftSave(room, draft).length > 0;
 
 type FogAdd = Extract<CommandInput, { type: "fog.add" }>["region"];
 
@@ -133,6 +147,7 @@ const fogPoints = (region: FogAdd): Point[] => region.shape === "rect"
 
 /** Why the server would refuse this wall or fog addition on a map of this size, or null: the draft only holds what Save can send. */
 export function draftCommandProblem(command: CommandInput, map: { width: number; height: number }): string | null {
+  if (command.type === "terrain.paint" && !TerrainRuns.safeParse(paintTerrain([], command.paint)).success) return "Too many terrain cells.";
   if (command.type === "wall.add" || command.type === "wall.update") {
     const walls = command.type === "wall.add" ? command.walls : [command.wall];
     if (walls.some((w) => w.a.x === w.b.x && w.a.y === w.b.y)) return "A wall needs two different ends.";
@@ -149,6 +164,7 @@ export function draftCommandProblem(command: CommandInput, map: { width: number;
  */
 export function applyToDraft(draft: MapDraft, command: CommandInput, newId: () => string): MapDraft | null {
   switch (command.type) {
+    case "terrain.paint": return { ...draft, terrain: paintTerrain(draft.terrain ?? [], command.paint) };
     case "wall.add": {
       const walls = { ...draft.walls };
       for (const wall of command.walls) {

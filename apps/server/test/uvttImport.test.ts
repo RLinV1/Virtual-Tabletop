@@ -48,8 +48,8 @@ describe("private atomic UVTT room import/export (KAN-43/44/49, FR-GM-06/07/12/2
     expect(gm.seq).toBe(counts[0]); expect([gm2.rawLog.length, alice.rawLog.length, bob.rawLog.length]).toEqual(counts.slice(1));
     expect(JSON.stringify(prep)).not.toContain('"image"');
     const hero = Object.values(gm.state.tokens).find((t) => t.name === "Hero")!;
-    await ok(alice, { type: "token.move", tokenId: hero.id, to: { x: 243, y: 163 } });
-    await gm.waitForSeq(alice.seq);
+    await ok(gm, { type: "token.move", tokenId: hero.id, to: { x: 243, y: 163 }, reposition: true });
+    await gm2.waitForSeq(gm.seq);
     const before = structuredClone(gm.state); const oldSeq = gm.seq;
     const offsets = [alice.rawLog.length, bob.rawLog.length];
     const ack = await ok(gm2, { type: "scene.importUVTT", importId: prep.id, revision: prep.revision });
