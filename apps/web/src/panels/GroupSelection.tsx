@@ -2,7 +2,7 @@ import { X } from "@phosphor-icons/react";
 import type { RoomState } from "@vtt/shared";
 
 /**
- * The GM's group selection (ADR 0044): the tokens a group roll or an area effect is for. Built on
+ * The GM's group selection (ADR 0046): the tokens a group roll or an area effect is for. Built on
  * the board with Shift-click or From template, edited here. Local to the GM's screen: nothing is
  * sent until a roll is made.
  */

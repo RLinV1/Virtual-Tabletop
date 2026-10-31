@@ -129,14 +129,14 @@ export function ReplayBar({ roomId, token, onShow, onExit }: {
         </button>
       </div>
       <div className="replay-row">
-        <button type="button" className="tool-button" onClick={() => step(-1)} disabled={!replay || index === 0} aria-label="Previous step">
+        <button type="button" className="tool-button" onClick={() => step(-1)} disabled={!replay || index === 0} aria-label="Back one step">
           <CaretLeft size={16} aria-hidden="true" /> Back
         </button>
         <button type="button" className="tool-button" onClick={togglePlay} disabled={!replay || count === 0}>
           {playing ? <Pause size={16} aria-hidden="true" /> : <Play size={16} aria-hidden="true" />}
           {playing ? "Pause" : "Play"}
         </button>
-        <button type="button" className="tool-button" onClick={() => step(1)} disabled={!replay || index === count} aria-label="Next step">
+        <button type="button" className="tool-button" onClick={() => step(1)} disabled={!replay || index === count} aria-label="Forward one step">
           Forward <CaretRight size={16} aria-hidden="true" />
         </button>
         <input

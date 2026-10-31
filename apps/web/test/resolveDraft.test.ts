@@ -13,7 +13,7 @@ const effect = (damage: AreaEffect["damage"] = null): AreaEffect => ({
 });
 const room = (): RoomState => ({ ...emptyRoomState("r"), tokens: { g1: token("g1", 20, ["poisoned"]), g2: token("g2", 20), sign: token("sign", null) } });
 
-describe("Resolve dialog draft (ADR 0044)", () => {
+describe("Resolve dialog draft (ADR 0046)", () => {
   it("is kept for the same effect and dropped for another or none", () => {
     const kept = { ...emptyDraft("e1"), step: 2, amounts: { g1: "14" } };
     expect(draftFor(kept, { id: "e1" })).toBe(kept);

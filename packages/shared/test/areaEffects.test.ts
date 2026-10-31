@@ -63,7 +63,7 @@ const hpOf = (state: RoomState, id: string) => state.tokens[id]!.stats.hp;
 
 beforeEach(resetRandom);
 
-describe("Starting an Area Effect (FR-TAC-06, ADR 0044)", () => {
+describe("Starting an Area Effect (FR-TAC-06, ADR 0046)", () => {
   it("rolls the formula for each target and opens the effect", () => {
     const { state, one, two, ogre } = started();
     const effect = state.areaEffect!;
@@ -104,7 +104,7 @@ describe("Starting an Area Effect (FR-TAC-06, ADR 0044)", () => {
   });
 });
 
-describe("Calling for damage (ADR 0044)", () => {
+describe("Calling for damage (ADR 0046)", () => {
   it("calls, reassigns and takes over, each carrying who held it before", () => {
     const { state, effectId } = started();
     const called = run(state, gm, { type: "areaEffect.call", effectId, participantId: bob.id });
@@ -138,7 +138,7 @@ describe("Calling for damage (ADR 0044)", () => {
   });
 });
 
-describe("Rolling the damage (ADR 0044)", () => {
+describe("Rolling the damage (ADR 0046)", () => {
   it("rolls once for all targets", () => {
     const { state, effectId, one, ogre } = started();
     const called = run(state, gm, { type: "areaEffect.call", effectId, participantId: alice.id }).state;
@@ -183,7 +183,7 @@ describe("Rolling the damage (ADR 0044)", () => {
   });
 });
 
-describe("Resolving the effect (ADR 0044)", () => {
+describe("Resolving the effect (ADR 0046)", () => {
   function rolledFor28() {
     const t = started();
     const called = run(t.state, gm, { type: "areaEffect.call", effectId: t.effectId, participantId: gm.id }).state;
@@ -302,7 +302,7 @@ describe("Resolving the effect (ADR 0044)", () => {
   });
 });
 
-describe("Closing and undoing (FR-REC-02, ADR 0044)", () => {
+describe("Closing and undoing (FR-REC-02, ADR 0046)", () => {
   it("closes at any stage without changing a token", () => {
     const { state, effectId } = started();
     const called = run(state, gm, { type: "areaEffect.call", effectId, participantId: alice.id }).state;
@@ -346,7 +346,7 @@ describe("Closing and undoing (FR-REC-02, ADR 0044)", () => {
   });
 });
 
-describe("What players see of an Area Effect (FR-GM-23, ADR 0044)", () => {
+describe("What players see of an Area Effect (FR-GM-23, ADR 0046)", () => {
   it("hides every save and every concealed target, in snapshots and live events", () => {
     const t = table();
     const { state, events } = run(t.state, gm, { type: "areaEffect.start", tokenIds: [t.one.id, t.assassin.id], expression: "1d20+2", label: "Fireball" });

@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { MAX_PLAYERS_PER_ROOM, isActive, pendingDepartures, type Participant, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
+import { inkOn } from "./color";
 import { Modal } from "./Modal";
 import { PopoverButton } from "./Popover";
 
@@ -209,8 +210,11 @@ function RemoveParticipant({
 const AVATAR_COLORS = ["#3b82c4", "#3f9d5b", "#c9892b", "#b0487a", "#2f9aa0", "#7a64c8"];
 const MAX_AVATARS = 5;
 
-function avatarColor(p: Participant, playerIndex: number) {
-  return p.role === "gm" ? "var(--accent)" : AVATAR_COLORS[playerIndex % AVATAR_COLORS.length];
+/** The initials take whichever ink reads at 4.5:1 on the fill; the GM's accent keeps the CSS white. */
+function avatarStyle(p: Participant, playerIndex: number) {
+  if (p.role === "gm") return { background: "var(--accent)" };
+  const fill = AVATAR_COLORS[playerIndex % AVATAR_COLORS.length]!;
+  return { background: fill, color: inkOn(fill) };
 }
 
 function initials(p: Participant) {
@@ -227,7 +231,7 @@ function AvatarStack({ participants }: { participants: Participant[] }) {
   return (
     <span className="avatar-stack" aria-hidden>
       {shown.map((p) => (
-        <span key={p.id} className="avatar" style={{ background: avatarColor(p, players.indexOf(p)) }} title={p.displayName}>
+        <span key={p.id} className="avatar" style={avatarStyle(p, players.indexOf(p))} title={p.displayName}>
           {initials(p)}
         </span>
       ))}

@@ -89,7 +89,7 @@ export const DiceRoll = z.object({
 });
 export type DiceRoll = z.infer<typeof DiceRoll>;
 
-/** Most tokens one group roll or area effect may name (ADR 0044). */
+/** Most tokens one group roll or area effect may name (ADR 0046). */
 export const MAX_GROUP_ROLL_TOKENS = 30;
 
 /** One die result set: the dice in roll order and their total with the modifier. */
@@ -100,14 +100,14 @@ export const RolledDice = z.object({
 export type RolledDice = z.infer<typeof RolledDice>;
 
 /**
- * One token's result in a group roll (ADR 0044). `name` and `hidden` are as they were when rolled,
+ * One token's result in a group roll (ADR 0046). `name` and `hidden` are as they were when rolled,
  * like `AttackSide`, so the log reads right after a rename or delete and a concealed token stays so.
  */
 export const GroupRollEntry = AttackSide.extend(RolledDice.shape);
 export type GroupRollEntry = z.infer<typeof GroupRollEntry>;
 
 /**
- * The same expression rolled once for each of several tokens, logged as one entry (ADR 0044).
+ * The same expression rolled once for each of several tokens, logged as one entry (ADR 0046).
  * `kind` tells it apart from a `DiceRoll`, which has none.
  */
 export const GroupRoll = z.object({
@@ -122,7 +122,7 @@ export const GroupRoll = z.object({
 });
 export type GroupRoll = z.infer<typeof GroupRoll>;
 
-/** An entry in the roll log: a plain or attack roll, or a group roll (ADR 0044). */
+/** An entry in the roll log: a plain or attack roll, or a group roll (ADR 0046). */
 export const LoggedRoll = z.union([GroupRoll, DiceRoll]);
 export type LoggedRoll = DiceRoll | GroupRoll;
 

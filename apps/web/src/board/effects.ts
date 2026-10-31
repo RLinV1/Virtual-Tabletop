@@ -16,7 +16,7 @@ export type AttackEffect =
   | { kind: "nuke"; animation: AnimationDef; origin: Point; amount: number; tokenIds: string[] }
   | { kind: "hit" | "miss"; tokenId: string }
   | { kind: "damage"; tokenId: string; amount: number }
-  /** An area effect resolved (ADR 0044): each damaged target's number, all at once. */
+  /** An area effect resolved (ADR 0046): each damaged target's number, all at once. */
   | { kind: "damages"; hits: { tokenId: string; amount: number }[] };
 
 /**

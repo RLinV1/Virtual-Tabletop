@@ -1,4 +1,5 @@
 import { CONDITIONS, conditionSpec, type ConditionId, type ConditionShape } from "@vtt/shared";
+import { inkOn } from "../ui/color";
 
 /**
  * A condition marker outside the canvas (FR-TAC-08).
@@ -10,6 +11,9 @@ import { CONDITIONS, conditionSpec, type ConditionId, type ConditionShape } from
 export function ConditionMarker({ id, size = 22 }: { id: ConditionId; size?: number }) {
   const spec = conditionSpec(id);
   const half = size / 2;
+  // Light fills (stunned, paralyzed, invisible…) take dark ink, so the abbreviation reaches 4.5:1.
+  const ink = inkOn(spec.color);
+  const halo = ink === "#ffffff" ? "#000" : "#fff";
 
   return (
     <span
@@ -28,8 +32,8 @@ export function ConditionMarker({ id, size = 22 }: { id: ConditionId; size?: num
           dominantBaseline="central"
           fontSize={size * 0.42}
           fontWeight="700"
-          fill="#fff"
-          stroke="#000"
+          fill={ink}
+          stroke={halo}
           strokeWidth="0.6"
           paintOrder="stroke"
         >
@@ -101,7 +105,7 @@ export function ConditionPicker({
   value: ConditionId[];
   onChange: (next: ConditionId[]) => void;
   disabled?: boolean;
-  /** Shown checked and can't be unchecked, e.g. what a token already has when resolving an area effect (ADR 0044). */
+  /** Shown checked and can't be unchecked, e.g. what a token already has when resolving an area effect (ADR 0046). */
   locked?: readonly ConditionId[];
 }) {
   const toggle = (id: ConditionId) =>

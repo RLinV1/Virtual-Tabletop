@@ -349,7 +349,7 @@ Phosphor outline icon family with a consistent optical stroke; do not mix icon f
 | Control height | 40px regular; coarse-pointer hit area at least 44×44px |
 | Borders | 1px decorative `--border`; control boundary uses `--border-strong` (`#6a7280`) |
 | Error text | `--danger` (`#e0685c`), 5.2:1 on panel |
-| Primary button | Accent background, `--accent-ink` bold label (4.4:1, see below) |
+| Primary button | Accent background, `--accent-ink` bold label (4.7:1, see below) |
 | Focus | 2px `--focus` (`#e08a62`) outline, 2px offset, visible on accent-filled controls too |
 | Surface states | Hover `#202b33`, selected `#30302a`; selection also has glyph/border/ARIA state |
 | Overlay shadow | `0 16px 48px rgb(15 20 24 / 45%)` |
@@ -357,9 +357,10 @@ Phosphor outline icon family with a consistent optical stroke; do not mix icon f
 
 Validate foreground/background pairs in actual use. From the shipped palette, body on
 panel is 13.8:1, muted on panel 5.8:1 and danger on panel 5.2:1. Accent ink on accent is
-4.4:1, just under the WCAG AA 4.5:1 for normal text; darkening `--accent` slightly would
-clear it (follow-up). `--border` on panel is 1.2:1 and is decorative, not the only means of
-recognizing an input or selected control; `--border-strong` (3.6:1) carries that.
+4.7:1 since `--accent` was darkened to `#b3552d` (it was 4.4:1), and 5.1:1 on the destructive
+fill `--danger-strong`. `--border` on panel is 1.2:1 and is decorative, not the only means of
+recognizing an input or selected control; `--border-strong` (3.6:1) carries that, including
+the boundary of every input and select.
 
 **Shared states:** buttons have default/hover/focus/pressed/disabled/pending; tabs and tool
 buttons add selected/pressed semantics. Pending buttons retain label/width and show a

@@ -31,5 +31,5 @@ A GM resolving a fireball, a trap or a breath weapon today has to roll and apply
 - `packages/shared`: new state (`RoomState.areaEffect` and group rolls), commands, events, `decide` and `reduce` cases, visibility filter cases, undo integration (the apply action reuses `TokenStatsSet` and `TokenConditionsSet`), activity log phrases.
 - `apps/server`: no new transport. Commands go through the existing `liveRoom` pipeline. New multi-client integration tests (calling, reassigning, visibility, double-apply).
 - `apps/web`: board multi-select (shift-click) and "tokens touching template" in `board/`; the Area Effect section in the Play tab; Group roll in `DicePanel`; caller prompt for players; Rulings list row and pending count in `attackRoll.ts`.
-- Docs: new ADR in `docs/adr/` (0044) amending ADR 0039; Real-Time Architecture owner review.
+- Docs: new ADR in `docs/adr/` (0046) amending ADR 0039; Real-Time Architecture owner review.
 - Requirements: extends FR-TAC-06 (AoE templates), FR-TAC-09 (dice expressions), FR-GM-22 (GM-only rolls), FR-GM-23 (player-safe filtering).

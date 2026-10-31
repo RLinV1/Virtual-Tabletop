@@ -5,11 +5,12 @@ import {
   Container,
   Graphics,
   Matrix,
+  Particle,
+  ParticleContainer,
   Sprite,
   Text,
   Texture,
   Ticker,
-  TilingSprite,
   type FederatedPointerEvent,
 } from "pixi.js";
 import {
@@ -47,8 +48,17 @@ import {
   type AttackEffect,
 } from "./effects";
 import { playNuke, playStrike, type FxHost, type RunningFx } from "./fx";
+import { loadFxTextures } from "./fxTextures";
+import { armSound, withSound } from "./fxSound";
 import { getClientSettings, graphicsBudget, subscribeGraphicsSettings } from "../ui/clientSettings";
-import { averageColor, fogPalette, makeFogCanvas, makeFogMaskCanvas, type Rgb } from "./fogTexture";
+import { averageColor, fogDistanceField, fogPalette, makeFogDensityCanvas, makeFogDistanceCanvas, type Rgb } from "./fogTexture";
+import { WISP_ANCHOR, layoutFogPuffs, puffPose, type FogPuff } from "./fogPuffs";
+import { fogArt, loadFogArt } from "./fogArt";
+import { FogBody } from "./fogShader";
+import { makeSightMaskCanvas, sightColor } from "./sightMask";
+
+/** How long the old line-of-sight mask takes to fade out over the new one. */
+const SIGHT_FADE_MS = 160;
 import { areaColorValue, areaOrigin, areaShape, areaSizeFromDrag, fogDraftPoints, fogRegionAt, formatDistance, hitMark, measure, portalAt, sweepPoints, templateArea, templateMark, type BoardTool, type FogDraft, type Mark } from "./tools";
 import { aimExpiry, expiredAims } from "./aims";
 import { PING_MS, pingPulse } from "./ping";
@@ -93,16 +103,16 @@ export interface BoardCallbacks {
   pickTarget(attackerId: string, targetId: string): void;
   /** The viewer right-clicked while picking a target: stop without attacking. */
   cancelAttack(): void;
-  /** GM: Shift-click on a token adds it to the group selection, or takes it out (ADR 0044). */
+  /** GM: Shift-click on a token adds it to the group selection, or takes it out (ADR 0046). */
   toggleGroupToken(tokenId: string): void;
-  /** GM: clicked a placed template in From template; its tokens become the selection (ADR 0044). */
+  /** GM: clicked a placed template in From template; its tokens become the selection (ADR 0046). */
   pickTemplate(templateId: string): void;
   /** GM: right-clicked while picking a template: stop without picking. */
   cancelPickTemplate(): void;
   /** The GM clicked a square while placing a new token (place-token-on-board). */
   placeToken(at: Point): void;
-  /** A press on a token that stayed put (a click, not a drag) selects it; a click on bare map clears (null). */
-  selectToken(tokenId: string | null): void;
+  /** A press on a token that stayed put (a click, not a drag) selects it (`extend`: Shift was held); a click on bare map clears (null). */
+  selectToken(tokenId: string | null, extend?: boolean): void;
   /** The GM right-clicked while placing: put the token back. */
   cancelPlacement(): void;
   /**
@@ -122,17 +132,8 @@ const MIN_MARK_DRAG_PX = 4;
 const GHOST_ID = "placement-ghost";
 /** How close (screen pixels) a click must be to a fog polygon's first corner to close it. */
 const FOG_CLOSE_PX = 12;
-/** How fast the clouds drift, in board pixels per second, and how often the drift is redrawn. */
-const FOG_DRIFT_PX_PER_S = 38;
-const FOG_DRIFT_INTERVAL_MS = 1000 / 20;
-/** The cloud texture is drawn this many times larger than its 512 px tile, so clouds span several cells. */
-const FOG_CLOUD_SCALE = 2.5;
-/**
- * A second, finer cloud layer over the first: another scale and angle, drifting the other way, so
- * the two tiles never line up and the fog churns instead of sliding. Its opacity over the base.
- */
-const FOG_WISP_SCALE = 1.55;
-const FOG_WISP_ALPHA = 0.55;
+/** The longest step the fog's clock takes in one frame, in seconds, so a stall does not jump it. */
+const FOG_MAX_STEP_S = 0.25;
 /**
  * The GM sees fog as a flat tint over the map and tokens, so what is under it stays visible
  * (gm-view-as-player), with a thin outline in the fog's own pale tone, faint enough not to read as a frame.
@@ -169,6 +170,13 @@ const FIGHT_REFOCUS_MS = 2500;
 const BOARD_FONT = '"Helvetica Neue", Arial, sans-serif';
 /** Longest brush stroke, in points, so one stroke can't grow without bound. */
 const MAX_STROKE_POINTS = 2000;
+
+/** A fog particle's colour: `shade` of the way from the fog's bank colour to its mist colour. */
+function fogTint(dark: Rgb, light: Rgb, shade: number): number {
+  const c = (i: 0 | 1 | 2) => Math.round(dark[i] + (light[i] - dark[i]) * shade);
+  return (c(0) << 16) | (c(1) << 8) | c(2);
+}
+
 /**
  * Tool cursors (KAN-69): 24px SVGs, light shapes with a dark outline so they read on any map.
  * Each hotspot is the point the tool acts on.
@@ -217,7 +225,7 @@ const TOOL_CURSORS = {
       outlined("M5 1v8M1 5h8"),
     5, 5,
   ),
-  // Picking a template's tokens (ADR 0044).
+  // Picking a template's tokens (ADR 0046).
   pickTemplate: "crosshair",
   // A red reticle, aimed from its centre.
   attack: svgCursor(
@@ -293,8 +301,10 @@ export class BoardView {
   private app = new Application();
   /** Token highlighted from the roster (FR-GM-24). */
   private focusedId: string | null = null;
-  /** The GM's group selection for a group roll or an area effect (ADR 0044). */
+  /** The GM's group selection for a group roll or an area effect (ADR 0046). */
   private groupSelection: ReadonlySet<string> = new Set();
+  /** Tokens the GM is looking through (gm-token-sight-view), ringed with a dashed outline. */
+  private viewedIds = new Set<string>();
   private world = new Container();
   /** Untransformed parent of the map world; screen-space blasts are its sibling. */
   private screenLayer = new Container();
@@ -307,29 +317,40 @@ export class BoardView {
    * on top, and anything else under fog is not in a player's state at all (ADR 0016).
    */
   /**
-   * The cloud layers, shown only through `fogMaskSprite`: a low-resolution mask of the regions
-   * with a noise-broken, feathered border, rebuilt only when fog or the grid changes (not on drift).
+   * The players' mist (flowing-fog): the fog body, a shader quad over the part of the board on
+   * screen (`fogShader.ts`), and the puffs and wisps drifting over it, each laid out to stay on the
+   * board. No mask: a stencil mask here corrupted the GM's board after viewing as a player (the mist
+   * is hidden for the GM). The body's distance field and the particles' layout are rebuilt only
+   * when fog or the grid changes.
    */
   private fogMist = new Container();
-  private fogCloudA: TilingSprite | null = null;
-  private fogCloudB: TilingSprite | null = null;
-  private fogMaskSprite = new Sprite(Texture.EMPTY);
-  private fogMaskShape = "";
-  private fogMaskKey = "";
+  private fogBody: FogBody | null = null;
+  private fogPuffLayer = new ParticleContainer({ dynamicProperties: { position: true, rotation: true, vertex: true, color: true } });
+  private fogPuffs: Array<{ puff: FogPuff; particle: Particle }> = [];
+  private fogShape = "";
+  private fogShapeKey = "";
+  /** The fog's distance field, and the procedural clouds the body reads until the painted fog bank loads. */
+  private fogDistance: Texture | null = null;
+  private fogDensity: Texture | null = null;
   /** The GM's fog outlines, kept apart so the fog's feathering never blurs them. */
   private fogEdgeGraphics = new Graphics();
+  /** Line of sight (ADR 0044): opaque dark over the map with the viewer's sight polygons cut out, soft-edged. */
+  private sightLayer = new Container();
+  private sightSprite: Sprite | null = null;
+  /** The previous mask, fading out on top of the new one. */
+  private sightFading: Sprite | null = null;
+  private sightFadeStep: ((now: number) => boolean) | null = null;
+  private drawnSight: unknown = null;
+  private drawnSightKey = "";
   private fogLayer = new Container();
-  /** The cloudy fog texture, made on first use and repeated across every region. */
-  private fogTexture: Texture | null = null;
   /** The map's average colour, which the fog takes after (null until the map has loaded). */
   private fogBase: Rgb | null = null;
-  /** The fog drift loop is in `animations`. */
+  /** The fog loop is in `animations`; it advances the fog's clock, in seconds. */
   private gmFogView: GmFogView = "tint";
   private readOnly = false;
   private fogLoopRegistered = false;
   private lastFogDraw = 0;
-  private fogOffset = { x: 0, y: 0 };
-  private wispOffset = { x: 0, y: 0 };
+  private fogTime = 0;
   /** Walls and portals. Plain walls reach the GM only; players get the portals they can see (ADR 0030). */
   private wallGraphics = new Graphics();
   private drawnWalls: RoomState["walls"] | null = null;
@@ -447,6 +468,16 @@ export class BoardView {
   ) {}
 
   async init() {
+    // Fetched in the background: until they arrive, attacks draw their vector look.
+    void loadFxTextures();
+    // Until the painted fog arrives, the fog body reads procedural clouds and has no puffs.
+    void loadFogArt().then((art) => {
+      if (!art || !this.initialized) return;
+      this.fogBody?.setBank(art.bank);
+      this.fogShape = "";
+      this.invalidateFog();
+    });
+    armSound();
     await this.app.init({
       width: Math.max(1, this.host.clientWidth),
       height: Math.max(1, this.host.clientHeight),
@@ -469,17 +500,19 @@ export class BoardView {
     this.measureLabel.visible = false;
     this.markLayer.addChild(this.marksGraphics, this.overlayGraphics, this.measureLabel);
     // Marks and areas are drawn over the tokens but take no input (the eraser and From template
-    // test their geometry), so a token under an area can still be clicked (ADR 0044).
+    // test their geometry), so a token under an area can still be clicked (ADR 0046).
     this.markLayer.eventMode = "none";
     this.fogMist.eventMode = "none";
-    this.fogMaskSprite.eventMode = "none";
-    this.fogMist.mask = this.fogMaskSprite;
+    this.fogPuffLayer.eventMode = "none";
+    this.fogMist.addChild(this.fogPuffLayer);
+    this.sightLayer.label = "sight-mask";
+    this.sightLayer.eventMode = "none";
     this.fogEdgeGraphics.eventMode = "none";
     this.fogLayer.eventMode = "none";
-    this.fogLayer.addChild(this.fogMaskSprite, this.fogMist, this.fogEdgeGraphics);
+    this.fogLayer.addChild(this.fogMist, this.fogEdgeGraphics);
     this.wallGraphics.eventMode = "none";
     this.portalGraphics.eventMode = "none";
-    this.world.addChild(this.mapSprite, this.grid, this.fogLayer, this.wallGraphics, this.portalGraphics, this.tokenLayer, this.markLayer, this.fxLayer);
+    this.world.addChild(this.mapSprite, this.grid, this.fogLayer, this.wallGraphics, this.portalGraphics, this.tokenLayer, this.sightLayer, this.markLayer, this.fxLayer);
     this.fxLayer.addChild(this.ghostFootprint);
     this.screenLayer.addChild(this.world);
     this.app.stage.addChild(this.screenLayer, this.screenFxLayer);
@@ -533,6 +566,9 @@ export class BoardView {
       // Keep world coordinates and camera unchanged when only pixel density changes.
       this.app.renderer.resize(this.app.screen.width, this.app.screen.height, Math.min(window.devicePixelRatio || 1, graphicsBudget().resolution));
       for (const entry of [...this.fxRuns]) this.endFx(entry);
+      // The fog's particle budget follows the quality setting.
+      this.fogShape = "";
+      if (this.state) this.invalidateFog();
       this.motionChanged();
       this.invalidate();
     });
@@ -650,6 +686,11 @@ export class BoardView {
     this.stopMotionWatch?.();
     this.hatch?.destroy(true);
     this.hatch = null;
+    // The fog art is shared by every board; only this board's own fog textures go.
+    this.fogDistance?.destroy(true);
+    this.fogDistance = null;
+    this.fogDensity?.destroy(true);
+    this.fogDensity = null;
     this.stopSettingsWatch?.();
     document.removeEventListener("visibilitychange", this.onVisibilityChange);
     this.viewListeners.clear();
@@ -687,6 +728,7 @@ export class BoardView {
     this.syncMap();
     this.syncGrid();
     this.syncWalls();
+    this.syncSight();
     this.syncTokens();
     if (state.templates !== this.drawnTemplates || state.fog !== this.drawnFog) {
       for (const id of this.removing) if (!state.templates[id]) this.removing.delete(id);
@@ -704,6 +746,57 @@ export class BoardView {
     if (this.placement) this.redrawGhost();
     this.syncConditionLoop();
     this.invalidate();
+  }
+
+  /** Darkens everything outside the viewer's sight polygons; draws nothing when `sight` is absent. */
+  private syncSight() {
+    const state = this.state;
+    if (!state) return;
+    const { width, height } = this.boardSize();
+    const cell = state.scene.grid.cellSize;
+    const key = `${width}x${height}@${cell}:${this.fogBase?.join(",") ?? ""}`;
+    if (state.sight === this.drawnSight && key === this.drawnSightKey) return;
+    this.drawnSight = state.sight;
+    this.drawnSightKey = key;
+    let next: Sprite | null = null;
+    if (state.sight) {
+      const { canvas, scale } = makeSightMaskCanvas(state.sight, width, height, cell, sightColor(this.fogBase));
+      next = new Sprite(Texture.from(canvas));
+      next.eventMode = "none";
+      next.scale.set(1 / scale);
+    }
+    this.finishSightFade();
+    const prev = this.sightSprite;
+    this.sightSprite = next;
+    // New mask below, so the old one on top can fade away over it.
+    if (next) this.sightLayer.addChildAt(next, 0);
+    if (!prev) return;
+    if (this.reducedMotion) return this.destroySightSprite(prev);
+    this.sightFading = prev;
+    let start = -1;
+    this.sightFadeStep = (now) => {
+      if (start < 0) start = now;
+      const t = Math.min(1, (now - start) / SIGHT_FADE_MS);
+      prev.alpha = 2 ** (-10 * t); // 1 - ease-out(t)
+      if (t < 1) return true;
+      this.finishSightFade();
+      return false;
+    };
+    this.animations.add(this.sightFadeStep);
+  }
+
+  /** Ends any crossfade in flight, dropping the old mask. */
+  private finishSightFade() {
+    if (this.sightFadeStep) this.animations.delete(this.sightFadeStep);
+    this.sightFadeStep = null;
+    if (this.sightFading) this.destroySightSprite(this.sightFading);
+    this.sightFading = null;
+  }
+
+  private destroySightSprite(sprite: Sprite) {
+    const texture = sprite.texture;
+    sprite.destroy();
+    texture.destroy(true);
   }
 
   /**
@@ -960,6 +1053,15 @@ export class BoardView {
     this.invalidate();
   }
 
+  /** Ring the tokens the GM's Token view is showing the sight of. */
+  setViewedTokens(ids: readonly string[]) {
+    if (ids.length === this.viewedIds.size && ids.every((id) => this.viewedIds.has(id))) return;
+    this.viewedIds = new Set(ids);
+    for (const view of this.tokens.values()) view.drawnKey = "";
+    this.syncTokens();
+    this.invalidate();
+  }
+
   clearFocus() {
     if (!this.focusedId) return;
     this.focusedId = null;
@@ -968,7 +1070,7 @@ export class BoardView {
     this.invalidate();
   }
 
-  /** Mark the tokens in the GM's group selection (ADR 0044). */
+  /** Mark the tokens in the GM's group selection (ADR 0046). */
   setGroupSelection(tokenIds: readonly string[]) {
     const next = new Set(tokenIds);
     if (next.size === this.groupSelection.size && [...next].every((id) => this.groupSelection.has(id))) return;
@@ -1227,7 +1329,6 @@ export class BoardView {
     const edge = this.fogEdgeGraphics.clear();
     if (!state) {
       this.fogMist.visible = false;
-      this.fogMaskSprite.visible = false;
       return;
     }
     // Viewing as a player, `you` is that player, so fog is drawn exactly as they see it.
@@ -1238,7 +1339,6 @@ export class BoardView {
     // Only players get the mist; the GM sees a flat tint, and nothing at all with fog switched off.
     const mist = !gm && shown.length + pending.length > 0;
     this.fogMist.visible = mist;
-    this.fogMaskSprite.visible = mist;
     if (mist) {
       this.syncFogMist(state, [...shown, ...pending]);
       this.driftFog();
@@ -1257,46 +1357,74 @@ export class BoardView {
     this.syncFogLoop();
   }
 
-  /** Builds the mask (when fog or the grid changed) and the two cloud layers it reveals. */
+  /**
+   * Builds the fog body and colours it; when fog or the grid changed, also its distance field and
+   * the puffs and wisps.
+   */
   private syncFogMist(state: RoomState, regions: Point[][]) {
     const { width, height } = this.boardSize();
     const cell = state.scene.grid.cellSize;
-    const key = `${width}x${height}x${cell}`;
-    const cloud = this.fogCloud();
-    if (!this.fogCloudA || !this.fogCloudB) {
-      this.fogCloudA = new TilingSprite({ texture: cloud, width, height });
-      this.fogCloudB = new TilingSprite({ texture: cloud, width, height });
-      this.fogCloudA.eventMode = "none";
-      this.fogCloudB.eventMode = "none";
-      this.fogCloudA.tileScale.set(FOG_CLOUD_SCALE);
-      this.fogCloudB.tileScale.set(FOG_WISP_SCALE);
-      this.fogCloudB.alpha = FOG_WISP_ALPHA;
-      this.fogMist.addChild(this.fogCloudA, this.fogCloudB);
+    const art = fogArt();
+    if (!this.fogBody) {
+      this.fogDensity ??= Texture.from(makeFogDensityCanvas());
+      this.fogDensity.source.style.addressMode = "repeat";
+      this.fogBody = new FogBody(art?.bank ?? this.fogDensity, Texture.EMPTY);
+      this.fogMist.addChildAt(this.fogBody.mesh, 0);
     }
-    if (this.fogCloudA.texture !== cloud) {
-      this.fogCloudA.texture = cloud;
-      this.fogCloudB.texture = cloud;
-    }
+    const { dark, light } = fogPalette(this.fogBase);
+    this.fogBody.setPalette(dark, light);
+    const tint = (shade: number) => fogTint(dark, light, shade);
+    for (const { puff, particle } of this.fogPuffs) particle.tint = tint(puff.shade);
     // Pending and revealing regions change the shape too, so the key is the regions themselves.
+    const key = `${width}x${height}x${cell}`;
     const shape = JSON.stringify(regions);
-    if (key === this.fogMaskKey && shape === this.fogMaskShape) return;
-    this.fogMaskKey = key;
-    this.fogMaskShape = shape;
-    const { canvas, scale } = makeFogMaskCanvas(regions, width, height, cell);
-    const old = this.fogMaskSprite.texture;
-    this.fogMaskSprite.texture = Texture.from(canvas);
-    if (old !== Texture.EMPTY) old.destroy(true);
-    this.fogMaskSprite.scale.set(1 / scale);
+    if (key === this.fogShapeKey && shape === this.fogShape) return;
+    this.fogShapeKey = key;
+    this.fogShape = shape;
+    const field = fogDistanceField(regions, width, height, cell);
+    const old = this.fogDistance;
+    this.fogDistance = Texture.from(makeFogDistanceCanvas(field));
+    this.fogBody.setDistance(this.fogDistance, field.cols, field.rows, field.scale, cell);
+    old?.destroy(true);
+    this.fogPuffLayer.removeParticles();
+    this.fogPuffs = [];
+    if (art) {
+      for (const puff of layoutFogPuffs(regions, { width, height }, cell, graphicsBudget().fogPuffs)) {
+        const wisp = puff.kind === "wisp";
+        const particle = new Particle({
+          texture: wisp ? art.wisps[puff.art]! : art.puffs[puff.art]!,
+          anchorX: wisp ? WISP_ANCHOR : 0.5,
+          anchorY: 0.5,
+          tint: tint(puff.shade),
+        });
+        this.fogPuffLayer.addParticle(particle);
+        this.fogPuffs.push({ puff, particle });
+      }
+    }
+    this.poseFogPuffs();
+  }
+
+  /** Each puff and wisp where the fog's clock puts it. */
+  private poseFogPuffs() {
+    for (const { puff, particle } of this.fogPuffs) {
+      const pose = puffPose(puff, this.fogTime);
+      // A puff's size is its picture's side, a wisp's its picture's width.
+      const scale = (puff.size / particle.texture.frame.width) * pose.scale;
+      particle.x = pose.x;
+      particle.y = pose.y;
+      particle.rotation = pose.rotation;
+      particle.scaleX = scale;
+      particle.scaleY = scale;
+      particle.alpha = pose.alpha;
+    }
   }
 
   /**
-   * Slides the cloud layers; the mask stays put. The layers only cover the part of the board on
-   * screen: a mask filter allocates a texture the size of what it masks, which at high zoom over a
-   * whole map is far past what the GPU allows.
+   * Fits the fog body to the part of the board on screen, so the shader runs only for pixels that
+   * show, at any zoom.
    */
   private driftFog() {
-    const a = this.fogCloudA, b = this.fogCloudB;
-    if (!a || !b || !this.fogMist.visible) return;
+    if (!this.fogBody || !this.fogMist.visible) return;
     const { width, height } = this.boardSize();
     const k = this.world.scale.x;
     const screen = this.app.screen;
@@ -1304,13 +1432,8 @@ export class BoardView {
     const y0 = Math.max(0, Math.floor(-this.world.y / k) - 1);
     const x1 = Math.min(width, Math.ceil((screen.width - this.world.x) / k) + 1);
     const y1 = Math.min(height, Math.ceil((screen.height - this.world.y) / k) + 1);
-    const w = Math.max(1, x1 - x0), h = Math.max(1, y1 - y0);
-    for (const [layer, drift] of [[a, this.fogOffset], [b, this.wispOffset]] as const) {
-      layer.position.set(x0, y0);
-      layer.width = w;
-      layer.height = h;
-      layer.tilePosition.set(drift.x - x0, drift.y - y0);
-    }
+    this.fogBody.setRect(x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0));
+    this.fogBody.setTime(this.fogTime);
   }
 
   /** Puts the fog over the tokens (`covering`) or back under the walls, only when that changes. */
@@ -1325,23 +1448,15 @@ export class BoardView {
   private setFogBase(base: Rgb | null) {
     if (!base && !this.fogBase) return;
     this.fogBase = base;
-    this.fogTexture?.destroy(true);
-    this.fogTexture = null;
-    if (this.initialized) this.invalidateFog();
-  }
-
-  /** The seamless cloud texture, drawn once on first use. */
-  private fogCloud(): Texture {
-    if (!this.fogTexture) {
-      this.fogTexture = Texture.from(makeFogCanvas(this.fogBase));
-      this.fogTexture.source.style.addressMode = "repeat";
+    if (this.initialized) {
+      this.invalidateFog();
+      this.syncSight();
     }
-    return this.fogTexture;
   }
 
   /**
-   * Runs the fog drift only while fog exists, the page is shown, motion is allowed, and the
-   * viewer is a player: the GM's flat tint has no clouds, so there is nothing to animate.
+   * Runs the fog only while fog exists, the page is shown, motion is allowed, and the viewer is a
+   * player: the GM's flat tint has no clouds, so there is nothing to animate.
    */
   private fogLoopWanted() {
     const any = Object.keys(this.state?.fog ?? {}).length > 0 || this.pendingFog.length > 0;
@@ -1362,14 +1477,14 @@ export class BoardView {
       this.fogLoopRegistered = false;
       return false;
     }
-    if (now - this.lastFogDraw < FOG_DRIFT_INTERVAL_MS) {
+    if (now - this.lastFogDraw < graphicsBudget().frameMs - 1) {
       this.stepSkipped = true;
       return true;
     }
     const dt = this.lastFogDraw === 0 ? 0 : (now - this.lastFogDraw) / 1000;
     this.lastFogDraw = now;
-    this.fogOffset = { x: this.fogOffset.x + FOG_DRIFT_PX_PER_S * dt, y: this.fogOffset.y + FOG_DRIFT_PX_PER_S * 0.35 * dt };
-    this.wispOffset = { x: this.wispOffset.x - FOG_DRIFT_PX_PER_S * 1.6 * dt, y: this.wispOffset.y + FOG_DRIFT_PX_PER_S * 0.6 * dt };
+    this.fogTime += Math.min(dt, FOG_MAX_STEP_S);
+    this.poseFogPuffs();
     this.driftFog();
     return true;
   };
@@ -1433,7 +1548,7 @@ export class BoardView {
     this.redrawMarks();
   }
 
-  /** The newest placed template at `at`, inside it or within reach of its edge, or null (ADR 0044). */
+  /** The newest placed template at `at`, inside it or within reach of its edge, or null (ADR 0046). */
   private templateAt(at: Point): string | null {
     const grid = this.state?.scene.grid;
     if (!grid) return null;
@@ -1820,9 +1935,10 @@ export class BoardView {
     const focused = this.focusedId === token.id;
     const active = this.activeTokenId() === token.id;
     const grouped = this.groupSelection.has(token.id);
+    const viewed = this.viewedIds.has(token.id);
     const key = JSON.stringify([
       token.name, token.size, token.rotation, token.color, token.hidden, owned, movable, grid.cellSize,
-      token.stats, token.conditions, focused, active, token.imageUrl, grouped,
+      token.stats, token.conditions, focused, active, viewed, token.imageUrl, grouped,
     ]);
     // Every visible token takes presses so a click can select it; only movable ones start a drag.
     view.container.eventMode = "static";
@@ -1844,7 +1960,7 @@ export class BoardView {
     view.label.position.set(0, r + 2);
     this.sharpenLabel(view.label);
 
-    this.drawDecor(view, token, r, focused, active, owned, grouped);
+    this.drawDecor(view, token, r, focused, active, owned, viewed, grouped);
     this.drawConditions(view, token.conditions, r);
     this.drawConditionLook(view, token.conditions);
   }
@@ -2077,14 +2193,17 @@ export class BoardView {
     const from = this.tokens.get(effect.fromId);
     const to = this.tokens.get(effect.toId);
     if (!from || !to || from.container.destroyed || to.container.destroyed) return;
-    this.startFx(
-      playStrike(this.fxHost(), {
+    const host = this.fxHost();
+    this.startFx(withSound(
+      playStrike(host, {
         def: effect.animation,
         from: { x: from.container.position.x, y: from.container.position.y },
         to: { x: to.container.position.x, y: to.container.position.y },
         radius: to.radius,
       }),
-    );
+      effect.animation,
+      host.reducedMotion,
+    ));
   }
 
   private playNukeFx(effect: Extract<AttackEffect, { kind: "nuke" }>) {
@@ -2092,13 +2211,13 @@ export class BoardView {
     for (const entry of [...this.fxRuns]) this.endFx(entry);
     const { width, height } = this.app.screen;
     const host = { ...this.fxHost(), layer: this.screenFxLayer };
-    this.startFx(playNuke(host, {
+    this.startFx(withSound(playNuke(host, {
       onImpact: this.callbacks.nukeImpact,
       def: effect.animation,
       origin: { x: width / 2, y: height / 2 },
       unit: Math.min(64, height / 10),
       extent: Math.hypot(width, height) / 2,
-    }));
+    }), effect.animation, host.reducedMotion));
   }
 
   private endAttackFx(fx: AttackFx) {
@@ -2139,7 +2258,7 @@ export class BoardView {
   }
 
   /** Focus ring, active-turn ring, and the HP bar (FR-TAC-07, FR-GM-21, FR-GM-24). */
-  private drawDecor(view: TokenView, token: Token, r: number, focused: boolean, active: boolean, owned: boolean, grouped = false) {
+  private drawDecor(view: TokenView, token: Token, r: number, focused: boolean, active: boolean, owned: boolean, viewed: boolean, grouped = false) {
     const g = view.decor.clear();
     // Direction remains visible even when the token has no art; labels and HP stay upright.
     const angle = (token.rotation - 90) * Math.PI / 180;
@@ -2157,7 +2276,16 @@ export class BoardView {
     // when colour is not available (FR-TAC-08 applies to the whole board, not just markers).
     if (active) g.circle(0, 0, r + 7).stroke({ width: 4, color: 0xf1c40f });
     if (focused) g.circle(0, 0, r + 3).stroke({ width: 2, color: 0xffffff, alpha: 0.9 });
-    // The GM's group selection: a dashed-looking double ring, unlike the others (ADR 0044).
+    // A dashed ring (gm-token-sight-view), so it differs from the solid ones by shape too.
+    if (viewed) {
+      const ring = r + 5;
+      const step = (Math.PI * 2) / 16;
+      for (let i = 0; i < 16; i++) {
+        const a = i * step;
+        g.moveTo(Math.cos(a) * ring, Math.sin(a) * ring).arc(0, 0, ring, a, a + step * 0.6).stroke({ width: 2.5, color: 0x38bdf8 });
+      }
+    }
+    // The GM's group selection: a dashed-looking double ring, unlike the others (ADR 0046).
     if (grouped) {
       g.circle(0, 0, r + 11).stroke({ width: 3, color: 0x111111, alpha: 0.85 });
       g.circle(0, 0, r + 11).stroke({ width: 1.5, color: 0x5dade2 });
@@ -2229,7 +2357,7 @@ export class BoardView {
     // measurement starts here, or the new token can go on an occupied square.
     if (e.button !== 0 || this.tool.kind !== "select" || this.placement) return;
     e.stopPropagation();
-    // The GM's Shift-click builds a group selection instead of dragging (ADR 0044).
+    // The GM's Shift-click builds a group selection instead of dragging (ADR 0046).
     if (e.shiftKey && this.you?.role === "gm" && !this.readOnly) return this.callbacks.toggleGroupToken(tokenId);
     const view = this.tokens.get(tokenId);
     const token = this.state?.tokens[tokenId];
@@ -2374,7 +2502,7 @@ export class BoardView {
     if (!drag) return;
     // A press that stays put is a click: select the token. Anything further is a drag and moves it.
     const clicked = downAt !== null && Math.hypot(e.global.x - downAt.x, e.global.y - downAt.y) < MIN_MARK_DRAG_PX;
-    if (clicked) this.callbacks.selectToken(drag.tokenId);
+    if (clicked) this.callbacks.selectToken(drag.tokenId, e.shiftKey);
     const token = this.state?.tokens[drag.tokenId];
     const view = this.tokens.get(drag.tokenId);
     if (!drag.movable) return;

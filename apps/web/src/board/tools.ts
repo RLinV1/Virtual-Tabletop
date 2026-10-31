@@ -32,7 +32,7 @@ export type BoardTool =
   | { kind: "fog"; mode: FogMode }
   /** Picking whom `attackerId` attacks (attack-targeting). Started from a token's Attack button, not the rail. */
   | { kind: "attack"; attackerId: string }
-  /** GM only: picking a placed template whose tokens to select (ADR 0044). Started from From template, not the rail. */
+  /** GM only: picking a placed template whose tokens to select (ADR 0046). Started from From template, not the rail. */
   | { kind: "pickTemplate" };
 
 /** What the Fog tool does: drag a rectangle, click out a polygon, or click a region to remove it. */
@@ -224,7 +224,7 @@ export function templateArea(t: AreaTemplate, grid: GridSpec): AreaGeometry {
 
 /**
  * The tokens whose footprint (their size in cells, a square centred on their position) overlaps
- * `area`, in the order given (ADR 0044). Touching only at an edge or a corner does not count.
+ * `area`, in the order given (ADR 0046). Touching only at an edge or a corner does not count.
  */
 export function tokensTouchingArea<T extends Pick<Token, "position" | "size">>(area: AreaGeometry, tokens: readonly T[], grid: GridSpec): T[] {
   return tokens.filter((token) => {

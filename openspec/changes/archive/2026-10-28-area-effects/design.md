@@ -108,7 +108,7 @@ The `visibility-auditor` agent should review this before merge.
 
 ### 6. ADR
 
-A new ADR, `docs/adr/0044-area-effects-and-group-rolls.md`, records:
+A new ADR, `docs/adr/0046-area-effects-and-group-rolls.md`, records:
 - the new schemas;
 - why `rolls` becomes a union;
 - the undo choice;

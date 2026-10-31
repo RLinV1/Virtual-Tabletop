@@ -121,7 +121,7 @@ export function pendingRulings(state: RoomState): PendingRuling[] {
 }
 
 /**
- * How many things wait on the GM (attack-rulings, ADR 0044): the rolls above, plus an open area
+ * How many things wait on the GM (attack-rulings, ADR 0046): the rolls above, plus an open area
  * effect, which counts as one at every stage, waiting on a player included.
  */
 export function pendingRulingCount(state: RoomState): number {
@@ -129,7 +129,7 @@ export function pendingRulingCount(state: RoomState): number {
 }
 
 /**
- * Who a damage call goes to unless the GM picks someone else (ADR 0044): the first owner of the
+ * Who a damage call goes to unless the GM picks someone else (ADR 0046): the first owner of the
  * token whose turn it is, if they are still at the table; otherwise the GM.
  */
 export function defaultCaller(state: RoomState, gmId: string): string {

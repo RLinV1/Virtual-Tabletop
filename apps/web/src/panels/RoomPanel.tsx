@@ -173,7 +173,7 @@ interface Props {
   /** The token whose editor is open in the Tokens tab, and how to open or close it (token-card-actions). */
   editingTokenId: string | null;
   onEditToken: (tokenId: string | null) => void;
-  /** GM: the tokens chosen on the board for a group roll or an area effect (ADR 0044). */
+  /** GM: the tokens chosen on the board for a group roll or an area effect (ADR 0046). */
   groupSelection: GroupSelection;
   /** True on narrow screens, where the tab buttons sit above the panel instead of in the top bar. */
   compact: boolean;
@@ -210,7 +210,7 @@ export function RoomPanel({
 
   // What the room's game preset turns on (KAN-63). The server enforces it; this only hides controls.
   const features = presetOf(state).features;
-  // The area effect's resolve dialog (ADR 0044): here, so the Rulings row and the Area Effect
+  // The area effect's resolve dialog (ADR 0046): here, so the Rulings row and the Area Effect
   // section open the same one, and its draft outlives a close or a tab change.
   const effect = state.areaEffect ?? null;
   const [savedDraft, setDraft] = useState<ResolveDraft | null>(null);

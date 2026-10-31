@@ -44,8 +44,10 @@ export const REVERSIBLE_EVENT_TYPES = [
   "GroupRenamed",
   "GroupDeleted",
   "TokensGrouped",
-  // ADR 0044: the closing mark of a resolve; the HP and condition changes before it carry the values.
+  // ADR 0046: the closing mark of a resolve; the HP and condition changes before it carry the values.
   "AreaEffectResolved",
+  "LineOfSightSet", // ADR 0044
+  "SightRangeSet",
 ] as const;
 
 type MapSetEvent = Extract<DomainEvent, { type: "MapSet" }>;
@@ -187,7 +189,7 @@ export function undoableAction(history: readonly UndoEntry[], commandId: string)
  */
 function canUndo(entry: UndoEntry): boolean {
   if (!entry.undoable || entry.events.length === 0) return false;
-  // A resolve that changed no token has nothing to put back (ADR 0044).
+  // A resolve that changed no token has nothing to put back (ADR 0046).
   if (entry.events.every((e) => e.type === "AreaEffectResolved")) return false;
   const statsEdit = entry.events.some((e) => e.type === "TokenStatsSet");
   return !statsEdit || entry.events.some((e) => e.type === "RollDamageApplied" || e.type === "MapNuked" || e.type === "AreaEffectResolved");
@@ -227,7 +229,7 @@ export function inverseOf(event: ReversibleEvent): DomainEvent[] {
       }));
     }
     case "AreaEffectResolved":
-      // Undo puts back HP and conditions but never reopens the effect (ADR 0044): another may be
+      // Undo puts back HP and conditions but never reopens the effect (ADR 0046): another may be
       // open by now, and a player should not get a damage prompt back.
       return [];
     default:
@@ -274,6 +276,10 @@ function inverseOfOne(event: SingleInverse): DomainEvent {
       return { type: "WallsRemoved", walls: event.walls };
     case "WallsRemoved":
       return { type: "WallsAdded", walls: event.walls };
+    case "LineOfSightSet":
+      return { type: "LineOfSightSet", from: event.to, to: event.from };
+    case "SightRangeSet":
+      return { type: "SightRangeSet", from: event.to, to: event.from };
     case "WallUpdated":
       return { type: "WallUpdated", wall: event.previous, previous: event.wall };
     case "PortalChanged":
@@ -368,6 +374,14 @@ export function undoConflict(state: RoomState, entry: UndoEntry): string | null 
       }
       continue;
     }
+    if (event.type === "LineOfSightSet") {
+      if ((state.scene.lineOfSight ?? false) !== event.to) return "Can't undo: line of sight has changed since.";
+      continue;
+    }
+    if (event.type === "SightRangeSet") {
+      if ((state.scene.sightRange ?? null) !== event.to) return "Can't undo: the sight range has changed since.";
+      continue;
+    }
     // Fog regions are never edited in place, so "still current" is just "still there" (or still gone).
     if (event.type === "FogAdded") {
       if (!state.fog[event.region.id]) return "Can't undo: that fog has already been removed.";
@@ -378,7 +392,7 @@ export function undoConflict(state: RoomState, entry: UndoEntry): string | null 
       continue;
     }
     // The blast has no value of its own to compare: the stats changes in the same action are checked.
-    // Nor does a resolve's closing mark (ADR 0044).
+    // Nor does a resolve's closing mark (ADR 0046).
     if (event.type === "MapNuked" || event.type === "AreaEffectResolved") continue;
     if (!("tokenId" in event)) {
       // Rulings and applications only exist on rolls still in the state window (ADR 0011).
@@ -562,6 +576,10 @@ export function describeUndo(entry: UndoEntry, tokens: RoomState["tokens"]): { v
     const what = `${first.walls.length} ${first.walls.length === 1 ? "wall" : "walls"}`;
     return { verb: `removal of ${what}`, noun: `removing ${what}` };
   }
+  if (first.type === "LineOfSightSet") {
+    return first.to ? { verb: "turning line of sight on", noun: "turning line of sight on" } : { verb: "turning line of sight off", noun: "turning line of sight off" };
+  }
+  if (first.type === "SightRangeSet") return { verb: "sight range change", noun: "changing the sight range" };
   if (first.type === "WallUpdated") return { verb: "wall or portal edit", noun: "editing a wall or portal" };
   if (first.type === "PortalChanged") {
     const words = describePortalChange(first.from, first.to);

@@ -117,6 +117,14 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
     case "GridSet":
       return { ...state, scene: { ...state.scene, grid: event.grid } };
 
+    case "LineOfSightSet":
+      return { ...state, scene: { ...state.scene, lineOfSight: event.to } };
+
+    case "SightRangeSet": {
+      const { sightRange: _old, ...scene } = state.scene;
+      return { ...state, scene: event.to === null ? scene : { ...scene, sightRange: event.to } };
+    }
+
     case "TokenCreated":
       return { ...state, tokens: { ...state.tokens, [event.token.id]: event.token } };
 
@@ -231,7 +239,7 @@ function apply(state: RoomState, event: DomainEvent, at: string | null): RoomSta
     }
 
     case "GroupRolled":
-      // One slot in the log however many tokens it names (ADR 0044).
+      // One slot in the log however many tokens it names (ADR 0046).
       return { ...state, rolls: [...state.rolls, event.roll].slice(-ROLL_LOG_LIMIT) };
 
     case "AreaEffectStarted":
@@ -368,7 +376,7 @@ function updateRoll(state: RoomState, rollId: string, update: (roll: DiceRoll) =
   return { ...state, rolls: state.rolls.map((r) => (r.id === rollId && !isGroupRoll(r) ? update(r) : r)) };
 }
 
-/** The open area effect an event names; anything else means the stream is corrupt (ADR 0044). */
+/** The open area effect an event names; anything else means the stream is corrupt (ADR 0046). */
 function openEffect(state: RoomState, effectId: string, event: DomainEvent): AreaEffect {
   const effect = state.areaEffect ?? null;
   if (!effect || effect.id !== effectId) throw new Error(`Event ${event.type} references a missing entity`);
@@ -403,7 +411,7 @@ function concealFoggedSides(state: RoomState, event: DomainEvent): RoomState {
   return { ...state, rolls, areaEffect };
 }
 
-/** Marks tokens hidden on the open area effect's targets, for good, as `concealInRolls` does (ADR 0044). */
+/** Marks tokens hidden on the open area effect's targets, for good, as `concealInRolls` does (ADR 0046). */
 function concealInEffect(effect: AreaEffect | null, tokenIds: readonly string[]): AreaEffect | null {
   if (!effect || !effect.targets.some((t) => !t.hidden && tokenIds.includes(t.tokenId))) return effect;
   return { ...effect, targets: effect.targets.map((t) => (tokenIds.includes(t.tokenId) ? { ...t, hidden: true } : t)) };
@@ -420,7 +428,7 @@ function concealInRolls(rolls: RoomState["rolls"], tokenId: string): RoomState["
   let changed = false;
   const next = rolls.map((roll) => {
     if (isGroupRoll(roll)) {
-      // A group roll's entries are concealed the same way, for good (ADR 0044).
+      // A group roll's entries are concealed the same way, for good (ADR 0046).
       if (!roll.entries.some((e) => e.tokenId === tokenId && !e.hidden)) return roll;
       changed = true;
       return { ...roll, entries: roll.entries.map((e) => conceal(e)) };

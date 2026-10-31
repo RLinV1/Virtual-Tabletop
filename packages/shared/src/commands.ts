@@ -91,6 +91,8 @@ export const Command = z.discriminatedUnion("type", [
     type: z.literal("scene.setGrid"),
     grid: GridSpec,
   }),
+  z.object({ type: z.literal("scene.setLineOfSight"), enabled: z.boolean() }).strict(),
+  z.object({ type: z.literal("scene.setSightRange"), range: z.number().positive().finite().nullable() }).strict(),
   z.object({
     type: z.literal("token.create"),
     name: z.string().min(1).max(60),
@@ -223,7 +225,7 @@ export const Command = z.discriminatedUnion("type", [
       })
       .optional(),
   }),
-  /** GM only: roll one expression once for each of several tokens, logged as one entry (ADR 0044). */
+  /** GM only: roll one expression once for each of several tokens, logged as one entry (ADR 0046). */
   z.object({
     type: z.literal("dice.rollGroup"),
     tokenIds: z.array(Id).min(1).max(MAX_GROUP_ROLL_TOKENS),
@@ -231,20 +233,20 @@ export const Command = z.discriminatedUnion("type", [
     label: z.string().trim().max(MAX_ATTACK_LABEL).optional(),
     visibility: DiceVisibility.default("public"),
   }).strict(),
-  /** GM only: open an area effect, rolling `expression` for each token it caught (ADR 0044). */
+  /** GM only: open an area effect, rolling `expression` for each token it caught (ADR 0046). */
   z.object({
     type: z.literal("areaEffect.start"),
     tokenIds: z.array(Id).min(1).max(MAX_GROUP_ROLL_TOKENS),
     expression: z.string().min(1).max(32),
     label: z.string().trim().max(MAX_ATTACK_LABEL).optional(),
   }).strict(),
-  /** GM only: call a participant (themselves included) to roll the damage, or move a pending call (ADR 0044). */
+  /** GM only: call a participant (themselves included) to roll the damage, or move a pending call (ADR 0046). */
   z.object({
     type: z.literal("areaEffect.call"),
     effectId: Id,
     participantId: Id,
   }).strict(),
-  /** Whoever holds the call: roll the damage once for all targets or once per target (ADR 0044). */
+  /** Whoever holds the call: roll the damage once for all targets or once per target (ADR 0046). */
   z.object({
     type: z.literal("areaEffect.rollDamage"),
     effectId: Id,
@@ -253,7 +255,7 @@ export const Command = z.discriminatedUnion("type", [
   }).strict(),
   /**
    * GM only: apply each target's amount (negative heals) and add conditions, closing the effect
-   * (ADR 0044). `amount` is null for a target that takes no HP change.
+   * (ADR 0046). `amount` is null for a target that takes no HP change.
    */
   z.object({
     type: z.literal("areaEffect.resolve"),
@@ -264,7 +266,7 @@ export const Command = z.discriminatedUnion("type", [
       addConditions: z.array(ConditionId).max(12).default([]),
     }).strict()).max(MAX_GROUP_ROLL_TOKENS),
   }).strict(),
-  /** GM only: close the effect without changing any token (ADR 0044). */
+  /** GM only: close the effect without changing any token (ADR 0046). */
   z.object({
     type: z.literal("areaEffect.close"),
     effectId: Id,

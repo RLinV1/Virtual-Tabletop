@@ -2,7 +2,7 @@ import { z } from "zod";
 import { MAX_ATTACK_LABEL, MAX_GROUP_ROLL_TOKENS, RolledDice } from "./dice";
 
 /**
- * Area effects (ADR 0044): the GM rolls one formula for every token an effect catches, calls a
+ * Area effects (ADR 0046): the GM rolls one formula for every token an effect catches, calls a
  * participant to roll the damage, and resolves each token's outcome in one undoable action.
  */
 

@@ -28,6 +28,7 @@ export * from "./gamePresets";
 
 export * from "./replay";
 export * from "./portals";
+export * from "./sight";
 
 export * from "./uvtt";
 export * from "./chatMentions";

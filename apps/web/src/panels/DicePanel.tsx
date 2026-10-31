@@ -67,7 +67,7 @@ export function DicePanel({
   rollThrow: RollThrow;
   /** The room's board, to throw dice onto; absent where there is none. */
   board?: DiceBoard;
-  /** GM: the tokens chosen on the board for a group roll (ADR 0044). */
+  /** GM: the tokens chosen on the board for a group roll (ADR 0046). */
   selection?: GroupSelection;
 }) {
   const [expression, setExpression] = useState("1d20");
@@ -92,7 +92,7 @@ export function DicePanel({
 
   const rolls = [...state.rolls].reverse();
   const latest = rolls[0];
-  // Group rolls are never thrown: they have no dice in the air (ADR 0044).
+  // Group rolls are never thrown: they have no dice in the air (ADR 0046).
   const throwing = latest !== undefined && !isGroupRoll(latest) && rollThrow.airborne.has(latest.id);
 
   /** Roll for a die let go over the map; true once the roll is made, and its dice are on their way. */
@@ -235,7 +235,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
 }
 
 /**
- * GM only: one expression rolled once for each selected token, logged as one entry (ADR 0044).
+ * GM only: one expression rolled once for each selected token, logged as one entry (ADR 0046).
  * Uses the panel's GM-only choice, like any other roll.
  */
 function GroupRollForm({ connection, state, selection, visibility }: { connection: RoomConnection; state: RoomState; selection: GroupSelection; visibility: DiceVisibility }) {
@@ -340,7 +340,7 @@ function RollRow({
  * The ruling is only ever the GM's, made in the Play tab; nothing here compares the roll to
  * anything (ADR 0011).
  */
-/** A group roll: what was rolled, then each token's total (ADR 0044). A player's copy lists only the tokens they can see. */
+/** A group roll: what was rolled, then each token's total (ADR 0046). A player's copy lists only the tokens they can see. */
 function GroupRollRow({ roll: r, who, className, rolling }: { roll: GroupRoll; who: string; className: string; rolling: boolean }) {
   return (
     <li className={`${className} group-roll`}>
@@ -353,7 +353,7 @@ function GroupRollRow({ roll: r, who, className, rolling }: { roll: GroupRoll; w
           {r.entries.map((entry) => (
             <li key={entry.tokenId}>
               <span>{entry.name}</span>{" "}
-              {/* The totals wait for the dice dropping onto the tokens (ADR 0044). */}
+              {/* The totals wait for the dice dropping onto the tokens (ADR 0046). */}
               {rolling ? <span className="muted">…</span> : <><strong>{entry.total}</strong> <span className="muted">({entry.dice.join(" + ")})</span></>}
             </li>
           ))}

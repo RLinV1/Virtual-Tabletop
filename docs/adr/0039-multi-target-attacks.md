@@ -8,4 +8,4 @@ Named AttackPreset definitions gain an optional `maxTargets` (integer 2 to 10). 
 
 `token.create` also gains an optional `groupId`. When set, `decide` checks that the group exists and emits `TokensGrouped` in the same action as the `TokenCreated` events, as `token.duplicate` already does, so New Token and Saved Creatures can place straight into a group and one undo reverses both.
 
-**Amended by:** `docs/adr/0044-area-effects-and-group-rolls.md` — an area effect run by the GM (group roll, damage call, outcome per token) is a separate tool from a multi-target named attack, which is still N single-target rolls.
+**Amended by:** `docs/adr/0046-area-effects-and-group-rolls.md` — an area effect run by the GM (group roll, damage call, outcome per token) is a separate tool from a multi-target named attack, which is still N single-target rolls.

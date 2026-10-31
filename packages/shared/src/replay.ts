@@ -50,7 +50,7 @@ export const ReplayFrame = z.discriminatedUnion("kind", [
     at: z.string(),
     table: TableState,
     rolls: z.array(LoggedRoll),
-    /** The viewer's copy of the open area effect (ADR 0044); absent on frames from before it. */
+    /** The viewer's copy of the open area effect (ADR 0046); absent on frames from before it. */
     areaEffect: AreaEffect.nullable().optional(),
     sentence: z.string(),
   }),

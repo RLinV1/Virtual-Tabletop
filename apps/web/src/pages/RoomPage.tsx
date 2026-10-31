@@ -243,7 +243,7 @@ function Room({ roomId, connection, token, features }: {
   // Ending the encounter clears the target and the last roll, but keeps the attacker and named attacks (attack-panel-encounter-reset).
   const attackReset = useEncounterReset(roomId, state, you?.id ?? null, () => setAttackPick((p) => ({ ...p, targetId: null })));
   const showPing = useCallback((at: Point) => boardRef.current?.showPing(at), []);
-  // The GM's group selection for a group roll or an area effect (ADR 0044). Local to this screen.
+  // The GM's group selection for a group roll or an area effect (ADR 0046). Local to this screen.
   const [groupTokenIds, setGroupTokenIds] = useState<string[]>([]);
   const toggleGroupToken = useCallback((tokenId: string) => setGroupTokenIds((ids) => (ids.includes(tokenId) ? ids.filter((id) => id !== tokenId) : [...ids, tokenId])), []);
   const latestState = useRef(state);
@@ -382,7 +382,7 @@ function Room({ roomId, connection, token, features }: {
   useEffect(() => {
     if (state && (playVisible || seenOutcome === undefined)) setSeenOutcome(outcome);
   }, [state, playVisible, outcome, seenOutcome]);
-  // A player holding a damage call is told from any tab (ADR 0044).
+  // A player holding a damage call is told from any tab (ADR 0046).
   const effect = state?.areaEffect ?? null;
   const damageCalled = you?.role !== "gm" && !!effect && effect.call?.participantId === you?.id && areaEffectStage(effect) === "called";
   const tabBadges: TabBadges = pendingCount > 0
@@ -467,7 +467,7 @@ function Room({ roomId, connection, token, features }: {
       stop();
     };
   }, [connection, land]);
-  // Group and area-effect rolls drop onto their tokens (ADR 0044), each viewer drawing only what
+  // Group and area-effect rolls drop onto their tokens (ADR 0046), each viewer drawing only what
   // its filtered events carry. Their totals wait for the drop, like any roll's.
   const dropping = useRef(new Set<string>());
   useEffect(() => {

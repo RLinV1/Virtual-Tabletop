@@ -58,12 +58,12 @@ function useSender(connection: RoomConnection) {
 }
 
 /**
- * The GM's Area Effect (ADR 0044): roll a formula for every selected token, call someone to roll
+ * The GM's Area Effect (ADR 0046): roll a formula for every selected token, call someone to roll
  * the damage (themselves included), then resolve each token's outcome as one undoable action.
  * Every step after the first can be skipped. The saves are advisory: nothing here decides.
  */
 export function AreaEffectPanel({ connection, state, you, selection, onResolve, airborne }: {
-  /** Rolls whose dice are still dropping: their totals wait (ADR 0044). */
+  /** Rolls whose dice are still dropping: their totals wait (ADR 0046). */
   airborne: ReadonlySet<string>;
   connection: RoomConnection;
   state: RoomState;
@@ -157,7 +157,7 @@ function OpenEffect({ connection, state, you, effect, onResolve, airborne }: { c
 }
 
 /**
- * Opens the resolve dialog (ADR 0044). Before damage is rolled it looks like Skip, since resolving
+ * Opens the resolve dialog (ADR 0046). Before damage is rolled it looks like Skip, since resolving
  * then skips the damage roll; once damage is in, it looks like Call, the next step.
  */
 export function ResolveButton({ stage, disabled, onClick }: { stage: AreaEffectStage; disabled?: boolean; onClick: () => void }) {
@@ -197,7 +197,7 @@ function DamageSummary({ state, effect, rolling }: { state: RoomState; effect: A
   );
 }
 
-/** Choose who rolls the damage: pre-filled with the active token's owner, else the GM (ADR 0044). */
+/** Choose who rolls the damage: pre-filled with the active token's owner, else the GM (ADR 0046). */
 function CallForm({ connection, state, you, effect, label }: { connection: RoomConnection; state: RoomState; you: Participant; effect: AreaEffect; label: "Call" | "Reassign" }) {
   const current = effect.call?.participantId ?? null;
   const candidates = Object.values(state.participants).filter((p) => isActive(p) && p.id !== current);
@@ -229,7 +229,7 @@ function CallForm({ connection, state, you, effect, label }: { connection: RoomC
   );
 }
 
-/** Whoever holds the call writes the formula and picks one roll or one per target (ADR 0044). */
+/** Whoever holds the call writes the formula and picks one roll or one per target (ADR 0046). */
 function DamageRollForm({ connection, effect, visibleTargets }: { connection: RoomConnection; effect: AreaEffect; visibleTargets: number }) {
   const [expression, setExpression] = useState("");
   const [mode, setMode] = useState<DamageMode>("single");
@@ -273,7 +273,7 @@ function DamageRollForm({ connection, effect, visibleTargets }: { connection: Ro
 }
 
 /**
- * A player's damage call (ADR 0044), in their Play tab while they hold it. They see only the
+ * A player's damage call (ADR 0046), in their Play tab while they hold it. They see only the
  * targets the server let them see.
  */
 export function DamageCallPrompt({ connection, state, you }: { connection: RoomConnection; state: RoomState; you: Participant }) {

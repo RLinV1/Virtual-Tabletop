@@ -2,7 +2,7 @@
 
 ## 1. ADR and review
 
-- [x] 1.1 Write `docs/adr/0044-area-effects-and-group-rolls.md`. It covers the new schemas, `rolls` becoming a union, the undo choice, the filtering rules, and how this amends ADR 0039. Done when the file exists and ADR 0039 links forward to it.
+- [x] 1.1 Write `docs/adr/0046-area-effects-and-group-rolls.md`. It covers the new schemas, `rolls` becoming a union, the undo choice, the filtering rules, and how this amends ADR 0039. Done when the file exists and ADR 0039 links forward to it.
 - [ ] 1.2 Request review from the Real-Time Architecture owner. Done when the ADR status records the review outcome before the shared schema tasks merge.
 
 ## 2. Shared contract: group rolls
@@ -73,5 +73,5 @@
 
 - [x] 11.1 Make the resolve dialog's title the token's name, with "effect · n of N" small beside it, and add a large result block (roll, damage, HP). Done when, in the browser, the token name and roll are the most prominent text in the dialog.
 - [x] 11.2 Replace "save" with "roll" or "result" in the area-effect menus. Done when no area-effect UI text says "save".
-- [x] 11.3 Keep `AreaEffectResolved.amounts` for players' visible targets in the filter (ADR 0044 updated), and play a damage number on each damaged visible target on resolve. Done when shared, server and web tests cover the filter and the effect, and, in the browser, every damaged token shows its number at once.
+- [x] 11.3 Keep `AreaEffectResolved.amounts` for players' visible targets in the filter (ADR 0046 updated), and play a damage number on each damaged visible target on resolve. Done when shared, server and web tests cover the filter and the effect, and, in the browser, every damaged token shows its number at once.
 - [x] 11.4 Run `npm run lint && npm run typecheck && npm test` and `openspec validate area-effects --strict`. Done when all pass.

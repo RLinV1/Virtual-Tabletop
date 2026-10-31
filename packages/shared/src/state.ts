@@ -70,6 +70,10 @@ export type MapImage = z.infer<typeof MapImage>;
 export const Scene = z.object({
   map: MapImage.nullable(),
   grid: GridSpec,
+  /** Player line of sight; absent = off (ADR 0044). */
+  lineOfSight: z.boolean().optional(),
+  /** How far a token sees, in grid units; absent = unlimited (ADR 0044). */
+  sightRange: z.number().positive().optional(),
 });
 export type Scene = z.infer<typeof Scene>;
 
@@ -332,7 +336,7 @@ export interface RoomState {
   participants: Record<Id, Participant>;
   /** Null until the GM starts an encounter (FR-GM-21). */
   initiative: Initiative | null;
-  /** Most recent rolls, newest last (FR-GM-22, FR-TAC-09). Capped at ROLL_LOG_LIMIT. Group rolls take one slot each (ADR 0044). */
+  /** Most recent rolls, newest last (FR-GM-22, FR-TAC-09). Capped at ROLL_LOG_LIMIT. Group rolls take one slot each (ADR 0046). */
   rolls: LoggedRoll[];
   /** Placed area templates everyone at the table can see, bar GM-only ones (FR-TAC-06, ADR 0007). */
   templates: Record<Id, AreaTemplate>;
@@ -362,10 +366,16 @@ export interface RoomState {
    */
   reducedEffects: boolean;
   /**
-   * The open area effect, if any (ADR 0044). At most one per room. Rooms from before it read as
+   * The open area effect, if any (ADR 0046). At most one per room. Rooms from before it read as
    * null. Players get a projection: no saves, no concealed targets.
    */
   areaEffect: AreaEffect | null;
+  /**
+   * The viewer's line of sight as polygons in board coordinates (FR-GM-19, ADR 0044). Derived per
+   * viewer by `filterStateForViewer`, never set by `reduce` and never persisted. Present only for
+   * a player with line of sight on.
+   */
+  sight?: Point[][];
 }
 
 export function emptyRoomState(roomId: Id): RoomState {

@@ -26,7 +26,7 @@ const committed = (event: CommittedEvent["event"], seq = 1): CommittedEvent => (
 
 beforeEach(resetRandom);
 
-describe("Group rolls (FR-TAC-09, ADR 0044)", () => {
+describe("Group rolls (FR-TAC-09, ADR 0046)", () => {
   it("rolls the expression once per token and logs one entry", () => {
     const { state, one, two } = table();
     const before = state.rolls.length;
@@ -71,13 +71,13 @@ describe("Group rolls (FR-TAC-09, ADR 0044)", () => {
     const after = run(state, gm, { type: "dice.rollGroup", tokenIds: [one.id], expression: "1d20" }).state;
     const plain = run(after, gm, { type: "dice.roll", expression: "1d6" }).state;
     for (const roll of plain.rolls) expect(LoggedRoll.safeParse(roll).success).toBe(true);
-    // A roll stored before ADR 0044 has no `kind` and is still a plain roll.
+    // A roll stored before ADR 0046 has no `kind` and is still a plain roll.
     const legacy = { id: "r1", expression: "1d20", byParticipantId: gm.id, dice: [4], modifier: 0, total: 4, visibility: "public" };
     expect(isGroupRoll(LoggedRoll.parse(legacy))).toBe(false);
   });
 });
 
-describe("Group roll visibility (FR-GM-22, FR-GM-23, ADR 0044)", () => {
+describe("Group roll visibility (FR-GM-22, FR-GM-23, ADR 0046)", () => {
   it("leaves out hidden tokens for players and keeps them for the GM", () => {
     const { state, one, assassin } = table();
     const { state: after, events } = run(state, gm, { type: "dice.rollGroup", tokenIds: [one.id, assassin.id], expression: "1d20" });

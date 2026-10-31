@@ -1,7 +1,7 @@
 import { MAX_AREA_AMOUNT, rolledDamageFor, type AreaEffect, type ConditionId, type RoomState } from "@vtt/shared";
 
 /**
- * What the GM has set in the resolve dialog so far (ADR 0044): kept when the dialog closes, so
+ * What the GM has set in the resolve dialog so far (ADR 0046): kept when the dialog closes, so
  * reopening it brings everything back, and dropped once the effect is resolved or closed.
  * Amounts are kept only once the GM touches them; until then a target shows its rolled damage,
  * so a damage roll that arrives later still fills them in.

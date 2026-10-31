@@ -33,7 +33,7 @@ async function setup() {
 
 const seqOf = (reply: unknown) => (reply as { seq: number }).seq;
 
-describe("Area Effect over the wire (FR-TAC-06, FR-TAC-09, ADR 0044)", () => {
+describe("Area Effect over the wire (FR-TAC-06, FR-TAC-09, ADR 0046)", () => {
   it("runs the whole flow: start, call, reassign, per-target damage, resolve", async () => {
     const { gm, alice, bob, one, two, assassin } = await setup();
     expect(await gm.command({ type: "areaEffect.start", tokenIds: [one.id, two.id, assassin.id], expression: "1d20+2", label: "Fireball" })).toMatchObject({ type: "ack" });
@@ -145,7 +145,7 @@ describe("Area Effect over the wire (FR-TAC-06, FR-TAC-09, ADR 0044)", () => {
   });
 });
 
-describe("Group rolls over the wire (FR-TAC-09, FR-GM-22, ADR 0044)", () => {
+describe("Group rolls over the wire (FR-TAC-09, FR-GM-22, ADR 0046)", () => {
   it("shows a public group roll to players without its hidden tokens", async () => {
     const { gm, alice, one, two, assassin } = await setup();
     const rolled = await gm.command({ type: "dice.rollGroup", tokenIds: [one.id, two.id, assassin.id], expression: "1d20", label: "Dex save" });

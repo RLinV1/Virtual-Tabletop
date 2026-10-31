@@ -21,7 +21,7 @@ export interface ActiveDrop {
 }
 
 /**
- * Dice for group and area-effect rolls (ADR 0044): each token's dice are thrown onto it with the
+ * Dice for group and area-effect rolls (ADR 0046): each token's dice are thrown onto it with the
  * usual throw, every token at once, so the whole roll lands as soon as one throw does however many
  * tokens it has. A roll with too many dice drops one total die on each token instead. A DOM layer
  * over the canvas that follows the board's world transform and takes no input, like `ThrownDice`.

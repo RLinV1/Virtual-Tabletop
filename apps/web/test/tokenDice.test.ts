@@ -20,7 +20,7 @@ const effect: AreaEffect = {
   call: null, damage: null,
 };
 
-describe("Dice dropped onto tokens (ADR 0044)", () => {
+describe("Dice dropped onto tokens (ADR 0046)", () => {
   it("drops a group roll's dice on each token it names", () => {
     const event: DomainEvent = { type: "GroupRolled", roll: { kind: "group", id: "g", expression: "1d20", label: null, byParticipantId: "gm", visibility: "public", entries: [
       { tokenId: "a", name: "a", hidden: false, dice: [7], total: 7 },

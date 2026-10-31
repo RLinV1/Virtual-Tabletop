@@ -23,7 +23,7 @@ export function RulingsPanel({
   connection: RoomConnection;
   state: RoomState;
   you: Participant;
-  /** Open the area effect's resolve dialog (ADR 0044). */
+  /** Open the area effect's resolve dialog (ADR 0046). */
   onResolve: () => void;
   /** Rolls whose dice are still in the air on this screen: the total and the controls wait for them. */
   airborne: ReadonlySet<string>;
@@ -86,7 +86,7 @@ export function RulingsPanel({
 }
 
 /**
- * The open area effect, at every stage (ADR 0044). Take over and Skip act here, and Resolve opens
+ * The open area effect, at every stage (ADR 0046). Take over and Skip act here, and Resolve opens
  * the resolve dialog; the controls that need a choice (who to call, the damage formula) open the
  * Area Effect section.
  */

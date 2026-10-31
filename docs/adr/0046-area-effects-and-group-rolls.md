@@ -1,4 +1,4 @@
-# ADR 0044 — Area effects and group rolls
+# ADR 0046 — Area effects and group rolls
 
 **Status:** Proposed — awaiting review by the Real-Time Architecture owner · **Amends:** `docs/adr/0039-multi-target-attacks.md` · **Extends:** `docs/adr/0010-attack-roll-context.md`, `docs/adr/0011-attack-rulings.md`, `docs/adr/0013-undo.md`
 **Change:** `openspec/changes/area-effects` · **Requirements:** FR-TAC-06, FR-TAC-09, FR-GM-22, FR-GM-23

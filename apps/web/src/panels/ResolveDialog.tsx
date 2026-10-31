@@ -7,7 +7,7 @@ import { damageRollId, savesRollId } from "../board/tokenDice";
 import { amountText, applyToAll, parseAmount, resolveRows, resolveTargets, type ResolveDraft } from "./resolveDraft";
 
 /**
- * The resolve step of an Area Effect (ADR 0044), docked low on the screen so most of the map stays
+ * The resolve step of an Area Effect (ADR 0046), docked low on the screen so most of the map stays
  * in view: one target at a time, its amount and the conditions to add, then Confirm resolution. Closing
  * sends nothing; the draft lives with the caller, so reopening brings it back.
  */
@@ -21,7 +21,7 @@ export function ResolveDialog({
   onClose,
   airborne,
 }: {
-  /** Rolls whose dice are still dropping: their totals wait (ADR 0044). */
+  /** Rolls whose dice are still dropping: their totals wait (ADR 0046). */
   airborne: ReadonlySet<string>;
   connection: RoomConnection;
   state: RoomState;

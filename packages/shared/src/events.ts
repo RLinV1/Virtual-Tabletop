@@ -71,6 +71,8 @@ export const DomainEvent = z.discriminatedUnion("type", [
     grid: GridSpec,
     previous: GridSpec,
   }),
+  z.object({ type: z.literal("LineOfSightSet"), from: z.boolean(), to: z.boolean() }),
+  z.object({ type: z.literal("SightRangeSet"), from: z.number().nullable(), to: z.number().nullable() }),
   z.object({
     type: z.literal("TokenCreated"),
     token: Token,
@@ -190,24 +192,24 @@ export const DomainEvent = z.discriminatedUnion("type", [
     type: z.literal("DiceRolled"),
     roll: DiceRoll,
   }),
-  /** The GM rolled one expression for several tokens (ADR 0044). */
+  /** The GM rolled one expression for several tokens (ADR 0046). */
   z.object({
     type: z.literal("GroupRolled"),
     roll: GroupRoll,
   }),
-  /** The GM opened an area effect; each target's save is in it (ADR 0044). */
+  /** The GM opened an area effect; each target's save is in it (ADR 0046). */
   z.object({
     type: z.literal("AreaEffectStarted"),
     effect: AreaEffect,
   }),
-  /** The damage call went to `participantId`; `previous` is who held it, null for the first call (ADR 0044). */
+  /** The damage call went to `participantId`; `previous` is who held it, null for the first call (ADR 0046). */
   z.object({
     type: z.literal("AreaEffectCalled"),
     effectId: Id,
     participantId: Id,
     previous: Id.nullable(),
   }),
-  /** The participant holding the call rolled the damage, ending the call (ADR 0044). */
+  /** The participant holding the call rolled the damage, ending the call (ADR 0046). */
   z.object({
     type: z.literal("AreaEffectDamageRolled"),
     effectId: Id,
@@ -216,14 +218,14 @@ export const DomainEvent = z.discriminatedUnion("type", [
   /**
    * The GM resolved the effect, closing it. Follows the `TokenStatsSet` and `TokenConditionsSet`
    * events that changed the targets, which carry the values they replaced. Carries the whole
-   * effect it closed (invariant 6) and each target's amount (ADR 0044).
+   * effect it closed (invariant 6) and each target's amount (ADR 0046).
    */
   z.object({
     type: z.literal("AreaEffectResolved"),
     effect: AreaEffect,
     amounts: z.array(z.object({ tokenId: Id, amount: z.number().int() })),
   }),
-  /** The GM closed the effect without applying anything. Carries the whole effect (ADR 0044). */
+  /** The GM closed the effect without applying anything. Carries the whole effect (ADR 0046). */
   z.object({
     type: z.literal("AreaEffectClosed"),
     effect: AreaEffect,

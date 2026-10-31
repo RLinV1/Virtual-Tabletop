@@ -51,7 +51,7 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
   /** "Aria → Goblin (1d20+5: 17)", with the names the roll recorded. */
   const rollLabel = (roll: DiceRoll | undefined) =>
     roll?.attack ? `${formatAttackParties(roll.attack)} (${roll.expression}: ${roll.total})` : "an earlier roll";
-  /** `"Fireball"`, or a generic name for an unlabelled area effect (ADR 0044). */
+  /** `"Fireball"`, or a generic name for an unlabelled area effect (ADR 0046). */
   const effectName = (label: string | null) => (label ? `area effect "${label}"` : "an area effect");
   const tokenCount = (n: number) => `${n} ${n === 1 ? "token" : "tokens"}`;
   /** "red 20 ft cone", in the room grid's units; no colour word for a template without one. */
@@ -89,6 +89,11 @@ export function formatActivity(event: DomainEvent, actorName: string, before: Ro
       return `${actorName} removed the map${restored.length ? `, restoring ${restored.join(" and ")}` : ""}`;
     }
     case "GridSet": return `${actorName} updated the grid`;
+    case "LineOfSightSet": return `${actorName} turned line of sight ${event.to ? "on" : "off"}`;
+    case "SightRangeSet": {
+      const n = event.to === null ? null : Math.round(event.to * 10) / 10;
+      return `${actorName} set sight range to ${n === null ? "unlimited" : `${n} ${before.scene.grid.unitLabel}`}`;
+    }
     case "TokenCreated": return `${actorName} created ${event.token.name}${event.token.hidden ? " (hidden)" : ""}`;
     case "TokenMoved": return `${actorName} moved ${tokenName(event.tokenId)} from ${formatPoint(event.from)} to ${formatPoint(event.to)}`;
     case "TokenAppearanceSet": return `${actorName} updated ${event.previous.name} to ${event.name} (size ${event.size}, rotation ${event.rotation}°)`;

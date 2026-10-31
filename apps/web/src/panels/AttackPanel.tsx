@@ -249,6 +249,7 @@ function AttackForm({
   // After a Hit with the chosen attack on any aimed target, its one roll button becomes that attack's damage.
   const hits = chosen?.damage ? aimed.map((id) => hitOn(state.rolls, you.id, attackerId, id, chosen)).filter((r): r is DiceRoll => r !== null) : [];
   const followUp = hits[0] ?? null;
+  const rollLabel = !chosen ? "" : busy ? "Rolling…" : !target ? "Choose a target" : followUp ? `Roll damage ${attackExpression(chosen.damage!)}` : chosen.toHit ? "Roll to hit" : "Roll damage";
   const expression = attackExpression(settings);
   const kind = kindOf(settings);
   const update = (changes: Partial<AttackSettings>) => {
@@ -508,10 +509,11 @@ function AttackForm({
                 disabled={!target || busy || rolling}
                 title={rolling ? "Your dice are still on the board" : undefined}
                 onClick={() => (followUp ? rollDamage(chosen, hits) : rollPreset(chosen))}
-                aria-label={target ? `Roll ${chosen.name} ${chosen.toHit && !followUp ? "to hit" : "damage to"} ${target.token.name}` : undefined}
+                // Starts with the visible words (WCAG 2.5.3), then says which attack at whom.
+                aria-label={target ? `${rollLabel}: ${chosen.name} against ${target.token.name}` : undefined}
               >
                 <DiceFive size={18} aria-hidden="true" />
-                {busy ? "Rolling…" : !target ? "Choose a target" : followUp ? `Roll damage ${attackExpression(chosen.damage!)}` : chosen.toHit ? "Roll to hit" : "Roll damage"}
+                {rollLabel}
               </button>
               {privateToggle}
             </div>

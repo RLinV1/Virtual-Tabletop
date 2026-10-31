@@ -1,7 +1,7 @@
 import { parseDiceExpression, type DomainEvent, type Participant, type Point, type RoomState } from "@vtt/shared";
 
 /**
- * Dice for group and area-effect rolls (ADR 0044): each token's dice are thrown onto that token
+ * Dice for group and area-effect rolls (ADR 0046): each token's dice are thrown onto that token
  * the way a Roll-button throw is, every token at once, so a roll for thirty tokens lands as soon
  * as a roll for one. Past `MAX_DROP_DICE`, each token instead gets one die with its total, dropped
  * straight down. Pure, so it is testable without the DOM; `DroppedDice` draws what it plans.

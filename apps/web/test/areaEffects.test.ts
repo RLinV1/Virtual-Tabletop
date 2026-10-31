@@ -9,7 +9,7 @@ const cell = (col: number, row: number): Point => ({ x: col * 70 + 35, y: row * 
 const at = (name: string, position: Point, size = 1) => ({ name, position, size });
 const names = (tokens: { name: string }[]) => tokens.map((t) => t.name);
 
-describe("Tokens touching an area (FR-TAC-06, ADR 0044)", () => {
+describe("Tokens touching an area (FR-TAC-06, ADR 0046)", () => {
   it("selects tokens a circle overlaps, including a Large token clipped at the edge", () => {
     // A 10 ft circle (two cells) centred on the corner between cells (4,4) and (5,5).
     const circle = areaShape("circle", { x: 350, y: 350 }, { x: 350, y: 350 }, 10, grid);
@@ -61,7 +61,7 @@ function room(overrides: Partial<RoomState> = {}): RoomState {
   return { ...emptyRoomState("r"), participants: { gm, mira }, ...overrides };
 }
 
-describe("Calling for damage (ADR 0044)", () => {
+describe("Calling for damage (ADR 0046)", () => {
   it("pre-fills the owner of the token whose turn it is", () => {
     const state = room({ tokens: { wiz: token("wiz", ["mira"]) }, initiative: { order: ["wiz"], activeIndex: 0, round: 1 } });
     expect(defaultCaller(state, gm.id)).toBe("mira");
@@ -80,7 +80,7 @@ describe("Calling for damage (ADR 0044)", () => {
   });
 });
 
-describe("Rulings pending with an Area Effect (attack-rulings, ADR 0044)", () => {
+describe("Rulings pending with an Area Effect (attack-rulings, ADR 0046)", () => {
   const effect: AreaEffect = {
     id: "e", label: "Fireball", expression: "1d20", byParticipantId: "gm",
     targets: [], call: { participantId: "mira" }, damage: null,
@@ -92,7 +92,7 @@ describe("Rulings pending with an Area Effect (attack-rulings, ADR 0044)", () =>
   });
 });
 
-describe("Damage numbers when an Area Effect is resolved (ADR 0044)", () => {
+describe("Damage numbers when an Area Effect is resolved (ADR 0046)", () => {
   const effect: AreaEffect = { id: "e", label: null, expression: "1d20", byParticipantId: "gm", targets: [], call: null, damage: null };
   const state = room({ tokens: { a: token("a", []), b: { ...token("b", []), hidden: true }, c: token("c", []) } });
 

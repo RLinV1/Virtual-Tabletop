@@ -1,6 +1,22 @@
 import { Container, Graphics, Sprite, Texture } from "pixi.js";
 import type { ParticleShape } from "@vtt/shared";
 import { drawSparks, mix, WHITE, type Spark } from "./fxKit";
+import { fxTexture, type FxArt } from "./fxTextures";
+
+/**
+ * The painted sprite of each particle look (`fxTextures.ts`) and the share of its picture the
+ * drawing fills, so a painted particle comes out the size the baked one would. Until it loads,
+ * the baked artwork below is drawn.
+ */
+export const PAINTED_PARTICLES: Record<ParticleShape, { art: FxArt; fill: number }> = {
+  // The spark's faint wisps reach further than its core: fill by the core.
+  spark: { art: "particle-spark", fill: 0.5 },
+  // The star's rays, the shard and the ring are fine lines: drawn a little larger to read as well.
+  star: { art: "particle-star", fill: 0.6 },
+  square: { art: "particle-square", fill: 0.53 },
+  shard: { art: "particle-shard", fill: 0.75 },
+  ring: { art: "particle-ring", fill: 0.72 },
+};
 
 const textures = new Map<string, Texture>();
 let unavailable = false;
@@ -59,8 +75,9 @@ export class SparkRenderer {
   draw(list: readonly Spark[], look: ParticleShape = "spark") {
     this.container.visible = list.length > 0;
     if (list.length === 0) return;
-    const texture = particleTexture(look);
-    const haloTexture = particleTexture("halo");
+    const painted = fxTexture(PAINTED_PARTICLES[look].art);
+    const texture = painted ?? particleTexture(look);
+    const haloTexture = particleTexture("halo") ?? fxTexture("glow");
     if (!texture || !haloTexture) {
       this.fallback ??= this.container.addChild(new Graphics());
       this.fallback.blendMode = "add";
@@ -83,15 +100,20 @@ export class SparkRenderer {
       const { core, halo } = item;
       const alpha = Math.max(0, 1 - s.age / s.life);
       core.texture = texture;
-      core.anchor.set(look === "shard" ? 1 / 3 : 0.5, 0.5);
+      core.anchor.set(look === "shard" && !painted ? 1 / 3 : 0.5, 0.5);
       core.position.set(s.x, s.y);
       core.tint = mix(s.color, WHITE, 0.5);
       core.alpha = alpha;
       core.visible = true;
-      core.rotation = look === "shard" ? Math.atan2(s.vy, s.vx) : look === "star" || look === "square" ? s.rot : 0;
+      core.rotation = look === "shard" ? Math.atan2(s.vy, s.vx) : look === "star" || look === "square" || painted ? s.rot : 0;
       const diameter = s.size * (look === "star" ? 5.2 : look === "square" ? 2.2 : look === "ring" ? 3.9 : look === "shard" ? 4.5 : 2);
-      core.width = diameter;
-      core.height = look === "shard" ? s.size * 1.4 : diameter;
+      if (painted) {
+        // A painted particle sits inside a square picture: scale it up by what it leaves empty.
+        core.width = core.height = diameter / PAINTED_PARTICLES[look].fill;
+      } else {
+        core.width = diameter;
+        core.height = look === "shard" ? s.size * 1.4 : diameter;
+      }
       halo.visible = look !== "shard" && look !== "ring";
       halo.position.set(s.x, s.y);
       halo.tint = s.color;

@@ -1,5 +1,6 @@
+import sharp from "sharp";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_GRID, GM_TOKEN_HEADER, type GmRoomSummary, type LibraryAsset, type LibraryUsageResponse } from "@vtt/shared";
+import { DEFAULT_GRID, GM_TOKEN_HEADER, SHIPPED_MAPS, type GmRoomSummary, type LibraryAsset, type LibraryUsageResponse } from "@vtt/shared";
 import { newGuestToken, startServer, type TestClient } from "./helpers";
 
 let server: Awaited<ReturnType<typeof startServer>>;
@@ -13,7 +14,7 @@ afterEach(async () => {
   await server.close();
 });
 
-/** 1x1 transparent PNG. The server checks the declared type; bytes just need to exist. */
+/** Token/failure fixture; successful map uploads below use matching decoded dimensions. */
 const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
   "base64",
@@ -35,6 +36,10 @@ async function upload(
   fields: { kind: string; name: string; width?: number; height?: number },
   file: { bytes: Uint8Array; type: string; filename: string } = { bytes: PNG, type: "image/png", filename: "map.png" },
 ) {
+  if (fields.kind === "map" && file.bytes === PNG && (fields.width ?? 2048) > 0 && (fields.height ?? 1536) > 0) {
+    file = { ...file, bytes: await sharp({ create: { width: fields.width ?? 2048, height: fields.height ?? 1536,
+      channels: 3, background: "#334455" } }).png().toBuffer() };
+  }
   const form = new FormData();
   form.append("kind", fields.kind);
   form.append("name", fields.name);
@@ -61,19 +66,19 @@ describe("shipped maps in every library (builtin-library-assets, ADR 0036)", () 
     const gm = await newGm();
     const first = (await (await gmFetch(gm, "/api/library")).json()) as LibraryAsset[];
     expect(first.filter((a) => a.kind === "map").map((a) => a.name).sort()).toEqual(
-      ["Hollowfrost Keep", "Temple of the Green Sun", "The Broken Span"],
+      SHIPPED_MAPS.map((m) => m.name).sort(),
     );
     expect(first.find((a) => a.name === "Hollowfrost Keep")).toMatchObject({
       url: "/img/map-ice.webp", width: 3269, height: 1882, grid: { cellSize: 70, offsetX: 47, offsetY: 46 },
     });
     expect(JSON.stringify(first)).not.toContain("objectKey");
 
-    expect(((await (await gmFetch(gm, "/api/library")).json()) as LibraryAsset[])).toHaveLength(3);
+    expect(((await (await gmFetch(gm, "/api/library")).json()) as LibraryAsset[])).toHaveLength(SHIPPED_MAPS.length);
     const frost = first.find((a) => a.name === "Hollowfrost Keep")!;
     expect((await gmFetch(gm, `/api/library/${frost.id}`, { method: "DELETE" })).status).toBe(204);
     const after = (await (await gmFetch(gm, "/api/library")).json()) as LibraryAsset[];
     expect(after.map((a) => a.name)).not.toContain("Hollowfrost Keep");
-    expect(after).toHaveLength(2);
+    expect(after).toHaveLength(SHIPPED_MAPS.length - 1);
   });
 
   it("deletes only the row of a seeded map; the shipped image URL is not a stored object", async () => {
