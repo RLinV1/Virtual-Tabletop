@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Terrain, TerrainEffect, PaintRun, MAX_TERRAIN_CELLS } from "./terrain";
 import { MAX_NUKE_DAMAGE, NukeAnimationDef } from "./animation";
 import { TokenAttacks } from "./attackPresets";
 import { ConditionId, TokenStats } from "./conditions";
@@ -51,6 +52,7 @@ export const DomainEvent = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("MapSet"),
+    terrainChange: z.object({ terrain: Terrain, previous: Terrain }).optional(),
     /** Null only in an inverse restoring the state before first-map placement (ADR 0042). */
     map: MapImage.nullable(),
     previous: MapImage.nullable(),
@@ -67,6 +69,7 @@ export const DomainEvent = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("GridSet"),
+    terrainChange: z.object({ terrain: Terrain, previous: Terrain }).optional(),
     grid: GridSpec,
     previous: GridSpec,
   }),
@@ -76,6 +79,10 @@ export const DomainEvent = z.discriminatedUnion("type", [
     type: z.literal("TokenCreated"),
     token: Token,
   }),
+  z.object({ type: z.literal("TerrainPainted"), layerId: z.string(), paint: z.array(PaintRun).max(MAX_TERRAIN_CELLS), previous: z.array(PaintRun).max(MAX_TERRAIN_CELLS) }),
+  z.object({ type: z.literal("TerrainEffectCreated"), effect: TerrainEffect, index: z.number().int().nonnegative().optional() }),
+  z.object({ type: z.literal("TerrainEffectRemoved"), effect: TerrainEffect, index: z.number().int().nonnegative().optional() }),
+  z.object({ type: z.literal("TerrainEffectRenamed"), effectId: Id, name: z.string(), previous: z.string() }),
   z.object({
     type: z.literal("TokenMoved"),
     tokenId: Id,

@@ -1,3 +1,6 @@
+import { TerrainSetup } from "../pages/mapEditor/TerrainSetup";
+import { Modal } from "../ui/Modal";
+import { movementReadout } from "./movementRuler";
 import { CornersOut, Eye } from "@phosphor-icons/react";
 import { Suspense, forwardRef, lazy, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
 import { DEFAULT_TOKEN_COLOR, EMPTY_STATS, can, type ReplayFrame, type GridSpec, type Participant, type Point, type RoomState } from "@vtt/shared";
@@ -146,6 +149,11 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<BoardView | null>(null);
   /** GM only: "off" hides fog from this view. Not remembered: every time the board opens, fog is shown. */
+  const [terrainOpen, setTerrainOpen] = useState(false);
+  const [showTerrain, setShowTerrain] = useState(true);
+  const [movementNotice, setMovementNotice] = useState<string | null>(null);
+  const [repositionId, setRepositionId] = useState<string | null>(null);
+  const repositionRef = useRef(repositionId); repositionRef.current = repositionId;
   const [gmFog, setGmFog] = useState<GmFogView>("tint");
   /** GM only: whether this browser draws the walls. Players never receive them. */
   const [showWalls, setShowWalls] = usePersistentState<boolean>("vtt.ui.gmShowWalls", true, (v): v is boolean => typeof v === "boolean");
@@ -168,8 +176,8 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
   const hasWalls = Object.values(state.walls).some((wall) => !wall.portal);
   /** Strikes waiting for their thrown dice to land, by roll id, oldest first (KAN-76). */
   const waitingStrikes = useRef(new Map<string, { effect: AttackEffect; timer: number }>());
-  const latest = useRef({ tokenView: false, state, renderedState, boardState: renderedState, you, gridPreview, onPickTarget, onNukeImpact, gmFog: "tint" as GmFogView, showWalls: true, showPortals: true, readOnly: false, suppressLiveEffects: false, viewing: [] as string[] });
-  latest.current = { tokenView: tokenView && gmCanSee, state, renderedState, boardState: renderedState, you, gridPreview, onPickTarget, onNukeImpact, gmFog, showWalls, showPortals, readOnly, suppressLiveEffects, viewing: [] };
+  const latest = useRef({ tokenView: false, state, renderedState, boardState: renderedState, you, gridPreview, onPickTarget, onNukeImpact, gmFog: "tint" as GmFogView, showWalls: true, showPortals: true, showTerrain: true, readOnly: false, suppressLiveEffects: false, viewing: [] as string[] });
+  latest.current = { tokenView: tokenView && gmCanSee, state, renderedState, boardState: renderedState, you, gridPreview, onPickTarget, onNukeImpact, gmFog, showWalls, showPortals, showTerrain, readOnly, suppressLiveEffects, viewing: [] };
   // Sends nothing while previewing as a player, whatever the board is asked to do. Stable for as
   // long as the connection is, so entering and leaving a preview never rebuilds the board view.
   const guarded = useMemo(() => guardedConnection(connection, () => latest.current.readOnly), [connection]);
@@ -214,9 +222,14 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
     if (movePending.current) return;
     movePending.current = true;
     try {
-      const result = await guarded.command({ type: "token.move", tokenId, to });
+      const current = latest.current.state, origin = current.tokens[tokenId]?.position;
+      const reposition = latest.current.you.role === "gm" && repositionRef.current === tokenId;
+      setRepositionId(null); repositionRef.current = null;
+      if (origin) setMovementNotice(movementReadout(current, latest.current.you, current.tokens[tokenId]!, origin, to, false, reposition));
+      const result = await guarded.command({ type: "token.move", tokenId, to, expectedOrigin: origin, boardEpoch: current.boardEpoch ?? 0, ...(reposition ? { reposition: true } : {}) });
       // Unlike a drag there is no snap-back to show, so say why even when offline.
       if (!result.ok) setRefusal({ message: result.message, at: Date.now() });
+      else setRefusal(null);
     } finally {
       movePending.current = false;
     }
@@ -238,6 +251,19 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [keyMovable, scene, moveToken]);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || isTyping(event.target) || document.querySelector("dialog[open]")) return;
+      if (viewRef.current?.cancelMovement()) event.preventDefault();
+      setRepositionId(null); repositionRef.current = null;
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  useEffect(() => { if (repositionId && repositionId !== selectedId) { setRepositionId(null); repositionRef.current = null; } }, [selectedId, repositionId]);
+  useEffect(() => { setMovementNotice(null); }, [selectedId, readOnly, you.id]);
+  useEffect(() => { viewRef.current?.setShowTerrain(showTerrain); }, [showTerrain]);
+  useEffect(() => { viewRef.current?.setRepositionToken(repositionId); }, [repositionId]);
   const ghost = useMemo<PlacementGhost | null>(
     () => source && (source.kind === "create" ? ghostOf(source.draft) : source.ghost),
     [source],
@@ -309,14 +335,18 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
   useEffect(() => {
     const view = new BoardView(hostRef.current!, {
       nukeImpact: () => latest.current.onNukeImpact?.(),
-      moveToken: async (tokenId, to) => {
-        const result = await guarded.command({ type: "token.move", tokenId, to });
+      moveToken: async (tokenId, to, origin, boardEpoch) => {
+        const reposition = latest.current.you.role === "gm" && repositionRef.current === tokenId;
+        setRepositionId(null); repositionRef.current = null;
+        const result = await guarded.command({ type: "token.move", tokenId, to, expectedOrigin: origin, boardEpoch, ...(reposition ? { reposition: true } : {}) });
         // The token snaps back; say why, so a wall the player can't see isn't a mystery (ADR 0029).
         if (!result.ok && result.code !== "offline") setRefusal({ message: result.message, at: Date.now() });
+        else if (result.ok) setRefusal(null);
         return result.ok;
       },
       dragPreview: (tokenId, at) => guarded.preview(`drag:${tokenId}`, { type: "tokenDragPreview", tokenId, at }),
-      dragEnd: (tokenId, at) => guarded.endPreview(`drag:${tokenId}`, at && { type: "tokenDragPreview", tokenId, at }),
+      requestMovementPreview: (request) => guarded.preview("movement-feedback", request, 100),
+      dragEnd: (tokenId, at) => { guarded.endPreview("movement-feedback", null); guarded.endPreview(`drag:${tokenId}`, at && { type: "tokenDragPreview", tokenId, at }); },
       ping: (at) => guarded.ephemeral({ type: "ping", at }),
       // Aiming is shared live and coalesced like drags (KAN-35, KAN-39); the clear goes at once.
       aimPreview: (preview) => guarded.preview("aim", { type: "templatePreview", preview }),
@@ -374,6 +404,8 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
       view.setGmFogView(latest.current.gmFog);
       view.setShowWalls(latest.current.showWalls);
       view.setShowPortals(latest.current.showPortals);
+      view.setShowTerrain(latest.current.showTerrain);
+      view.setRepositionToken(repositionRef.current);
       view.setReadOnly(latest.current.readOnly);
       view.setViewedTokens(latest.current.viewing);
       view.setGridPreview(latest.current.gridPreview);
@@ -385,9 +417,14 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
       if (latest.current.suppressLiveEffects) return;
       if (payload.type === "ping") view.showPing(payload.at, 0x3498db);
       else if (payload.type === "tokenDragPreview") view.showDragPreview(payload.tokenId, payload.at);
+      else if (payload.type === "tokenMoveFeedback" && _from === latest.current.you.id && payload.atSeq === connection.snapshot.seq && connection.snapshot.status === "open") view.showMovementFeedback(payload);
       else if (payload.type === "templatePreview") {
         view.showAimPreview(_from, payload.preview, latest.current.state.participants[_from]?.displayName ?? "Someone");
       }
+    });
+
+    const stopMovementUpdates = connection.store.subscribe((snapshot, previous) => {
+      if (snapshot.seq !== previous.seq || snapshot.status !== previous.status) view.refreshMovementPreview();
     });
 
     // Live events only, already filtered for this viewer; a snapshot never gets here (KAN-76).
@@ -421,6 +458,7 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
     return () => {
       disposed = true;
       stopEphemeral();
+      stopMovementUpdates();
       stopCommitted();
       waitingStrikes.current.forEach((waiting) => window.clearTimeout(waiting.timer));
       waitingStrikes.current.clear();
@@ -635,6 +673,8 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
       {throws.length > 0 && <ThrownDice throws={throws} subscribe={followView} onDone={throwDone} />}
       <div className="board-toolbar">
         {toolbar}
+        <button type="button" className="tool-button" aria-pressed={showTerrain} onClick={() => setShowTerrain((value) => !value)}>Show terrain</button>
+        {you.role === "gm" && !readOnly && !selectOnly && <button type="button" className="tool-button" onClick={() => setTerrainOpen(true)}>Paint terrain</button>}
         <button type="button" className="tool-button" data-tour="fit" onClick={() => viewRef.current?.resetView()} title="Fit the map to the screen">
           <CornersOut size={16} aria-hidden="true" />
           Fit
@@ -681,6 +721,8 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
       )}
       {overlay}
       {notices}
+      {movementNotice && !selected && !readOnly && <p className="board-movement-readout" role="status">{movementNotice}</p>}
+      {terrainOpen && you.role === "gm" && !readOnly && <Modal open title="Live terrain" className="map-editor" onClose={() => setTerrainOpen(false)}><div className="map-editor-body"><TerrainSetup connection={connection} state={state} live /></div></Modal>}
       {refusal && <p key={refusal.at} className="board-refusal" role="alert">{refusal.message}</p>}
       {selected && (
         <TokenCard
@@ -693,6 +735,8 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
           onEdit={onEditToken && (() => { deselect(); onEditToken(selected.id); })}
           onDuplicate={() => { deselect(); duplicateToken(selected.id); }}
           onMove={(to) => moveToken(selected.id, to)}
+          movementReadout={movementNotice}
+          reposition={you.role === "gm" && !readOnly ? { on: repositionId === selected.id, toggle: () => setRepositionId((id) => id === selected.id ? null : selected.id) } : undefined}
           arrowKeys={{ on: arrowKeys, onToggle: setArrowKeys }}
         />
       )}

@@ -1,3 +1,4 @@
+import { publicBoard } from "../store/libraryPreparation";
 import type { UvttLease } from "../uvtt/preparations";
 import { randomInt, randomUUID } from "node:crypto";
 import {
@@ -12,12 +13,12 @@ import {
   endReason,
   filterStateForViewer,
   isActive,
+  movementFeedbackForViewer,
   reduceCommitted,
   replayTo,
   tableOf,
   referencedAssetIds,
   LibraryMapBoard,
-  EMPTY_LIBRARY_BOARD,
   type ResolvedLibraryMap,
   type Command,
   type CommittedEvent,
@@ -251,7 +252,7 @@ export class LiveRoom {
           const member = await this.store.findMemberByParticipant(this.roomId, actorId);
           const user = member ? await this.store.findUserById(member.userId) : null;
           const asset = user && command.map.assetId ? await this.store.findAsset(command.map.assetId, user.ownerId) : null;
-          const board = LibraryMapBoard.safeParse(asset?.board ?? EMPTY_LIBRARY_BOARD);
+          const board = LibraryMapBoard.safeParse(publicBoard(asset?.board));
           libraryMap = asset?.kind === "map" && board.success ? {
             map: { url: asset.url, width: asset.width, height: asset.height, assetId: asset.id },
             grid: asset.grid, board: board.data,
@@ -412,6 +413,14 @@ export class LiveRoom {
     if (this.isClosed) return;
     const sender = this.state.participants[from.participantId];
     if (!sender || !isActive(sender)) return;
+    if (payload.type === "tokenMovePreview") {
+      let concealment = this.concealments.get(sender.id);
+      if (!concealment) this.concealments.set(sender.id, (concealment = concealmentFor(this.state, sender)));
+      const status = movementFeedbackForViewer(this.state, sender, payload, concealment);
+      if (status === null) return;
+      (from.sendVolatile ?? from.send).call(from, { type: "ephemeral", from: sender.id, payload: { type: "tokenMoveFeedback", requestId: payload.requestId, atSeq: this.seq, status } });
+      return;
+    }
     let token = undefined;
     if (payload.type === "tokenDragPreview") {
       token = this.state.tokens[payload.tokenId];

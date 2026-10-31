@@ -1,3 +1,5 @@
+import { TerrainView } from "./terrain";
+import { Point } from "./geometry";
 import { z } from "zod";
 import { formatActivity } from "./activityLog";
 import { DiceRoll } from "./dice";
@@ -48,6 +50,9 @@ export const ReplayFrame = z.discriminatedUnion("kind", [
     seq: z.number().int().positive(),
     at: z.string(),
     table: TableState,
+    sight: z.array(z.array(Point)).nullable().optional(),
+    terrainView: TerrainView.optional(),
+    boardEpoch: z.number().int().nonnegative().optional(),
     rolls: z.array(DiceRoll),
     sentence: z.string(),
   }),
@@ -132,6 +137,9 @@ export function replayFrom(
           seq: committed.seq,
           at: committed.at,
           table: tableOf(visibleAfter),
+          sight: visibleAfter.sight ?? null,
+          terrainView: visibleAfter.terrainView,
+          boardEpoch: visibleAfter.boardEpoch,
           rolls: visibleAfter.rolls,
           sentence: neutralSentence(committed.event, actorName),
         });
@@ -167,7 +175,7 @@ function neutralSentence(event: DomainEvent, actorName: string): string {
 /** The client's fold of one frame onto the replayed state. */
 export function applyReplayFrame(state: RoomState, frame: ReplayFrame): RoomState {
   if (frame.kind === "event") return reduceReceived(state, frame.committed);
-  return { ...state, ...frame.table, rolls: frame.rolls };
+  return { ...state, ...frame.table, terrain: frame.table.terrain, sight: frame.sight ?? undefined, terrainView: frame.terrainView, boardEpoch: frame.boardEpoch, rolls: frame.rolls };
 }
 
 /** Every replayed state, `[start, after frame 1, …]`, so stepping back is a lookup. */
