@@ -2780,6 +2780,77 @@ button.stage-slot[aria-pressed="true"] { border-color: var(--accent); background
 
 .start-from-builtin { min-width: 14rem; }
 
+/* Group rolls and area effects (ADR 0046). */
+.group-roll-form { margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border); gap: var(--space-2); }
+.group-roll-heading { margin: 0; font-size: var(--fs-sm); font-weight: 600; }
+.group-selection { display: flex; flex-direction: column; gap: 0.35rem; }
+.group-selection-label { margin: 0; font-size: var(--fs-sm); }
+.group-selection-tokens { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.group-selection-token { display: inline-flex; align-items: center; gap: 0.25rem; }
+.group-selection-token .icon-button, .condition-adder .icon-button { min-height: 0; padding: 0.1rem; border: none; background: transparent; }
+.group-selection-actions { flex-wrap: wrap; }
+.group-roll .roll-detail { width: 100%; }
+.group-roll-entries { display: flex; flex-direction: column; gap: 0.1rem; font-variant-numeric: tabular-nums; }
+.area-effect { gap: var(--space-2); }
+.area-effect-targets { display: flex; flex-direction: column; gap: 0.15rem; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.area-effect-waiting, .area-effect-damage { margin: 0; }
+.damage-mode { border: none; margin: 0; padding: 0; display: flex; gap: var(--space-3); flex-wrap: wrap; }
+.area-effect-rows { display: flex; flex-direction: column; gap: var(--space-2); }
+.area-effect-row { display: flex; flex-direction: column; gap: 0.3rem; padding-bottom: var(--space-2); border-bottom: 1px solid var(--border); }
+.area-effect-row:last-child { border-bottom: none; padding-bottom: 0; }
+.area-effect-amount { display: flex; gap: 0.3rem; align-items: center; }
+.area-effect-amount input { width: 5rem; font-variant-numeric: tabular-nums; }
+.condition-adder { display: flex; flex-direction: column; gap: 0.25rem; }
+.condition-adder-row { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; }
+.condition-adder .chip { display: inline-flex; align-items: center; gap: 0.25rem; }
+
+/* The Area Effect resolve dialog, docked low so most of the map stays in view (ADR 0046). */
+dialog.modal.resolve-dock {
+  width: min(44rem, calc(100vw - 2rem)); max-height: min(34dvh, 26rem);
+  margin: auto auto 1rem; overflow: hidden;
+}
+dialog.modal.resolve-dock::backdrop { background: rgba(6, 8, 11, 0.18); }
+.resolve-dock .modal-body { max-height: min(34dvh, 26rem); gap: var(--space-2); padding-block: var(--space-2) var(--space-3); }
+.resolve-position { margin-left: auto; font-size: var(--fs-sm); color: var(--muted); font-variant-numeric: tabular-nums; }
+.resolve-target { display: flex; flex-direction: column; gap: var(--space-2); }
+.resolve-facts { margin: 0; display: flex; flex-wrap: wrap; gap: var(--space-3); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.resolve-amount { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+.resolve-amount input { width: 5rem; font-variant-numeric: tabular-nums; }
+.resolve-dock .condition-picker { grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); }
+.resolve-apply-all { align-self: flex-start; }
+.resolve-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; position: sticky; bottom: 0; background: var(--raised); padding-top: var(--space-2); border-top: 1px solid var(--border); }
+.resolve-actions-gap { flex: 1; }
+@media (max-width: 720px) {
+  dialog.modal.resolve-dock { width: calc(100vw - 1rem); max-height: 50dvh; margin-bottom: 0.5rem; }
+  .resolve-dock .modal-body { max-height: 50dvh; }
+}
+
+/* Dice dropped onto tokens for group and area-effect rolls (ADR 0046). */
+.dropped-group { position: absolute; width: 0; height: 0; }
+.dropped-total {
+  position: absolute; display: grid; place-items: center; box-sizing: border-box;
+  border-radius: 18%; background: #f4f1ec; color: #111; font-weight: 800; font-variant-numeric: tabular-nums;
+  border: 2px solid #111; box-shadow: 0 3px 8px var(--die-shadow);
+}
+.thrown-dice-roll.private .dropped-total { background: #2b2140; color: #f1e9ff; border-color: #b9a2ff; }
+/* The resolve dialog's result block: the token's roll, damage and HP, big enough to read at a glance. */
+.resolve-results { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0; }
+/* Label, big number, then the dice formula on its own line, so "4" and "2d6" never read as "42d6". */
+.resolve-result { display: grid; grid-template-columns: auto; justify-items: start; row-gap: 0.1rem; padding: 0.35rem 0.7rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--field); }
+.resolve-result dt { margin: 0; font-size: var(--fs-sm); color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.resolve-result dd { margin: 0; font-size: 1.6rem; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.resolve-result dd.resolve-result-detail { font-size: var(--fs-sm); font-weight: 400; line-height: 1.2; color: var(--muted); }
+.resolve-dock .modal-title { font-size: 1.3rem; }
+/* The token's name stays in view while the body scrolls in the short docked dialog. */
+.resolve-dock .modal-head { position: sticky; top: calc(-1 * var(--space-2)); z-index: 1; background: var(--raised); padding-block: var(--space-2) 0.3rem; margin-top: calc(-1 * var(--space-2)); border-bottom: 1px solid var(--border); }
+/* The resolve dialog's header row: token name, then its numbers, then the effect and step. */
+.resolve-dock .modal-head { align-items: center; }
+.resolve-head { display: flex; flex: 1; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; }
+.resolve-head .resolve-results { flex-wrap: nowrap; }
+.resolve-head .resolve-result { padding: 0.15rem 0.55rem; }
+.resolve-head .resolve-result dd { font-size: 1.35rem; }
+.resolve-head .resolve-result dd.resolve-result-detail { font-size: var(--fs-sm); }
+
 /* Map editor Sight step (map-editor-sight-step): the preview letterboxes like the other steps' canvases. */
 .sight-preview-stage > .wall-canvas { height: 100%; }
 .sight-preview-wall { stroke: var(--accent); stroke-linecap: round; opacity: 0.55; }

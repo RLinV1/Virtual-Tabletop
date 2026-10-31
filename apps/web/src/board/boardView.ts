@@ -18,6 +18,7 @@ import {
   conditionSpec,
   gridLineStyle,
   hpFraction,
+  pointInPolygon,
   snapTokenCenter,
   type ConditionId,
   type ConditionShape,
@@ -58,7 +59,7 @@ import { makeSightMaskCanvas, sightColor } from "./sightMask";
 
 /** How long the old line-of-sight mask takes to fade out over the new one. */
 const SIGHT_FADE_MS = 160;
-import { areaColorValue, areaOrigin, areaShape, areaSizeFromDrag, fogDraftPoints, fogRegionAt, formatDistance, hitMark, measure, portalAt, sweepPoints, templateMark, type BoardTool, type FogDraft, type Mark } from "./tools";
+import { areaColorValue, areaOrigin, areaShape, areaSizeFromDrag, fogDraftPoints, fogRegionAt, formatDistance, hitMark, measure, portalAt, sweepPoints, templateArea, templateMark, type BoardTool, type FogDraft, type Mark } from "./tools";
 import { aimExpiry, expiredAims } from "./aims";
 import { PING_MS, pingPulse } from "./ping";
 
@@ -102,6 +103,12 @@ export interface BoardCallbacks {
   pickTarget(attackerId: string, targetId: string): void;
   /** The viewer right-clicked while picking a target: stop without attacking. */
   cancelAttack(): void;
+  /** GM: Shift-click on a token adds it to the group selection, or takes it out (ADR 0046). */
+  toggleGroupToken(tokenId: string): void;
+  /** GM: clicked a placed template in From template; its tokens become the selection (ADR 0046). */
+  pickTemplate(templateId: string): void;
+  /** GM: right-clicked while picking a template: stop without picking. */
+  cancelPickTemplate(): void;
   /** The GM clicked a square while placing a new token (place-token-on-board). */
   placeToken(at: Point): void;
   /** A press on a token that stayed put (a click, not a drag) selects it (`extend`: Shift was held); a click on bare map clears (null). */
@@ -218,6 +225,8 @@ const TOOL_CURSORS = {
       outlined("M5 1v8M1 5h8"),
     5, 5,
   ),
+  // Picking a template's tokens (ADR 0046).
+  pickTemplate: "crosshair",
   // A red reticle, aimed from its centre.
   attack: svgCursor(
     "<circle cx='12' cy='12' r='7.5' fill='none' stroke='#111' stroke-width='3.6'/>" +
@@ -292,6 +301,8 @@ export class BoardView {
   private app = new Application();
   /** Token highlighted from the roster (FR-GM-24). */
   private focusedId: string | null = null;
+  /** The GM's group selection for a group roll or an area effect (ADR 0046). */
+  private groupSelection: ReadonlySet<string> = new Set();
   /** Tokens the GM is looking through (gm-token-sight-view), ringed with a dashed outline. */
   private viewedIds = new Set<string>();
   private world = new Container();
@@ -488,6 +499,9 @@ export class BoardView {
     this.measureLabel.anchor.set(0.5, 1.2);
     this.measureLabel.visible = false;
     this.markLayer.addChild(this.marksGraphics, this.overlayGraphics, this.measureLabel);
+    // Marks and areas are drawn over the tokens but take no input (the eraser and From template
+    // test their geometry), so a token under an area can still be clicked (ADR 0046).
+    this.markLayer.eventMode = "none";
     this.fogMist.eventMode = "none";
     this.fogPuffLayer.eventMode = "none";
     this.fogMist.addChild(this.fogPuffLayer);
@@ -1056,6 +1070,16 @@ export class BoardView {
     this.invalidate();
   }
 
+  /** Mark the tokens in the GM's group selection (ADR 0046). */
+  setGroupSelection(tokenIds: readonly string[]) {
+    const next = new Set(tokenIds);
+    if (next.size === this.groupSelection.size && [...next].every((id) => this.groupSelection.has(id))) return;
+    this.groupSelection = next;
+    if (!this.state) return;
+    this.syncTokens();
+    this.invalidate();
+  }
+
   // ---------- tools (KAN-69) ----------
 
   /** Switch the active tool. Changing tool drops the last measurement and any drag in progress. */
@@ -1524,6 +1548,21 @@ export class BoardView {
     this.redrawMarks();
   }
 
+  /** The newest placed template at `at`, inside it or within reach of its edge, or null (ADR 0046). */
+  private templateAt(at: Point): string | null {
+    const grid = this.state?.scene.grid;
+    if (!grid) return null;
+    const reach = ERASER_REACH_PX / this.world.scale.x;
+    const templates = Object.values(this.state?.templates ?? {});
+    for (let i = templates.length - 1; i >= 0; i--) {
+      const t = templates[i]!;
+      const area = templateArea(t, grid);
+      const inside = area.kind === "circle" ? Math.hypot(at.x - area.center.x, at.y - area.center.y) <= area.radius : pointInPolygon(at, area.points);
+      if (inside || hitMark(templateMark(t), at, reach, grid)) return t.id;
+    }
+    return null;
+  }
+
   private addMark(mark: Mark) {
     this.marks.push(mark);
     if (this.marks.length > MAX_MARKS) this.marks.shift();
@@ -1895,10 +1934,11 @@ export class BoardView {
     const movable = !this.readOnly && can.moveToken(you, token);
     const focused = this.focusedId === token.id;
     const active = this.activeTokenId() === token.id;
+    const grouped = this.groupSelection.has(token.id);
     const viewed = this.viewedIds.has(token.id);
     const key = JSON.stringify([
       token.name, token.size, token.rotation, token.color, token.hidden, owned, movable, grid.cellSize,
-      token.stats, token.conditions, focused, active, viewed, token.imageUrl,
+      token.stats, token.conditions, focused, active, viewed, token.imageUrl, grouped,
     ]);
     // Every visible token takes presses so a click can select it; only movable ones start a drag.
     view.container.eventMode = "static";
@@ -1920,7 +1960,7 @@ export class BoardView {
     view.label.position.set(0, r + 2);
     this.sharpenLabel(view.label);
 
-    this.drawDecor(view, token, r, focused, active, owned, viewed);
+    this.drawDecor(view, token, r, focused, active, owned, viewed, grouped);
     this.drawConditions(view, token.conditions, r);
     this.drawConditionLook(view, token.conditions);
   }
@@ -2218,7 +2258,7 @@ export class BoardView {
   }
 
   /** Focus ring, active-turn ring, and the HP bar (FR-TAC-07, FR-GM-21, FR-GM-24). */
-  private drawDecor(view: TokenView, token: Token, r: number, focused: boolean, active: boolean, owned: boolean, viewed: boolean) {
+  private drawDecor(view: TokenView, token: Token, r: number, focused: boolean, active: boolean, owned: boolean, viewed: boolean, grouped = false) {
     const g = view.decor.clear();
     // Direction remains visible even when the token has no art; labels and HP stay upright.
     const angle = (token.rotation - 90) * Math.PI / 180;
@@ -2244,6 +2284,11 @@ export class BoardView {
         const a = i * step;
         g.moveTo(Math.cos(a) * ring, Math.sin(a) * ring).arc(0, 0, ring, a, a + step * 0.6).stroke({ width: 2.5, color: 0x38bdf8 });
       }
+    }
+    // The GM's group selection: a dashed-looking double ring, unlike the others (ADR 0046).
+    if (grouped) {
+      g.circle(0, 0, r + 11).stroke({ width: 3, color: 0x111111, alpha: 0.85 });
+      g.circle(0, 0, r + 11).stroke({ width: 1.5, color: 0x5dade2 });
     }
 
     const fraction = hpFraction(token.stats);
@@ -2312,6 +2357,8 @@ export class BoardView {
     // measurement starts here, or the new token can go on an occupied square.
     if (e.button !== 0 || this.tool.kind !== "select" || this.placement) return;
     e.stopPropagation();
+    // The GM's Shift-click builds a group selection instead of dragging (ADR 0046).
+    if (e.shiftKey && this.you?.role === "gm" && !this.readOnly) return this.callbacks.toggleGroupToken(tokenId);
     const view = this.tokens.get(tokenId);
     const token = this.state?.tokens[tokenId];
     if (!view || !token || !this.you) return;
@@ -2345,6 +2392,14 @@ export class BoardView {
         return this.callbacks.pickTarget(this.tool.attackerId, target);
       }
       // A press on the map or the attacker picks nothing; dragging still pans.
+      this.pan = { start: { x: e.global.x, y: e.global.y }, origin: { x: this.world.x, y: this.world.y } };
+      return;
+    }
+    if (this.tool.kind === "pickTemplate") {
+      if (e.button === 2) return this.callbacks.cancelPickTemplate();
+      const picked = e.button === 0 ? this.templateAt(this.toBoard(e.global)) : null;
+      if (picked) return this.callbacks.pickTemplate(picked);
+      // A press beside every template picks nothing; dragging still pans.
       this.pan = { start: { x: e.global.x, y: e.global.y }, origin: { x: this.world.x, y: this.world.y } };
       return;
     }

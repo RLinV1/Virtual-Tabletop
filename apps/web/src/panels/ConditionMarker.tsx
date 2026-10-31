@@ -100,10 +100,13 @@ export function ConditionPicker({
   value,
   onChange,
   disabled,
+  locked = [],
 }: {
   value: ConditionId[];
   onChange: (next: ConditionId[]) => void;
   disabled?: boolean;
+  /** Shown checked and can't be unchecked, e.g. what a token already has when resolving an area effect (ADR 0046). */
+  locked?: readonly ConditionId[];
 }) {
   const toggle = (id: ConditionId) =>
     onChange(value.includes(id) ? value.filter((c) => c !== id) : [...value, id]);
@@ -112,12 +115,13 @@ export function ConditionPicker({
     <fieldset className="condition-picker" disabled={disabled}>
       <legend className="sr-only">Conditions</legend>
       {CONDITIONS.map((c) => (
-        <label key={c.id} className={value.includes(c.id) ? "condition-option on" : "condition-option"}>
+        <label key={c.id} className={value.includes(c.id) || locked.includes(c.id) ? "condition-option on" : "condition-option"}>
           <input
             type="checkbox"
-            checked={value.includes(c.id)}
+            checked={value.includes(c.id) || locked.includes(c.id)}
+            disabled={locked.includes(c.id)}
             onChange={() => toggle(c.id)}
-            aria-label={c.label}
+            aria-label={locked.includes(c.id) ? `${c.label} (already has it)` : c.label}
           />
           <ConditionMarker id={c.id} size={20} />
           <span>{c.label}</span>

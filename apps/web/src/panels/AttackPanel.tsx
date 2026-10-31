@@ -2,12 +2,14 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Crosshair, DiceFive, DotsThree, Eye, EyeSlash, Minus, PencilSimple, Plus, SlidersHorizontal, Sword, Target, X } from "@phosphor-icons/react";
 import {
   can,
+  isGroupRoll,
   MAX_ATTACK_LABEL,
   MAX_ATTACK_TARGETS,
   type AttackKind,
   type AnimationDef,
   type DiceRoll,
   type DiceVisibility,
+  type LoggedRoll,
   type Participant,
   type Point,
   type RoomState,
@@ -770,10 +772,11 @@ function DiceField({
  * The to-hit roll that last decided `preset` against `targetId`, if it was a Hit not yet followed by
  * that attack's damage; the damage button then rolls at that target.
  */
-function hitOn(rolls: readonly DiceRoll[], participantId: string, attackerId: string, targetId: string, preset: AttackPreset): DiceRoll | null {
+function hitOn(rolls: readonly LoggedRoll[], participantId: string, attackerId: string, targetId: string, preset: AttackPreset): DiceRoll | null {
   const label = (kind: AttackKind) => presetRollLabel(preset, kind);
   for (let i = rolls.length - 1; i >= 0; i--) {
     const roll = rolls[i]!;
+    if (isGroupRoll(roll)) continue;
     const attack = roll.attack;
     if (!attack || roll.byParticipantId !== participantId || attack.actor?.tokenId !== attackerId || attack.target?.tokenId !== targetId) continue;
     if (attack.kind === "damage" && attack.label === label("damage")) return null;
