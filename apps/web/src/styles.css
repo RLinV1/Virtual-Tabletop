@@ -2240,6 +2240,15 @@ button.link.leave-table:hover { color: var(--danger); text-decoration-color: var
 .checkpoint-form { margin-bottom: var(--space-2); }
 .checkpoint-name { display: flex; flex: 1; min-width: 0; }
 .checkpoint-name input { flex: 1; min-width: 0; }
+/* Named live scenes: one-click switching beside the room title. */
+.scene-switcher { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.scene-switcher select { width: auto; max-width: 10rem; min-height: 2rem; }
+.scene-switcher [role="alert"] { max-width: 14rem; font-size: var(--fs-sm); }
+.scene-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.scene-row { display: flex; gap: var(--space-1); align-items: center; }
+.scene-name { flex: 1; min-width: 0; text-align: left; overflow-wrap: anywhere; }
+.scene-create { display: grid; gap: var(--space-2); margin-top: var(--space-3); }
+
 .checkpoint-list { display: flex; flex-direction: column; gap: var(--space-2); }
 .checkpoint-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-size: var(--fs-sm); }
 .checkpoint-row > span { min-width: 0; overflow-wrap: anywhere; }

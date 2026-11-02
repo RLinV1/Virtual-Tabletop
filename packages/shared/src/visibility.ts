@@ -102,7 +102,7 @@ export function filterStateForViewer(state: RoomState, viewer: Participant): Roo
   const walls = Object.fromEntries(Object.entries(state.walls).filter(([, w]) => !portalConcealedFrom(c, w, viewer)).map(([id, w]) => [id, { id: w.id, a: w.a, b: w.b, portal: w.portal }]));
   // Groups are the GM's organisation and would say which group a hidden token is in (KAN-82, ADR 0026).
   // The polygons are what the player's board masks with (ADR 0044); omitted entirely when sight is off.
-  return { ...state, tokens, rolls, initiative, templates, walls, undo: [], checkpoints: [], groups: {}, tokenGroups: {}, ...(c.sight ? { sight: c.sight } : {}) };
+  return { ...state, tokens, rolls, initiative, templates, walls, undo: [], checkpoints: [], groups: {}, tokenGroups: {}, ...(state.sceneNames && { sceneNames: {}, savedScenes: {} }), ...(c.sight ? { sight: c.sight } : {}) };
 }
 
 export type FilteredEvent =
@@ -273,6 +273,12 @@ export function filterEventForViewer(
     case "TokensGrouped":
       // GM-only: a player learns only that a seq passed (KAN-82, ADR 0026).
       return redacted;
+    case "SceneRenamed":
+    case "SceneDeleted":
+      return redacted;
+    case "SceneCreated":
+    case "SceneSwitched":
+      return { kind: "resync" };
     case "CheckpointCreated":
     case "CheckpointDeleted":
       // Checkpoints are the GM's; a player learns only that a seq passed (ADR 0019).

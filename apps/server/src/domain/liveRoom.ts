@@ -210,6 +210,9 @@ export class LiveRoom {
   submit(actorId: string, command: Command): Promise<SubmitResult> {
     return this.runExclusive(async () => {
       if (this.isClosed) return { ok: false, code: "not_found", message: "This room has been deleted" };
+      if (["scene.create", "scene.rename", "scene.switch", "scene.delete"].includes(command.type) && await this.store.isTemporaryRoom(this.roomId)) {
+        return { ok: false, code: "forbidden", message: "Scene management is not available while editing an encounter template." };
+      }
       const actor = this.state.participants[actorId];
       if (!actor) return { ok: false, code: "forbidden", message: "Unknown participant" };
       // Checked inside the queue, so a command sent from another tab just before the leave

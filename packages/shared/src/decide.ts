@@ -1,3 +1,4 @@
+import { INITIAL_SCENE_ID, MAX_SCENES, sceneNamesOf, saveScene } from "./scenes";
 import { hasPortalBounds, removePortalOverlaps, validateUvttDraft, type PreparedUvttScene } from "./uvtt";
 import { namedAttackFor } from "./attackPresets";
 import { findMentions } from "./chatMentions";
@@ -156,11 +157,47 @@ export function decide(
   command: Command,
   ctx: DecideContext,
 ): Decision {
+  if ("expectedSceneId" in command && command.expectedSceneId !== undefined) {
+    if (!can.administer(actor)) return forbidden();
+    if ((state.activeSceneId ?? INITIAL_SCENE_ID) !== command.expectedSceneId) return reject("invalid", "The scene changed. Reopen the editor before saving.");
+  }
   if ("expectedMapUrl" in command && command.expectedMapUrl !== undefined) {
     if (!can.administer(actor)) return forbidden();
     if (state.scene.map?.url !== command.expectedMapUrl) return reject("invalid", "The map changed. Reopen the editor before saving.");
   }
   switch (command.type) {
+    case "scene.create": {
+      if (!can.administer(actor)) return forbidden();
+      const names = sceneNamesOf(state);
+      if (Object.keys(names).length >= MAX_SCENES) return reject("invalid", `A room can hold at most ${MAX_SCENES} scenes.`);
+      if (Object.values(names).some((name) => normalizeName(name) === normalizeName(command.name))) return reject("invalid", "A scene already has that name.");
+      const fromId = state.activeSceneId ?? INITIAL_SCENE_ID;
+      return accept({ type: "SceneCreated", sceneId: ctx.newId(), name: command.name, fromId, fromName: names[fromId]!, previous: saveScene(state), restored: { table: { scene: { map: null, grid: state.scene.grid }, tokens: {}, templates: {}, fog: {}, walls: {}, initiative: null }, groups: {}, tokenGroups: {} } });
+    }
+    case "scene.rename": {
+      if (!can.administer(actor)) return forbidden();
+      const names = sceneNamesOf(state);
+      const previous = names[command.sceneId];
+      if (!previous) return notFound("scene");
+      if (Object.entries(names).some(([id, name]) => id !== command.sceneId && normalizeName(name) === normalizeName(command.name))) return reject("invalid", "A scene already has that name.");
+      if (previous === command.name) return reject("invalid", "That scene already has that name.");
+      return accept({ type: "SceneRenamed", sceneId: command.sceneId, name: command.name, previous });
+    }
+    case "scene.switch": {
+      if (!can.administer(actor)) return forbidden();
+      const restored = state.savedScenes?.[command.sceneId];
+      const name = state.sceneNames?.[command.sceneId];
+      if (!restored || !name) return notFound("scene");
+      return accept({ type: "SceneSwitched", fromId: state.activeSceneId ?? INITIAL_SCENE_ID, sceneId: command.sceneId, name, previous: saveScene(state), restored });
+    }
+    case "scene.delete": {
+      if (!can.administer(actor)) return forbidden();
+      if (command.sceneId === (state.activeSceneId ?? INITIAL_SCENE_ID)) return reject("invalid", "Switch to another scene before deleting this one.");
+      const previous = state.savedScenes?.[command.sceneId];
+      const name = state.sceneNames?.[command.sceneId];
+      if (!previous || !name) return notFound("scene");
+      return accept({ type: "SceneDeleted", sceneId: command.sceneId, name, previous });
+    }
     case "scene.setMap": {
       if (!can.administer(actor)) return forbidden();
       const library = command.includeLibraryBoard ? ctx.libraryMap : null;

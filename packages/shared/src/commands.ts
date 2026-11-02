@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SceneName } from "./scenes";
 import { AttackStyle, MAX_NUKE_DAMAGE, NukeAnimationDef } from "./animation";
 import { TokenAttacks } from "./attackPresets";
 import { ConditionId, EMPTY_STATS, TokenStats } from "./conditions";
@@ -76,8 +77,13 @@ export const TokenUpdate = z.object({
 export type TokenUpdate = z.infer<typeof TokenUpdate>;
 
 export const Command = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("scene.create"), name: SceneName }).strict(),
+  z.object({ type: z.literal("scene.rename"), sceneId: Id, name: SceneName }).strict(),
+  z.object({ type: z.literal("scene.switch"), sceneId: Id }).strict(),
+  z.object({ type: z.literal("scene.delete"), sceneId: Id }).strict(),
   z.object({
     type: z.literal("scene.setMap"),
+    expectedSceneId: Id.optional(),
     tokenPolicy: z.enum(MAP_TOKEN_POLICIES).optional(),
     map: MapImage,
     /** A library map's saved grid, copied into the room in the same event (ADR 0004). */
@@ -85,13 +91,14 @@ export const Command = z.discriminatedUnion("type", [
     /** Resolve the owned map's saved geometry on the server and apply it in the same MapSet. */
     includeLibraryBoard: z.boolean().optional(),
   }),
-  z.object({ type: z.literal("scene.importUVTT"), importId: Id, revision: z.number().int().positive(), tokenPolicy: z.enum(MAP_TOKEN_POLICIES).optional() }).strict(),
+  z.object({ type: z.literal("scene.importUVTT"), expectedSceneId: Id.optional(), importId: Id, revision: z.number().int().positive(), tokenPolicy: z.enum(MAP_TOKEN_POLICIES).optional() }).strict(),
   z.object({
     type: z.literal("scene.setGrid"),
+    expectedSceneId: Id.optional(),
     grid: GridSpec,
   }),
-  z.object({ type: z.literal("scene.setLineOfSight"), enabled: z.boolean() }).strict(),
-  z.object({ type: z.literal("scene.setSightRange"), range: z.number().positive().finite().nullable() }).strict(),
+  z.object({ type: z.literal("scene.setLineOfSight"), expectedSceneId: Id.optional(), enabled: z.boolean() }).strict(),
+  z.object({ type: z.literal("scene.setSightRange"), expectedSceneId: Id.optional(), range: z.number().positive().finite().nullable() }).strict(),
   z.object({
     type: z.literal("token.create"),
     name: z.string().min(1).max(60),
@@ -309,7 +316,7 @@ export const Command = z.discriminatedUnion("type", [
    */
   z.object({
     type: z.literal("fog.add"),
-    expectedMapUrl: z.string().min(1).max(2048).optional(),
+    expectedSceneId: Id.optional(), expectedMapUrl: z.string().min(1).max(2048).optional(),
     region: z.discriminatedUnion("shape", [
       z.object({ shape: z.literal("rect"), from: Point, to: Point }).strict(),
       z.object({ shape: z.literal("polygon"), points: z.array(Point).min(3).max(MAX_FOG_POINTS) }).strict(),
@@ -321,7 +328,7 @@ export const Command = z.discriminatedUnion("type", [
    */
   z.object({
     type: z.literal("fog.replace"),
-    expectedMapUrl: z.string().min(1).max(2048).optional(),
+    expectedSceneId: Id.optional(), expectedMapUrl: z.string().min(1).max(2048).optional(),
     removeIds: z.array(Id).max(MAX_FOG_REGIONS),
     add: z.array(z.discriminatedUnion("shape", [
       z.object({ shape: z.literal("rect"), from: Point, to: Point }).strict(),
@@ -331,7 +338,7 @@ export const Command = z.discriminatedUnion("type", [
   /** GM removes one fog region, revealing what it covered (FR-GM-17). */
   z.object({
     type: z.literal("fog.remove"),
-    expectedMapUrl: z.string().min(1).max(2048).optional(),
+    expectedSceneId: Id.optional(), expectedMapUrl: z.string().min(1).max(2048).optional(),
     regionId: Id,
   }).strict(),
   /**
@@ -349,26 +356,26 @@ export const Command = z.discriminatedUnion("type", [
   /** GM draws walls by hand (wall-editing, ADR 0029). Board coordinates (invariant 8). */
   z.object({
     type: z.literal("wall.add"),
-    expectedMapUrl: z.string().min(1).max(2048).optional(),
+    expectedSceneId: Id.optional(), expectedMapUrl: z.string().min(1).max(2048).optional(),
     /** `portal` lets the map editor's Save keep a door drawn in its draft (ADR 0030). */
     walls: z.array(z.object({ a: Point, b: Point, portal: Portal.optional(), uvttPortal: Wall.shape.uvttPortal, source: Wall.shape.source }).strict()).min(1).max(MAX_WALLS_PER_ADD),
   }).strict(),
-  z.object({ type: z.literal("wall.update"), expectedMapUrl: z.string().min(1).max(2048).optional(), wall: Wall }).strict(),
+  z.object({ type: z.literal("wall.update"), expectedSceneId: Id.optional(), expectedMapUrl: z.string().min(1).max(2048).optional(), wall: Wall }).strict(),
   /** GM removes chosen walls (ADR 0029). */
   z.object({
     type: z.literal("wall.remove"),
-    expectedMapUrl: z.string().min(1).max(2048).optional(),
+    expectedSceneId: Id.optional(), expectedMapUrl: z.string().min(1).max(2048).optional(),
     wallIds: z.array(Id).min(1).max(MAX_WALLS_PER_REMOVE),
   }).strict(),
   /** GM removes every wall (ADR 0029). */
   z.object({
     type: z.literal("wall.clear"),
-    expectedMapUrl: z.string().min(1).max(2048).optional(),
+    expectedSceneId: Id.optional(), expectedMapUrl: z.string().min(1).max(2048).optional(),
   }).strict(),
   /** GM makes a wall a door or window, edits it, or (`null`) turns it back into a plain wall (FR-GM-09, ADR 0030). */
   z.object({
     type: z.literal("portal.set"),
-    expectedMapUrl: z.string().min(1).max(2048).optional(),
+    expectedSceneId: Id.optional(), expectedMapUrl: z.string().min(1).max(2048).optional(),
     wallId: Id,
     portal: Portal.nullable(),
   }).strict(),

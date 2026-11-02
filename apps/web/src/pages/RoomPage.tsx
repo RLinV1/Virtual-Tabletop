@@ -16,6 +16,7 @@ import { readySkin, tableSkin, usePreloadTableLooks, useShowOthersDice } from ".
 import { ensureSeat } from "../net/seats";
 import { KeepSeatNotice } from "../ui/KeepSeatNotice";
 import { RoomConnection, useRoomSnapshot, type ConnectionStatus } from "../net/roomConnection";
+import { SceneSwitcher } from "../panels/ScenesPanel";
 import { ChatPanel } from "../panels/ChatPanel";
 import { PanelTabs, RoomPanel, isTabId, type TabBadges, type TabId } from "../panels/RoomPanel";
 import { trayRoll, type RollThrow } from "../panels/DicePanel";
@@ -256,7 +257,7 @@ function Room({ roomId, connection, token, features }: {
   const gridApplyInFlight = useRef(false);
   const committedGrid = state?.scene.grid;
   const sceneKey = state && JSON.stringify([
-    state.scene.map?.url, state.scene.map?.assetId, state.scene.map?.width, state.scene.map?.height,
+    state.activeSceneId, state.scene.map?.url, state.scene.map?.assetId, state.scene.map?.width, state.scene.map?.height,
     state.scene.grid.cellSize, state.scene.grid.offsetX, state.scene.grid.offsetY,
     state.scene.grid.unitsPerCell, state.scene.grid.unitLabel,
     state.scene.grid.lineColor, state.scene.grid.lineWidth, state.scene.grid.lineOpacity,
@@ -289,11 +290,13 @@ function Room({ roomId, connection, token, features }: {
     if (gridApplyInFlight.current) return false;
     gridApplyInFlight.current = true;
     const generation = gridApplyGeneration.current;
+    const sceneId = connection.snapshot.state?.activeSceneId ?? "initial";
     const mapKey = JSON.stringify(connection.snapshot.state?.scene.map);
     const accepted = connection.snapshot.state?.scene.grid;
     const stillCurrent = (ok: boolean) => {
       const snapshot = connection.snapshot;
       return generation === gridApplyGeneration.current && snapshot.you?.role === "gm"
+        && sceneId === (snapshot.state?.activeSceneId ?? "initial")
         && mapKey === JSON.stringify(snapshot.state?.scene.map)
         && !!snapshot.state && !!accepted
         && gridsEqual(snapshot.state.scene.grid, ok ? grid : accepted);
@@ -301,7 +304,7 @@ function Room({ roomId, connection, token, features }: {
     setGridApplying(true);
     setGridError(null);
     try {
-      const result = await connection.command({ type: "scene.setGrid", grid });
+      const result = await connection.command({ type: "scene.setGrid", grid, expectedSceneId: sceneId });
       if (!stillCurrent(result.ok)) return false;
       if (!result.ok) setGridError(result.message);
       return result.ok;
@@ -538,6 +541,7 @@ function Room({ roomId, connection, token, features }: {
             <>
               <h1 className="room-title">{state.name}</h1>
               {/* Which game the room is set up for (KAN-63), as text. */}
+              {you.role === "gm" && !readOnly && <SceneSwitcher state={state} connection={connection} />}
               <span className="preset-badge" title="Game preset">{presetOf(state).name}</span>
             </>
           )}
@@ -584,6 +588,7 @@ function Room({ roomId, connection, token, features }: {
       {/* Same element, same position in both states: collapsing must never remount the
           canvas or reset the viewer's zoom and pan. */}
       <Board
+        key={shownState?.activeSceneId ?? "initial"}
         ref={boardRef}
         onNukeImpact={nukeHealth.impact}
         connection={connection}
@@ -654,6 +659,7 @@ function Room({ roomId, connection, token, features }: {
           */}
           <SectionCollapseProvider>
             <RoomPanel
+              key={shownState?.activeSceneId ?? "initial"}
               connection={shownConnection}
               state={shownState!}
               you={shownYou!}

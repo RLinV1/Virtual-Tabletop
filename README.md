@@ -296,6 +296,7 @@ A GM needs authority over what players can see and change while retaining contro
 | FR-GM-22 | Both | **Public and GM-only dice rolls** | Supports openly shared rolls as well as hidden adjudication when the GM needs private outcomes. |
 | FR-GM-23 | Player | **Player-safe state filtering** | Filters hidden tokens, unrevealed fog regions, GM-only rolls, and private metadata on the server before state is sent to player clients. |
 | FR-GM-24 | Both | **Focusable token roster** | Provides an alternative to direct canvas selection for finding and selecting tokens. |
+| FR-GM-25 | GM | **Scene switching** | Switches between named live scenes from the room header, automatically preserving each scene's map, tokens, HP, fog, walls, and initiative. Checkpoints and encounter templates remain available. |
 
 ### 5.3 Player Need — Join Easily and Retain Control of Their Character
 

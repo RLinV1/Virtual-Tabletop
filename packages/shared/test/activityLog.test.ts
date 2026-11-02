@@ -14,6 +14,10 @@ const committed = (event: DomainEvent, seq = 1, actorId: string | null = gm.id):
 
 describe("Human-readable activity formatter (FR-REC-01)", () => {
   const cases: Record<DomainEventType, [DomainEvent, string]> = {
+    SceneCreated: [{ type: "SceneCreated", sceneId: "b", name: "Cellar", fromId: "a", fromName: "Tavern", previous: { table: tableOf(state), groups: {}, tokenGroups: {} }, restored: { table: tableOf(state), groups: {}, tokenGroups: {} } }, 'Mara created scene "Cellar"'],
+    SceneSwitched: [{ type: "SceneSwitched", sceneId: "b", name: "Cellar", fromId: "a", previous: { table: tableOf(state), groups: {}, tokenGroups: {} }, restored: { table: tableOf(state), groups: {}, tokenGroups: {} } }, 'Mara switched to scene "Cellar"'],
+    SceneRenamed: [{ type: "SceneRenamed", sceneId: "b", previous: "Cellar", name: "Vault" }, 'Mara renamed scene "Cellar" to "Vault"'],
+    SceneDeleted: [{ type: "SceneDeleted", sceneId: "b", name: "Cellar", previous: { table: tableOf(state), groups: {}, tokenGroups: {} } }, 'Mara deleted scene "Cellar"'],
     RoomCreated: [{ type: "RoomCreated", name: "Dungeon" }, "Mara created room Dungeon"],
     ParticipantJoined: [{ type: "ParticipantJoined", participant: alice }, "Mara joined the room as a player"],
     ParticipantLeft: [{ type: "ParticipantLeft", participant: alice }, "Alice left the table"],

@@ -7,6 +7,7 @@ import { useAccount } from "../account/accountStore";
 import { imageSize, nameFromFile } from "../net/imageFile";
 import type { CommandResult, RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
+import { ScenesPanel } from "../panels/ScenesPanel";
 import { CheckpointsPanel } from "../panels/CheckpointsPanel";
 import { EncounterPanel } from "../panels/EncounterPanel";
 import { EffectsPanel } from "../panels/EffectsPanel";
@@ -61,14 +62,15 @@ export function GmPanel({
     <>
       {error && <p role="alert" className="error">{error}</p>}
       {features.tableAdmin && <DepartedPlayers state={state} onReview={onReviewDeparture} />}
+      {features.tableAdmin && <ScenesPanel connection={connection} state={state} />}
       <MapSection
         roomId={state.roomId}
         token={token}
         currentGrid={state.scene.grid}
         hasLibrary={hasLibrary}
         onError={setError}
-        onSetMap={(command, report) => runWith(report)(connection.command(command))}
-        onImport={(importId, revision, tokenPolicy, report) => runWith(report)(connection.command({ type: "scene.importUVTT", importId, revision, ...(tokenPolicy ? { tokenPolicy } : {}) }))}
+        onSetMap={(command, report) => runWith(report)(connection.command({ ...command, expectedSceneId: state.activeSceneId ?? "initial" }))}
+        onImport={(importId, revision, tokenPolicy, report) => runWith(report)(connection.command({ type: "scene.importUVTT", importId, revision, expectedSceneId: state.activeSceneId ?? "initial", ...(tokenPolicy ? { tokenPolicy } : {}) }))}
         onGridClose={onGridDraftCancel}
         gridDraft={gridDraft}
         hasGridDraft={hasGridDraft}

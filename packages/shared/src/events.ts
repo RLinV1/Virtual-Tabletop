@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SavedScene, SceneName } from "./scenes";
 import { MAX_NUKE_DAMAGE, NukeAnimationDef } from "./animation";
 import { TokenAttacks } from "./attackPresets";
 import { ConditionId, TokenStats } from "./conditions";
@@ -16,6 +17,10 @@ import { AreaTemplate, ChatMessage, Checkpoint, DiceLookOnTable, FogRegion, Id, 
  * without re-reading older history.
  */
 export const DomainEvent = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("SceneCreated"), sceneId: Id, name: SceneName, fromId: Id, fromName: SceneName, previous: SavedScene, restored: SavedScene }),
+  z.object({ type: z.literal("SceneSwitched"), fromId: Id, sceneId: Id, name: SceneName, previous: SavedScene, restored: SavedScene }),
+  z.object({ type: z.literal("SceneRenamed"), sceneId: Id, name: SceneName, previous: SceneName }),
+  z.object({ type: z.literal("SceneDeleted"), sceneId: Id, name: SceneName, previous: SavedScene }),
   z.object({
     type: z.literal("RoomCreated"),
     name: z.string(),
