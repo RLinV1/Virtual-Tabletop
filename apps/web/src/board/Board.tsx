@@ -724,6 +724,10 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ replayFrame
       {tokenView && gmCanSee && viewing.length === 0 && (
         <p className="board-status" role="status"><Eye size={14} aria-hidden="true" />Select a token to see its view</p>
       )}
+      {/* Line of sight with no token to see through: the map shows dimmed, and this says why. */}
+      {you.role === "player" && losOn && state.scene.map && state.sight?.length === 0 && (
+        <p className="board-status" role="status"><Eye size={14} aria-hidden="true" />You'll see through your token once the GM gives you one</p>
+      )}
       {gridPreview && <p className="grid-preview-label" role="status">Preview · Not applied</p>}
       {!readOnly && !selectOnly && (
       <ToolRail

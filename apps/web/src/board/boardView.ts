@@ -55,13 +55,15 @@ import { averageColor, fogDistanceField, fogPalette, makeFogDensityCanvas, makeF
 import { WISP_ANCHOR, layoutFogPuffs, puffPose, type FogPuff } from "./fogPuffs";
 import { fogArt, loadFogArt } from "./fogArt";
 import { FogBody } from "./fogShader";
-import { makeSightMaskCanvas, sightColor } from "./sightMask";
+import { makeSightMaskCanvas, sightColor, sightMaskAlpha } from "./sightMask";
 
 /** How long the old line-of-sight mask takes to fade out over the new one. */
 const SIGHT_FADE_MS = 160;
 import { areaColorValue, areaOrigin, areaShape, areaSizeFromDrag, fogDraftPoints, fogRegionAt, formatDistance, hitMark, measure, portalAt, sweepPoints, templateArea, templateMark, type BoardTool, type FogDraft, type Mark } from "./tools";
 import { aimExpiry, expiredAims } from "./aims";
 import { PING_MS, pingPulse } from "./ping";
+import { boardFontFamily, boardMonoFamily, relabelWhenFontsReady, relabelledFamily, waitForBoardFont } from "./boardFont";
+import { hpColor, readBoardPalette, type BoardPalette } from "../ui/palette";
 
 /**
  * How a GM's board shows fog (FR-GM-17): see-through with outlines ("tint") or not at all ("off").
@@ -167,7 +169,6 @@ const MAX_FIGHT_ZOOM = 2;
 const FIGHT_FOCUS_MS = 450;
 /** Strikes this soon after a focus are part of the same attack and keep its framing. */
 const FIGHT_REFOCUS_MS = 2500;
-const BOARD_FONT = '"Helvetica Neue", Arial, sans-serif';
 /** Longest brush stroke, in points, so one stroke can't grow without bound. */
 const MAX_STROKE_POINTS = 2000;
 
@@ -301,6 +302,8 @@ export class BoardView {
   private app = new Application();
   /** Token highlighted from the roster (FR-GM-24). */
   private focusedId: string | null = null;
+  /** Status and focus colours from :root, read once: the table is always dark. */
+  private readonly palette: BoardPalette = readBoardPalette();
   /** The GM's group selection for a group roll or an area effect (ADR 0046). */
   private groupSelection: ReadonlySet<string> = new Set();
   /** Tokens the GM is looking through (gm-token-sight-view), ringed with a dashed outline. */
@@ -365,7 +368,7 @@ export class BoardView {
   private overlayGraphics = new Graphics();
   private measureLabel = new Text({
     text: "",
-    style: { fill: 0xffffff, fontSize: 14, fontFamily: BOARD_FONT, fontWeight: "600", stroke: { color: 0x000000, width: 4 } },
+    style: { fill: 0xffffff, fontSize: 14, fontFamily: boardMonoFamily(), fontWeight: "600", stroke: { color: 0x000000, width: 4 } },
   });
   private fxLayer = new Container();
   private tokens = new Map<string, TokenView>();
@@ -478,17 +481,23 @@ export class BoardView {
       this.invalidateFog();
     });
     armSound();
-    await this.app.init({
-      width: Math.max(1, this.host.clientWidth),
-      height: Math.max(1, this.host.clientHeight),
-      background: "#14171b",
-      antialias: true,
-      autoDensity: true,
-      // Beyond 2x the extra pixels are not visible on a map, but they cost fill rate.
-      resolution: Math.min(window.devicePixelRatio || 1, graphicsBudget().resolution),
-      // No continuous render loop; see `invalidate`.
-      autoStart: false,
-    });
+    // Labels are rasterised once, in whatever face has loaded: wait for Geist alongside Pixi's
+    // own start-up, so the first token name is already in it (design-language: "One typeface").
+    const [fontReady] = await Promise.all([
+      waitForBoardFont(),
+      this.app.init({
+        width: Math.max(1, this.host.clientWidth),
+        height: Math.max(1, this.host.clientHeight),
+        background: "#14171b",
+        antialias: true,
+        autoDensity: true,
+        // Beyond 2x the extra pixels are not visible on a map, but they cost fill rate.
+        resolution: Math.min(window.devicePixelRatio || 1, graphicsBudget().resolution),
+        // No continuous render loop; see `invalidate`.
+        autoStart: false,
+      }),
+    ]);
+    if (!fontReady) relabelWhenFontsReady(() => this.relabel());
     // Pixi's event system also re-tests hover on every frame of the shared system ticker,
     // for a scene moving under a still pointer. Every change here comes with a pointer
     // event or a render we asked for, so that loop is idle work.
@@ -579,6 +588,20 @@ export class BoardView {
   private invalidate() {
     this.dirty = true;
     this.schedule();
+  }
+
+  /**
+   * Redraws every label in the face that has just loaded (see board/boardFont.ts): a changed
+   * font family is a new style key, so Pixi measures and rasterises each one afresh.
+   */
+  private relabel() {
+    if (!this.initialized) return;
+    const visit = (node: Container) => {
+      if (node instanceof Text) node.style.fontFamily = relabelledFamily(String(node.style.fontFamily));
+      for (const child of node.children) visit(child as Container);
+    };
+    visit(this.app.stage);
+    this.invalidate();
   }
 
   private schedule() {
@@ -764,6 +787,7 @@ export class BoardView {
       next = new Sprite(Texture.from(canvas));
       next.eventMode = "none";
       next.scale.set(1 / scale);
+      next.alpha = sightMaskAlpha(state.sight);
     }
     this.finishSightFade();
     const prev = this.sightSprite;
@@ -774,10 +798,12 @@ export class BoardView {
     if (this.reducedMotion) return this.destroySightSprite(prev);
     this.sightFading = prev;
     let start = -1;
+    // From wherever the old mask was: a dimmed one (no token to see through) starts below 1.
+    const from = prev.alpha;
     this.sightFadeStep = (now) => {
       if (start < 0) start = now;
       const t = Math.min(1, (now - start) / SIGHT_FADE_MS);
-      prev.alpha = 2 ** (-10 * t); // 1 - ease-out(t)
+      prev.alpha = from * 2 ** (-10 * t); // 1 - ease-out(t)
       if (t < 1) return true;
       this.finishSightFade();
       return false;
@@ -981,7 +1007,7 @@ export class BoardView {
     if (!aim) {
       const view = new Container();
       view.addChild(new Graphics());
-      view.addChild(new Text({ text: "", style: { fill: 0xffffff, fontSize: 13, fontFamily: BOARD_FONT, fontWeight: "600", stroke: { color: 0x000000, width: 4 } } }));
+      view.addChild(new Text({ text: "", style: { fill: 0xffffff, fontSize: 13, fontFamily: boardMonoFamily(), fontWeight: "600", stroke: { color: 0x000000, width: 4 } } }));
       this.fxLayer.addChild(view);
       aim = { view, expires: 0 };
       this.aims.set(from, aim);
@@ -1909,7 +1935,7 @@ export class BoardView {
     const markers = new Container();
     const label = new Text({
       text: "",
-      style: { fill: 0xffffff, fontSize: 14, fontFamily: BOARD_FONT, stroke: { color: 0x000000, width: 3 } },
+      style: { fill: 0xffffff, fontSize: 14, fontFamily: boardFontFamily(), stroke: { color: 0x000000, width: 3 } },
     });
     label.anchor.set(0.5, 0);
     const image = new Sprite(Texture.EMPTY);
@@ -2275,7 +2301,8 @@ export class BoardView {
     // Rings differ in radius and dash as well as colour, so they remain distinguishable
     // when colour is not available (FR-TAC-08 applies to the whole board, not just markers).
     if (active) g.circle(0, 0, r + 7).stroke({ width: 4, color: 0xf1c40f });
-    if (focused) g.circle(0, 0, r + 3).stroke({ width: 2, color: 0xffffff, alpha: 0.9 });
+    // The selection ring is the app's focus colour, as on every focused control (design-language).
+    if (focused) g.circle(0, 0, r + 3).stroke({ width: 2, color: this.palette.focus, alpha: 0.95 });
     // A dashed ring (gm-token-sight-view), so it differs from the solid ones by shape too.
     if (viewed) {
       const ring = r + 5;
@@ -2298,8 +2325,9 @@ export class BoardView {
     const y = -r - h - 4;
     g.rect(-w / 2, y, w, h).fill({ color: 0x000000, alpha: 0.65 });
     g.rect(-w / 2, y, w * fraction, h).fill({
-      // Colour is a convenience; the bar length is the real signal.
-      color: fraction > 0.5 ? 0x22c55e : fraction > 0.25 ? 0xeab308 : 0xdc2626,
+      // Colour is a convenience; the bar length is the real signal. Same colours and
+      // thresholds as the roster's bar (design-language: "Board colours follow the tokens").
+      color: hpColor(fraction, this.palette),
     });
     g.rect(-w / 2, y, w, h).stroke({ width: 1, color: 0x000000, alpha: 0.8 });
   }
@@ -2327,7 +2355,7 @@ export class BoardView {
         style: {
           fill: 0xffffff,
           fontSize: size * 0.85,
-          fontFamily: BOARD_FONT,
+          fontFamily: boardFontFamily(),
           fontWeight: "700",
           stroke: { color: 0x000000, width: 2 },
         },

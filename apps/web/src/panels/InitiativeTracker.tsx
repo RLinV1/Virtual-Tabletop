@@ -86,7 +86,7 @@ export function InitiativeTracker({
             ) : (
               <>
                 <p className="muted">No encounter running.</p>
-                <button type="button" data-tour="start-encounter" onClick={() => openSetup()}>
+                <button className="primary" type="button" data-tour="start-encounter" onClick={() => openSetup()}>
                   Start encounter
                 </button>
               </>
@@ -163,7 +163,7 @@ export function InitiativeTracker({
               ))}
             </ul>
             {error && <p id="init-error" role="alert" className="error">{error}</p>}
-            <button type="submit">Start encounter</button>
+            <button className="primary" type="submit">Start encounter</button>
           </form>
         </Modal>
       </PanelSection>
@@ -214,7 +214,7 @@ export function InitiativeTracker({
 
       {isGm && (
         <div className="init-controls">
-          <button onClick={() => send({ type: "initiative.advance" })}>Next turn</button>
+          <button className="primary" onClick={() => send({ type: "initiative.advance" })}>Next turn</button>
           {/* A reminder, not a gate: the GM may move on with rulings open (attack-ux-polish). */}
           {pending > 0 && (
             <span className="muted init-pending" role="status">

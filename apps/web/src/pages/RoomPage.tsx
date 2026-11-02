@@ -41,6 +41,8 @@ import { ReplayBar } from "../ui/ReplayBar";
 import { ShareButton } from "../ui/ShareButton";
 import { GuideTour } from "../ui/GuideTour";
 import { RoomMenu } from "../ui/RoomMenu";
+import { motionReduced } from "../ui/motion";
+import { BoardEmptyState } from "../ui/BoardEmptyState";
 import { isBoolean, usePersistentState } from "../ui/usePersistentState";
 import { PanelResizeHandle, clampPanelWidth, isPanelWidth } from "../ui/PanelResizeHandle";
 import { EncounterEditBar } from "./encounterEdit/EncounterEditBar";
@@ -543,9 +545,28 @@ function Room({ roomId, connection, token, features }: {
    * until it has, so wait out the transition before showing anything in it.
    */
   const openSidebar = (then: () => void) => {
-    const wait = collapsed && !matchMedia("(prefers-reduced-motion: reduce)").matches ? 220 : 0;
+    // No transition runs under reduced motion (data-motion), so there is nothing to wait out.
+    const wait = collapsed && !motionReduced() ? 220 : 0;
     setSidebarCollapsed(false);
     window.setTimeout(then, wait);
+  };
+  /**
+   * The empty board's one action: the Battle map section of the Manage tab, opened if it was
+   * folded, brought into view, and its first control focused.
+   */
+  const chooseMap = () => {
+    setTab("gm");
+    openSidebar(() =>
+      requestAnimationFrame(() => {
+        const section = document.querySelector<HTMLElement>('[data-tour="gm-map"]');
+        const toggle = section?.querySelector<HTMLButtonElement>('.section-toggle[aria-expanded="false"]');
+        toggle?.click();
+        requestAnimationFrame(() => {
+          section?.scrollIntoView({ block: "start" });
+          section?.querySelector<HTMLElement>(".panel-section-body button, .panel-section-body input, .panel-section-body label")?.focus();
+        });
+      }),
+    );
   };
   /** The editor lives in the Tokens tab, so editing from the board goes there (token-card-actions). */
   const editToken = (tokenId: string | null) => {
@@ -659,7 +680,14 @@ function Room({ roomId, connection, token, features }: {
             <KeepSeatNotice roomId={roomId} token={token} name={you.displayName} />
           </div>
         )}
-        overlay={features.notices && <RollCard roll={cardRoll} rollerName={(roll) => shownState!.participants[roll.byParticipantId]?.displayName ?? "Someone"} />}
+        overlay={
+          <>
+            {!shownState!.scene.map && !replaying && (
+              <BoardEmptyState isGm={you.role === "gm" && !readOnly} onChooseMap={chooseMap} />
+            )}
+            {features.notices && <RollCard roll={cardRoll} rollerName={(roll) => shownState!.participants[roll.byParticipantId]?.displayName ?? "Someone"} />}
+          </>
+        }
       />
       <aside className="panel" id="room-panel" tabIndex={-1} aria-label="Room controls">
         {!compact && !collapsed && <PanelResizeHandle width={panelWidth} onWidth={setPanelWidth} />}

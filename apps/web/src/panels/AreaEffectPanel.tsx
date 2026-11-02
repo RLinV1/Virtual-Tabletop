@@ -105,7 +105,7 @@ function StartForm({ connection, state, selection }: { connection: RoomConnectio
       <label htmlFor="area-effect-expression">Roll for each token</label>
       <div className="dice-row">
         <input id="area-effect-expression" value={expression} onChange={(e) => { setExpression(e.target.value); setError(null); }} placeholder="1d20+2" autoComplete="off" aria-invalid={expression.trim() !== "" && !parsed.ok} />
-        <button type="submit" disabled={busy || tokenIds.length === 0 || !parsed.ok} title={tokenIds.length === 0 ? "Select tokens first" : undefined}>
+        <button className="primary" type="submit" disabled={busy || tokenIds.length === 0 || !parsed.ok} title={tokenIds.length === 0 ? "Select tokens first" : undefined}>
           Start
         </button>
       </div>
@@ -222,7 +222,7 @@ function CallForm({ connection, state, you, effect, label }: { connection: RoomC
             <option key={p.id} value={p.id}>{p.id === you.id ? `${p.displayName} (you)` : p.displayName}</option>
           ))}
         </select>
-        <button type="submit" disabled={busy || !selected}>{label}</button>
+        <button className="primary" type="submit" disabled={busy || !selected}>{label}</button>
       </div>
       {error && <p role="alert" className="error">{error}</p>}
     </form>
@@ -254,7 +254,7 @@ function DamageRollForm({ connection, effect, visibleTargets }: { connection: Ro
           aria-invalid={expression.trim() !== "" && !parsed.ok}
           data-area-effect-focus
         />
-        <button type="submit" disabled={busy || !parsed.ok}>Roll</button>
+        <button type="submit" className="primary" disabled={busy || !parsed.ok}>Roll</button>
       </div>
       <fieldset className="damage-mode">
         <legend className="sr-only">How to roll</legend>

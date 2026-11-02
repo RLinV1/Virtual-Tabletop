@@ -122,7 +122,7 @@ export function AnimationEditor({ animation, onSaved, onCancel }: { animation: L
             <div className="animation-editor-actions">
               {dirty && <span className="map-editor-draft">Unsaved changes</span>}
               <button type="button" className="secondary" disabled={saving} onClick={close}>Cancel</button>
-              <button type="submit" form={formId} disabled={saving}>{saving ? "Saving…" : "Save"}</button>
+              <button className="primary" type="submit" form={formId} disabled={saving}>{saving ? "Saving…" : "Save"}</button>
             </div>
           </>
         )}
