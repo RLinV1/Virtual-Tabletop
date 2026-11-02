@@ -2752,3 +2752,11 @@ button.stage-slot[aria-pressed="true"] { border-color: var(--accent); background
 .sight-test-token circle:first-child { fill: var(--accent); stroke: var(--text); stroke-dasharray: 10 6; }
 .sight-test-token-dot { fill: var(--text); }
 .sight-test-token:focus-visible circle:first-child { stroke-dasharray: none; }
+
+/* Personal prospective-move controls and a DOM equivalent of the canvas label. */
+.movement-options { width: min(16rem, calc(100vw - 5rem)); }
+.movement-options label { display: flex; flex-direction: column; gap: var(--space-1); }
+.movement-options input, .movement-options select { min-height: 2.75rem; width: 100%; }
+.movement-options p { margin: 0; color: #ffb493; font-size: var(--fs-sm); }
+.movement-options small { color: var(--text-muted); }
+.movement-feedback { position: absolute; bottom: 3rem; left: 50%; transform: translateX(-50%); max-width: calc(100% - 2rem); padding: var(--space-2); background: #121417; color: #fff; border: 1px solid var(--border); border-radius: var(--radius); pointer-events: none; }
