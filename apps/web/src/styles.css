@@ -889,6 +889,7 @@ dialog.modal.dice-look-modal { width: min(40rem, calc(100vw - 2rem)); }
 
 .marker-row { display: flex; flex-wrap: wrap; gap: 0.25rem; }
 .condition-marker { display: inline-flex; line-height: 0; }
+.condition-marker img { display: block; width: 100%; height: 100%; object-fit: contain; }
 
 .stats-editor { display: flex; flex-direction: column; gap: var(--space-2); padding: 0.4rem 0; }
 .stats-row { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 0.35rem; align-items: end; }
