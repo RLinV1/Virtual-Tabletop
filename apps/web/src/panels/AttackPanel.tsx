@@ -451,7 +451,7 @@ function AttackForm({
               title="Attack options"
               align="right"
               className="icon-button attack-more"
-              buttonContent={<DotsThree size={20} weight="bold" aria-hidden="true" />}
+              buttonContent={<DotsThree size={20} aria-hidden="true" />}
             >
               {(close) => (
                 <div className="menu-list">
@@ -505,7 +505,7 @@ function AttackForm({
             <div className="attack-roll-row">
               <button
                 type="button"
-                className="attack-roll"
+                className="attack-roll primary"
                 disabled={!target || busy || rolling}
                 title={rolling ? "Your dice are still on the board" : undefined}
                 onClick={() => (followUp ? rollDamage(chosen, hits) : rollPreset(chosen))}
@@ -590,7 +590,7 @@ function AttackForm({
             <div className="attack-roll-row">
               <button
                 type="submit"
-                className="attack-roll"
+                className="attack-roll primary"
                 disabled={busy || rolling || !target}
                 title={rolling ? "Your dice are still on the board" : undefined}
               >
@@ -703,7 +703,7 @@ export function PresetEditor({
         <button type="button" className="secondary" onClick={onCancel}>
           Cancel
         </button>
-        <button type="submit">Save</button>
+        <button type="submit" className="primary">Save</button>
       </div>
     </form>
   );

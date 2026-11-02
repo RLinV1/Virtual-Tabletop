@@ -132,7 +132,7 @@ export function DicePanel({
             aria-describedby={invalid ? "dice-error" : undefined}
             autoComplete="off"
           />
-          <button
+          <button className="primary"
             type="submit"
             disabled={busy || rollThrow.rolling || !parsed.ok}
             title={rollThrow.rolling ? "Your dice are still on the board" : undefined}

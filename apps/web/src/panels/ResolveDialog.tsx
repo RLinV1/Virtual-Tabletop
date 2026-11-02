@@ -141,10 +141,10 @@ export function ResolveDialog({
       {error && <p role="alert" className="error">{error}</p>}
       <div className="resolve-actions">
         <button type="button" className="secondary" disabled={step === 0} onClick={() => go(step - 1)}>Previous</button>
-        <button type="button" disabled={step >= targets.length - 1} onClick={() => go(step + 1)}>Next</button>
+        <button type="button" className={step >= targets.length - 1 ? undefined : "primary"} disabled={step >= targets.length - 1} onClick={() => go(step + 1)}>Next</button>
         <span className="resolve-actions-gap" />
         {/* Quiet until the last target, so stepping through with Next is the obvious path. */}
-        <button type="button" className={step >= targets.length - 1 ? undefined : "secondary"} disabled={busy} onClick={confirm}>Confirm resolution</button>
+        <button type="button" className={step >= targets.length - 1 ? "primary" : undefined} disabled={busy} onClick={confirm}>Confirm resolution</button>
         <button type="button" className="secondary" disabled={busy} onClick={() => void send({ type: "areaEffect.close", effectId: effect.id })}>Skip</button>
       </div>
     </Modal>

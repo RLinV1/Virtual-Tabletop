@@ -123,7 +123,7 @@ function AreaEffectRow({ effect, state, you, busy, onTakeOver, onResolve, onSkip
               <ResolveButton stage={stage} disabled={busy} onClick={onResolve} />
             </>
           )}
-          {stage === "called" && yours && <button type="button" disabled={busy} onClick={goTo}>Roll damage</button>}
+          {stage === "called" && yours && <button type="button" className="primary" disabled={busy} onClick={goTo}>Roll damage</button>}
           {stage === "called" && !yours && (
             <>
               <button type="button" disabled={busy} onClick={goTo}>Reassign</button>
