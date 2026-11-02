@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { PencilSimple, Trash } from "@phosphor-icons/react";
 import { INITIAL_SCENE_ID, MAX_SCENES, MAX_SCENE_NAME, sceneNamesOf, type CommandInput, type RoomState } from "@vtt/shared";
 import type { RoomConnection } from "../net/roomConnection";
 import { Modal } from "../ui/Modal";
@@ -57,10 +58,10 @@ export function ScenesPanel({ state, connection }: Props) {
           onClick={() => { void run({ type: "scene.switch", sceneId: id }); }}>
           {sceneName}{id === active && <span className="muted"> · Active</span>}
         </button>
-        <button type="button" className="small secondary" aria-label={`Rename ${sceneName}`} disabled={busy}
-          onClick={() => { setDraft(sceneName); setEditing(id); }}>Rename</button>
-        <button type="button" className="small secondary" aria-label={`Delete ${sceneName}`} disabled={busy || id === active}
-          onClick={() => setDeleting(id)}>Delete</button>
+        <button type="button" className="icon-button" aria-label={`Rename ${sceneName}`} title="Rename scene" disabled={busy}
+          onClick={() => { setDraft(sceneName); setEditing(id); }}><PencilSimple size={16} aria-hidden="true" /></button>
+        <button type="button" className="icon-button" aria-label={`Delete ${sceneName}`} title="Delete scene" disabled={busy || id === active}
+          onClick={() => setDeleting(id)}><Trash size={16} aria-hidden="true" /></button>
       </li>)}
     </ul>
     <form className="scene-create" onSubmit={(event) => {
