@@ -49,6 +49,7 @@ import {
 } from "./effects";
 import { playNuke, playStrike, type FxHost, type RunningFx } from "./fx";
 import { loadFxTextures } from "./fxTextures";
+import { conditionIcon, loadConditionIcons } from "./conditionIcons";
 import { armSound, withSound } from "./fxSound";
 import { getClientSettings, graphicsBudget, subscribeGraphicsSettings } from "../ui/clientSettings";
 import { averageColor, fogDistanceField, fogPalette, makeFogDensityCanvas, makeFogDistanceCanvas, type Rgb } from "./fogTexture";
@@ -470,6 +471,13 @@ export class BoardView {
   async init() {
     // Fetched in the background: until they arrive, attacks draw their vector look.
     void loadFxTextures();
+    // Until the condition icons arrive, markers draw their shape and abbreviation.
+    void loadConditionIcons().then(() => {
+      if (!this.initialized) return;
+      for (const view of this.tokens.values()) view.drawnKey = "";
+      if (this.state && this.you) this.syncTokens();
+      this.invalidate();
+    });
     // Until the painted fog arrives, the fog body reads procedural clouds and has no puffs.
     void loadFogArt().then((art) => {
       if (!art || !this.initialized) return;
@@ -2304,20 +2312,37 @@ export class BoardView {
     g.rect(-w / 2, y, w, h).stroke({ width: 1, color: 0x000000, alpha: 0.8 });
   }
 
-  /** One marker per condition: a distinct shape plus its abbreviation (FR-TAC-08). */
+  /**
+   * One marker per condition (FR-TAC-08): its painted icon, or, until the icon has loaded or if it
+   * failed, a distinct shape plus its abbreviation.
+   */
   private drawConditions(view: TokenView, conditions: ConditionId[], r: number) {
     view.markers.removeChildren().forEach((c) => c.destroy({ children: true }));
     if (conditions.length === 0) return;
 
     const size = Math.max(11, r * 0.34);
+    // An icon is drawn a little larger than a shape: a painting needs the room to read.
+    const half = size * 1.15;
     // Below the name label, which scales with the token, so the name never covers the markers.
-    const y = conditionRowY(view.label.position.y, view.label.height, size);
-    const step = size * 2.1;
+    const y = conditionRowY(view.label.position.y, view.label.height, half);
+    const step = half * 2.1;
     const startX = -((conditions.length - 1) * step) / 2;
 
     conditions.forEach((id, i) => {
-      const spec = conditionSpec(id);
       const marker = new Container();
+      marker.position.set(startX + i * step, y);
+      view.markers.addChild(marker);
+      const icon = conditionIcon(id);
+      if (icon) {
+        // A dark disc under the painting keeps it readable over any map.
+        const disc = new Graphics().circle(0, 0, half).fill({ color: 0x000000, alpha: 0.45 });
+        const sprite = new Sprite(icon);
+        sprite.anchor.set(0.5);
+        sprite.setSize(half * 2);
+        marker.addChild(disc, sprite);
+        return;
+      }
+      const spec = conditionSpec(id);
       const shape = new Graphics();
       drawShape(shape, spec.shape, size);
       shape.fill({ color: Number(`0x${spec.color.slice(1)}`) });
@@ -2334,8 +2359,6 @@ export class BoardView {
       });
       text.anchor.set(0.5);
       marker.addChild(shape, text);
-      marker.position.set(startX + i * step, y);
-      view.markers.addChild(marker);
     });
   }
 
